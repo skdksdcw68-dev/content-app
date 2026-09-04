@@ -218,7 +218,7 @@ Sources/ContentApp/
     PostDetailView.swift        rationale card, script, caption, actions
     SettingsView.swift          autopilot rules, pillars, voice, quiet hours
   Resources/Assets.xcassets     app icon + accent colour
-Tests/ContentAppTests/          31 unit tests over ContentStore
+Tests/ContentAppTests/          29 unit tests over ContentStore
 ```
 
 ## Gotchas already handled

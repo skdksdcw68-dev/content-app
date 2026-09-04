@@ -1,0 +1,107 @@
+name: ContentApp
+options:
+  bundleIdPrefix: com.abelamare
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    # Warnings, not errors, in Swift 5 mode -- so this cannot break the build.
+    # An autopilot runs work off the main actor by definition (planning,
+    # rendering, uploading), so every one of these warnings is a place where
+    # shared state has not been thought about yet. On email-app an unchecked
+    # data race corrupted the heap and killed the app a minute after launch.
+    SWIFT_STRICT_CONCURRENCY: complete
+    VERSIONING_SYSTEM: apple-generic
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "1.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.0.0
+
+targets:
+  ContentApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources/ContentApp
+    dependencies:
+      - package: Supabase
+        product: Supabase
+    settings:
+      base:
+        # Must be registered on the Developer Portal under team TDMFXRJYN7,
+        # WITH Push Notifications enabled, BEFORE the provisioning profile is
+        # minted. A profile created before the capability cannot sign a build
+        # that declares it -- email-app had to regenerate its profile for
+        # exactly this reason.
+        # Must match BUNDLE_ID in fastlane/Fastfile and fastlane/Appfile.
+        PRODUCT_BUNDLE_IDENTIFIER: com.abelamare.contentapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_ENTITLEMENTS: Support/ContentApp.entitlements
+    info:
+      path: Support/Info.plist
+      properties:
+        # Checked for collisions before setting. App Store Connect rejects a
+        # binary whose bundle/display name matches an existing app with
+        # ITMS-90129 -- and the upload SUCCEEDS, then the build is silently
+        # discarded during processing, so the only symptom is that nothing
+        # ever appears in TestFlight. email-app hit this with "Mail".
+        CFBundleDisplayName: Autocast
+        CFBundleName: Autocast
+        # Xcode injects these automatically ONLY when it generates the
+        # Info.plist. GENERATE_INFOPLIST_FILE is NO here, so they must be
+        # declared by hand -- and without CFBundleIconName App Store Connect
+        # accepts the upload and then silently discards the build during
+        # processing (ITMS-90713), which looks exactly like "nothing happened".
+        CFBundleIconName: AppIcon
+        LSRequiresIPhoneOS: true
+        UIRequiredDeviceCapabilities:
+          - arm64
+        # The whole point of an autopilot is that it acts while the app is
+        # closed. Without this iOS does not deliver the silent push that tells
+        # the app a post went out, so the queue is stale until next launch.
+        UIBackgroundModes:
+          - remote-notification
+          - fetch
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        # Shown verbatim in the system prompt. An app that reaches the photo
+        # library without declaring this is rejected at review.
+        NSPhotoLibraryAddUsageDescription: Autocast saves the videos it makes to your photo library so you can post or repurpose them yourself.
+        # Declares no non-exempt encryption. Without this TestFlight blocks
+        # every build behind a manual export-compliance question.
+        ITSAppUsesNonExemptEncryption: false
+
+  ContentAppTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/ContentAppTests
+    dependencies:
+      - target: ContentApp
+
+schemes:
+  ContentApp:
+    build:
+      targets:
+        ContentApp: all
+        ContentAppTests: [test]
+    test:
+      targets:
+        - ContentAppTests
+    archive:
+      config: Release

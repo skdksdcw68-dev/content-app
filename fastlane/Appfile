@@ -1,0 +1,8 @@
+app_identifier("com.abelamare.contentapp")
+team_id(ENV["APPLE_TEAM_ID"])
+itc_team_id(ENV["APPLE_TEAM_ID"])
+
+# No apple_id/password here on purpose -- every lane authenticates via the
+# App Store Connect API key (APP_STORE_CONNECT_API_KEY_ID/ISSUER_ID/CONTENT),
+# which is the only auth path that works non-interactively in CI (no 2FA
+# prompt possible on a GitHub Actions runner).

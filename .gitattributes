@@ -1,0 +1,10 @@
+# This repo is edited on Windows and built on macOS. Force LF in the repository
+# for everything text, so a CRLF never reaches a shell script on the runner.
+* text=auto eol=lf
+
+# Binary -- never touch these
+*.png binary
+*.jpg binary
+*.pdf binary
+*.p12 binary
+*.mobileprovision binary

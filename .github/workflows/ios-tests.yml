@@ -1,0 +1,80 @@
+name: iOS Tests
+
+# Every push and PR. No signing, no secrets, no Apple credentials -- this is
+# purely "does it compile and do the tests pass", which is the fast feedback
+# loop when there is no Mac to build on locally.
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Dependencies dominate the build -- Supabase alone is compiled from
+      # source. macOS runners bill at ten times the Linux rate, so caching them
+      # is the single biggest saving available.
+      #
+      # Keyed on project.yml, which is where the package list lives -- change a
+      # dependency and the cache correctly misses. restore-keys still gives a
+      # partial hit so a miss is never worse than no cache at all.
+      - name: Cache derived data
+        uses: actions/cache@v4
+        with:
+          path: |
+            DerivedData
+            SourcePackages
+          key: ${{ runner.os }}-deriveddata-${{ hashFiles('project.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-deriveddata-
+
+      # No .xcodeproj is committed -- it is generated from project.yml so the
+      # project file never has to be edited by hand on Windows.
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # Simulator names change with every Xcode release, so pick the newest
+      # available iPhone at runtime instead of pinning a name that will rot.
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          runtimes = json.load(sys.stdin)['devices']
+          best = None
+          for runtime, devices in sorted(runtimes.items()):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device['name'].startswith('iPhone'):
+                      best = device['name']
+          print(best)
+          ")
+          echo "Testing on: $DEVICE"
+          # Per-test timeouts. Without them a test that blocks -- one that
+          # reaches a real network call with no UI to present from, say --
+          # hangs the whole job until the 30 minute cap, instead of failing in
+          # a minute with the offending test named.
+          xcodebuild test \
+            -project ContentApp.xcodeproj \
+            -scheme ContentApp \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -derivedDataPath DerivedData \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 180 \
+            CODE_SIGNING_ALLOWED=NO

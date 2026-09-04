@@ -1,0 +1,166 @@
+# Codemagic pipeline -- the fallback for when GitHub Actions is unavailable.
+#
+# The README says "No Codemagic". That was true when GitHub Actions was free
+# for this account; it is not any more, and a pipeline you cannot run is worth
+# less than a stylistic preference. The GitHub workflows are kept in place and
+# unchanged, so switching back is nothing more than choosing which one to
+# trigger.
+#
+# Free tier: 500 macOS M2 build minutes a month on a PERSONAL account (team
+# accounts get none). At the 4-8 minutes these builds take, that is roughly
+# 60-100 builds. Minutes reset monthly and do not roll over.
+#
+# One-time setup, all in a browser, no Mac:
+#   1. codemagic.io -> sign in with GitHub -> add skdksdcw68-dev/content-app
+#   2. Teams/Integrations -> App Store Connect -> add the API key. Needs the
+#      key id, the ISSUER ID, and the .p8. Name it exactly "Autocast ASC Key"
+#      so the `integrations:` block below resolves.
+#   3. Start a build. Nothing else is configured in the UI -- this file is the
+#      configuration.
+
+definitions:
+  # xcodegen is not preinstalled on the Codemagic image, and the .xcodeproj is
+  # deliberately not committed, so every workflow regenerates it first.
+  generate_project: &generate_project
+    name: Generate the Xcode project
+    script: |
+      set -euo pipefail
+      which xcodegen >/dev/null 2>&1 || brew install xcodegen
+      xcodegen generate
+
+workflows:
+
+  # ---------------------------------------------------------------- tests
+  # Mirrors .github/workflows/ios-tests.yml. No Apple credentials of any kind,
+  # so it runs before signing exists -- which makes it the fast loop for "does
+  # this compile", the thing that cannot be checked on Windows.
+  ios-tests:
+    name: iOS Tests
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+    cache:
+      # Supabase is compiled from source otherwise, which dominates the build.
+      cache_paths:
+        - $CM_BUILD_DIR/SourcePackages
+        - $HOME/Library/Caches/Homebrew
+    scripts:
+      - *generate_project
+      - name: Run unit tests
+        script: |
+          set -euo pipefail
+          # Simulator names change with every Xcode release, so pick the newest
+          # available iPhone at runtime rather than pinning a name that rots.
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          runtimes = json.load(sys.stdin)['devices']
+          best = None
+          for runtime, devices in sorted(runtimes.items()):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device['name'].startswith('iPhone'):
+                      best = device['name']
+          print(best)
+          ")
+          echo "Testing on: $DEVICE"
+          # Per-test timeouts, so one blocking test fails in a minute with its
+          # name attached instead of hanging the job to the 30 minute cap.
+          xcodebuild test \
+            -project ContentApp.xcodeproj \
+            -scheme ContentApp \
+            -destination "platform=iOS Simulator,name=$DEVICE" \
+            -clonedSourcePackagesDirPath SourcePackages \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 60 \
+            -maximum-test-execution-time-allowance 180 \
+            CODE_SIGNING_ALLOWED=NO
+    artifacts:
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+
+  # ----------------------------------------------------------- testflight
+  # Mirrors .github/workflows/ios-testflight.yml. Manual only, on purpose -- a
+  # TestFlight upload should not fire on every push.
+  #
+  # Signing differs from the GitHub version by design. There, the certificate
+  # and profile are minted by scripts/bootstrap-signing.mjs and handed over as
+  # 7 secrets. Here, `ios_signing` has Codemagic fetch them through the App
+  # Store Connect integration, so there is nothing to base64 and nothing to
+  # rotate by hand.
+  #
+  # CAUTION: if no usable certificate exists, this CREATES one, and this
+  # account has exactly one IOS_DISTRIBUTION slot left. Run
+  # `node scripts/bootstrap-signing.mjs` first to see the quota before letting
+  # this spend it.
+  ios-testflight:
+    name: iOS TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    integrations:
+      app_store_connect: Autocast ASC Key
+    environment:
+      xcode: latest
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: Autocast
+      vars:
+        BUNDLE_ID: Autocast
+        XCODE_SCHEME: ContentApp
+        XCODE_PROJECT: ContentApp.xcodeproj
+    scripts:
+      - *generate_project
+      - name: Apply the fetched provisioning profiles
+        script: keychain initialize && xcode-project use-profiles
+      - name: Set the build number
+        script: |
+          set -euo pipefail
+          # App Store Connect rejects duplicate build numbers. Codemagic's
+          # BUILD_NUMBER increases per build, which is all it requires.
+          agvtool new-version -all "$BUILD_NUMBER"
+      - name: Build the archive
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+      - name: Guard the Info.plist before uploading
+        script: |
+          set -euo pipefail
+          IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
+          PLIST=$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -convert xml1 -o - -)
+          # A build missing these is ACCEPTED by the upload and then silently
+          # discarded during processing. Nothing appears in TestFlight and the
+          # only clue is an email. Fail here instead.
+          for KEY in CFBundleIconName LSRequiresIPhoneOS CFBundleIdentifier CFBundleVersion; do
+            echo "$PLIST" | grep -q "$KEY" || {
+              echo "Info.plist is missing $KEY -- App Store Connect would discard this build"
+              exit 1
+            }
+          done
+          echo "Info.plist carries every key App Store processing requires"
+          # ITMS-90129: a display name colliding with an existing app is
+          # rejected. Apple's own first-party names are the easiest to hit.
+          NAME=$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -extract CFBundleDisplayName raw -o - -)
+          case "$NAME" in
+            Mail|Messages|Photos|Notes|Music|Files|Maps|Calendar|Weather|Clips|Shortcuts)
+              echo "CFBundleDisplayName \"$NAME\" is an Apple first-party name -- ITMS-90129"
+              exit 1 ;;
+          esac
+          echo "Display name \"$NAME\" is not a reserved Apple name"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Uploads to TestFlight without waiting for processing, matching the
+        # GitHub lane. Nothing is submitted for review.
+        submit_to_testflight: true

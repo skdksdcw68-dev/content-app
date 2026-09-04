@@ -64,7 +64,11 @@ private struct AutopilotBanner: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: store.settings.isOn ? "bolt.fill" : "pause.circle")
-                .foregroundStyle(store.settings.isOn ? .green : .secondary)
+                // Explicit Color on both branches. This one happens to compile
+                // with leading dots only because `.green` comes first and
+                // forces Color; swapping the branches would break it. See the
+                // same fix in PostDetailView.
+                .foregroundStyle(store.settings.isOn ? Color.green : Color.secondary)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {

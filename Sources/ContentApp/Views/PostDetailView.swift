@@ -114,7 +114,11 @@ struct PostDetailView: View {
             Text("About \(seconds)s spoken \u{2014} \(current.platform.displayName) allows \(Int(current.platform.maxDuration))s")
         }
         .font(.caption)
-        .foregroundStyle(current.fitsPlatform ? .secondary : .red)
+        // Color. on both branches, not leading dots. A ternary of leading-dot
+        // members infers its type from the FIRST branch: `.secondary` resolves
+        // to HierarchicalShapeStyle, which has no `.red`, and the build fails.
+        // Reversing the order would "fix" it by accident, which is worse.
+        .foregroundStyle(current.fitsPlatform ? Color.secondary : Color.red)
     }
 
     @ViewBuilder

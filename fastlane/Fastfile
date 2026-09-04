@@ -1,6 +1,6 @@
 default_platform(:ios)
 
-BUNDLE_ID   = "com.abelamare.contentapp"
+BUNDLE_ID   = "Autocast"
 XCODEPROJ   = "ContentApp.xcodeproj"
 SCHEME      = "ContentApp"
 PROFILE     = "content-app AppStore"

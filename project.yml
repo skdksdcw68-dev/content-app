@@ -36,13 +36,19 @@ targets:
         product: Supabase
     settings:
       base:
-        # Must be registered on the Developer Portal under team TDMFXRJYN7,
-        # WITH Push Notifications enabled, BEFORE the provisioning profile is
-        # minted. A profile created before the capability cannot sign a build
-        # that declares it -- email-app had to regenerate its profile for
-        # exactly this reason.
+        # Registered on the Developer Portal under team TDMFXRJYN7 as an
+        # explicit App ID (described there as "Ai post manager"). A bare
+        # identifier rather than reverse-DNS, matching email-app's
+        # "emailapptest" -- unconventional, but it is what is registered.
+        #
+        # Push Notifications must be enabled ON THAT App ID before the
+        # provisioning profile is minted, because CODE_SIGN_ENTITLEMENTS below
+        # declares aps-environment. A profile minted before the capability
+        # cannot sign a build that declares it -- email-app had to regenerate
+        # its profile for exactly this reason.
+        #
         # Must match BUNDLE_ID in fastlane/Fastfile and fastlane/Appfile.
-        PRODUCT_BUNDLE_IDENTIFIER: com.abelamare.contentapp
+        PRODUCT_BUNDLE_IDENTIFIER: Autocast
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: NO

@@ -1,4 +1,4 @@
-app_identifier("com.abelamare.contentapp")
+app_identifier("Autocast")
 team_id(ENV["APPLE_TEAM_ID"])
 itc_team_id(ENV["APPLE_TEAM_ID"])
 

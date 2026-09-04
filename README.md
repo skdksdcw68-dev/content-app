@@ -131,15 +131,25 @@ and not `"Apple Distribution"`.
 
 ### What has to happen, in order
 
-1. Register App ID `com.abelamare.contentapp` on the Developer Portal, **with
-   Push Notifications enabled**. The app declares `aps-environment`, and a
-   profile minted before the capability cannot sign a build that declares it --
-   email-app had to regenerate its profile for exactly this reason.
-2. Create the iOS Distribution certificate and a `content-app AppStore` profile
-   against the App Store Connect API.
-3. Create the app record in App Store Connect. **Check the name first** --
-   "Autocast" is a placeholder and has not been verified against the store.
-   See the ITMS-90129 note below.
+1. ~~Register the App ID.~~ **Done** -- `Autocast`, explicit, under team
+   TDMFXRJYN7, described on the portal as "Ai post manager". It is a bare
+   identifier rather than reverse-DNS, matching email-app's `emailapptest`.
+
+   Still outstanding on it: **tick Push Notifications** in the App ID's
+   Capabilities tab. The app declares `aps-environment`, and a profile minted
+   before the capability cannot sign a build that declares it -- email-app had
+   to regenerate its profile for exactly this reason. If push is not wanted
+   yet, delete `Support/ContentApp.entitlements`, drop `CODE_SIGN_ENTITLEMENTS`
+   from `project.yml`, and remove `remote-notification` from `UIBackgroundModes`.
+2. Create the iOS Distribution certificate and a profile named
+   `content-app AppStore` against the App Store Connect API. The profile name
+   must match `PROFILE` in `fastlane/Fastfile`.
+3. Create the app record in App Store Connect. The **bundle ID** is settled
+   (`Autocast`), but `CFBundleDisplayName` is a separate string and is what
+   ITMS-90129 checks -- a display name colliding with an existing App Store app
+   gets the build silently discarded after a successful upload. Search the
+   store for "Autocast" before creating the record. The Fastfile guards only
+   against Apple's own first-party names, which is the common case, not this one.
 4. Set the 7 repository secrets.
 
 ```bash

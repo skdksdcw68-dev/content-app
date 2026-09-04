@@ -257,14 +257,35 @@ repo deliberately does not have. Worth revisiting only if a Mac is ever at hand.
 
 Nothing here is done, and there is a real constraint in the way.
 
-Apple caps **Apple Distribution** certificates at **2 per account**, and both
-slots are held by `drobe` and `remi`. The legacy **iOS Distribution** type has
-a separate quota, also 2 -- `email-app` took one. **Autocast takes the last
-one.** After this, a new app on this account needs an existing certificate
-revoked first.
+**Every certificate slot on this account is already full.** Apple caps each
+distribution type at 2, and all four are taken. Audited against the API on
+2026-09-04 -- an earlier version of this file claimed one legacy slot was free,
+inherited from email-app's README, and that was wrong.
 
-This is why `code_sign_identity` in `fastlane/Fastfile` is `"iPhone Distribution"`
-and not `"Apple Distribution"`.
+| Type | Expires | Backs | Live? |
+|---|---|---|---|
+| `IOS_DISTRIBUTION` | 2027-08-29 | `emailapptest` -- email-app AppStore | **yes** |
+| `IOS_DISTRIBUTION` | 2027-08-30 | `com.drobe-ai.app` -- Drobe AppStore Manual | **yes** |
+| `DISTRIBUTION` | 2027-08-29 | `com.remiapp.ios` -- match profile | **yes**, remi still uses match |
+| `DISTRIBUTION` | 2027-08-14 | `com.drobe-ai.app` -- match profile | **orphaned** |
+
+The last row is the opening. Drobe migrated off `fastlane match` to a manual
+profile -- its Fastfile now uses `update_code_signing_settings` with
+`BUILD_CERTIFICATE_BASE64`, the same approach as email-app -- so the
+certificate behind its old `match` profile signs nothing. remi, by contrast,
+still has `MATCH_PASSWORD` and `MATCH_GIT_PRIVATE_KEY` in its workflow, so the
+row above it must not be touched.
+
+Revoking that orphan frees an **Apple Distribution** slot, so Autocast would
+use the modern type. `code_sign_identity` in `fastlane/Fastfile` is currently
+`"iPhone Distribution"` (the legacy type, copied from email-app) and would
+change to `"Apple Distribution"`.
+
+Note also that reusing an existing certificate is **not** an option here, even
+though a profile can reference one. Signing needs the certificate's private
+key, which only ever existed on the machine that generated the CSR; there is no
+`.p12` anywhere on this machine, and the copies in other repos' GitHub secrets
+are write-only.
 
 ### What has to happen, in order
 

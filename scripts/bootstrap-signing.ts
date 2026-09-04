@@ -294,6 +294,28 @@ async function audit(token: string): Promise<AuditResult> {
       `no ${CERT_TYPE} slots left. A new certificate needs one revoked first -- ` +
         "and revoking one breaks whichever app is signing with it."
     );
+    // A new certificate is not actually required. Distribution certificates
+    // are per-TEAM; provisioning profiles are per-app. An existing certificate
+    // can back a new profile, provided its private key is still to hand --
+    // which is the part that is usually lost, since it only ever existed on
+    // the machine that generated the CSR.
+    info("");
+    info("A new certificate may not be needed: a profile can reference an existing one.");
+    info("Every distribution certificate on the team, for choosing which:");
+    const all = await api<ListResponse<CertificateAttributes>>(
+      token,
+      "GET",
+      "/v1/certificates?limit=200"
+    );
+    for (const { id, attributes } of all.data) {
+      const expires = attributes.expirationDate;
+      const dead = expires !== undefined && new Date(expires) <= new Date();
+      info(
+        `    ${(attributes.certificateType ?? "?").padEnd(20)} ${attributes.name ?? id}` +
+          ` ${c.dim(`(expires ${expires?.slice(0, 10) ?? "?"}${dead ? ", EXPIRED" : ""})`)}`
+      );
+    }
+    info("");
   } else {
     ok(
       `${slots} slot${slots === 1 ? "" : "s"} free` +
@@ -319,10 +341,13 @@ async function audit(token: string): Promise<AuditResult> {
   // 3. Push. project.yml declares aps-environment, and a profile minted before
   //    the capability is enabled cannot sign a build that declares it --
   //    email-app lost a build to exactly this.
+  // No `limit` here. Apple rejects it on this relationship specifically --
+  // "The parameter 'limit' can not be used with this request" -- even though
+  // it is accepted on every other list endpoint this script touches.
   const capabilities = await api<ListResponse<CapabilityAttributes>>(
     token,
     "GET",
-    `/v1/bundleIds/${bundle.id}/bundleIdCapabilities?limit=200`
+    `/v1/bundleIds/${bundle.id}/bundleIdCapabilities`
   );
   const enabled = capabilities.data
     .map((capability) => capability.attributes.capabilityType)

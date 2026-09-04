@@ -148,13 +148,14 @@ It fills to `posts_per_day x 3` days and no further. The queue is a buffer, not
 a backlog: planning a month ahead means writing about a month it knows nothing
 about.
 
-> **Needs `OPENAI_API_KEY` set on this project.** It is set on Maily but the
-> value is hashed in `supabase secrets list`, so it cannot be copied across:
-> ```bash
-> npx supabase secrets set OPENAI_API_KEY=sk-... --project-ref dosszkllkassvyprkhrg
-> ```
-> Until then the function deploys, boots and answers -- with exactly that
-> complaint, which is how its liveness was verified.
+`OPENAI_API_KEY` is set on this project. To rotate it:
+
+```bash
+npx supabase secrets set OPENAI_API_KEY=sk-... --project-ref dosszkllkassvyprkhrg
+```
+
+Note that `supabase secrets list` returns hashes, not values, so a key cannot
+be copied from one project to another -- it has to come from the provider.
 
 ## CI
 
@@ -253,9 +254,35 @@ It is not usable here: connecting a project to Xcode Cloud the first time
 requires Xcode on a Mac, and it expects a committed `.xcodeproj`, which this
 repo deliberately does not have. Worth revisiting only if a Mac is ever at hand.
 
-## Signing -- not set up yet
+## Signing -- done
 
-Nothing here is done, and there is a real constraint in the way.
+**Build 1.0 (1) is on TestFlight, state `VALID`, uploaded 2026-09-04 from
+Windows.** Expires 2026-12-03; TestFlight builds last 90 days.
+
+| | |
+|---|---|
+| Certificate | `Apple Distribution: Abel Amare`, expires 2027-09-04 |
+| Profile | `content-app AppStore` (IOS_APP_STORE, ACTIVE) |
+| App record | `Netro Autocast`, 6808718896 |
+| Testers | Internal group with both team accounts; build attached |
+
+`usesNonExemptEncryption: false` came through, so no export-compliance prompt.
+Both Fastfile guards ran and passed -- the Info.plist carried every key App
+Store processing requires, and the display name is not a reserved Apple name.
+Those are the two checks that exist because email-app lost builds to their
+absence.
+
+Note the store listing is "Netro Autocast" while `CFBundleDisplayName` is
+"Autocast". That split is normal and Apple accepted it.
+
+The account is now at **2 of 2** on both certificate types again. A further app
+needs one revoked, and the audit's survey of every certificate and what depends
+on it is there to make that choice with evidence rather than a guess.
+
+<details>
+<summary>How the slot was found</summary>
+
+Nothing here was done at first, and there was a real constraint in the way.
 
 **Every certificate slot on this account is already full.** Apple caps each
 distribution type at 2, and all four are taken. Audited against the API on
@@ -309,6 +336,8 @@ are write-only.
    store for "Autocast" before creating the record. The Fastfile guards only
    against Apple's own first-party names, which is the common case, not this one.
 4. Set the 7 repository secrets.
+
+</details>
 
 Steps 2 and 4 are automated. `scripts/bootstrap-signing.ts` talks to the App
 Store Connect API directly from Windows -- it mints the CSR and certificate,

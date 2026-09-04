@@ -124,6 +124,28 @@ The test pipeline generates the project, compiles, and runs the unit tests with
 before any signing exists -- which makes it the fast loop for "does this
 compile", the thing that cannot be checked on Windows.
 
+**Verified green on Codemagic**, 2026-09-04, from Windows with no Mac involved:
+
+```
+23s   Preparing build machine
+ 3s   Fetching app sources
+ 0s   Restoring cache          (empty on a first run; later runs restore it)
+27s   Generate the Xcode project
+302s  Run unit tests           ** TEST SUCCEEDED **
+                               Executed 29 tests, 0 failures, in 14.8s
+```
+
+Six and a half minutes, most of it compiling Supabase from source once. Zero
+warnings from this repo's own sources -- including zero from
+`SWIFT_STRICT_CONCURRENCY: complete`, so the `@MainActor @Observable` store and
+the `Sendable` models are correctly isolated rather than merely untested. The
+only two warnings in the log are Apple's own `appintentsmetadataprocessor`
+noting there is no AppIntents dependency, which there is not.
+
+The runtime simulator pick resolved to `iPhone 16e` on Xcode 26.4 -- a name
+that did not exist when this was written, which is the rot a pinned name would
+already have hit.
+
 ### Why there are two
 
 > **GitHub Actions is currently blocked on this account.** Runs fail in under

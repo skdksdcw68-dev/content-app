@@ -10,9 +10,12 @@ Built entirely from Windows. No Mac, no simulator.
 Windows (edit)  ->  GitHub (source + CI)  ->  macos-15 runner  ->  TestFlight  ->  iPhone
 ```
 
-Same pipeline as the `email-app` (Maily) repo: GitHub Actions on a `macos-15`
-runner, fastlane for signing and upload, App Store Connect API key for auth.
-No Codemagic, no third-party CI, no Mac.
+Same pipeline as the `email-app` (Maily) repo: a hosted macOS runner, fastlane
+for signing and upload, App Store Connect API key for auth. Renting a Mac for
+the eleven minutes a build takes, rather than owning one.
+
+GitHub Actions is the primary pipeline and Codemagic is committed alongside it,
+because Actions is currently blocked on this account -- see **CI** below.
 
 The `.xcodeproj` is **not** committed. [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 generates it on the runner from `project.yml`, so the project file never has to

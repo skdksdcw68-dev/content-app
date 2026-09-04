@@ -1,0 +1,16 @@
+name: Probe
+
+# Temporary. Answers one question: can this account get a runner at all, or is
+# it specifically macos-15 that cannot be allocated? Delete once answered.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "ubuntu runner allocated"
+  macos:
+    runs-on: macos-15
+    steps:
+      - run: echo "macos-15 runner allocated"

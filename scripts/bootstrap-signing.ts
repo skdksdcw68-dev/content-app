@@ -40,11 +40,12 @@ const PROFILE_NAME = "content-app AppStore";
 const REPO_SLUG = "skdksdcw68-dev/content-app";
 const TEAM_ID = "TDMFXRJYN7";
 
-// The legacy type, deliberately. Apple caps Apple Distribution (DISTRIBUTION)
-// at 2 per account and both slots are held by drobe and remi; IOS_DISTRIBUTION
-// has a separate quota. This is also why fastlane/Fastfile signs with
-// "iPhone Distribution" rather than "Apple Distribution".
-const CERT_TYPE = "IOS_DISTRIBUTION";
+// The modern type. email-app had to use the legacy IOS_DISTRIBUTION because
+// both DISTRIBUTION slots were taken at the time; one was freed on 2026-09-04
+// by revoking the certificate behind Drobe's abandoned fastlane-match profile,
+// so this app gets the current type. Both IOS_DISTRIBUTION slots remain full.
+// Keep in step with `code_sign_identity` in fastlane/Fastfile.
+const CERT_TYPE = "DISTRIBUTION";
 const CERT_QUOTA = 2;
 
 // Key material lands outside the repo entirely, next to the other apps'
@@ -369,7 +370,29 @@ async function audit(token: string): Promise<AuditResult> {
   }
   if (enabled.length > 0) info(`capabilities: ${enabled.join(", ")}`);
 
-  // 4. An existing profile of the right name is reused rather than duplicated.
+  // 4. The App Store Connect app record. Distinct from the App ID above: the
+  //    App ID is a Developer Portal identifier that signing needs, the app
+  //    record is what TestFlight uploads into. Without it the whole build runs
+  //    and only the final upload fails, which is the most expensive place to
+  //    discover it.
+  const apps = await api<ListResponse<{ name?: string; bundleId?: string; sku?: string }>>(
+    token,
+    "GET",
+    `/v1/apps?filter[bundleId]=${encodeURIComponent(BUNDLE_ID)}&limit=10`
+  );
+  const record = apps.data.find((a) => a.attributes.bundleId === BUNDLE_ID);
+  if (record) {
+    ok(`App Store Connect record exists ${c.dim(`(${record.attributes.name ?? "unnamed"}, ${record.id})`)}`);
+  } else {
+    warn(
+      `no App Store Connect app record for "${BUNDLE_ID}".\n` +
+        "     Signing will succeed and the upload will fail. Create the app at\n" +
+        "     https://appstoreconnect.apple.com/apps -- the name there is what\n" +
+        "     ITMS-90129 checks against the store, so pick it deliberately."
+    );
+  }
+
+  // 5. An existing profile of the right name is reused rather than duplicated.
   const profiles = await api<ListResponse<ProfileAttributes>>(token, "GET", "/v1/profiles?limit=200");
   const profile = profiles.data.find((p) => p.attributes.name === PROFILE_NAME);
   if (profile) {

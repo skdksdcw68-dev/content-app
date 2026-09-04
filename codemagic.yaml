@@ -90,77 +90,60 @@ workflows:
   # Mirrors .github/workflows/ios-testflight.yml. Manual only, on purpose -- a
   # TestFlight upload should not fire on every push.
   #
-  # Signing differs from the GitHub version by design. There, the certificate
-  # and profile are minted by scripts/bootstrap-signing.ts and handed over as
-  # 7 secrets. Here, `ios_signing` has Codemagic fetch them through the App
-  # Store Connect integration, so there is nothing to base64 and nothing to
-  # rotate by hand.
+  # Signing is the SAME material as the GitHub lane, delivered the same way:
+  # the certificate and profile minted by scripts/bootstrap-signing.ts, held
+  # here as secure variables in the `autocast_signing` group.
   #
-  # CAUTION: if no usable certificate exists, this CREATES one, and this
-  # account has exactly one IOS_DISTRIBUTION slot left. Run
-  # `npm run signing:audit` first to see the quota before letting
-  # this spend it.
+  # An earlier version used Codemagic's `ios_signing` integration, which fetches
+  # or CREATES signing files itself. That is neater right up until it decides it
+  # needs a new certificate -- and every distribution slot on this account is
+  # full, so it would have failed, or worse, revoked something to make room.
+  #
+  # This lane also calls `fastlane beta`, the identical lane GitHub Actions
+  # runs, rather than reimplementing the build in YAML. The Info.plist guards
+  # and the ITMS-90129 name check live in the Fastfile and are shared, so the
+  # two pipelines cannot drift apart.
   ios-testflight:
     name: iOS TestFlight
     instance_type: mac_mini_m2
     max_build_duration: 45
-    integrations:
-      app_store_connect: Autocast ASC Key
     environment:
       xcode: latest
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: Autocast
-      vars:
-        BUNDLE_ID: Autocast
-        XCODE_SCHEME: ContentApp
-        XCODE_PROJECT: ContentApp.xcodeproj
+      groups:
+        - autocast_signing
     scripts:
       - *generate_project
-      - name: Apply the fetched provisioning profiles
-        script: keychain initialize && xcode-project use-profiles
-      - name: Set the build number
+      - name: Install the signing certificate and profile
         script: |
           set -euo pipefail
-          # App Store Connect rejects duplicate build numbers. Codemagic's
-          # BUILD_NUMBER increases per build, which is all it requires.
-          agvtool new-version -all "$BUILD_NUMBER"
-      - name: Build the archive
+          CERT="$CM_BUILD_DIR/identity.p12"
+          PROFILE="$CM_BUILD_DIR/profile.mobileprovision"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64"    | base64 --decode > "$CERT"
+          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+
+          # Codemagic's own keychain tooling rather than raw `security`. The
+          # runner's default login keychain has no password we know, so
+          # codesign would raise a dialog and hang forever on a headless
+          # machine -- the failure that cost email-app a debugging session.
+          keychain initialize
+          keychain add-certificates --certificate "$CERT" --certificate-password "$P12_PASSWORD"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/"
+
+          echo "Signing identities available:"
+          security find-identity -v -p codesigning
+      - name: Set up Ruby and fastlane
         script: |
           set -euo pipefail
-          xcode-project build-ipa \
-            --project "$XCODE_PROJECT" \
-            --scheme "$XCODE_SCHEME"
-      - name: Guard the Info.plist before uploading
-        script: |
-          set -euo pipefail
-          IPA=$(find build/ios/ipa -name "*.ipa" | head -1)
-          PLIST=$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -convert xml1 -o - -)
-          # A build missing these is ACCEPTED by the upload and then silently
-          # discarded during processing. Nothing appears in TestFlight and the
-          # only clue is an email. Fail here instead.
-          for KEY in CFBundleIconName LSRequiresIPhoneOS CFBundleIdentifier CFBundleVersion; do
-            echo "$PLIST" | grep -q "$KEY" || {
-              echo "Info.plist is missing $KEY -- App Store Connect would discard this build"
-              exit 1
-            }
-          done
-          echo "Info.plist carries every key App Store processing requires"
-          # ITMS-90129: a display name colliding with an existing app is
-          # rejected. Apple's own first-party names are the easiest to hit.
-          NAME=$(unzip -p "$IPA" 'Payload/*.app/Info.plist' | plutil -extract CFBundleDisplayName raw -o - -)
-          case "$NAME" in
-            Mail|Messages|Photos|Notes|Music|Files|Maps|Calendar|Weather|Clips|Shortcuts)
-              echo "CFBundleDisplayName \"$NAME\" is an Apple first-party name -- ITMS-90129"
-              exit 1 ;;
-          esac
-          echo "Display name \"$NAME\" is not a reserved Apple name"
+          # Pinned in the Gemfile, so a run cannot pick up whatever fastlane
+          # shipped that day and break signing on a commit that touched nothing.
+          bundle install
+      - name: Build and upload to TestFlight
+        script: bundle exec fastlane beta
     artifacts:
       - build/ios/ipa/*.ipa
+      - "*.ipa"
       - /tmp/xcodebuild_logs/*.log
-    publishing:
-      app_store_connect:
-        auth: integration
-        # Uploads to TestFlight without waiting for processing, matching the
-        # GitHub lane. Nothing is submitted for review.
-        submit_to_testflight: true
+      - ~/Library/Logs/gym/*.log

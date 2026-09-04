@@ -23,25 +23,36 @@ platform :ios do
     # of the other apps on this team -- nothing shared, nothing to re-encrypt,
     # no certificates repo.
     #
-    # code_sign_identity is the LEGACY "iPhone Distribution" type, not
-    # "Apple Distribution". Apple caps Apple Distribution certificates at 2 per
-    # account and both slots are held by drobe and remi. The legacy iOS
-    # Distribution type has a separate quota; email-app took one of those, so
-    # this app takes the other. That quota is now FULL -- see README.
+    # "Apple Distribution", the modern type -- NOT the legacy
+    # "iPhone Distribution" that email-app and drobe use.
+    #
+    # Both quotas were full when this app was set up. The slot used here was
+    # freed on 2026-09-04 by revoking the certificate behind Drobe's abandoned
+    # fastlane-match profile, which signed nothing after Drobe moved to a
+    # manual profile. Both legacy IOS_DISTRIBUTION slots are still full, which
+    # is why this app does not simply copy email-app.
+    #
+    # Must stay in step with CERT_TYPE in scripts/bootstrap-signing.ts.
     update_code_signing_settings(
       use_automatic_signing: false,
       path: XCODEPROJ,
       team_id: ENV["APPLE_TEAM_ID"],
-      code_sign_identity: "iPhone Distribution",
+      code_sign_identity: "Apple Distribution",
       profile_name: PROFILE,
       bundle_identifier: BUNDLE_ID
     )
 
-    # GITHUB_RUN_NUMBER strictly increases per run, which is all App Store
-    # Connect requires. Re-running the SAME failed run reuses the number -- if
-    # that build already reached ASC, bump MARKETING_VERSION in project.yml.
+    # Whichever CI is running. Both counters strictly increase per build, which
+    # is all App Store Connect requires; the timestamp is a last resort for a
+    # local run. Re-running the SAME failed build reuses its number -- if that
+    # build already reached ASC, bump MARKETING_VERSION in project.yml.
+    build_number =
+      ENV["BUILD_NUMBER"] ||          # Codemagic
+      ENV["GITHUB_RUN_NUMBER"] ||     # GitHub Actions
+      Time.now.strftime("%Y%m%d%H%M")
+
     increment_build_number(
-      build_number: ENV["GITHUB_RUN_NUMBER"] || Time.now.strftime("%Y%m%d%H%M"),
+      build_number: build_number,
       xcodeproj: XCODEPROJ
     )
 

@@ -1,0 +1,17 @@
+{
+  "name": "autocast-tooling",
+  "private": true,
+  "type": "module",
+  "description": "Build-side tooling for Autocast. The app itself is Swift; this is only what runs on Windows.",
+  "scripts": {
+    "signing:audit": "tsx scripts/bootstrap-signing.ts",
+    "signing:create": "tsx scripts/bootstrap-signing.ts --create",
+    "signing:all": "tsx scripts/bootstrap-signing.ts --create --secrets",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

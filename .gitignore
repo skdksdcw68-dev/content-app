@@ -34,3 +34,6 @@ supabase/.temp/
 # Local secrets
 .env
 .env.local
+
+# Node tooling
+node_modules/

@@ -134,10 +134,30 @@ compile", the thing that cannot be checked on Windows.
 > affected, which points at billing on the account rather than anything in
 > this repo. Fix it at <https://github.com/settings/billing>.
 
-Codemagic exists as the way to keep building meanwhile. Its free tier is 500
-macOS M2 build minutes a month on a **personal** account -- team accounts get
-none -- which at 4-8 minutes a build is roughly 60-100 builds. Minutes reset
-monthly and do not roll over.
+Codemagic exists as the way to keep building meanwhile.
+
+**On whether 500 minutes is actually generous.** The 10x multiplier is a GitHub
+concept, not a universal one: GitHub sells a single pool of minutes and charges
+macOS at ten times the Linux rate out of it. Codemagic only sells macOS, so
+there is nothing to multiply against -- its 500 are counted 1:1, real minutes on
+the machine.
+
+| Free tier | Real macOS minutes/month |
+|---|---|
+| GitHub Actions, private repo | 2,000 credits / 10x = **200** |
+| GitHub Actions, public repo | **unlimited** |
+| Codemagic, personal account | **500** |
+
+So against what this repo *had* -- a private repo on the free tier -- Codemagic
+is 2.5x more macOS capacity, on M2 hardware that is faster per minute than
+GitHub's runners. Against a working public repo it is strictly worse, which is
+why fixing the billing is still the goal and the GitHub workflows stay
+committed.
+
+Caveats worth knowing before signing up: free minutes need a **personal**
+account (teams get none), they reset monthly and do not roll over, and Linux
+and Windows builds get no free minutes at all -- so this is macOS-only, which
+happens to be exactly what an iOS build needs. Overage is $0.095/minute.
 
 Setup is entirely in a browser, no Mac:
 
@@ -148,7 +168,7 @@ Setup is entirely in a browser, no Mac:
 3. Start a build
 
 Signing works differently in the two pipelines, deliberately. GitHub gets the
-certificate and profile as 7 secrets, minted by `scripts/bootstrap-signing.mjs`.
+certificate and profile as 7 secrets, minted by `scripts/bootstrap-signing.ts`.
 Codemagic fetches them itself through the App Store Connect integration, so
 there is nothing to base64 by hand -- but it will **create** a certificate if
 none is usable, and this account has one `IOS_DISTRIBUTION` slot left. Run the
@@ -198,7 +218,7 @@ and not `"Apple Distribution"`.
    against Apple's own first-party names, which is the common case, not this one.
 4. Set the 7 repository secrets.
 
-Steps 2 and 4 are automated. `scripts/bootstrap-signing.mjs` talks to the App
+Steps 2 and 4 are automated. `scripts/bootstrap-signing.ts` talks to the App
 Store Connect API directly from Windows -- it mints the CSR and certificate,
 creates the profile, builds the `.p12`, and sets all 7 repository secrets.
 
@@ -209,10 +229,17 @@ creates the profile, builds the `.p12`, and sets all 7 repository secrets.
 #                  Users and Access -> Integrations -> App Store Connect API>
 #   ASC_KEY_PATH=C:/Users/hp/Downloads/content-app-secrets/AuthKey_XXXXXXXXXX.p8
 
-node scripts/bootstrap-signing.mjs                    # audit only, no writes
-node scripts/bootstrap-signing.mjs --create           # mint certificate + profile
-node scripts/bootstrap-signing.mjs --create --secrets # ... and push all 7 secrets
+npm install              # once -- tsx and typescript, nothing the app itself uses
+
+npm run signing:audit    # read-only. Reports the quota, App ID and capabilities
+npm run signing:create   # mint the certificate and profile
+npm run signing:all      # ... and push all 7 secrets to the repo
 ```
+
+It is TypeScript run through `tsx`, checked with `npm run typecheck` under
+`strict` plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes` --
+worth it for something that talks to a signing API where a silently undefined
+field means a build that fails an hour later.
 
 **Run the audit first.** It reports how many `IOS_DISTRIBUTION` slots are left
 before spending one, checks the App ID exists, and warns if
@@ -283,7 +310,8 @@ It appears in **three** places and all three must match:
 project.yml                     XcodeGen spec -- the "Xcode project"
 Gemfile                         fastlane, pinned to 2.237.0
 fastlane/                       Fastfile (beta lane), Appfile
-scripts/bootstrap-signing.mjs   certificate + profile + secrets, from Windows
+scripts/bootstrap-signing.ts    certificate + profile + secrets, from Windows
+package.json, tsconfig.json     tsx + strict TypeScript for the tooling above
 .github/workflows/              ios-tests.yml, ios-testflight.yml
 codemagic.yaml                  the same two pipelines, for when Actions is blocked
 Support/ContentApp.entitlements aps-environment

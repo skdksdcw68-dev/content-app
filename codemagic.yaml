@@ -91,14 +91,14 @@ workflows:
   # TestFlight upload should not fire on every push.
   #
   # Signing differs from the GitHub version by design. There, the certificate
-  # and profile are minted by scripts/bootstrap-signing.mjs and handed over as
+  # and profile are minted by scripts/bootstrap-signing.ts and handed over as
   # 7 secrets. Here, `ios_signing` has Codemagic fetch them through the App
   # Store Connect integration, so there is nothing to base64 and nothing to
   # rotate by hand.
   #
   # CAUTION: if no usable certificate exists, this CREATES one, and this
   # account has exactly one IOS_DISTRIBUTION slot left. Run
-  # `node scripts/bootstrap-signing.mjs` first to see the quota before letting
+  # `npm run signing:audit` first to see the quota before letting
   # this spend it.
   ios-testflight:
     name: iOS TestFlight

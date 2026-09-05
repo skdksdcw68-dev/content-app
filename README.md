@@ -23,17 +23,22 @@ be opened or edited by hand.
 
 ## The app
 
-Two tabs, deliberately. An autopilot that needs a five-tab app to supervise is
-not an autopilot.
+Four tabs and one raised action. The tabs are places; Create is an action,
+which is why it sits above the bar rather than spending a fifth slot.
 
 | Tab | What it does |
 |---|---|
-| **Queue** | Connect screen until an account is linked, then everything it has planned |
-| **Settings** | Autopilot rules, pillars, voice, quiet hours, connected account |
+| **Home** | Today: what the app noticed, what is due, what is next, how the last few did |
+| **Plan** | The calendar. Day, week or month, and the Generate menu that fills it |
+| **Insights** | What actually happened, and what to do about it |
+| **Profile** | The brief, the autopilot rules, AI memory, accounts, notifications, privacy |
 
-Every post moves through a fixed pipeline, and those stages become **filter
-chips pinned across the top of the queue** -- tap one to narrow, tap it again
-to clear:
+**Create** is the accent circle above the tab bar: Video, Image/Post, Campaign,
+or Ask AI. Whatever you pick lands in the queue as a `planned` post and moves
+through the same pipeline as everything the autopilot chose for itself -- its
+rationale just says that you asked for it.
+
+Every post moves through a fixed pipeline, and its stage shows on every row:
 
 | Stage | Meaning |
 |---|---|
@@ -44,14 +49,34 @@ to clear:
 | Posted | Published. Views and likes come back here |
 | Failed | Something broke. The row says what |
 
-The thing that makes this an autopilot rather than a queue is the **rationale**
-on every post -- one line, in the model's own words, saying why it chose this.
-It sits on the row and again at the top of the detail view, above the script.
-The question the app answers first is *why am I looking at this*.
+`Plan -> All posts` is the flat, searchable list across every stage, with the
+stage chips pinned under the nav bar. Plan answers *what is happening this
+week*; that list answers *where did that one go*.
+
+The thing that makes this an autopilot rather than a content manager is the
+**rationale** on every post -- one line, in the model's own words, saying why
+it chose this. It sits on the row and again at the top of the detail view. The
+question the app answers first is *why am I looking at this*.
+
+### Colour
+
+Native iOS surfaces throughout, with a single accent -- `#6C5CE7` -- reserved
+for AI actions and active states. It never colours a whole screen; that is what
+makes one accent circle read as "the thing to press". It is the asset-catalog
+`AccentColor`, so system controls pick it up without being told, and
+`Views/Theme.swift` is the only place either token is written down.
+
+### Missing metrics show as a dash
+
+Insights computes everything from posts that have actually been published. A
+metric the platform has not returned comes back `nil` and renders as `--`, not
+as `0` -- "not reported" and "nobody did it" are different facts, and an
+invented number in an analytics screen is worse than a missing one. Followers
+and clicks sit there today, labelled *not reported yet*.
 
 ### The one consequential setting
 
-**Settings -> Ask before posting.** On, and posts wait for you. Off, and
+**Profile -> Autopilot rules -> Ask before posting.** On, and posts wait for you. Off, and
 Autocast publishes on its own. That is the product, and it is also the kind of
 switch a person should turn off deliberately, so the footer says plainly which
 one is active.
@@ -84,7 +109,9 @@ touch the UI.
 - The publisher. Nothing moves a post from `scheduled` to `posted`
 - Push notifications. The entitlement and background mode are declared, the
   registration code is not written
-- Real metrics. `views` and `likes` are set to zero on publish
+- Real metrics. `views`, `likes`, `saves` and `shares` are written by the stub
+  on publish, not fetched. Followers and clicks have no endpoint yet, and
+  Insights shows them as a dash rather than as a zero
 
 The planner itself **is** built and deployed -- see below.
 
@@ -442,21 +469,28 @@ supabase/functions/plan/        the planner: decides what to make, and why
 Sources/ContentApp/
   ContentAppApp.swift           @main -- starts disconnected
   Models/                       Platform, PostStatus, ContentPillar,
-                                ContentPost, SocialAccount, AutopilotSettings
+                                ContentPost, SocialAccount, AutopilotSettings,
+                                BrandProfile, CreateKind
   Stores/
     ContentStore.swift          @Observable @MainActor -- the only writer
     ContentStore+Sample.swift   pre-planned stand-in for a first sync
+    ContentStore+Insights.swift derived numbers for Home and Insights
   Views/
-    RootView.swift              the two-tab TabView
-    QueueTabView.swift          connect screen or queue
+    RootView.swift              four tabs + the raised Create button
+    Theme.swift                 accent tokens, Card, MetricTile, ProportionBar
+    HomeView.swift              what it noticed, today, coming up, recent
+    PlanView.swift              day/week/month calendar + the Generate menu
+    InsightsView.swift          metric grid, topics, hooks, times, advice
+    ProfileView.swift           brief, memory, accounts, notifications, privacy
+    CreateMenu.swift            the four things you can ask for by name
     ConnectAccountView.swift    one button, because there is one thing to do
-    PostListView.swift          banner + chips + search + swipe actions
+    PostListView.swift          All posts: chips + search + swipe actions
     StatusFilterBar.swift       the chip row pinned under the nav bar
     StatusBadge.swift           the tinted capsule on rows
     PostDetailView.swift        rationale card, script, caption, actions
-    SettingsView.swift          autopilot rules, pillars, voice, quiet hours
+    SettingsView.swift          autopilot rules -- pushed from Profile, not a tab
   Resources/Assets.xcassets     app icon + accent colour
-Tests/ContentAppTests/          29 unit tests over ContentStore
+Tests/ContentAppTests/          53 unit tests over ContentStore
 ```
 
 ## Gotchas already handled

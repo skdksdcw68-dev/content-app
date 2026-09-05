@@ -27,6 +27,21 @@ final class ContentStore {
     private(set) var accounts: [SocialAccount] = []
     var settings = AutopilotSettings()
 
+    /// The brief the planner writes from -- who this account is for and what
+    /// it has learned. Survives a disconnect, because it is the person's work,
+    /// not the platform's data.
+    var brand = BrandProfile()
+
+    /// Delivered by the silent push the app already registers for. Both
+    /// default on: an autopilot that publishes without telling you is a
+    /// different product from one that publishes without asking you.
+    var notifyOnPublish = true
+    var notifyOnFailure = true
+
+    /// True while `generate(days:)` is filling the schedule. Plan disables its
+    /// generate menu on this so a double tap cannot queue two batches.
+    private(set) var isGenerating = false
+
     /// Nil means "no filter" -- the chip row shows nothing selected.
     var statusFilter: PostStatus?
     var searchText: String = ""
@@ -54,6 +69,7 @@ final class ContentStore {
         pillars = Self.samplePillars
         posts = Self.samplePosts(pillars: pillars)
         settings.platforms = [platform]
+        if !brand.isComplete { brand = Self.sampleBrand }
         connectionState = .connected
     }
 
@@ -169,6 +185,154 @@ final class ContentStore {
     func setPillar(_ pillar: ContentPillar, enabled: Bool) {
         guard let index = pillars.firstIndex(where: { $0.id == pillar.id }) else { return }
         pillars[index].isEnabled = enabled
+    }
+
+    // MARK: - Making something on purpose
+
+    /// Adds what the Create button asked for to the front of the queue.
+    ///
+    /// A requested post is still a `.planned` post: it goes through scripting,
+    /// rendering and scheduling like everything else, and it still says on its
+    /// row why it exists. The only difference is that the reason is "you asked",
+    /// which is worth showing plainly rather than dressing up as a decision the
+    /// autopilot made.
+    func requestDraft(_ kind: CreateKind) {
+        guard connectionState == .connected else {
+            lastError = "Connect an account before creating."
+            return
+        }
+
+        let platform = settings.platforms.first ?? accounts.first?.platform ?? .tiktok
+        let pillar = pillars.first(where: \.isEnabled)
+        let now = Date()
+
+        let drafts = (0..<kind.postCount).map { index in
+            ContentPost(
+                hook: kind == .campaign
+                    ? "Campaign post \(index + 1) of \(kind.postCount)"
+                    : "New \(kind.displayName.lowercased())",
+                platform: platform,
+                status: .planned,
+                pillarID: pillar?.id,
+                rationale: "You asked for this. \(kind.detail)",
+                // Offset so two drafts requested in the same second still sort
+                // in the order they were asked for.
+                createdAt: now.addingTimeInterval(Double(index))
+            )
+        }
+
+        posts.insert(contentsOf: drafts, at: 0)
+    }
+
+    // MARK: - Planning ahead
+
+    /// Fills the next `days` days at the configured rate.
+    ///
+    /// STUBBED -- picks slots and writes placeholder ideas. The real version
+    /// asks the planner for `days * postsPerDay` ideas inside the enabled
+    /// pillars and stores what comes back.
+    func generate(days: Int) async {
+        guard connectionState == .connected else {
+            lastError = "Connect an account before generating."
+            return
+        }
+        guard !isGenerating else { return }
+
+        isGenerating = true
+        defer { isGenerating = false }
+
+        try? await Task.sleep(for: .milliseconds(600))
+
+        let slots = plannableSlots(days: days, from: Date())
+        guard !slots.isEmpty else {
+            // Every candidate hour fell inside the quiet window, so there is
+            // nowhere legal to put a post. Say that instead of silently
+            // generating nothing.
+            lastError = "Quiet hours cover the whole day, so there is no slot to post in."
+            return
+        }
+
+        let platform = settings.platforms.first ?? accounts.first?.platform ?? .tiktok
+        let enabled = pillars.filter(\.isEnabled)
+
+        let planned = slots.enumerated().map { index, slot -> ContentPost in
+            let pillar = enabled.isEmpty ? nil : enabled[index % enabled.count]
+            return ContentPost(
+                hook: pillar.map { "Idea from \($0.name.lowercased())" } ?? "Planned idea",
+                platform: platform,
+                status: .planned,
+                pillarID: pillar?.id,
+                rationale: pillar.map { "\($0.name) is due -- it has not run since the last batch." }
+                    ?? "Filling an empty slot in the schedule.",
+                scheduledFor: slot
+            )
+        }
+
+        posts.append(contentsOf: planned)
+    }
+
+    /// Moves a post to a new time, keeping it inside the quiet window.
+    ///
+    /// Returns false and sets `lastError` when the requested time is one the
+    /// autopilot would refuse to publish in, so the caller can leave the row
+    /// where it was rather than move it somewhere it will silently stall.
+    @discardableResult
+    func reschedule(_ post: ContentPost, to date: Date) -> Bool {
+        let hour = Calendar.current.component(.hour, from: date)
+        guard !settings.isQuiet(hour: hour) else {
+            lastError = "That time is inside your quiet hours."
+            return false
+        }
+        guard !post.status.isTerminal else {
+            lastError = "A post that has already gone out cannot be moved."
+            return false
+        }
+
+        update(post.id) { existing in
+            existing.scheduledFor = date
+            if existing.status == .planned {
+                existing.status = .scripted
+            }
+        }
+        return true
+    }
+
+    /// Candidate publish times over the next `days` days, at `postsPerDay`
+    /// each, skipping anything inside the quiet window or already in the past.
+    private func plannableSlots(days: Int, from start: Date) -> [Date] {
+        let calendar = Calendar.current
+        // Spread across the day rather than clustering: a person scrolls at
+        // different hours, and posting three in a row at 09:00 wastes two.
+        let candidates = [9, 12, 15, 18, 20].filter { !settings.isQuiet(hour: $0) }
+        guard !candidates.isEmpty else { return [] }
+
+        var slots: [Date] = []
+        for day in 0..<max(1, days) {
+            guard let base = calendar.date(byAdding: .day, value: day, to: start) else { continue }
+            for index in 0..<settings.postsPerDay {
+                let hour = candidates[index % candidates.count]
+                guard let slot = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: base),
+                      slot > start,
+                      // Do not stack a second post onto a slot that is taken.
+                      !posts.contains(where: { $0.scheduledFor == slot })
+                else { continue }
+                slots.append(slot)
+            }
+        }
+        return slots.sorted()
+    }
+
+    // MARK: - Brand and memory
+
+    /// Drops one thing the planner had worked out about the account.
+    /// Destructive by design: the point of showing memory is being able to
+    /// take something back out of it.
+    func forget(_ item: String) {
+        brand.memory.removeAll { $0 == item }
+    }
+
+    func forgetAllMemory() {
+        brand.memory.removeAll()
     }
 
     /// Applies `change` to the post with `id`, if it is still in the queue.

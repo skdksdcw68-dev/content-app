@@ -127,7 +127,80 @@ extension ContentStore {
                 postedAt: hours(-20),
                 approvedAt: hours(-22),
                 views: 18_400,
-                likes: 2_130
+                likes: 2_130,
+                saves: 940,
+                shares: 310
+            ),
+            ContentPost(
+                hook: "\"Do you need a paid Apple account?\"",
+                script: """
+                    Yes, and it is the one cost you cannot design around. \
+                    Ninety-nine dollars a year buys you the right to sign a \
+                    build and put it on a real phone. Everything else in this \
+                    pipeline is free or rented by the minute. If you are only \
+                    testing on a simulator you do not need it. The moment you \
+                    want it on your own phone, you do.
+                    """,
+                caption: "The only line item you cannot avoid.",
+                hashtags: ["#ios", "#indiedev", "#appstore"],
+                platform: .tiktok,
+                status: .posted,
+                pillarID: question,
+                rationale: "Asked twice in the comments on the signing post. Answering a question people already asked beats guessing at one.",
+                scheduledFor: hours(-44),
+                postedAt: hours(-44),
+                approvedAt: hours(-46),
+                views: 31_500,
+                likes: 4_010,
+                saves: 1_620,
+                shares: 720
+            ),
+            ContentPost(
+                hook: "The certificate slot nobody tells you about.",
+                script: """
+                    You get two distribution certificates. Not three. I found \
+                    that out at eleven at night with a build waiting, and the \
+                    portal will not tell you which machine is holding the \
+                    other one. Revoke the one you do not recognise, mint a new \
+                    profile, and the build goes through. Ten minutes if you \
+                    know. Two hours if you do not.
+                    """,
+                caption: "Two slots. That is the whole limit.",
+                hashtags: ["#ios", "#codesigning"],
+                platform: .tiktok,
+                status: .posted,
+                pillarID: lesson,
+                rationale: "Cost you two hours, so it is worth one post. Lessons framed as a specific number land better than general advice.",
+                scheduledFor: hours(-69),
+                postedAt: hours(-69),
+                approvedAt: hours(-71),
+                views: 9_200,
+                likes: 640,
+                saves: 210,
+                shares: 88
+            ),
+            ContentPost(
+                hook: "I deleted my Xcode project file on purpose.",
+                script: """
+                    The project file is generated, not written. It lives in a \
+                    config file that is forty lines long and readable in a \
+                    diff. No more merge conflicts in a format nobody can read. \
+                    The runner regenerates it every build, so it is never out \
+                    of date and never opened by hand.
+                    """,
+                caption: "Generated, not written.",
+                hashtags: ["#xcodegen", "#ios", "#buildinpublic"],
+                platform: .tiktok,
+                status: .posted,
+                pillarID: build,
+                rationale: "Shows the setup mid-change rather than finished, which is what this pillar is for.",
+                scheduledFor: hours(-94),
+                postedAt: hours(-94),
+                approvedAt: hours(-96),
+                views: 6_100,
+                likes: 380,
+                saves: 95,
+                shares: 41
             ),
             ContentPost(
                 hook: "Why I stopped using a CI service.",
@@ -139,5 +212,26 @@ extension ContentStore {
                 failureReason: "Render failed: the generated voiceover ran to 3m 12s, over TikTok's 3m limit. Shorten the script and it will retry."
             )
         ]
+    }
+
+    /// The brief a first sync would come back with.
+    ///
+    /// Memory entries are written the way the planner is prompted to write
+    /// them: a conclusion drawn from something that was actually posted, short
+    /// enough to read in a list, and specific enough that a person can tell
+    /// whether they agree with it. A memory nobody can evaluate is one nobody
+    /// will ever remove.
+    static var sampleBrand: BrandProfile {
+        BrandProfile(
+            name: "Abel",
+            audience: "Developers who want to ship something small and are stuck on the parts nobody writes down.",
+            niche: "Building and shipping iOS apps from a Windows machine.",
+            memory: [
+                "Hooks that name a specific cost -- two hours, ninety-nine dollars, eleven minutes -- outperform hooks that promise a result.",
+                "Posts that answer a question from the comments do roughly 3x a planned idea on the same subject.",
+                "Montage and recap formats get watched to the end. Talking-head explainers get dropped around 15 seconds.",
+                "Avoid the word \u{201C}easy\u{201D}. Every post using it underperformed the pillar average."
+            ]
+        )
     }
 }

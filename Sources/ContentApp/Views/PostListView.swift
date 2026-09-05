@@ -1,7 +1,12 @@
 import SwiftUI
 
-/// The queue: a banner saying what the autopilot is cleared to do, the chip
-/// row, then the posts it has produced.
+/// Every post in one flat, searchable list.
+///
+/// Plan answers "what is happening this week". This answers "where did that
+/// one go" -- the chip row and the search field are the whole reason it still
+/// exists alongside the calendar.
+///
+/// Pushed from Plan, so the parent stack owns the destination for a tapped row.
 struct PostListView: View {
     @Environment(ContentStore.self) private var store
 
@@ -50,8 +55,8 @@ struct PostListView: View {
                 .refreshable { await store.refresh() }
             }
         }
-        .navigationTitle("Queue")
-        .navigationDestination(for: ContentPost.self) { PostDetailView(post: $0) }
+        .navigationTitle("All posts")
+        .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $store.searchText, prompt: "Search hooks and captions")
     }
 }

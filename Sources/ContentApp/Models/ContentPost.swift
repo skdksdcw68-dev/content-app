@@ -28,9 +28,13 @@ struct ContentPost: Identifiable, Codable, Hashable, Sendable {
     var approvedAt: Date?
     var failureReason: String?
 
-    /// Populated after `status == .posted`.
+    /// Populated after `status == .posted`. A platform that does not report a
+    /// metric leaves it nil, which the Insights tiles show as a dash rather
+    /// than as a zero -- "not reported" and "nobody did it" are not the same.
     var views: Int?
     var likes: Int?
+    var saves: Int?
+    var shares: Int?
 
     var createdAt: Date
 
@@ -50,6 +54,8 @@ struct ContentPost: Identifiable, Codable, Hashable, Sendable {
         failureReason: String? = nil,
         views: Int? = nil,
         likes: Int? = nil,
+        saves: Int? = nil,
+        shares: Int? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -67,6 +73,8 @@ struct ContentPost: Identifiable, Codable, Hashable, Sendable {
         self.failureReason = failureReason
         self.views = views
         self.likes = likes
+        self.saves = saves
+        self.shares = shares
         self.createdAt = createdAt
     }
 
@@ -90,5 +98,13 @@ struct ContentPost: Identifiable, Codable, Hashable, Sendable {
 
     var fitsPlatform: Bool {
         estimatedDuration <= platform.maxDuration
+    }
+
+    /// Interactions as a share of views. Nil until the post has been out long
+    /// enough to have both, so a fresh post does not read as 0% engagement.
+    var engagementRate: Double? {
+        guard let views, views > 0 else { return nil }
+        let interactions = (likes ?? 0) + (saves ?? 0) + (shares ?? 0)
+        return Double(interactions) / Double(views)
     }
 }

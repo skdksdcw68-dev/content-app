@@ -271,7 +271,7 @@ final class ContentStore {
         posts.append(contentsOf: planned)
     }
 
-    /// Moves a post to a new time, keeping it inside the quiet window.
+    /// Moves a post to a new time, refusing anything inside the quiet window.
     ///
     /// Returns false and sets `lastError` when the requested time is one the
     /// autopilot would refuse to publish in, so the caller can leave the row

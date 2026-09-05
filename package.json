@@ -7,6 +7,8 @@
     "signing:audit": "tsx scripts/bootstrap-signing.ts",
     "signing:create": "tsx scripts/bootstrap-signing.ts --create",
     "signing:all": "tsx scripts/bootstrap-signing.ts --create --secrets",
+    "testflight": "tsx scripts/testflight.ts",
+    "testflight:add": "tsx scripts/testflight.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -153,8 +153,15 @@ final class PlanningTests: XCTestCase {
             return XCTFail("sample data should contain a posted post")
         }
 
-        XCTAssertFalse(store.reschedule(posted, to: Date().addingTimeInterval(86_400)))
-        XCTAssertNotNil(store.lastError)
+        // Pinned to midday so this fails on the terminal-status guard rather
+        // than tripping the quiet-hours guard when the suite runs at night.
+        let target = Calendar.current.date(
+            bySettingHour: 12, minute: 0, second: 0,
+            of: Date().addingTimeInterval(86_400)
+        ) ?? Date()
+
+        XCTAssertFalse(store.reschedule(posted, to: target))
+        XCTAssertEqual(store.lastError, "A post that has already gone out cannot be moved.")
     }
 
     // MARK: - Numbers the screens read

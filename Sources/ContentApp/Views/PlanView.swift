@@ -103,12 +103,6 @@ struct PlanView: View {
                     PlanDayHeader(day: day)
                 }
             }
-
-            // Room for the Create button, which floats over the list.
-            Color.clear
-                .frame(height: Theme.createButtonClearance - 40)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
         }
         .listStyle(.insetGrouped)
     }

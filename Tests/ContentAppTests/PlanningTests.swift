@@ -39,8 +39,68 @@ final class PlanningTests: XCTestCase {
     /// A requested post still has to say why it exists, like every other row.
     func testRequestedDraftCarriesARationale() async {
         let store = await connectedStore()
-        store.requestDraft(.askAI)
+        store.requestDraft(.post)
         XCTAssertFalse(store.posts.first?.rationale.isEmpty ?? true)
+    }
+
+    /// The brief is the person's own words, so it makes a far better working
+    /// title than "New video" while the writer has not run yet.
+    func testBriefBecomesTheWorkingTitle() async {
+        let store = await connectedStore()
+        store.requestDraft(.video, brief: "The two-certificate limit nobody mentions")
+
+        XCTAssertEqual(store.posts.first?.hook, "The two-certificate limit nobody mentions")
+    }
+
+    func testEmptyBriefFallsBackToTheFormatName() async {
+        let store = await connectedStore()
+        store.requestDraft(.video, brief: "   ")
+
+        XCTAssertEqual(store.posts.first?.hook, "New video")
+    }
+
+    /// A working title has to fit on a row, so a long brief is cut rather than
+    /// wrapped to three lines in every list in the app.
+    func testLongBriefIsTruncated() async {
+        let store = await connectedStore()
+        let long = String(repeating: "signing ", count: 40)
+        store.requestDraft(.video, brief: long)
+
+        let hook = store.posts.first?.hook ?? ""
+        XCTAssertLessThanOrEqual(hook.count, 61)
+        XCTAssertTrue(hook.hasSuffix("\u{2026}"))
+    }
+
+    /// Only the first line becomes the title, so pasting several paragraphs
+    /// does not put a paragraph on the row.
+    func testOnlyTheFirstLineOfABriefIsUsed() async {
+        let store = await connectedStore()
+        store.requestDraft(.video, brief: "Certificates\nEverything after this is detail.")
+
+        XCTAssertEqual(store.posts.first?.hook, "Certificates")
+    }
+
+    /// The goal changes the writing, so it has to be visible on the row rather
+    /// than vanishing into a field nobody sees again.
+    func testGoalIsRecordedInTheRationale() async {
+        let store = await connectedStore()
+        store.requestDraft(.video, brief: "anything", goal: .saves)
+
+        let rationale = store.posts.first?.rationale ?? ""
+        XCTAssertTrue(
+            rationale.contains(CreateGoal.saves.briefPhrase),
+            "Expected the goal in the rationale, got: \(rationale)"
+        )
+    }
+
+    func testCampaignPostsAreNumbered() async {
+        let store = await connectedStore()
+        store.requestDraft(.campaign, brief: "Launch week")
+
+        let campaign = store.posts.prefix(CreateKind.campaign.postCount)
+        XCTAssertTrue(campaign.allSatisfy { $0.hook.contains("Launch week") })
+        XCTAssertTrue(campaign.contains { $0.hook.contains("1 of 4") })
+        XCTAssertTrue(campaign.contains { $0.hook.contains("4 of 4") })
     }
 
     func testRequestDraftRefusesWhenDisconnected() {

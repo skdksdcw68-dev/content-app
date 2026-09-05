@@ -14,29 +14,28 @@ struct InsightsView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                if store.publishedCount == 0 {
-                    emptyState
-                } else {
-                    VStack(spacing: 16) {
-                        metrics
-                        RecommendationsCard()
-                        TopicsCard()
-                        HooksCard()
-                        TimesCard()
-                        FormatCard()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, Theme.createButtonClearance)
+        ScrollView {
+            if store.publishedCount == 0 {
+                emptyState
+            } else {
+                VStack(spacing: 16) {
+                    metrics
+                    RecommendationsCard()
+                    TopicsCard()
+                    HooksCard()
+                    TimesCard()
+                    FormatCard()
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
-            .background(Color(.systemGroupedBackground))
-            .navigationTitle("Insights")
-            .navigationDestination(for: ContentPost.self) { PostDetailView(post: $0) }
-            .refreshable { await store.refresh() }
         }
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Insights")
+        .navigationBarTitleDisplayMode(.inline)
+        // Pushed from Home, so the destination for a tapped hook is already
+        // registered on that stack.
+        .refreshable { await store.refresh() }
     }
 
     private var metrics: some View {
@@ -274,7 +273,9 @@ private struct FormatCard: View {
 
 #Preview {
     let store = ContentStore()
-    return InsightsView()
-        .environment(store)
-        .task { await store.connect() }
+    return NavigationStack {
+        InsightsView()
+            .environment(store)
+    }
+    .task { await store.connect() }
 }

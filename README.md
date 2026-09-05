@@ -23,20 +23,37 @@ be opened or edited by hand.
 
 ## The app
 
-Four tabs and one raised action. The tabs are places; Create is an action,
-which is why it sits above the bar rather than spending a fifth slot.
+Four tabs, a stock SwiftUI tab bar, and no custom chrome.
 
 | Tab | What it does |
 |---|---|
-| **Home** | Today: what the app noticed, what is due, what is next, how the last few did |
+| **Home** | What the app noticed, today's progress, what is coming, how the work is landing |
 | **Plan** | The calendar. Day, week or month, and the Generate menu that fills it |
-| **Insights** | What actually happened, and what to do about it |
+| **Create** | The workspace. You say what you want; it goes into the queue |
 | **Profile** | The brief, the autopilot rules, AI memory, accounts, notifications, privacy |
 
-**Create** is the accent circle above the tab bar: Video, Image/Post, Campaign,
-or Ask AI. Whatever you pick lands in the queue as a `planned` post and moves
-through the same pipeline as everything the autopilot chose for itself -- its
-rationale just says that you asked for it.
+**Create is a tab, not a floating button.** It is somewhere you go and think in,
+not a control you poke on the way past -- so it gets a slot rather than an orb
+hovering over the content. You write a brief in your own words, pick a format
+and a goal, and the result lands in Plan.
+
+**Insights is not a tab.** It reads as a summary card on Home -- two numbers and
+your strongest subject -- and opens in full from there. That is about as often
+as anyone needs a breakdown of their own analytics.
+
+### Onboarding
+
+Three steps on first run: what it does, the brief, connect. The middle step is
+the reason the flow exists -- an autopilot with no brief writes generically, and
+asking once at the start gets a far better answer than a half-filled form nobody
+opens later. The **Ask before posting** choice is made on the connect step
+rather than buried, because it is the one setting that decides what the app may
+do unattended.
+
+`hasSeenIntro` is stored in `@AppStorage`, so disconnecting later drops you
+straight back to the connect step instead of replaying the pitch.
+
+### The pipeline
 
 Every post moves through a fixed pipeline, and its stage shows on every row:
 
@@ -54,17 +71,18 @@ stage chips pinned under the nav bar. Plan answers *what is happening this
 week*; that list answers *where did that one go*.
 
 The thing that makes this an autopilot rather than a content manager is the
-**rationale** on every post -- one line, in the model's own words, saying why
-it chose this. It sits on the row and again at the top of the detail view. The
-question the app answers first is *why am I looking at this*.
+**rationale** on every post -- one line, in the model's own words, saying why it
+chose this. A post you requested yourself still carries one; the reason is just
+that you asked, and what you asked it to optimise for.
 
 ### Colour
 
 Native iOS surfaces throughout, with a single accent -- `#6C5CE7` -- reserved
-for AI actions and active states. It never colours a whole screen; that is what
-makes one accent circle read as "the thing to press". It is the asset-catalog
-`AccentColor`, so system controls pick it up without being told, and
-`Views/Theme.swift` is the only place either token is written down.
+for AI actions and active states. It never colours a whole screen. It is the
+asset-catalog `AccentColor`, so system controls inherit it without being told,
+and `Views/Theme.swift` is the only place either token is written down.
+
+No gradients, no glow, no custom tab bar.
 
 ### Missing metrics show as a dash
 
@@ -105,7 +123,9 @@ touch the UI.
 - **The app still reads sample data.** `ContentStore` does not talk to Supabase
   yet, so the planner's output is not visible in the app. This is the next
   seam to close, and it only touches `ContentStore` -- no view changes
-- Rendering. Nothing turns a script into a video yet
+- Rendering. Nothing turns a script into a video yet -- which is also why
+  Create takes a written brief and a link but has no photo or video picker.
+  Attaching media before there is anything to attach it to is a dead control
 - The publisher. Nothing moves a post from `scheduled` to `posted`
 - Push notifications. The entitlement and background mode are declared, the
   registration code is not written
@@ -470,27 +490,28 @@ Sources/ContentApp/
   ContentAppApp.swift           @main -- starts disconnected
   Models/                       Platform, PostStatus, ContentPillar,
                                 ContentPost, SocialAccount, AutopilotSettings,
-                                BrandProfile, CreateKind
+                                BrandProfile, CreateKind, CreateGoal
   Stores/
     ContentStore.swift          @Observable @MainActor -- the only writer
     ContentStore+Sample.swift   pre-planned stand-in for a first sync
     ContentStore+Insights.swift derived numbers for Home and Insights
   Views/
-    RootView.swift              four tabs + the raised Create button
+    RootView.swift              the four-tab TabView
+    OnboardingView.swift        first run: pitch, brief, connect
     Theme.swift                 accent tokens, Card, MetricTile, ProportionBar
-    HomeView.swift              what it noticed, today, coming up, recent
+    HomeView.swift              what it noticed, today, coming up, performance
     PlanView.swift              day/week/month calendar + the Generate menu
     InsightsView.swift          metric grid, topics, hooks, times, advice
+                                (pushed from Home, not a tab)
     ProfileView.swift           brief, memory, accounts, notifications, privacy
-    CreateMenu.swift            the four things you can ask for by name
-    ConnectAccountView.swift    one button, because there is one thing to do
+    CreateView.swift            brief + format + goal, straight into the queue
     PostListView.swift          All posts: chips + search + swipe actions
     StatusFilterBar.swift       the chip row pinned under the nav bar
     StatusBadge.swift           the tinted capsule on rows
     PostDetailView.swift        rationale card, script, caption, actions
     SettingsView.swift          autopilot rules -- pushed from Profile, not a tab
   Resources/Assets.xcassets     app icon + accent colour
-Tests/ContentAppTests/          53 unit tests over ContentStore
+Tests/ContentAppTests/          59 unit tests over ContentStore
 ```
 
 ## Gotchas already handled

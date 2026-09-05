@@ -2,12 +2,11 @@ import SwiftUI
 
 /// The command centre for today.
 ///
-/// The order of the cards is the answer to "what do I need to know": what the
-/// app noticed, how today is going, what is next, what to do about it, and how
-/// the last few did. Anything that needs a person is at the top.
+/// The order is the answer to "what do I need to know": what the app noticed,
+/// how today is going, what is next, and how the work is landing. Anything
+/// that needs a person is at the top; the full numbers are one tap down rather
+/// than a tab of their own.
 struct HomeView: View {
-    var onCreate: () -> Void
-
     @Environment(ContentStore.self) private var store
 
     var body: some View {
@@ -17,14 +16,10 @@ struct HomeView: View {
                     InsightCard()
                     TodayCard()
                     UpcomingCard()
-                    QuickCreateCard(onCreate: onCreate)
-                    RecentPerformanceCard()
+                    PerformanceCard()
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
-                // The Create button floats over this scroll view, so the last
-                // card needs room or it cannot be reached.
-                .padding(.bottom, Theme.createButtonClearance)
+                .padding(.vertical, 8)
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Home")
@@ -37,8 +32,8 @@ struct HomeView: View {
 // MARK: - What the app noticed
 
 /// One line, in the app's own words, about the thing most worth knowing.
-/// The accent appears here and nowhere else on the screen, which is what makes
-/// it read as the AI layer rather than as decoration.
+/// The accent appears here and almost nowhere else on the screen, which is
+/// what makes it read as the AI layer rather than as decoration.
 private struct InsightCard: View {
     @Environment(ContentStore.self) private var store
 
@@ -147,8 +142,7 @@ private struct TodayRow: View {
 private struct UpcomingCard: View {
     @Environment(ContentStore.self) private var store
 
-    /// Three is enough to know the shape of the week. The rest is Plan's job,
-    /// and the link at the bottom says so.
+    /// Three is enough to know the shape of the week. The rest is Plan's job.
     private var preview: [ContentPost] {
         Array(store.upcomingPosts.prefix(3))
     }
@@ -156,7 +150,7 @@ private struct UpcomingCard: View {
     var body: some View {
         Card("Coming up", systemImage: "calendar") {
             if preview.isEmpty {
-                Text("Nothing planned yet. Generate a week in Plan, or ask for something with Create.")
+                Text("Nothing planned yet. Generate a week in Plan, or ask for something specific in Create.")
                     .font(.subheadline)
                     .foregroundStyle(Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -176,7 +170,6 @@ private struct UpcomingCard: View {
 
 private struct UpcomingRow: View {
     let post: ContentPost
-    @Environment(ContentStore.self) private var store
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -209,94 +202,68 @@ private struct UpcomingRow: View {
     }
 }
 
-// MARK: - Quick create
+// MARK: - Performance
 
-private struct QuickCreateCard: View {
-    var onCreate: () -> Void
-
-    var body: some View {
-        Card("Make something", systemImage: "wand.and.stars") {
-            Text("Ask for a specific video, post or campaign instead of waiting for the next planned one.")
-                .font(.subheadline)
-                .foregroundStyle(Color.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button(action: onCreate) {
-                Label("Create", systemImage: "sparkles")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-        }
-    }
-}
-
-// MARK: - Recent performance
-
-private struct RecentPerformanceCard: View {
+/// The summary that replaced the Insights tab. Two numbers, the one topic
+/// worth knowing about, and a way through to the full breakdown -- which is
+/// about as much analytics as anyone wants on the screen they open first.
+private struct PerformanceCard: View {
     @Environment(ContentStore.self) private var store
 
-    private var recent: [ContentPost] {
-        Array(store.recentlyPosted.prefix(2))
-    }
-
     var body: some View {
-        Card("Recent performance", systemImage: "chart.line.uptrend.xyaxis") {
-            if recent.isEmpty {
+        Card("Performance", systemImage: "chart.line.uptrend.xyaxis") {
+            if store.publishedCount == 0 {
                 Text("Nothing has been published yet, so there is nothing to measure.")
                     .font(.subheadline)
                     .foregroundStyle(Color.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(recent) { post in
-                        NavigationLink(value: post) {
-                            RecentRow(post: post)
-                        }
-                        .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 12) {
+                        MetricTile(
+                            label: "Views",
+                            value: (store.totalViews ?? 0).formatted(.number.notation(.compactName)),
+                            caption: "\(store.publishedCount) posted",
+                            isAvailable: store.totalViews != nil
+                        )
+                        MetricTile(
+                            label: "Engagement",
+                            value: (store.averageEngagement ?? 0).formatted(.percent.precision(.fractionLength(1))),
+                            caption: "likes, saves, shares",
+                            isAvailable: store.averageEngagement != nil
+                        )
                     }
+
+                    if let top = store.topTopics.first {
+                        Text("\(top.name) is your strongest subject at \(top.views.formatted(.number.notation(.compactName))) views.")
+                            .font(.footnote)
+                            .foregroundStyle(Color.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    NavigationLink {
+                        InsightsView()
+                    } label: {
+                        HStack {
+                            Text("All insights")
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(Color(.tertiaryLabel))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
-    }
-}
-
-private struct RecentRow: View {
-    let post: ContentPost
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(post.hook)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color.primary)
-                .lineLimit(1)
-                .multilineTextAlignment(.leading)
-
-            HStack(spacing: 14) {
-                if let views = post.views {
-                    Label(views.formatted(.number.notation(.compactName)), systemImage: "eye")
-                }
-                if let likes = post.likes {
-                    Label(likes.formatted(.number.notation(.compactName)), systemImage: "heart")
-                }
-                if let rate = post.engagementRate {
-                    Text(rate.formatted(.percent.precision(.fractionLength(1))))
-                        .foregroundStyle(Theme.accent)
-                }
-                Spacer(minLength: 0)
-            }
-            .font(.caption)
-            .foregroundStyle(Color.secondary)
-            .monospacedDigit()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 }
 
 #Preview {
     let store = ContentStore()
-    return HomeView(onCreate: {})
+    return HomeView()
         .environment(store)
         .task { await store.connect() }
 }

@@ -17,10 +17,6 @@ enum Theme {
 
     /// Corner radius shared by every card, so surfaces read as one system.
     static let cornerRadius: CGFloat = 16
-
-    /// Space the Create button needs at the bottom of a scrolling screen.
-    /// Without it the last card sits under the button and cannot be tapped.
-    static let createButtonClearance: CGFloat = 96
 }
 
 /// The standard surface: a grouped-background card.

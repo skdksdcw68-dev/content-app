@@ -196,25 +196,25 @@ final class ContentStore {
     /// row why it exists. The only difference is that the reason is "you asked",
     /// which is worth showing plainly rather than dressing up as a decision the
     /// autopilot made.
-    func requestDraft(_ kind: CreateKind) {
+    @discardableResult
+    func requestDraft(_ kind: CreateKind, brief: String = "", goal: CreateGoal = .reach) -> Bool {
         guard connectionState == .connected else {
             lastError = "Connect an account before creating."
-            return
+            return false
         }
 
         let platform = settings.platforms.first ?? accounts.first?.platform ?? .tiktok
         let pillar = pillars.first(where: \.isEnabled)
+        let trimmed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
         let now = Date()
 
         let drafts = (0..<kind.postCount).map { index in
             ContentPost(
-                hook: kind == .campaign
-                    ? "Campaign post \(index + 1) of \(kind.postCount)"
-                    : "New \(kind.displayName.lowercased())",
+                hook: Self.workingTitle(from: trimmed, kind: kind, index: index),
                 platform: platform,
                 status: .planned,
                 pillarID: pillar?.id,
-                rationale: "You asked for this. \(kind.detail)",
+                rationale: Self.requestedRationale(brief: trimmed, goal: goal),
                 // Offset so two drafts requested in the same second still sort
                 // in the order they were asked for.
                 createdAt: now.addingTimeInterval(Double(index))
@@ -222,6 +222,40 @@ final class ContentStore {
         }
 
         posts.insert(contentsOf: drafts, at: 0)
+        return true
+    }
+
+    /// A stand-in hook until the writer runs.
+    ///
+    /// The brief is the person's own words, so the first line of it is a far
+    /// better placeholder than "New video" -- it makes the row recognisable in
+    /// a queue before anything has actually been written.
+    private static func workingTitle(from brief: String, kind: CreateKind, index: Int) -> String {
+        let suffix = kind == .campaign ? " (\(index + 1) of \(kind.postCount))" : ""
+
+        guard !brief.isEmpty else {
+            return "New \(kind.displayName.lowercased())\(suffix)"
+        }
+
+        let firstLine = brief
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init) ?? brief
+
+        let title = firstLine.count > 60
+            ? firstLine.prefix(57).trimmingCharacters(in: .whitespaces) + "\u{2026}"
+            : firstLine
+
+        return title + suffix
+    }
+
+    /// Why a requested post exists, said plainly. It still carries a rationale
+    /// like everything else in the queue -- the reason is just that you asked.
+    private static func requestedRationale(brief: String, goal: CreateGoal) -> String {
+        let opening = brief.isEmpty
+            ? "You asked for this."
+            : "You asked for this in your own words."
+        return "\(opening) Written \(goal.briefPhrase)."
     }
 
     // MARK: - Planning ahead

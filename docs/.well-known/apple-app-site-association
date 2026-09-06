@@ -1,0 +1,15 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TDMFXRJYN7.Autocast"],
+        "components": [
+          {
+            "/": "/oauth/tiktok/callback/*",
+            "comment": "Where TikTok returns after the creator authorises. Claiming this path is what lets the TikTok app hand control straight back to Autocast instead of opening a browser."
+          }
+        ]
+      }
+    ]
+  }
+}

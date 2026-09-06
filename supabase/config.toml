@@ -1,0 +1,111 @@
+# Supabase project configuration.
+#
+# There was none before this. That mattered most for Edge Functions: without a
+# declaration every function defaults to verifying a JWT, which is right for the
+# ones the app calls and fatally wrong for the ones a platform calls -- TikTok
+# and Higgsfield do not carry a Supabase session, so their callbacks would have
+# been rejected with a 401 that looks like the provider being broken.
+#
+# Each public function below states in one line why it is public and what stands
+# in for the JWT it does not have.
+
+project_id = "dosszkllkassvyprkhrg"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+# `private` is deliberately absent. It holds encrypted platform tokens and
+# provider keys and must never be reachable over PostgREST at all.
+extra_search_path = ["public", "extensions"]
+# A 30-day plan is 30 posts across up to 3 accounts. 1000 keeps a full plan in
+# one round trip without letting anyone page the whole table.
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.pooler]
+enabled = true
+# Transaction mode. The worker's four loops each hold a small pool and poll on a
+# timer; session mode would pin a backend per connection and exhaust the pooler.
+# The cost is that LISTEN/NOTIFY does not survive it, which is why the loops poll
+# rather than subscribe.
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 200
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+# Video is the ceiling here. TikTok accepts up to 1GB; anything larger could
+# never be published anyway, so refusing it at upload is kinder than at publish.
+file_size_limit = "1GiB"
+
+[auth]
+enabled = true
+site_url = "autocast://auth"
+additional_redirect_urls = ["autocast://auth", "autocast://oauth/callback"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = true
+
+[auth.external.apple]
+enabled = true
+client_id = "env(APPLE_SERVICES_ID)"
+secret = "env(APPLE_OAUTH_SECRET)"
+
+# ----------------------------------------------------------------- functions
+#
+# Called by the app, with a user session. JWT verification stays on.
+
+[functions.agent-send]
+verify_jwt = true
+
+[functions.agent-cancel]
+verify_jwt = true
+
+[functions.oauth-start]
+verify_jwt = true
+
+[functions.creator-info]
+verify_jwt = true
+
+[functions.approve-plan]
+verify_jwt = true
+
+[functions.media-upload-url]
+verify_jwt = true
+
+# Called by somebody else's server. No Supabase session exists, so each one
+# carries its own proof instead.
+
+# The platform redirects a browser here after the person approves access. The
+# PKCE `state` we issued is what proves the callback belongs to a flow we started.
+[functions.oauth-callback]
+verify_jwt = false
+
+# The generation provider signs nothing, so the URL itself carries an
+# unguessable per-job token -- and even then the body is treated as a wake-up,
+# never as truth: the worker re-reads status_url with our own key before
+# believing anything.
+[functions.hf-webhook]
+verify_jwt = false
+
+# TikTok signs its webhooks; the function verifies that signature before acting.
+[functions.tiktok-webhook]
+verify_jwt = false
+
+# App Store Server Notifications V2 arrive as a signed JWS whose certificate
+# chain is verified back to Apple's root.
+[functions.apple-notifications-v2]
+verify_jwt = false

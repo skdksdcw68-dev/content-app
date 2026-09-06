@@ -1,0 +1,28 @@
+# One machine runs all four loops. They are split across machines only when the
+# publisher's timing starts contending with a transcode for CPU, which will not
+# happen at the volumes this starts at.
+app = "autocast-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  WORKER_ROLES = "orchestrator,jobs,media,publisher"
+  # Phase 1 deploys with the handlers unwritten. Observe mode reports what is
+  # waiting and claims none of it, so this is safe to run against production
+  # before it can do any of the work.
+  WORKER_OBSERVE_ONLY = "true"
+
+# No [http_service]. Nothing calls the worker; it claims its own work. Anything
+# a platform needs to reach is an Edge Function, which is why those are the only
+# things with a public URL.
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+# Never scale to zero. A machine asleep at 09:00 is a post that did not go out,
+# and there is no request arriving to wake it.
+[[restart]]
+  policy = "always"

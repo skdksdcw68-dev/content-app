@@ -9,7 +9,9 @@
     "signing:all": "tsx scripts/bootstrap-signing.ts --create --secrets",
     "testflight": "tsx scripts/testflight.ts",
     "testflight:add": "tsx scripts/testflight.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "typecheck:worker": "npm --prefix worker run typecheck",
+    "worker:dev": "npm --prefix worker run dev"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

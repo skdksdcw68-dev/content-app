@@ -37,3 +37,6 @@ supabase/.temp/
 
 # Node tooling
 node_modules/
+
+# Worker build output. Source is committed; dist is not.
+worker/dist/

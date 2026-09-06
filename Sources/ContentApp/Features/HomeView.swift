@@ -8,15 +8,10 @@ import SwiftUI
 /// nobody could tell what worked.
 struct HomeView: View {
     @Environment(AppSession.self) private var session
-    /// Increments when Home is tapped while already open.
-    let scrollToTop: Int
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(spacing: 16) {
-                    Color.clear.frame(height: 0).id(Anchor.top)
-
+        ScrollView {
+            VStack(spacing: 16) {
                     if session.connections.isEmpty {
                         ConnectFirstCard()
                     } else {
@@ -24,21 +19,14 @@ struct HomeView: View {
                     }
 
                     NothingPlannedCard()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 96)
             }
-            .onChange(of: scrollToTop) {
-                withAnimation(.snappy) { proxy.scrollTo(Anchor.top, anchor: .top) }
-            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Home")
         .refreshable { await session.refreshConnections() }
     }
-
-    private enum Anchor { case top }
 }
 
 private struct ConnectFirstCard: View {

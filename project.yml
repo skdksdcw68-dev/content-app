@@ -2,7 +2,11 @@ name: ContentApp
 options:
   bundleIdPrefix: com.abelamare
   deploymentTarget:
-    iOS: "17.0"
+    # The system tab bar on 26 floats, blurs and minimises on scroll. Building
+    # that by hand is what made the previous bar read as hand-made, so the
+    # deployment target buys the real thing instead. The cost is real: anyone
+    # below iOS 26 cannot install the app at all.
+    iOS: "26.0"
   createIntermediateGroups: true
   groupSortPosition: top
 

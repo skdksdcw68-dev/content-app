@@ -49,7 +49,6 @@ struct ProfileView: View {
         }
         .navigationTitle("You")
         .refreshable { await session.refreshConnections() }
-        .safeAreaPadding(.bottom, 72)
     }
 }
 

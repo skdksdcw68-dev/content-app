@@ -29,7 +29,6 @@ struct ComingSoon: View {
                 .padding(.horizontal, 36)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.bottom, 72)
         .background(Color(.systemGroupedBackground))
     }
 }

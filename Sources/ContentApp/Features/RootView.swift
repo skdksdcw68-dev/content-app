@@ -1,16 +1,17 @@
 import SwiftUI
 
-/// The shell: four surfaces and a hand-built bar.
+/// The shell.
 ///
-/// All four are kept alive in a ZStack rather than swapped, so each keeps its
-/// own scroll position and navigation stack across a tab change. That is one of
-/// the two things TabView gives away free and a custom bar has to earn.
+/// This is Apple's TabView, not a hand-drawn bar. The previous version was
+/// custom because a detached Profile is something TabView cannot do -- and the
+/// moment it shipped, it read as hand-made, which is exactly what a custom bar
+/// always reads as. Detaching Profile was not worth that.
+///
+/// On iOS 26 the system bar floats over the content, blurs what is behind it,
+/// and shrinks out of the way as you scroll down. All of that is free here and
+/// impossible to reproduce convincingly by hand, which is the whole argument.
 struct RootView: View {
     @Environment(AppSession.self) private var session
-    @State private var tab: AppTab = .home
-    /// Bumped when the active tab is tapped again; each surface watches its own
-    /// counter and scrolls itself to the top.
-    @State private var reselects: [AppTab: Int] = [:]
 
     var body: some View {
         @Bindable var session = session
@@ -24,7 +25,7 @@ struct RootView: View {
                     Task { await session.start() }
                 }
             case .ready:
-                shell
+                tabs
             }
         }
         .tint(Theme.accent)
@@ -41,38 +42,27 @@ struct RootView: View {
         }
     }
 
-    private var shell: some View {
-        ZStack(alignment: .bottom) {
-            ZStack {
-                surface(.home) { HomeView(scrollToTop: reselects[.home] ?? 0) }
-                surface(.chat) { ChatView() }
-                surface(.library) { LibraryView() }
-                surface(.profile) { ProfileView() }
+    private var tabs: some View {
+        TabView {
+            Tab("Home", systemImage: "house") {
+                NavigationStack { HomeView() }
             }
 
-            TabBar(
-                selection: $tab,
-                onReselect: { reselects[$0, default: 0] += 1 },
-                avatarURL: session.connections.first?.avatarURL,
-                badge: 0
-            )
-            .padding(.bottom, 8)
-        }
-    }
+            Tab("Chat", systemImage: "bubble.left") {
+                NavigationStack { ChatView() }
+            }
 
-    /// Hidden rather than removed. `.opacity` plus `allowsHitTesting` keeps the
-    /// view's state alive; an `if` would rebuild it from scratch every time.
-    @ViewBuilder
-    private func surface<Content: View>(
-        _ which: AppTab,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        NavigationStack {
-            content()
+            Tab("Library", systemImage: "square.grid.2x2") {
+                NavigationStack { LibraryView() }
+            }
+
+            Tab("You", systemImage: "person.crop.circle") {
+                NavigationStack { ProfileView() }
+            }
         }
-        .opacity(tab == which ? 1 : 0)
-        .allowsHitTesting(tab == which)
-        .accessibilityHidden(tab != which)
+        // The bar gets out of the way when reading and comes back on the way
+        // up. Behaviour the system owns; asking for it is the whole cost.
+        .tabBarMinimizeBehavior(.onScrollDown)
     }
 }
 

@@ -42,9 +42,11 @@ enabled = true
 
 [storage]
 enabled = true
-# Video is the ceiling here. TikTok accepts up to 1GB; anything larger could
-# never be published anyway, so refusing it at upload is kinder than at publish.
-file_size_limit = "1GiB"
+# TikTok accepts up to 1GB, but the free tier caps uploads at 50MB, so that is
+# the real ceiling until the project is on a paid plan. Short-form video at
+# 1080x1920 lands well under it; this becomes a problem only for long or
+# high-bitrate renders, and it will need raising before launch.
+file_size_limit = "50MiB"
 
 [auth]
 enabled = true
@@ -54,15 +56,16 @@ jwt_expiry = 3600
 enable_refresh_token_rotation = true
 refresh_token_reuse_interval = 10
 enable_signup = true
+# Lets the app open straight into itself on first launch instead of a sign-in
+# wall. The row in auth.users is real, so RLS, brands and connections all work
+# normally -- and Supabase can upgrade the same row to a permanent identity
+# later without the person losing anything they made.
+enable_anonymous_sign_ins = true
 
 [auth.email]
 enable_signup = true
 enable_confirmations = true
 
-[auth.external.apple]
-enabled = true
-client_id = "env(APPLE_SERVICES_ID)"
-secret = "env(APPLE_OAUTH_SECRET)"
 
 # ----------------------------------------------------------------- functions
 #

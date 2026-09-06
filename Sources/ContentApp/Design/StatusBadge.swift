@@ -1,8 +1,12 @@
 import SwiftUI
 
-/// The tinted capsule on a row. Colour carries the same meaning everywhere:
-/// grey is waiting on the autopilot, blue is waiting on a clock, green is
-/// done, red needs a person.
+/// The tinted capsule on a row.
+///
+/// Colour carries one meaning everywhere: grey is waiting on the system, purple
+/// is being made, orange is waiting on **you**, blue is waiting on a clock,
+/// green is done, red needs fixing. Orange exists because `needsApproval` is the
+/// only state a person can clear, and it should not look like the ones they
+/// cannot.
 struct StatusBadge: View {
     let status: PostStatus
 
@@ -18,12 +22,13 @@ struct StatusBadge: View {
 
     static func tint(for status: PostStatus) -> Color {
         switch status {
-        case .planned:   return .secondary
-        case .scripted:  return .indigo
-        case .rendering: return .purple
-        case .scheduled: return .blue
-        case .posted:    return .green
-        case .failed:    return .red
+        case .planned:       return .secondary
+        case .scripted:      return .indigo
+        case .sourcing:      return .purple
+        case .needsApproval: return .orange
+        case .scheduled:     return .blue
+        case .posted:        return .green
+        case .failed:        return .red
         }
     }
 }

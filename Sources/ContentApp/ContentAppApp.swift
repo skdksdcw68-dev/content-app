@@ -2,15 +2,16 @@ import SwiftUI
 
 @main
 struct ContentAppApp: App {
-    /// One store for the whole app, owned here and handed down through the
-    /// environment. Starts disconnected -- the first screen is the connect
-    /// screen until an account is linked.
-    @State private var store = ContentStore()
+    /// One session for the whole app: the Supabase client, the signed-in user,
+    /// the brand and its connected accounts. Signing in happens on launch, so
+    /// the first screen is the product rather than a login wall.
+    @State private var session = AppSession()
 
     var body: some Scene {
         WindowGroup {
             RootView()
-                .environment(store)
+                .environment(session)
+                .task { await session.start() }
         }
     }
 }

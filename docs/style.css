@@ -1,0 +1,132 @@
+/* One stylesheet for all three pages. No build step, no framework, no fonts to
+   fetch -- these pages exist to be read by a TikTok reviewer and by anyone
+   deciding whether to trust the app with their account, and both are better
+   served by something that loads instantly. */
+
+:root {
+  --accent: #6c5ce7;
+  --accent-soft: #eeecff;
+  --ink: #16151d;
+  --ink-soft: #5b5966;
+  --bg: #ffffff;
+  --bg-soft: #f7f7fa;
+  --rule: #e6e5ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #8b7cff;
+    --accent-soft: #221e3d;
+    --ink: #f2f1f6;
+    --ink-soft: #a5a2b3;
+    --bg: #0f0e14;
+    --bg-soft: #16151d;
+    --rule: #2a2833;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.5rem; }
+
+header {
+  border-bottom: 1px solid var(--rule);
+  padding: 1.25rem 0;
+  margin-bottom: 3rem;
+}
+
+header .wrap { display: flex; align-items: center; gap: 1.25rem; }
+
+.mark {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+  margin-right: auto;
+}
+.mark span { color: var(--accent); }
+
+header nav a {
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+header nav a:hover { color: var(--accent); }
+
+h1 {
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin: 0 0 1rem;
+}
+
+h2 {
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  margin: 2.75rem 0 0.75rem;
+}
+
+.lede { font-size: 1.15rem; color: var(--ink-soft); margin: 0 0 2.5rem; }
+
+p, li { color: var(--ink); }
+.muted { color: var(--ink-soft); }
+
+a { color: var(--accent); }
+
+ul { padding-left: 1.1rem; }
+li { margin: 0.4rem 0; }
+
+.steps { list-style: none; padding: 0; margin: 0; }
+.steps li {
+  border-top: 1px solid var(--rule);
+  padding: 1.1rem 0;
+  display: grid;
+  grid-template-columns: 1.75rem 1fr;
+  gap: 0.9rem;
+}
+.steps li:last-child { border-bottom: 1px solid var(--rule); }
+.steps .n {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.steps strong { display: block; font-weight: 600; }
+.steps span.d { color: var(--ink-soft); font-size: 0.95rem; }
+
+.callout {
+  background: var(--bg-soft);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  padding: 1.1rem 1.25rem;
+  margin: 2rem 0;
+}
+.callout p { margin: 0; }
+
+.updated {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+  margin: 0 0 2.5rem;
+}
+
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.6rem 0.75rem 0.6rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; }
+
+footer {
+  border-top: 1px solid var(--rule);
+  margin-top: 4rem;
+  padding: 1.75rem 0 3rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+footer a { color: var(--ink-soft); margin-right: 1.25rem; }
+footer a:hover { color: var(--accent); }

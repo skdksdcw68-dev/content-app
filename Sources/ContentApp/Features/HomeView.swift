@@ -25,7 +25,10 @@ struct HomeView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Home")
-        .refreshable { await session.refreshConnections() }
+        .refreshable {
+            await session.refreshConnections()
+            await session.refreshPosts()
+        }
     }
 }
 

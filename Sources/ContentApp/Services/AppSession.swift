@@ -22,6 +22,10 @@ final class AppSession {
     private(set) var brand: Brand?
     private(set) var connections: [PlatformConnection] = []
     private(set) var isConnecting = false
+    /// Any longer-running action the person started: uploading, approving,
+    /// publishing. Drives the spinners and stops a second tap.
+    private(set) var isWorking = false
+    private(set) var posts: [PendingPost] = []
 
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
@@ -51,9 +55,10 @@ final class AppSession {
             userID = user.id
             try await loadBrand(for: user.id)
             await refreshConnections()
+            await refreshPosts()
             state = .ready
         } catch {
-            state = .failed(readable(error))
+            state = .failed(readableMessage(error))
         }
     }
 
@@ -109,7 +114,7 @@ final class AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readable(error)
+            lastError = readableMessage(error)
         }
     }
 
@@ -148,7 +153,7 @@ final class AppSession {
         } catch let error as WebAuth.Failure where error == .cancelled {
             // Same.
         } catch {
-            lastError = readable(error)
+            lastError = readableMessage(error)
         }
     }
 
@@ -185,7 +190,7 @@ final class AppSession {
 
     /// Postgres and PostgREST errors are not written for people. Anything we do
     /// not recognise becomes something plain rather than a raw code.
-    private func readable(_ error: Error) -> String {
+    func readableMessage(_ error: Error) -> String {
         if let postgrest = error as? PostgrestError {
             return postgrest.message
         }
@@ -202,4 +207,175 @@ private struct AuthorizeStart: Decodable {
     enum CodingKeys: String, CodingKey {
         case authorizeURL = "authorize_url"
     }
+}
+
+// MARK: - Posts
+
+extension AppSession {
+    /// Everything queued for this brand, newest first.
+    func refreshPosts() async {
+        guard brand != nil else { return }
+        do {
+            posts = try await client
+                .from("post_targets")
+                .select("id,caption,state,privacy,is_aigc,consent_id,failure_reason,posts!inner(hook,status,created_at)")
+                .order("id", ascending: false)
+                .limit(50)
+                .execute()
+                .value
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Uploads a video the person picked and turns it into a post awaiting
+    /// their approval.
+    ///
+    /// The file goes straight to Storage from here -- the storage policy scopes
+    /// every object to its owner's folder, so there is no need to route bytes
+    /// through a function. What the server does afterwards is decide the file is
+    /// publishable, which is not a decision a client gets to make.
+    func addVideo(data: Data, filename: String, caption: String) async {
+        guard let connection = connections.first(where: \.isHealthy),
+              let userID else {
+            lastError = "Connect an account first."
+            return
+        }
+
+        isWorking = true
+        defer { isWorking = false }
+
+        let path = "\(userID.uuidString)/\(UUID().uuidString)/\(filename)"
+
+        do {
+            _ = try await client.storage
+                .from("media")
+                .upload(path, data: data, options: FileOptions(contentType: mimeType(for: filename)))
+
+            let _: PreparedPost = try await client.functions.invoke(
+                "prepare-post",
+                options: FunctionInvokeOptions(body: [
+                    "connection_id": connection.id.uuidString,
+                    "storage_path": path,
+                    "caption": caption,
+                ])
+            )
+
+            await refreshPosts()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Reads what the account currently allows, straight from TikTok.
+    func creatorInfo(for connectionID: UUID) async -> CreatorInfo? {
+        do {
+            return try await client.functions.invoke(
+                "creator-info",
+                options: FunctionInvokeOptions(body: ["connection_id": connectionID.uuidString])
+            )
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+
+    /// Records permission for one post, at one visibility.
+    @discardableResult
+    func approve(
+        postTargetID: UUID,
+        privacy: String,
+        disableComment: Bool,
+        disableDuet: Bool,
+        disableStitch: Bool,
+        isAIGC: Bool
+    ) async -> Bool {
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let _: ApprovalResult = try await client.functions.invoke(
+                "approve-post",
+                options: FunctionInvokeOptions(body: ApprovalRequest(
+                    postTargetId: postTargetID.uuidString,
+                    privacy: privacy,
+                    disableComment: disableComment,
+                    disableDuet: disableDuet,
+                    disableStitch: disableStitch,
+                    isAigc: isAIGC,
+                    brandContent: false,
+                    brandOrganic: false
+                ))
+            )
+            await refreshPosts()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// Sends it. `draft` puts it in the creator's TikTok drafts instead of
+    /// posting, which is the path that needs no audit.
+    @discardableResult
+    func publish(postTargetID: UUID, draft: Bool) async -> String? {
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let result: PublishResult = try await client.functions.invoke(
+                "publish-post",
+                options: FunctionInvokeOptions(body: [
+                    "post_target_id": postTargetID.uuidString,
+                    "mode": draft ? "UPLOAD_TO_DRAFT" : "DIRECT_POST",
+                ])
+            )
+            await refreshPosts()
+            return result.state
+        } catch {
+            lastError = readableMessage(error)
+            await refreshPosts()
+            return nil
+        }
+    }
+
+    private func mimeType(for filename: String) -> String {
+        filename.lowercased().hasSuffix(".mov") ? "video/quicktime" : "video/mp4"
+    }
+}
+
+private struct PreparedPost: Decodable {
+    let postTargetId: String
+    enum CodingKeys: String, CodingKey { case postTargetId = "post_target_id" }
+}
+
+private struct ApprovalRequest: Encodable {
+    let postTargetId: String
+    let privacy: String
+    let disableComment: Bool
+    let disableDuet: Bool
+    let disableStitch: Bool
+    let isAigc: Bool
+    let brandContent: Bool
+    let brandOrganic: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case postTargetId = "post_target_id"
+        case privacy
+        case disableComment = "disable_comment"
+        case disableDuet = "disable_duet"
+        case disableStitch = "disable_stitch"
+        case isAigc = "is_aigc"
+        case brandContent = "brand_content"
+        case brandOrganic = "brand_organic"
+    }
+}
+
+private struct ApprovalResult: Decodable {
+    let privacy: String
+}
+
+private struct PublishResult: Decodable {
+    let state: String
+    let reason: String?
 }

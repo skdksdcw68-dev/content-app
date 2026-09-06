@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Connecting your account — Netro Autocast</title>
+<link rel="stylesheet" href="/style.css">
+<script>
+/*
+ * TikTok requires that every URL in the app configuration be verified as one we
+ * own, and that includes the redirect URI. The Edge Function that actually does
+ * the code exchange lives on *.supabase.co, which we cannot verify -- so the
+ * redirect registered with TikTok is this page, on our own domain, and it hands
+ * the parameters straight on.
+ *
+ * Nothing sensitive is handled here. The authorization code is single-use,
+ * short-lived, and was already in the browser's address bar the moment TikTok
+ * redirected. The exchange for a token happens server-side in the Edge Function,
+ * using a client secret this page has never seen.
+ */
+(function () {
+  var EXCHANGE = "https://dosszkllkassvyprkhrg.supabase.co/functions/v1/oauth-callback";
+  var params = window.location.search || "";
+
+  // Nothing to forward means somebody opened this page directly rather than
+  // arriving from TikTok. Say so instead of bouncing them into an error.
+  if (!params || params.length < 2) {
+    document.addEventListener("DOMContentLoaded", function () {
+      document.getElementById("state").textContent =
+        "Open this from the app rather than directly — there is nothing to connect here.";
+    });
+    return;
+  }
+
+  // replace() rather than assign(), so the back button does not re-submit a
+  // code that has already been spent.
+  window.location.replace(EXCHANGE + params);
+})();
+</script>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="mark" href="/">Netro <span>Autocast</span></a>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1>Connecting your account</h1>
+  <p class="lede" id="state">One moment &mdash; handing you back to Netro Autocast.</p>
+  <p class="muted">
+    If nothing happens, close this window and try connecting again from the app.
+  </p>
+</main>
+
+</body>
+</html>

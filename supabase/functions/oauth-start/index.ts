@@ -22,12 +22,32 @@ const REDIRECT_URI =
   Deno.env.get("TIKTOK_REDIRECT_URI") ?? "https://netrocast.com/oauth/tiktok/callback/";
 
 /**
- * Both products, requested together. `video.upload` puts a post in the user's
- * drafts and `video.publish` posts it directly; we build against drafts first
- * because that path needs no audit, and flip to direct once the audit clears.
- * Asking for both now avoids a second consent screen later.
+ * Everything the product needs, asked for once.
+ *
+ * Adding a scope later means another review round and another consent screen,
+ * so the list is the whole product rather than the current milestone.
+ *
+ *   user.info.basic    open_id, display_name, avatar_url -- shown on the
+ *                      approval screen so a person always sees which account
+ *                      a post will publish from
+ *   user.info.profile  username. basic does not return it, and two connected
+ *                      accounts are indistinguishable without it
+ *   user.info.stats    follower count, for Insights
+ *   video.list         view, like, comment and share counts for posts we
+ *                      published. This is the feedback loop: without it
+ *                      post_targets.metrics is never filled, and "best hooks"
+ *                      and "best posting times" have nothing behind them
+ *   video.upload       put a post in the person's drafts to finish themselves
+ *   video.publish      direct post, once the audit clears
  */
-const TIKTOK_SCOPES = ["user.info.basic", "video.upload", "video.publish"];
+const TIKTOK_SCOPES = [
+  "user.info.basic",
+  "user.info.profile",
+  "user.info.stats",
+  "video.list",
+  "video.upload",
+  "video.publish",
+];
 
 interface StartBody {
   brand_id?: string;

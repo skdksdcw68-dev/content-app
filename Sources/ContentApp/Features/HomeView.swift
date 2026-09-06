@@ -43,6 +43,15 @@ struct HomeView: View {
                 if !published.isEmpty {
                     PublishedCard(posts: published)
                 }
+
+                if !session.connections.isEmpty {
+                    NavigationLink {
+                        InsightsView()
+                    } label: {
+                        InsightsLinkCard()
+                    }
+                    .buttonStyle(.plain)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -229,6 +238,37 @@ private struct FailedCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+            }
+        }
+    }
+}
+
+/// Insights lives behind a tap rather than a tab. It is the screen you look at
+/// weekly, not the one you open the app for.
+private struct InsightsLinkCard: View {
+    var body: some View {
+        Card {
+            HStack(spacing: 12) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 34, height: 34)
+                    .background(Theme.softAccent, in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Insights")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+                    Text("Followers and views, straight from TikTok")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color(.tertiaryLabel))
             }
         }
     }

@@ -410,3 +410,55 @@ extension AppSession {
 private struct IdeaResponse: Decodable {
     let ideas: [Idea]
 }
+
+// MARK: - Metrics
+
+/// One video's numbers, as TikTok reports them.
+struct VideoMetric: Identifiable, Decodable, Hashable, Sendable {
+    let id: String
+    let title: String
+    let views: Int
+    let likes: Int
+    let comments: Int
+    let shares: Int
+}
+
+struct Totals: Decodable, Hashable, Sendable {
+    let views: Int
+    let likes: Int
+    let comments: Int
+    let shares: Int
+}
+
+/// Nulls survive the whole way to the tiles on purpose: a figure the platform
+/// did not return is shown as a dash, never as a zero.
+struct Metrics: Decodable, Sendable {
+    let username: String
+    let followers: Int?
+    let totalLikes: Int?
+    let videoCount: Int?
+    let recent: [VideoMetric]
+    let totals: Totals
+
+    enum CodingKeys: String, CodingKey {
+        case username, recent, totals
+        case followers
+        case totalLikes = "total_likes"
+        case videoCount = "video_count"
+    }
+}
+
+extension AppSession {
+    func metrics() async -> Metrics? {
+        guard !connections.isEmpty else { return nil }
+        do {
+            return try await client.functions.invoke(
+                "fetch-metrics",
+                options: FunctionInvokeOptions(body: [String: String]())
+            )
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+}

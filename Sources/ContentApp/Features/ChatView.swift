@@ -10,7 +10,7 @@ struct ChatView: View {
         ComingSoon(
             symbol: "bubble.left.and.sparkles",
             title: "Ask for a month of content",
-            detail: "You will describe what you want here and it will plan up to thirty days, write the captions, and book the slots. It needs the agent and the media pipeline behind it before it can do anything, so it is switched off rather than faked."
+            detail: "You will describe what you want here and it will plan up to thirty days, write the captions and book the slots. Until the agent is wired up, Library is where you add a video and Home is where you approve it -- both of those work today."
         )
         .navigationTitle("Chat")
     }

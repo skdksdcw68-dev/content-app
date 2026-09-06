@@ -83,6 +83,24 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        # How an OAuth round trip gets back into the app.
+        #
+        # ASWebAuthenticationSession is opened with callbackURLScheme "autocast",
+        # and iOS intercepts that scheme inside the session -- it closes the sheet
+        # and hands the URL back without the person ever leaving the app. That is
+        # why TikTok is registered as a Web integration and not an iOS one: a
+        # native app-to-app handoff would need a Universal Link, an Associated
+        # Domains entitlement, and an App Store URL, and the app is not on the
+        # App Store yet.
+        #
+        # The session does not strictly require this declaration, but anything
+        # else that wants to open the app -- a push, an email, the approval link
+        # in a notification -- does.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.abelamare.autocast.oauth
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - autocast
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # Shown verbatim in the system prompt. An app that reaches the photo

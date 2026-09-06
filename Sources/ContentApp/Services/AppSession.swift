@@ -379,3 +379,34 @@ private struct PublishResult: Decodable {
     let state: String
     let reason: String?
 }
+
+// MARK: - Ideas
+
+/// One idea from the writer. Not persisted -- ideas become posts only when a
+/// person does something with them.
+struct Idea: Identifiable, Decodable, Hashable, Sendable {
+    var id: String { hook }
+    let hook: String
+    let caption: String
+    let hashtags: [String]
+    let rationale: String
+}
+
+extension AppSession {
+    func ideas(for message: String) async -> [Idea] {
+        do {
+            let response: IdeaResponse = try await client.functions.invoke(
+                "agent-chat",
+                options: FunctionInvokeOptions(body: ["message": message])
+            )
+            return response.ideas
+        } catch {
+            lastError = readableMessage(error)
+            return []
+        }
+    }
+}
+
+private struct IdeaResponse: Decodable {
+    let ideas: [Idea]
+}

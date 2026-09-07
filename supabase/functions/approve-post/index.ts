@@ -208,6 +208,42 @@ Deno.serve(async (request) => {
 
     await admin.from("posts").update({ status: "scheduled" }).eq("id", target.post_id);
 
+    // The step that makes approval mean something on its own.
+    //
+    // A post that came out of a plan already knows when it should go out. Until
+    // now that time was decorative -- approving recorded consent and then waited
+    // for somebody to press publish, which is the chore this product exists to
+    // remove. Handing it to schedule_publish() puts it in the queue the cron
+    // loop drains, and the app stops being involved.
+    //
+    // schedule_publish() is security definer with an explicit auth.uid() check,
+    // and the service role is exempt from it by design so this function can act
+    // on the person's behalf. The permission was just recorded above; this only
+    // decides when to act on it.
+    const { data: post } = await admin
+      .from("posts")
+      .select("scheduled_for")
+      .eq("id", target.post_id)
+      .single();
+
+    let scheduledFor: string | null = null;
+
+    if (post?.scheduled_for && new Date(post.scheduled_for).getTime() > Date.now()) {
+      const { error: scheduleError } = await admin.rpc("schedule_publish", {
+        p_post_target_id: target.id,
+        p_run_at: post.scheduled_for,
+      });
+
+      // A failure here leaves consent recorded and nothing queued, which is the
+      // safe direction: the post simply waits for a person. Reported rather
+      // than swallowed so the app can say which of the two happened.
+      if (scheduleError) {
+        console.error("schedule_publish", scheduleError);
+      } else {
+        scheduledFor = post.scheduled_for;
+      }
+    }
+
     return json({
       consent_id: consent.id,
       privacy: body.privacy,
@@ -215,6 +251,8 @@ Deno.serve(async (request) => {
       disable_duet: disableDuet,
       disable_stitch: disableStitch,
       approved_as: info.creator_username,
+      // Null means nobody has said when, so it stays waiting for a tap.
+      scheduled_for: scheduledFor,
     });
   } catch (error) {
     return fail(error);

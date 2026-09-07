@@ -7,6 +7,10 @@ import Foundation
 /// approved -- lives on the target, while the idea lives on the post.
 struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
     let id: UUID
+    /// The idea this destination belongs to. Carried so a row in the plan can
+    /// find the queue entry that came from it -- without it the two lists are
+    /// the same posts with no way to say so.
+    let postId: UUID
     let caption: String
     let state: State
     let privacy: String
@@ -34,6 +38,7 @@ struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, caption, state, privacy
+        case postId = "post_id"
         case isAIGC = "is_aigc"
         case consentId = "consent_id"
         case failureReason = "failure_reason"

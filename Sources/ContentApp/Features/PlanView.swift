@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 /// The month, before you agree to it.
 ///
@@ -15,9 +16,20 @@ struct PlanView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var confirmingDiscard = false
+    @State private var addingTo: PlannedPost?
+    @State private var pickingVideo = false
+    @State private var pickerItem: PhotosPickerItem?
+    @State private var approving: PendingPost?
 
     private var plan: ContentPlan? { session.plan }
     private var posts: [PlannedPost] { session.planPosts }
+
+    /// The queue entry each planned post produced, if it has produced one yet.
+    /// Built once per redraw rather than searched per row, so a thirty-day plan
+    /// does not do thirty linear scans every time anything changes.
+    private var queued: [UUID: PendingPost] {
+        Dictionary(session.posts.map { ($0.postId, $0) }, uniquingKeysWith: { first, _ in first })
+    }
 
     /// Grouped by the day they fall on rather than by `day_index`, because two
     /// posts a day should sit under one heading.
@@ -44,14 +56,32 @@ struct PlanView: View {
         Group {
             if let plan {
                 List {
-                    Section { PlanSummary(plan: plan, posts: posts) }
+                    Section {
+                        PlanSummary(
+                            plan: plan,
+                            posts: posts,
+                            withVideo: posts.filter { queued[$0.id] != nil }.count
+                        )
+                    }
                         .listRowInsets(EdgeInsets())
                         .listRowBackground(Color.clear)
 
                     ForEach(days) { day in
                         Section {
                             ForEach(day.posts) { post in
-                                PlannedPostRow(post: post, timezone: brandTimeZone)
+                                PlannedPostRow(
+                                    post: post,
+                                    timezone: brandTimeZone,
+                                    queued: queued[post.id],
+                                    // A proposal has nothing to attach media to
+                                    // yet. Agreeing to the month comes first.
+                                    canAttach: plan?.isRunning == true,
+                                    addVideo: {
+                                        addingTo = post
+                                        pickingVideo = true
+                                    },
+                                    review: { approving = queued[post.id] }
+                                )
                             }
                         } header: {
                             Text(dayHeading(day.id))
@@ -74,7 +104,13 @@ struct PlanView: View {
         }
         .navigationTitle(plan?.isRunning == true ? "Your plan" : "Proposed plan")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { await session.refreshPlan() }
+        .refreshable {
+            await session.refreshPlan()
+            await session.refreshPosts()
+        }
+        .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
+        .task(id: pickerItem) { await attachPicked() }
+        .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .confirmationDialog(
             "Throw this plan away?",
             isPresented: $confirmingDiscard,
@@ -94,6 +130,35 @@ struct PlanView: View {
 
     private func approve() async {
         if await session.activatePlan() { dismiss() }
+    }
+
+    /// Puts a video against the day it was picked for.
+    ///
+    /// The caption comes from what the plan already wrote, so filling in a slot
+    /// is one gesture rather than a picker followed by a form. It can still be
+    /// changed on the approval sheet, which is where every other choice about
+    /// this post is made.
+    private func attachPicked() async {
+        guard let pickerItem, let target = addingTo else { return }
+        defer {
+            self.pickerItem = nil
+            addingTo = nil
+        }
+
+        do {
+            guard let movie = try await pickerItem.loadTransferable(type: Movie.self) else { return }
+            let data = try Data(contentsOf: movie.url)
+            try? FileManager.default.removeItem(at: movie.url)
+
+            await session.addVideo(
+                data: data,
+                filename: movie.url.lastPathComponent,
+                caption: target.script,
+                postID: target.id
+            )
+        } catch {
+            session.lastError = "That video could not be read."
+        }
     }
 
     // MARK: - Dates in the brand's own zone
@@ -127,8 +192,10 @@ struct PlanView: View {
 private struct PlanSummary: View {
     let plan: ContentPlan
     let posts: [PlannedPost]
+    /// How many days already have something to publish.
+    let withVideo: Int
 
-    private var scheduled: Int { posts.filter { $0.status == .scheduled }.count }
+    private var waiting: Int { max(0, posts.count - withVideo) }
 
     var body: some View {
         Card {
@@ -140,17 +207,17 @@ private struct PlanSummary: View {
                 }
 
                 Text(plan.isRunning
-                     ? "Running. \(scheduled) of \(posts.count) posts have a time and the scheduler is counting toward them."
+                     ? "Running. \(withVideo) of \(posts.count) days have a video."
                      : "\(posts.count) posts written. Nothing is scheduled until you approve it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
                 // The honest caveat, said here rather than discovered later.
-                // Approving this schedules the times; it does not make the
-                // videos, because nothing in this app makes videos yet.
+                // Approving sets the times; it does not make the videos,
+                // because nothing in this app makes videos yet.
                 Label {
-                    Text("Approving sets the times. You still add the video for each post before it can go out.")
+                    Text(caveat)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -164,6 +231,16 @@ private struct PlanSummary: View {
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
     }
+
+    private var caveat: String {
+        guard plan.isRunning else {
+            return "Approving sets the times. You still add the video for each post before it can go out."
+        }
+        if waiting == 0 {
+            return "Every day has a video. Approved ones go out on their own."
+        }
+        return "\(waiting) still need a video. Add one and approve it, and it posts itself at the time above."
+    }
 }
 
 // MARK: - One post
@@ -171,6 +248,11 @@ private struct PlanSummary: View {
 private struct PlannedPostRow: View {
     let post: PlannedPost
     let timezone: TimeZone
+    /// The queue entry this day produced, once a video has been attached to it.
+    let queued: PendingPost?
+    let canAttach: Bool
+    let addVideo: () -> Void
+    let review: () -> Void
 
     @State private var expanded = false
 
@@ -192,7 +274,7 @@ private struct PlannedPostRow: View {
 
                 Spacer(minLength: 0)
 
-                if post.status == .scheduled {
+                if post.status == .scheduled && queued == nil {
                     Image(systemName: "clock")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -218,6 +300,13 @@ private struct PlannedPostRow: View {
                     Detail(icon: "quote.opening", title: "Why", text: post.rationale)
                 }
             }
+
+            // Where this day actually stands. Until there is a video there is
+            // nothing to publish, and the row should say that rather than
+            // looking finished because it has words in it.
+            if canAttach {
+                action
+            }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -225,6 +314,44 @@ private struct PlannedPostRow: View {
             withAnimation(.snappy) { expanded.toggle() }
         }
         .accessibilityHint(expanded ? "Collapse details" : "Show what it films and why")
+    }
+
+    @ViewBuilder
+    private var action: some View {
+        if let queued {
+            if queued.needsYou {
+                Button(action: review) {
+                    Label("Approve it", systemImage: "hand.raised")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                // A row inside a List already has a tap; a button inside it
+                // needs its own hit test or the row swallows the press.
+                .buttonBorderShape(.capsule)
+            } else {
+                Label(queued.statusLine, systemImage: statusSymbol(queued))
+                    .font(.caption)
+                    .foregroundStyle(queued.state == .failed ? Color.red : Color.secondary)
+            }
+        } else {
+            Button(action: addVideo) {
+                Label("Add video", systemImage: "video.badge.plus")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .buttonBorderShape(.capsule)
+        }
+    }
+
+    private func statusSymbol(_ queued: PendingPost) -> String {
+        switch queued.state {
+        case .published: return "checkmark.circle.fill"
+        case .failed:    return "exclamationmark.triangle.fill"
+        case .pending:   return "clock"
+        default:         return "paperplane"
+        }
     }
 
     private var time: String {

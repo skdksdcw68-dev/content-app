@@ -24,6 +24,10 @@ struct ApprovalSheet: View {
     @State private var disableDuet = false
     @State private var disableStitch = false
     @State private var result: String?
+    /// Set once approving hands the post to the scheduler. Held here rather
+    /// than read back off `post`, which is the copy this sheet was opened
+    /// with and does not change underneath it.
+    @State private var scheduledFor: Date?
 
     var body: some View {
         NavigationStack {
@@ -117,7 +121,18 @@ struct ApprovalSheet: View {
             }
 
             Section {
-                if post.isApproved {
+                // Three states, and the third is the point of the product: a
+                // post with a slot needs nothing further from anybody, so it is
+                // offered no buttons rather than a Post button that would take
+                // the decision back off the scheduler.
+                if let scheduledFor {
+                    Label {
+                        Text("Goes out \(scheduledFor, format: .dateTime.weekday(.wide).day().month().hour().minute())")
+                    } icon: {
+                        Image(systemName: "clock.badge.checkmark")
+                            .foregroundStyle(Theme.accent)
+                    }
+                } else if post.isApproved {
                     Button {
                         Task { await send(draft: false) }
                     } label: {
@@ -137,9 +152,13 @@ struct ApprovalSheet: View {
                     .disabled(privacy == nil)
                 }
             } footer: {
-                Text(post.isApproved
-                     ? "You approved this exact caption and video. If either changes, it stops and comes back to you."
-                     : "Approving records what you agreed to. Nothing is posted until you press post.")
+                if scheduledFor != nil {
+                    Text("You do not need to open the app again for this one. If the caption or the video changes before then, it stops and comes back to you.")
+                } else if post.isApproved {
+                    Text("You approved this exact caption and video. If either changes, it stops and comes back to you.")
+                } else {
+                    Text("Approving records what you agreed to. Nothing is posted until you press post.")
+                }
             }
 
             if let result {
@@ -185,15 +204,25 @@ struct ApprovalSheet: View {
 
     private func approve() async {
         guard let privacy else { return }
-        let ok = await session.approve(
+        guard let outcome = await session.approve(
             postTargetID: post.id,
             privacy: privacy,
             disableComment: disableComment,
             disableDuet: disableDuet,
             disableStitch: disableStitch,
             isAIGC: isAIGC
-        )
-        if ok { dismiss() }
+        ) else { return }
+
+        // A post with a slot is finished the moment it is approved -- the
+        // scheduler publishes it with the app closed. Saying when, here, is the
+        // difference between "I approved something" and knowing what happens
+        // next, so the sheet stays open long enough to be read.
+        guard let when = outcome.scheduledFor else {
+            dismiss()
+            return
+        }
+
+        scheduledFor = when
     }
 
     private func send(draft: Bool) async {

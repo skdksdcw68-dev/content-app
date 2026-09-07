@@ -228,7 +228,7 @@ extension AppSession {
         do {
             posts = try await client
                 .from("post_targets")
-                .select("id,caption,state,privacy,is_aigc,consent_id,failure_reason,posts!inner(hook,status,created_at)")
+                .select("id,post_id,caption,state,privacy,is_aigc,consent_id,failure_reason,posts!inner(hook,status,created_at)")
                 .order("id", ascending: false)
                 .limit(50)
                 .execute()
@@ -245,7 +245,11 @@ extension AppSession {
     /// every object to its owner's folder, so there is no need to route bytes
     /// through a function. What the server does afterwards is decide the file is
     /// publishable, which is not a decision a client gets to make.
-    func addVideo(data: Data, filename: String, caption: String) async {
+    ///
+    /// Passing `postID` fills in a post the plan already wrote instead of making
+    /// a new one. Without it, adding a video for day 4 would create something
+    /// unrelated and day 4 would stay empty.
+    func addVideo(data: Data, filename: String, caption: String, postID: UUID? = nil) async {
         guard let connection = connections.first(where: \.isHealthy),
               let userID else {
             lastError = "Connect an account first."
@@ -264,14 +268,18 @@ extension AppSession {
 
             let _: PreparedPost = try await client.functions.invoke(
                 "prepare-post",
-                options: FunctionInvokeOptions(body: [
-                    "connection_id": connection.id.uuidString,
-                    "storage_path": path,
-                    "caption": caption,
-                ])
+                options: FunctionInvokeOptions(body: PrepareRequest(
+                    connectionId: connection.id.uuidString,
+                    storagePath: path,
+                    caption: caption,
+                    postId: postID?.uuidString
+                ))
             )
 
             await refreshPosts()
+            // The plan holds the status this just changed, so it goes stale the
+            // moment a video lands against one of its days.
+            if postID != nil { await refreshPlan() }
         } catch {
             lastError = readableMessage(error)
         }
@@ -291,6 +299,11 @@ extension AppSession {
     }
 
     /// Records permission for one post, at one visibility.
+    ///
+    /// Returns when it will go out, when the server was able to answer that. A
+    /// post that came from a plan already has a slot, so approving it is the
+    /// last thing a person has to do -- the scheduler takes it from there. A
+    /// one-off upload has no slot, comes back with nil, and waits for a tap.
     @discardableResult
     func approve(
         postTargetID: UUID,
@@ -299,12 +312,12 @@ extension AppSession {
         disableDuet: Bool,
         disableStitch: Bool,
         isAIGC: Bool
-    ) async -> Bool {
+    ) async -> ApprovalOutcome? {
         isWorking = true
         defer { isWorking = false }
 
         do {
-            let _: ApprovalResult = try await client.functions.invoke(
+            let result: ApprovalResult = try await client.functions.invoke(
                 "approve-post",
                 options: FunctionInvokeOptions(body: ApprovalRequest(
                     postTargetId: postTargetID.uuidString,
@@ -318,10 +331,13 @@ extension AppSession {
                 ))
             )
             await refreshPosts()
-            return true
+            await refreshPlan()
+            return ApprovalOutcome(
+                scheduledFor: result.scheduledFor.flatMap(PostgresTimestamp.parse)
+            )
         } catch {
             lastError = readableMessage(error)
-            return false
+            return nil
         }
     }
 
@@ -359,6 +375,23 @@ private struct PreparedPost: Decodable {
     enum CodingKeys: String, CodingKey { case postTargetId = "post_target_id" }
 }
 
+/// A struct rather than a dictionary because `post_id` is optional, and a
+/// `[String: String]` body cannot carry a missing key without the call site
+/// building two different dictionaries.
+private struct PrepareRequest: Encodable {
+    let connectionId: String
+    let storagePath: String
+    let caption: String
+    let postId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case caption
+        case connectionId = "connection_id"
+        case storagePath = "storage_path"
+        case postId = "post_id"
+    }
+}
+
 private struct ApprovalRequest: Encodable {
     let postTargetId: String
     let privacy: String
@@ -383,6 +416,22 @@ private struct ApprovalRequest: Encodable {
 
 private struct ApprovalResult: Decodable {
     let privacy: String
+    /// Null when nothing has said when this should go out, which is the case
+    /// for anything that did not come from a plan.
+    let scheduledFor: String?
+
+    enum CodingKeys: String, CodingKey {
+        case privacy
+        case scheduledFor = "scheduled_for"
+    }
+}
+
+/// What approving actually settled.
+struct ApprovalOutcome: Sendable {
+    let scheduledFor: Date?
+
+    /// Nothing further is required of the person: the publisher owns it now.
+    var isUnattended: Bool { scheduledFor != nil }
 }
 
 private struct PublishResult: Decodable {

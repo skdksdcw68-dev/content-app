@@ -71,10 +71,10 @@ enable_confirmations = true
 #
 # Called by the app, with a user session. JWT verification stays on.
 
-[functions.agent-send]
+[functions.agent-chat]
 verify_jwt = true
 
-[functions.agent-cancel]
+[functions.propose-plan]
 verify_jwt = true
 
 [functions.oauth-start]
@@ -83,18 +83,31 @@ verify_jwt = true
 [functions.creator-info]
 verify_jwt = true
 
-[functions.approve-plan]
+[functions.prepare-post]
 verify_jwt = true
 
-[functions.media-upload-url]
+[functions.approve-post]
 verify_jwt = true
 
-# Called by somebody else's server. No Supabase session exists, so each one
-# carries its own proof instead.
+[functions.publish-post]
+verify_jwt = true
+
+[functions.fetch-metrics]
+verify_jwt = true
+
+# Called by somebody else's server, or by the database itself. No Supabase
+# session exists, so each one carries its own proof instead.
 
 # The platform redirects a browser here after the person approves access. The
 # PKCE `state` we issued is what proves the callback belongs to a flow we started.
 [functions.oauth-callback]
+verify_jwt = false
+
+# Woken every minute by pg_cron through pg_net, which carries no JWT. What
+# stands in for one is a shared secret in `x-cron-secret`, compared in constant
+# time and kept in `private.scheduler_config` rather than in the cron command --
+# job definitions are readable by anyone who can see cron.job.
+[functions.run-due-posts]
 verify_jwt = false
 
 # The generation provider signs nothing, so the URL itself carries an

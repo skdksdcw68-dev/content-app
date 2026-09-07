@@ -152,4 +152,135 @@ final class ModelTests: XCTestCase {
             XCTAssertNotNil(connection.problem, "\(status) must explain itself to the person")
         }
     }
+
+    // MARK: - The plan
+
+    /// The bug this exists to stop: PostgREST prints a `timestamptz` without
+    /// fractional seconds when the value has none, and `scheduled_for` always
+    /// lands exactly on the hour. A single ISO8601 formatter parses
+    /// `created_at` happily and returns nil for every slot in the plan, so the
+    /// month renders with "--:--" against every line and nothing crashes.
+    func testTimestampsParseWithAndWithoutFractionalSeconds() {
+        let withFraction = PostgresTimestamp.parse("2026-09-07T06:48:12.49304+00:00")
+        XCTAssertNotNil(withFraction, "created_at carries fractional seconds")
+
+        let plain = PostgresTimestamp.parse("2026-09-08T06:00:00+00:00")
+        XCTAssertNotNil(plain, "scheduled_for lands on the hour and carries none")
+
+        XCTAssertEqual(
+            plain?.timeIntervalSince1970,
+            Date(timeIntervalSince1970: 1_788_847_200).timeIntervalSince1970,
+            "08 Sep 2026 06:00 UTC"
+        )
+
+        XCTAssertNil(PostgresTimestamp.parse("tomorrow morning"))
+    }
+
+    /// The shape `refreshPlan()` actually asks PostgREST for, including the
+    /// embedded theme. A rename on either side lands here rather than on a
+    /// device.
+    func testPlannedPostDecodesTheRowTheAppSelects() throws {
+        let json = """
+        {
+          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "day_index": 4,
+          "slot_index": 0,
+          "hook": "I removed a step that was slowing new people down.",
+          "script": "Onboarding got shorter this week.",
+          "concept": "Screen recording of the old flow beside the new one.",
+          "rationale": "It shows the work rather than claiming it.",
+          "status": "planned",
+          "scheduled_for": "2026-09-11T06:00:00+00:00",
+          "content_pillars": { "name": "Behind the build" }
+        }
+        """.data(using: .utf8)!
+
+        let post = try JSONDecoder().decode(PlannedPost.self, from: json)
+
+        XCTAssertEqual(post.dayIndex, 4)
+        XCTAssertEqual(post.status, .planned)
+        XCTAssertEqual(post.pillar?.name, "Behind the build")
+        XCTAssertNotNil(post.scheduledFor)
+    }
+
+    /// A post with no theme is normal -- an account with no pillars gets a null
+    /// `pillar_id` from allocate_slots -- and must not fail the whole decode.
+    func testPlannedPostSurvivesAMissingTheme() throws {
+        let json = """
+        {
+          "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "day_index": null,
+          "slot_index": 0,
+          "hook": "A hook",
+          "script": "",
+          "concept": "",
+          "rationale": "Because.",
+          "status": "scheduled",
+          "scheduled_for": null,
+          "content_pillars": null
+        }
+        """.data(using: .utf8)!
+
+        let post = try JSONDecoder().decode(PlannedPost.self, from: json)
+
+        XCTAssertNil(post.pillar)
+        XCTAssertNil(post.dayIndex)
+        XCTAssertNil(post.scheduledFor)
+        XCTAssertEqual(post.status, .scheduled)
+    }
+
+    /// `proposed` is waiting on a person and `active` is running. The two drive
+    /// completely different screens, and getting them the wrong way round would
+    /// offer an Approve button for a plan that is already publishing.
+    func testPlanStatusSeparatesWaitingFromRunning() throws {
+        func plan(_ status: String) throws -> ContentPlan {
+            let json = """
+            {
+              "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              "title": "Launch week",
+              "status": "\(status)",
+              "starts_on": "2026-09-07",
+              "days": 30,
+              "posts_per_day": 1,
+              "brief": "",
+              "approved_at": null
+            }
+            """.data(using: .utf8)!
+            return try JSONDecoder().decode(ContentPlan.self, from: json)
+        }
+
+        XCTAssertTrue(try plan("proposed").isProposal)
+        XCTAssertFalse(try plan("proposed").isRunning)
+        XCTAssertTrue(try plan("active").isRunning)
+        XCTAssertFalse(try plan("active").isProposal)
+
+        // A date, kept as one. Parsing it would attach a midnight and a zone the
+        // value does not have.
+        XCTAssertEqual(try plan("proposed").startsOn, "2026-09-07")
+    }
+
+    /// Asking for thirty days can produce fewer posts -- today's slot may have
+    /// passed, and a batch can come back short. Both numbers are carried so the
+    /// app can say so rather than quietly showing 28 where 30 was asked for.
+    func testProposalReportsWhatItActuallyWrote() throws {
+        let json = """
+        {
+          "plan_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "title": "Launch week",
+          "starts_on": "2026-09-07",
+          "days": 30,
+          "posts_per_day": 1,
+          "planned": 28,
+          "dropped": 1,
+          "slots": 29
+        }
+        """.data(using: .utf8)!
+
+        let proposal = try JSONDecoder().decode(PlanProposal.self, from: json)
+
+        XCTAssertEqual(proposal.days, 30, "what was asked for")
+        XCTAssertEqual(proposal.slots, 29, "today's slot had already passed")
+        XCTAssertEqual(proposal.planned, 28, "one came back without a rationale")
+        XCTAssertEqual(proposal.dropped, 1)
+    }
 }

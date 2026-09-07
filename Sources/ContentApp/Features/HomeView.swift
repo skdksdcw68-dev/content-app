@@ -15,6 +15,19 @@ struct HomeView: View {
     private var published: [PendingPost] { session.posts.filter { $0.state == .published } }
     private var failed: [PendingPost] { session.posts.filter { $0.state == .failed } }
 
+    /// The next few still ahead of us. Anything whose slot has passed is not
+    /// upcoming, whatever the plan says.
+    private var upcoming: [PlannedPost] {
+        session.planPosts
+            .filter { ($0.scheduledFor ?? .distantPast) > .now }
+            .prefix(3)
+            .map { $0 }
+    }
+
+    private var brandTimeZone: TimeZone {
+        session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
@@ -28,6 +41,22 @@ struct HomeView: View {
                 // resolve itself without somebody looking at it.
                 if !failed.isEmpty {
                     FailedCard(posts: failed) { approving = $0 }
+                }
+
+                // The plan sits above the queue on purpose. What is going out
+                // over the next month is the reason to open this app; what
+                // happened to one upload is the reason to scroll.
+                if let plan = session.plan {
+                    NavigationLink {
+                        PlanView()
+                    } label: {
+                        PlanCard(
+                            plan: plan,
+                            upcoming: upcoming,
+                            timezone: brandTimeZone
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
 
                 if !needsYou.isEmpty {
@@ -61,6 +90,7 @@ struct HomeView: View {
         .refreshable {
             await session.refreshConnections()
             await session.refreshPosts()
+            await session.refreshPlan()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
     }
@@ -271,5 +301,85 @@ private struct InsightsLinkCard: View {
                     .foregroundStyle(Color(.tertiaryLabel))
             }
         }
+    }
+}
+
+// MARK: - The plan
+
+/// What is coming, and whether it is waiting on you.
+///
+/// Two states in one card because they are the same object at different moments:
+/// a proposal you have not read, and a schedule that is running. The difference
+/// that matters to a person is whether they still have to do something.
+private struct PlanCard: View {
+    let plan: ContentPlan
+    let upcoming: [PlannedPost]
+    let timezone: TimeZone
+
+    var body: some View {
+        Card(
+            plan.isProposal ? "A plan is waiting for you" : "Your plan",
+            systemImage: plan.isProposal ? "calendar.badge.exclamationmark" : "calendar"
+        ) {
+            Text(plan.isProposal
+                 ? "A month of posts is written and needs a look. Nothing is scheduled yet."
+                 : "Running. Here is what is next.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if upcoming.isEmpty {
+                Text(plan.isProposal ? "Open it to read the month." : "Nothing left ahead in this plan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 10) {
+                    ForEach(upcoming) { post in
+                        HStack(alignment: .top, spacing: 10) {
+                            Text(when(post))
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                                .foregroundStyle(Theme.accent)
+                                .frame(width: 78, alignment: .leading)
+
+                            Text(post.hook)
+                                .font(.subheadline)
+                                .foregroundStyle(Color.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+            }
+
+            HStack(spacing: 4) {
+                Text(plan.isProposal ? "Read it" : "See the month")
+                Image(systemName: "chevron.right")
+            }
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(Theme.accent)
+        }
+    }
+
+    /// "Today 09:00" for the ones a person can still act on, the weekday after
+    /// that. A bare time on a card is ambiguous once it is not today.
+    private func when(_ post: PlannedPost) -> String {
+        guard let date = post.scheduledFor else { return "--:--" }
+
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
+
+        let time = DateFormatter()
+        time.timeZone = timezone
+        time.dateFormat = "HH:mm"
+
+        if calendar.isDateInToday(date) { return "Today \(time.string(from: date))" }
+        if calendar.isDateInTomorrow(date) { return "Tmrw \(time.string(from: date))" }
+
+        let day = DateFormatter()
+        day.timeZone = timezone
+        day.dateFormat = "EEE"
+        return "\(day.string(from: date)) \(time.string(from: date))"
     }
 }

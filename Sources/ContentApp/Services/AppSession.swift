@@ -27,6 +27,15 @@ final class AppSession {
     private(set) var isWorking = false
     private(set) var posts: [PendingPost] = []
 
+    /// The one plan that is either running or waiting to be agreed to. A brand
+    /// runs one at a time -- the database enforces it with a partial unique
+    /// index -- so this is a single value rather than a list.
+    private(set) var plan: ContentPlan?
+    private(set) var planPosts: [PlannedPost] = []
+    /// Separate from `isWorking` because writing a month takes twenty seconds
+    /// and needs its own spinner in its own place, not a disabled tab bar.
+    private(set) var isPlanning = false
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -56,6 +65,7 @@ final class AppSession {
             try await loadBrand(for: user.id)
             await refreshConnections()
             await refreshPosts()
+            await refreshPlan()
             state = .ready
         } catch {
             state = .failed(readableMessage(error))
@@ -460,5 +470,130 @@ extension AppSession {
             lastError = readableMessage(error)
             return nil
         }
+    }
+}
+
+// MARK: - The plan
+
+extension AppSession {
+    /// The plan that is running, or the one waiting to be agreed to.
+    ///
+    /// Archived plans are excluded rather than sorted to the bottom: a plan you
+    /// replaced last month is history, and history belongs on a screen that
+    /// says so.
+    func refreshPlan() async {
+        guard brand != nil else { return }
+        do {
+            let plans: [ContentPlan] = try await client
+                .from("content_plans")
+                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at")
+                .in("status", values: ["draft", "proposed", "active", "paused"])
+                .order("created_at", ascending: false)
+                .limit(1)
+                .execute()
+                .value
+
+            plan = plans.first
+
+            guard let current = plan else {
+                planPosts = []
+                return
+            }
+
+            planPosts = try await client
+                .from("posts")
+                .select("""
+                    id,day_index,slot_index,hook,script,concept,rationale,\
+                    status,scheduled_for,content_pillars(name)
+                    """)
+                .eq("plan_id", value: current.id.uuidString)
+                .order("day_index", ascending: true)
+                .order("slot_index", ascending: true)
+                .execute()
+                .value
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Asks for a month of content.
+    ///
+    /// Slow by the standards of a tap -- three model calls for thirty days --
+    /// which is why it has its own flag rather than sharing `isWorking`. The
+    /// result is a proposal: rows exist, nothing is scheduled, and the person
+    /// has not agreed to anything yet.
+    @discardableResult
+    func proposePlan(brief: String, days: Int, postsPerDay: Int) async -> PlanProposal? {
+        guard !isPlanning else { return nil }
+        isPlanning = true
+        defer { isPlanning = false }
+
+        do {
+            let proposal: PlanProposal = try await client.functions.invoke(
+                "propose-plan",
+                options: FunctionInvokeOptions(body: PlanRequest(
+                    brief: brief,
+                    days: days,
+                    postsPerDay: postsPerDay
+                ))
+            )
+            await refreshPlan()
+            return proposal
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+
+    /// The moment a person says yes. Every post in the plan gets a time, and
+    /// the scheduler starts counting toward it.
+    @discardableResult
+    func activatePlan() async -> Bool {
+        guard let planID = plan?.id else { return false }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            _ = try await client
+                .rpc("activate_plan", params: ["p_plan_id": planID.uuidString])
+                .execute()
+            await refreshPlan()
+            await refreshPosts()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// Throws the proposal away. The plan row survives as archived -- what the
+    /// agent got wrong is worth more than the disk space.
+    @discardableResult
+    func discardPlan() async -> Bool {
+        guard let planID = plan?.id else { return false }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            _ = try await client
+                .rpc("discard_plan", params: ["p_plan_id": planID.uuidString])
+                .execute()
+            await refreshPlan()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+}
+
+private struct PlanRequest: Encodable {
+    let brief: String
+    let days: Int
+    let postsPerDay: Int
+
+    enum CodingKeys: String, CodingKey {
+        case brief, days
+        case postsPerDay = "posts_per_day"
     }
 }

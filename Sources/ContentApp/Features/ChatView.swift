@@ -15,6 +15,9 @@ struct ChatView: View {
     @State private var ideas: [Idea] = []
     @State private var isThinking = false
     @State private var copied: String?
+    @State private var planning = false
+    @State private var proposed: PlanProposal?
+    @State private var showingPlan = false
     @FocusState private var promptFocused: Bool
 
     var body: some View {
@@ -23,10 +26,13 @@ struct ChatView: View {
                 Composer(
                     prompt: $prompt,
                     isThinking: isThinking,
-                    focused: $promptFocused
-                ) {
-                    Task { await ask() }
-                }
+                    focused: $promptFocused,
+                    send: { Task { await ask() } },
+                    plan: {
+                        promptFocused = false
+                        planning = true
+                    }
+                )
 
                 if ideas.isEmpty && !isThinking {
                     Suggestions { suggestion in
@@ -48,6 +54,20 @@ struct ChatView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Chat")
         .scrollDismissesKeyboard(.interactively)
+        .sheet(isPresented: $planning, onDismiss: {
+            // Pushed on dismiss rather than from inside the sheet: a push that
+            // races the dismissal animation is dropped, and the button then
+            // looks broken to whoever pressed it.
+            if proposed != nil {
+                proposed = nil
+                showingPlan = true
+            }
+        }) {
+            NewPlanSheet(brief: prompt) { proposed = $0 }
+        }
+        .navigationDestination(isPresented: $showingPlan) {
+            PlanView()
+        }
     }
 
     private func ask() async {
@@ -70,6 +90,7 @@ private struct Composer: View {
     let isThinking: Bool
     @FocusState.Binding var focused: Bool
     let send: () -> Void
+    let plan: () -> Void
 
     var body: some View {
         Card {
@@ -97,6 +118,21 @@ private struct Composer: View {
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
                 .disabled(isThinking || prompt.trimmingCharacters(in: .whitespaces).isEmpty)
+
+                // The bigger ask, and deliberately not disabled on an empty
+                // prompt: a month can be planned from the account description
+                // alone, and requiring a sentence first would hide the feature
+                // behind a blank field.
+                Button(action: plan) {
+                    HStack {
+                        Image(systemName: "calendar.badge.plus")
+                        Text("Plan a month")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(isThinking)
             }
         }
     }

@@ -55,49 +55,7 @@ struct PlanView: View {
     var body: some View {
         Group {
             if let plan {
-                List {
-                    Section {
-                        PlanSummary(
-                            plan: plan,
-                            posts: posts,
-                            withVideo: posts.filter { queued[$0.id] != nil }.count
-                        )
-                    }
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-
-                    ForEach(days) { day in
-                        Section {
-                            ForEach(day.posts) { post in
-                                PlannedPostRow(
-                                    post: post,
-                                    timezone: brandTimeZone,
-                                    queued: queued[post.id],
-                                    // A proposal has nothing to attach media to
-                                    // yet. Agreeing to the month comes first.
-                                    canAttach: plan?.isRunning == true,
-                                    addVideo: {
-                                        addingTo = post
-                                        pickingVideo = true
-                                    },
-                                    review: { approving = queued[post.id] }
-                                )
-                            }
-                        } header: {
-                            Text(dayHeading(day.id))
-                        }
-                    }
-                }
-                .listStyle(.insetGrouped)
-                .safeAreaInset(edge: .bottom) {
-                    if plan.isProposal {
-                        DecisionBar(
-                            working: session.isWorking,
-                            approve: { Task { await approve() } },
-                            discard: { confirmingDiscard = true }
-                        )
-                    }
-                }
+                month(plan)
             } else {
                 NoPlanYet()
             }
@@ -125,6 +83,72 @@ struct PlanView: View {
             Button("Keep it", role: .cancel) {}
         } message: {
             Text("Nothing has been scheduled yet, so nothing is lost except the writing.")
+        }
+    }
+
+    // MARK: - The list
+    //
+    // Split into three small functions rather than one nested expression. The
+    // one-expression version failed to compile at all: "the compiler is unable
+    // to type-check this expression in reasonable time". A List holding a
+    // ForEach holding a Section holding a ForEach holding a view with two
+    // trailing closures is more than the type checker will attempt, and it says
+    // so only after four minutes on a build machine.
+
+    private func month(_ plan: ContentPlan) -> some View {
+        List {
+            Section {
+                PlanSummary(plan: plan, posts: posts, withVideo: withVideo)
+            }
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+
+            ForEach(days) { day in
+                section(day, running: plan.isRunning)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .safeAreaInset(edge: .bottom) {
+            if plan.isProposal {
+                DecisionBar(
+                    working: session.isWorking,
+                    approve: { Task { await approve() } },
+                    discard: { confirmingDiscard = true }
+                )
+            }
+        }
+    }
+
+    private func section(_ day: PlanDay, running: Bool) -> some View {
+        Section {
+            ForEach(day.posts) { post in
+                row(post, running: running)
+            }
+        } header: {
+            Text(dayHeading(day.id))
+        }
+    }
+
+    private func row(_ post: PlannedPost, running: Bool) -> some View {
+        PlannedPostRow(
+            post: post,
+            timezone: brandTimeZone,
+            queued: queued[post.id],
+            // A proposal has nothing to attach media to yet. Agreeing to the
+            // month comes first.
+            canAttach: running,
+            addVideo: {
+                addingTo = post
+                pickingVideo = true
+            },
+            review: { approving = queued[post.id] }
+        )
+    }
+
+    private var withVideo: Int {
+        let byPost = queued
+        return posts.reduce(into: 0) { total, post in
+            if byPost[post.id] != nil { total += 1 }
         }
     }
 

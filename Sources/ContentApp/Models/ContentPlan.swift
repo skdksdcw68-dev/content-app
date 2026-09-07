@@ -127,12 +127,27 @@ struct PlanProposal: Decodable, Sendable {
     /// month is worth posting -- the planner may not invent specifics, so with
     /// nothing to draw on it writes generalities.
     let factsUsed: Int?
+    /// How many posts were thrown away for inventing a person or a change that
+    /// was never mentioned. Separate from `dropped` because it means something
+    /// different: not a bad batch, but a theme asking for what it was not given.
+    let invented: Int?
+    /// The themes producing that. Named so they can be fed or switched off.
+    let unsupportedThemes: [String]?
 
     enum CodingKeys: String, CodingKey {
         case title, days, planned, dropped, slots
+        case invented
         case factsUsed = "facts_used"
+        case unsupportedThemes = "unsupported_themes"
         case planId = "plan_id"
         case startsOn = "starts_on"
         case postsPerDay = "posts_per_day"
+    }
+
+    /// Whether there is anything here the person should read before approving.
+    var needsAttention: Bool {
+        (unsupportedThemes?.isEmpty == false)
+            || (invented ?? 0) > 0
+            || (factsUsed ?? 99) < 4
     }
 }

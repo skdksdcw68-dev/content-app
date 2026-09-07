@@ -58,15 +58,15 @@ struct ChatView: View {
             // Pushed on dismiss rather than from inside the sheet: a push that
             // races the dismissal animation is dropped, and the button then
             // looks broken to whoever pressed it.
-            if proposed != nil {
-                proposed = nil
-                showingPlan = true
-            }
+            if proposed != nil { showingPlan = true }
         }) {
             NewPlanSheet(brief: prompt) { proposed = $0 }
         }
         .navigationDestination(isPresented: $showingPlan) {
-            PlanView()
+            // Carried through so the plan can say why it came out short. Kept
+            // rather than cleared on dismiss, because the notice belongs to
+            // this month and not to the tap that opened it.
+            PlanView(notice: proposed)
         }
     }
 

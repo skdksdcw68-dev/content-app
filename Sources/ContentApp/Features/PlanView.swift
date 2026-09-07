@@ -12,6 +12,12 @@ import PhotosUI
 /// when it goes out, and why it exists. The last one is the one that makes this
 /// reviewable rather than merely long.
 struct PlanView: View {
+    /// What the writer reported about the month it just produced. Present only
+    /// when this screen was pushed straight after generating -- reaching it
+    /// from Home shows the plan without the commentary, because by then the
+    /// interesting question is what is going out, not how it was written.
+    var notice: PlanProposal?
+
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
@@ -102,6 +108,14 @@ struct PlanView: View {
             }
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
+
+            if let notice, notice.needsAttention {
+                Section {
+                    WritingNotice(notice: notice)
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
 
             ForEach(days) { day in
                 section(day, running: plan.isRunning)
@@ -497,5 +511,59 @@ private struct NoPlanYet: View {
         } description: {
             Text("Ask in Chat for a month of content and it will be written here for you to look over.")
         }
+    }
+}
+
+// MARK: - What the writer wants you to know
+
+/// Why the month is short, when it is.
+///
+/// The failure this reports is specific and would otherwise be invisible: a
+/// theme like "Reader stories: what people wrote in" is a promise the account
+/// cannot keep with no quotes on file, so the writer either invents one -- which
+/// is caught and thrown away -- or writes around it. Either way the person sees
+/// fewer posts than they asked for and deserves to know which theme did it.
+private struct WritingNotice: View {
+    let notice: PlanProposal
+
+    var body: some View {
+        Card("Worth knowing", systemImage: "exclamationmark.bubble") {
+            if let themes = notice.unsupportedThemes, !themes.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(themes.count == 1
+                         ? "\(themes[0]) is asking for something you have not written down."
+                         : "\(themes.joined(separator: " and ")) are asking for things you have not written down.")
+                        .font(.subheadline.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("It will not make up a customer quote or a change you never mentioned, so it writes around those days instead. Add what is true under You → Your brand, or turn the theme off.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let invented = notice.invented, invented > 0 {
+                Label(
+                    invented == 1
+                        ? "One post was thrown away for inventing something."
+                        : "\(invented) posts were thrown away for inventing something.",
+                    systemImage: "trash"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let facts = notice.factsUsed, facts < 4 {
+                Label(
+                    "It had \(facts) thing\(facts == 1 ? "" : "s") to go on. Four or five makes a visible difference.",
+                    systemImage: "lightbulb"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 }

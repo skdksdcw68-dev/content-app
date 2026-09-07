@@ -226,6 +226,27 @@ Deno.serve(async (request) => {
     // over a publish key, and "the model said so" is not that line.
     const rows = [];
     let dropped = 0;
+    let invented = 0;
+
+    // Whether a fabricated person can be told apart from a real one at all. If
+    // the account has actually collected things people said, "one reader wrote
+    // in" may be legitimate and the filter below would throw away a good post.
+    //
+    // Narrow on purpose. The first version matched the bare word "people",
+    // which appears in perfectly ordinary facts -- "the most common reason
+    // people quit journalling is a blank page" -- and silently switched the
+    // whole filter off. What is being asked here is not "does this mention
+    // people" but "has this account got quotes from them".
+    const factsMentionPeople =
+      /\b(told (me|us)|wrote in|reviews?|testimonials?|feedback from|(users?|readers?|customers?)\s+(said|say|told|wrote))\b/i
+        .test(facts.join(" "));
+
+    // The same gate for claims about recent work. Somebody who wrote down what
+    // they shipped this week should get a post about it; somebody who wrote
+    // nothing should not have one invented for them.
+    const factsMentionRecentWork =
+      /\b(this week|this month|today|yesterday|recently|just (shipped|launched|added|released)|shipped|launched|released|added|rebuilt|redesigned)\b/i
+        .test(facts.join(" "));
 
     for (const [i, slot] of laidOut.entries()) {
       const post = byIndex.get(i + 1);
@@ -234,6 +255,28 @@ Deno.serve(async (request) => {
 
       if (!hook || !rationale) {
         dropped += 1;
+        continue;
+      }
+
+      // The one invention the prompt does not reliably prevent, and the one
+      // that does most damage. "Reader stories: what people wrote in" is a
+      // theme people will genuinely write, and it asks for a testimonial the
+      // model does not have -- so it makes one up, on both nano and mini,
+      // despite being forbidden twice.
+      //
+      // A fabricated feature is embarrassing. A fabricated customer is a
+      // different category: it is a made-up person saying a made-up thing about
+      // a real product, and it is the kind of post that gets an account in
+      // trouble rather than merely ignored. Dropped rather than published, and
+      // counted separately so the app can say why the month is short.
+      const written = `${hook} ${post?.caption ?? ""}`;
+
+      if (
+        (!factsMentionPeople && inventsAPerson(written)) ||
+        (!factsMentionRecentWork && claimsRecentWork(written))
+      ) {
+        dropped += 1;
+        invented += 1;
         continue;
       }
 
@@ -292,6 +335,19 @@ Deno.serve(async (request) => {
       // Reported, not hidden. Twenty-eight days of a thirty-day plan is a fact
       // the person should see rather than discover by counting.
       dropped,
+      // Of the dropped, how many were dropped for inventing a person. Reported
+      // separately because it means something different: not "the writer had a
+      // bad batch" but "a theme is asking for something you have not told it".
+      invented,
+      // The cause, where the two counts above are symptoms: themes asking for
+      // material this account has never written down. Named so the person can
+      // feed them or switch them off, rather than wondering why a month keeps
+      // coming back short.
+      unsupported_themes: unsupportedThemes(
+        pillars ?? [],
+        factsMentionPeople,
+        factsMentionRecentWork,
+      ),
       slots: laidOut.length,
       // How much it had to go on. Measured and returned because it is the
       // single biggest lever on whether the month is worth posting: with five
@@ -433,6 +489,81 @@ async function writeBatch(args: {
 }
 
 // ------------------------------------------------------------------- utils
+
+/**
+ * Does this text claim a person the account has never mentioned?
+ *
+ * Deliberately narrow. It catches the family the prompt cannot hold -- a
+ * testimonial, a quoted stranger, "one user told me" -- and nothing else. A
+ * broader filter would have to decide whether "I built this alone" is true,
+ * which is a question about the world and not about the string.
+ *
+ * Skipped entirely when the facts already talk about users, since then such a
+ * post may be perfectly legitimate and dropping it would lose a good one.
+ */
+function inventsAPerson(text: string): boolean {
+  const patterns = [
+    // "one user said", "a reader wrote", "another customer found"
+    /\b(one|a|another|our|some)\s+(user|users|reader|readers|customer|customers|follower|followers|person|people)\s+(said|says|told|wrote|shared|found|discovered|reported|mentioned)\b/i,
+    // a correspondent who has to exist for the sentence to be true
+    /\b(told|wrote to|wrote in to|messaged|emailed)\s+(me|us)\b/i,
+    // a long quoted passage, which in a 150-character caption is a testimonial
+    /["“][^"”]{25,}["”]/,
+    /\bwhat\s+(people|users|readers|customers|someone)\s+(are\s+)?(saying|said|wrote|thinks?|thought)\b/i,
+    // "here is what someone wrote", "what one person said on their first day"
+    /\b(someone|somebody|a user|one user|a reader)\s+\w{0,12}?\s*(wrote|said|told|shared|posted)\b/i,
+    // "real users share", "our users tell us"
+    /\b(real|actual|our)\s+(users?|readers?|customers?)\s+\w{0,10}?\s*(share|shares|shared|say|says|said|tell|told)\b/i,
+    // "thoughts from a Remi user", "a note by one reader"
+    /\b(from|by)\s+(a|an|one|our|another)\s+\w{0,12}?\s*(user|reader|customer|follower)\b/i,
+  ];
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+/**
+ * Does this claim work done in a named recent period?
+ *
+ * "This week, I focused on making questions clearer" is the other leak the
+ * prompt does not hold. It is not always wrong -- somebody who told the app
+ * what they shipped this week should absolutely get a post about it -- so this
+ * is gated the same way as the person filter: allowed when the facts talk about
+ * recent work, refused when they do not.
+ */
+function claimsRecentWork(text: string): boolean {
+  return /\b(this week|this month|today|yesterday|lately|recently|just)\b[^.!?]{0,40}\b(i|we)\s+(added|removed|built|shipped|launched|fixed|changed|updated|improved|tweaked|refined|simplified|streamlined|focused|worked|rebuilt|redesigned)\b/i
+    .test(text);
+}
+
+/**
+ * Which themes are asking for something this account has never written down.
+ *
+ * This is the cause, and the filters above are the symptom. A theme called
+ * "Reader stories: what people wrote in" is a promise the account cannot keep
+ * with no quotes on file, and no prompt fixes a theme that inherently requires
+ * facts nobody has given. Asked to write to it, a model invents -- correctly,
+ * in the sense that it is doing what it was told.
+ *
+ * Reported rather than refused. It is the person's account and their theme, and
+ * the useful move is telling them which one is producing fiction so they can
+ * either feed it or switch it off.
+ */
+function unsupportedThemes(
+  pillars: Array<{ name: string; detail: string }>,
+  hasPeopleFacts: boolean,
+  hasRecentWorkFacts: boolean,
+): string[] {
+  const wantsPeople = /\b(stories|testimonial|review|feedback|community|what (people|users|readers|customers)|q ?& ?a|questions from)\b/i;
+  const wantsWork = /\b(behind the (build|scenes)|changelog|what (i|we) (changed|shipped|built)|progress|updates?|build in public|devlog)\b/i;
+
+  return pillars
+    .filter((pillar) => {
+      const text = `${pillar.name} ${pillar.detail}`;
+      if (wantsPeople.test(text) && !hasPeopleFacts) return true;
+      if (wantsWork.test(text) && !hasRecentWorkFacts) return true;
+      return false;
+    })
+    .map((pillar) => pillar.name);
+}
 
 function clamp(value: number, low: number, high: number): number {
   return Math.min(Math.max(Math.round(value), low), high);

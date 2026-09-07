@@ -8,7 +8,17 @@ struct ProfileView: View {
     var body: some View {
         List {
             Section {
-                BrandRow(brand: session.brand)
+                NavigationLink {
+                    BrandView()
+                } label: {
+                    BrandRow(brand: session.brand)
+                }
+            } footer: {
+                // The planner writes only from what is in there, so an empty
+                // brand is the single biggest cause of a generic month.
+                if session.brand?.isComplete != true {
+                    Text("It writes from what you put here. Two sentences makes a noticeable difference to the plan.")
+                }
             }
 
             Section {

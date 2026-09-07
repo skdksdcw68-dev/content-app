@@ -44,6 +44,9 @@ final class AppSession {
     /// off until somebody turns it on.
     private(set) var settings: BrandSettings?
 
+    /// Everything the planner is allowed to treat as true about this account.
+    private(set) var facts: [BrandFact] = []
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -800,5 +803,104 @@ extension AppSession {
             lastError = readableMessage(error)
             return false
         }
+    }
+}
+
+// MARK: - What it knows about you
+
+extension AppSession {
+    func refreshFacts() async {
+        guard let brandID = brand?.id else { return }
+        do {
+            facts = try await client
+                .from("brand_memory")
+                .select("id,fact,source,created_at")
+                .eq("brand_id", value: brandID.uuidString)
+                .order("created_at", ascending: false)
+                .execute()
+                .value
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Adds something the planner may then rely on.
+    ///
+    /// This is the only source of specifics it has. The planner is forbidden
+    /// from inventing a number, a price or a shipped feature, so anything it
+    /// says concretely came from here or from the brand description.
+    @discardableResult
+    func remember(_ fact: String) async -> Bool {
+        guard let brandID = brand?.id, let userID else { return false }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            _ = try await client
+                .from("brand_memory")
+                .insert(NewFact(userId: userID, brandId: brandID, fact: fact, source: "user"))
+                .execute()
+            await refreshFacts()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func forget(_ factID: UUID) async -> Bool {
+        do {
+            _ = try await client
+                .from("brand_memory")
+                .delete()
+                .eq("id", value: factID.uuidString)
+                .execute()
+            await refreshFacts()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// Saves the description the planner writes from.
+    @discardableResult
+    func updateBrand(name: String, niche: String, audience: String) async -> Bool {
+        guard let brandID = brand?.id else { return false }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let updated: [Brand] = try await client
+                .from("brands")
+                .update([
+                    "name": name.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "niche": niche.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "audience": audience.trimmingCharacters(in: .whitespacesAndNewlines),
+                ])
+                .eq("id", value: brandID.uuidString)
+                .select()
+                .execute()
+                .value
+            brand = updated.first ?? brand
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+}
+
+private struct NewFact: Encodable {
+    let userId: UUID
+    let brandId: UUID
+    let fact: String
+    let source: String
+
+    enum CodingKeys: String, CodingKey {
+        case fact, source
+        case userId = "user_id"
+        case brandId = "brand_id"
     }
 }

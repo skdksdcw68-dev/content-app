@@ -28,6 +28,16 @@ struct NewPlanSheet: View {
         self.onProposed = onProposed
     }
 
+    /// Everything the planner may treat as true: the brand description, the
+    /// brief typed here, and each remembered fact.
+    private var knownFacts: Int {
+        var count = session.facts.count
+        if session.brand?.niche.isEmpty == false { count += 1 }
+        if session.brand?.audience.isEmpty == false { count += 1 }
+        if !brief.trimmingCharacters(in: .whitespaces).isEmpty { count += 1 }
+        return count
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -62,6 +72,36 @@ struct NewPlanSheet: View {
                     .disabled(session.isPlanning)
                 } footer: {
                     Text("\(days * postsPerDay) posts, spread across the hours you have not marked quiet. Today's slot is skipped if it has already passed.")
+                }
+
+                // The single biggest lever on whether the month is worth
+                // posting, and the one nobody would guess. The planner is
+                // forbidden from inventing specifics, so with nothing to draw
+                // on it writes "here is what went into it this week" -- true,
+                // and worth nothing. With five facts it writes "no badges, no
+                // streaks: here is the reason".
+                if knownFacts < 4 {
+                    Section {
+                        NavigationLink {
+                            BrandView()
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("Tell it more about you first")
+                                        .font(.subheadline.weight(.medium))
+                                    Text(knownFacts == 0
+                                         ? "It knows nothing about this account yet, so it can only write in general terms."
+                                         : "It has \(knownFacts) things to go on. Four or five makes a visible difference.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            } icon: {
+                                Image(systemName: "lightbulb")
+                                    .foregroundStyle(Theme.accent)
+                            }
+                        }
+                    }
                 }
 
                 if let existing = session.plan, existing.isProposal {
@@ -111,6 +151,7 @@ struct NewPlanSheet: View {
                 }
             }
             .interactiveDismissDisabled(session.isPlanning)
+            .task { await session.refreshFacts() }
         }
     }
 

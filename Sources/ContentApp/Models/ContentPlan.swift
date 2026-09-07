@@ -123,9 +123,14 @@ struct PlanProposal: Decodable, Sendable {
     let planned: Int
     let dropped: Int
     let slots: Int
+    /// How many things it had to go on. The single biggest lever on whether the
+    /// month is worth posting -- the planner may not invent specifics, so with
+    /// nothing to draw on it writes generalities.
+    let factsUsed: Int?
 
     enum CodingKeys: String, CodingKey {
         case title, days, planned, dropped, slots
+        case factsUsed = "facts_used"
         case planId = "plan_id"
         case startsOn = "starts_on"
         case postsPerDay = "posts_per_day"

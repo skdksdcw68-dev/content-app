@@ -29,7 +29,13 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 
-const MODEL = Deno.env.get("LLM_MODEL") ?? "gpt-4.1-nano";
+/** The planner has its own dial, separate from Chat.
+ *
+ *  They are not the same job. Chat writes three ideas somebody reads and
+ *  discards; the plan writes thirty posts somebody schedules and publishes, and
+ *  the failure mode is not "a bit bland" but "announced a feature that does not
+ *  exist". Measured rather than assumed -- see the note in the commit. */
+const MODEL = Deno.env.get("PLANNER_MODEL") ?? Deno.env.get("LLM_MODEL") ?? "gpt-4.1-nano";
 
 /** Written ten at a time. One call for thirty posts runs long enough to risk
  *  truncation, and quality falls off badly toward the end of a long list. */
@@ -99,6 +105,29 @@ Deno.serve(async (request) => {
       .eq("brand_id", brand.id)
       .eq("is_enabled", true);
 
+    // What the agent has been told and now applies without being asked again.
+    // The schema has had this table since 0002 and nothing has ever read it,
+    // which is half the reason plans came out generic.
+    const { data: memoryRows } = await asUser
+      .from("brand_memory")
+      .select("fact")
+      .eq("brand_id", brand.id)
+      .order("created_at", { ascending: false })
+      .limit(20);
+
+    const memory = (memoryRows ?? [])
+      .map((row: { fact: string }) => (row.fact ?? "").trim())
+      .filter(Boolean);
+
+    // Everything concrete the planner may say comes from one of these. Counted
+    // here so the response can report it.
+    const facts = [
+      brand.niche,
+      brand.audience,
+      brief,
+      ...memory,
+    ].filter((value) => typeof value === "string" && value.trim().length > 0);
+
     const pillarName = new Map<string, string>(
       (pillars ?? []).map((p: { id: string; name: string }) => [p.id, p.name]),
     );
@@ -153,6 +182,7 @@ Deno.serve(async (request) => {
       const result = await writeBatch({
         brand,
         brief,
+        memory,
         pillars: pillars ?? [],
         pillarName,
         slots: laidOut.slice(start, start + BATCH),
@@ -263,6 +293,12 @@ Deno.serve(async (request) => {
       // the person should see rather than discover by counting.
       dropped,
       slots: laidOut.length,
+      // How much it had to go on. Measured and returned because it is the
+      // single biggest lever on whether the month is worth posting: with five
+      // facts this writes "no badges, no streaks: here is the reason"; with
+      // none it writes "here is what went into it this week", which says
+      // nothing. The app asks for more when this is low.
+      facts_used: facts.length,
       model: MODEL,
       tokens: tokensIn + tokensOut,
     });
@@ -276,34 +312,63 @@ Deno.serve(async (request) => {
 async function writeBatch(args: {
   brand: { name: string; niche: string; audience: string };
   brief: string;
+  /** What the person has told it about themselves, one fact per row. */
+  memory: string[];
   pillars: Array<{ id: string; name: string; detail: string }>;
   pillarName: Map<string, string>;
   slots: Slot[];
   offset: number;
   avoid: string[];
 }): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number }> {
-  const { brand, brief, pillars, pillarName, slots, offset, avoid } = args;
+  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid } = args;
 
   const system = [
     "You plan short-form video content for one social account.",
     'Return JSON only, matching: {"posts":[{"n":number,"hook":string,"caption":string,"concept":string,"hashtags":[string],"rationale":string}]}.',
     "Write exactly one entry per numbered slot, and set n to that slot's number.",
-    "hook: the first line said on camera. Under 80 characters, concrete, specific to this account.",
+    "hook: the first line said on camera. Under 80 characters.",
     "caption: what goes under the video. Under 150 characters.",
     "concept: what the video shows, in one sentence, as an instruction to whoever makes it. Describe the shot, not the feeling.",
     "hashtags: 2 to 4, lowercase, each starting with #.",
     "rationale: one sentence saying why this post exists on this day. Never predict performance.",
     "Every entry must differ from every other. Avoid hype words and the word easy.",
-    "Prefer a specific number, a specific cost, or a specific mistake over a general claim.",
+
+    // The instruction that replaced "prefer a specific number, a specific cost,
+    // or a specific mistake". That one produced plans announcing features the
+    // product does not have -- "this week I added mood tracking" -- because the
+    // model had no facts and was told to be specific, so it made specifics up.
+    // A person who posts that has announced something untrue about their own
+    // product, which is worse than a bad post.
+    //
+    // Stated as a banned list rather than a principle, because a small model
+    // follows "never write X" and reasons poorly about "only assert what you
+    // know". The examples are the failures the first version actually produced.
+    "FACTS: everything you may treat as true is listed under FACTS below. Nothing else is known.",
+    "NEVER write that anything was changed, added, removed, fixed, improved, tweaked, refined, updated, simplified, launched or shipped. You do not know whether it was. Sentences like \"this week I added...\", \"I tweaked...\", \"I made ... better\" are forbidden even as a theme suggests them.",
+    "NEVER invent a number, a price, a date, a rating, a milestone, or a person. NEVER write a customer quote, a testimonial, or \"one user told me\". You have never met a user of this account.",
+    "If a theme asks for something you have no fact for, cover the same subject WITHOUT the claim: show how the thing already works, ask what the audience does today, name a mistake common in this field, argue for a belief, or compare two approaches.",
+    "Hooks: no two may begin with the same three words, and none may repeat an opening in the avoid list. Vary the grammatical form -- some questions, some statements, some instructions, some observations.",
   ].join("\n");
 
+  // Everything under FACTS is something a person wrote down. Nothing else is
+  // available to the model, and the system prompt says so -- which is what
+  // stops a plan announcing features the product does not have.
+  const facts = [
+    `The account is called ${brand.name}.`,
+    brand.niche ? `It is about: ${brand.niche}` : null,
+    brand.audience ? `Its audience: ${brand.audience}` : null,
+    brief ? `For these weeks specifically: ${brief}` : null,
+    ...memory.map((fact) => fact),
+  ].filter(Boolean);
+
   const about = [
-    `Account: ${brand.name}.`,
-    `Subject: ${brand.niche || "not stated"}.`,
-    `Audience: ${brand.audience || "not stated"}.`,
-    brief ? `What they asked for: ${brief}` : "",
+    "FACTS:",
+    ...facts.map((fact) => `- ${fact}`),
+    facts.length <= 1
+      ? "\nThat is everything known about this account. Write posts that do not depend on facts you were not given."
+      : "",
     pillars.length > 0
-      ? `Themes:\n${pillars.map((p) => `- ${p.name}${p.detail ? `: ${p.detail}` : ""}`).join("\n")}`
+      ? `\nThemes to rotate between:\n${pillars.map((p) => `- ${p.name}${p.detail ? `: ${p.detail}` : ""}`).join("\n")}`
       : "",
   ].filter(Boolean).join("\n");
 

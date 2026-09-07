@@ -77,6 +77,12 @@ verify_jwt = true
 [functions.propose-plan]
 verify_jwt = true
 
+[functions.connect-generator]
+verify_jwt = true
+
+[functions.generate-media]
+verify_jwt = true
+
 [functions.oauth-start]
 verify_jwt = true
 
@@ -108,6 +114,11 @@ verify_jwt = false
 # time and kept in `private.scheduler_config` rather than in the cron command --
 # job definitions are readable by anyone who can see cron.job.
 [functions.run-due-posts]
+verify_jwt = false
+
+# The other half of the same loop, on its own cron job so a minute spent
+# downloading a 40MB video is not a minute in which nothing gets published.
+[functions.poll-generations]
 verify_jwt = false
 
 # The generation provider signs nothing, so the URL itself carries an

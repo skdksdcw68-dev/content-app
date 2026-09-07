@@ -137,10 +137,15 @@ struct PlanView: View {
             // A proposal has nothing to attach media to yet. Agreeing to the
             // month comes first.
             canAttach: running,
+            // Offered only when there is something to generate with. A button
+            // whose only outcome is "connect a generator first" is a button
+            // that teaches people to distrust the buttons.
+            canGenerate: session.hasWorkingGenerator,
             addVideo: {
                 addingTo = post
                 pickingVideo = true
             },
+            generate: { Task { await session.generateMedia(for: post.id) } },
             review: { approving = queued[post.id] }
         )
     }
@@ -258,12 +263,12 @@ private struct PlanSummary: View {
 
     private var caveat: String {
         guard plan.isRunning else {
-            return "Approving sets the times. You still add the video for each post before it can go out."
+            return "Approving sets the times. Each day still needs a video before it can go out."
         }
         if waiting == 0 {
             return "Every day has a video. Approved ones go out on their own."
         }
-        return "\(waiting) still need a video. Add one and approve it, and it posts itself at the time above."
+        return "\(waiting) still need a video. Make it or add your own, approve it once, and it posts itself at the time shown."
     }
 }
 
@@ -275,10 +280,18 @@ private struct PlannedPostRow: View {
     /// The queue entry this day produced, once a video has been attached to it.
     let queued: PendingPost?
     let canAttach: Bool
+    let canGenerate: Bool
     let addVideo: () -> Void
+    let generate: () -> Void
     let review: () -> Void
 
     @State private var expanded = false
+
+    /// The planner does not carry the failure text, so this says what is true
+    /// generally rather than inventing a specific reason.
+    private var failureNote: String {
+        "That did not come out. Try again, or add your own video."
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -358,14 +371,38 @@ private struct PlannedPostRow: View {
                     .font(.caption)
                     .foregroundStyle(queued.state == .failed ? Color.red : Color.secondary)
             }
+        } else if post.status == .sourcing {
+            // Minutes, not seconds, and it finishes without the app open. The
+            // row says which of those is happening rather than showing a
+            // spinner that looks like the screen is stuck.
+            Label("Being made — this takes a few minutes", systemImage: "wand.and.stars")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if post.status == .failed {
+            Label(failureNote, systemImage: "exclamationmark.triangle")
+                .font(.caption)
+                .foregroundStyle(Color.red)
+                .fixedSize(horizontal: false, vertical: true)
         } else {
-            Button(action: addVideo) {
-                Label("Add video", systemImage: "video.badge.plus")
-                    .font(.caption.weight(.medium))
+            HStack(spacing: 8) {
+                if canGenerate {
+                    Button(action: generate) {
+                        Label("Make it", systemImage: "wand.and.stars")
+                            .font(.caption.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .buttonBorderShape(.capsule)
+                }
+
+                Button(action: addVideo) {
+                    Label(canGenerate ? "Use my own" : "Add video", systemImage: "video.badge.plus")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .buttonBorderShape(.capsule)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .buttonBorderShape(.capsule)
         }
     }
 

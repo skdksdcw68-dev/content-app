@@ -141,3 +141,30 @@ revoke execute on function my_generators() from anon, public;
 revoke execute on function forget_generator(uuid) from anon, public;
 grant execute on function my_generators() to authenticated;
 grant execute on function forget_generator(uuid) to authenticated;
+
+-- The one a worker asks for: whichever generator this person has, ready to use.
+--
+-- Returns the ciphertext, not the key. Decryption happens in the Edge Function
+-- runtime that holds the key, so a database dump is worth nothing on its own --
+-- the same argument as platform tokens in 0005.
+create or replace function generator_for_user(p_user uuid)
+returns table (
+  id            uuid,
+  provider      text,
+  secret_ct     text,
+  last_probe_ok boolean
+)
+language sql
+security definer
+set search_path = public
+as $$
+  select c.id, c.provider, encode(c.secret_ct, 'hex'), c.last_probe_ok
+    from private.provider_credentials c
+   where c.user_id = p_user
+     and c.revoked_at is null
+     and octet_length(c.secret_ct) > 0
+   order by c.last_probe_ok desc nulls last, c.created_at
+   limit 1;
+$$;
+
+revoke execute on function generator_for_user(uuid) from anon, authenticated, public;

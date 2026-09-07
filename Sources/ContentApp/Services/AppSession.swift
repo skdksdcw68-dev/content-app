@@ -36,6 +36,10 @@ final class AppSession {
     /// and needs its own spinner in its own place, not a disabled tab bar.
     private(set) var isPlanning = false
 
+    /// Generators the person has connected. Never their keys -- the server
+    /// returns only that a credential exists and whether it last worked.
+    private(set) var generators: [Generator] = []
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -66,6 +70,7 @@ final class AppSession {
             await refreshConnections()
             await refreshPosts()
             await refreshPlan()
+            await refreshGenerators()
             state = .ready
         } catch {
             state = .failed(readableMessage(error))
@@ -649,4 +654,97 @@ private struct PlanRequest: Encodable {
         case brief, days
         case postsPerDay = "posts_per_day"
     }
+}
+
+// MARK: - Generators
+
+extension AppSession {
+    /// What the person has connected. The keys themselves never come back.
+    func refreshGenerators() async {
+        do {
+            generators = try await client
+                .rpc("my_generators")
+                .execute()
+                .value
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Saves a key pair, after the server has proved it works.
+    ///
+    /// The probe is the server's, not ours: a client that could report its own
+    /// probe result could store a key that has never been tried, and the first
+    /// anyone would know is a job failing at three in the morning.
+    @discardableResult
+    func connectGenerator(keyID: String, keySecret: String) async -> Bool {
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let _: ConnectedGenerator = try await client.functions.invoke(
+                "connect-generator",
+                options: FunctionInvokeOptions(body: [
+                    "provider": "higgsfield",
+                    "key_id": keyID,
+                    "key_secret": keySecret,
+                ])
+            )
+            await refreshGenerators()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    @discardableResult
+    func forgetGenerator(_ id: UUID) async -> Bool {
+        do {
+            _ = try await client
+                .rpc("forget_generator", params: ["p_credential_id": id.uuidString])
+                .execute()
+            await refreshGenerators()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    var hasWorkingGenerator: Bool { generators.contains(where: \.isWorking) }
+
+    /// Starts making the video for one planned post.
+    ///
+    /// Returns as soon as the job is submitted, which is seconds -- generation
+    /// itself takes minutes and finishes without the app. The post moves to
+    /// `sourcing` and comes back as `needs_approval` when there is something to
+    /// look at.
+    @discardableResult
+    func generateMedia(for postID: UUID) async -> Bool {
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            let _: StartedJob = try await client.functions.invoke(
+                "generate-media",
+                options: FunctionInvokeOptions(body: ["post_id": postID.uuidString])
+            )
+            await refreshPlan()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+}
+
+private struct ConnectedGenerator: Decodable {
+    let credentialId: String
+    enum CodingKeys: String, CodingKey { case credentialId = "credential_id" }
+}
+
+private struct StartedJob: Decodable {
+    let jobId: String
+    enum CodingKeys: String, CodingKey { case jobId = "job_id" }
 }

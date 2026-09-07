@@ -3,6 +3,7 @@ import SwiftUI
 /// Who this account is, and what it is allowed to post to.
 struct ProfileView: View {
     @Environment(AppSession.self) private var session
+    @State private var addingGenerator = false
 
     var body: some View {
         List {
@@ -41,14 +42,87 @@ struct ProfileView: View {
                 Text("Autocast will not plan for a platform with no account linked. While the app is in review, anything it posts stays private to you.")
             }
 
+            Section {
+                if session.generators.isEmpty {
+                    NoGeneratorRow()
+                } else {
+                    ForEach(session.generators) { generator in
+                        GeneratorRow(generator: generator) {
+                            Task { await session.forgetGenerator(generator.id) }
+                        }
+                    }
+                }
+
+                Button {
+                    addingGenerator = true
+                } label: {
+                    Label("Add a generator", systemImage: "plus.circle.fill")
+                }
+            } header: {
+                Text("Generators")
+            } footer: {
+                Text("Autocast makes the videos with a generator you pay for, using your own key. Nothing is generated without one.")
+            }
+
             Section("Coming next") {
-                SoonRow(symbol: "bubble.left", title: "Chat", detail: "Ask for a month of content in your own words.")
-                SoonRow(symbol: "checkmark.shield", title: "Approvals", detail: "See each post and its privacy setting before it goes out.")
-                SoonRow(symbol: "chart.line.uptrend.xyaxis", title: "Insights", detail: "Views and followers, fed back into what it plans next.")
+                SoonRow(symbol: "music.note", title: "Music", detail: "A track picked and mixed into each video.")
+                SoonRow(symbol: "camera.aperture", title: "More platforms", detail: "Instagram Reels and YouTube Shorts.")
             }
         }
         .navigationTitle("You")
-        .refreshable { await session.refreshConnections() }
+        .refreshable {
+            await session.refreshConnections()
+            await session.refreshGenerators()
+        }
+        .sheet(isPresented: $addingGenerator) { GeneratorSheet() }
+    }
+}
+
+// MARK: - Generators
+
+private struct GeneratorRow: View {
+    let generator: Generator
+    let forget: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "wand.and.stars")
+                .font(.system(size: 15))
+                .foregroundStyle(generator.isWorking ? Theme.accent : Color.orange)
+                .frame(width: 34, height: 34)
+                .background(
+                    (generator.isWorking ? Theme.accent : Color.orange).opacity(0.12),
+                    in: Circle()
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(generator.name)
+                    .font(.subheadline.weight(.medium))
+                Text(generator.statusLine)
+                    .font(.caption)
+                    .foregroundStyle(generator.isWorking ? Color.secondary : Color.orange)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .swipeActions(edge: .trailing) {
+            Button("Remove", role: .destructive, action: forget)
+        }
+    }
+}
+
+private struct NoGeneratorRow: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("No generator connected")
+                .font(.subheadline.weight(.medium))
+            Text("Add your Higgsfield key and Autocast can make the videos your plan describes.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
     }
 }
 

@@ -7,16 +7,33 @@ import SwiftUI
 /// screen. Both tokens live here so re-branding is one file rather than a
 /// search through every view.
 enum Theme {
-    /// #6C5CE7. Also the asset-catalog AccentColor, so unstyled system
-    /// controls pick it up for free without being told.
+    /// Near-black in light, near-white in dark. Also the asset-catalog
+    /// AccentColor, so unstyled system controls pick it up for free.
+    ///
+    /// It was #6C5CE7 and it was on everything -- every icon, every chip,
+    /// every button. The apps this one is measured against do the opposite:
+    /// the interface is neutral and the only colour on screen belongs to the
+    /// content. A purple chevron competes with a thumbnail; a black one does
+    /// not. So the accent is now ink, and colour is something a post earns by
+    /// having a state worth reporting.
     static let accent = Color.accentColor
 
-    /// #EEECFF in light, a deep indigo in dark. The background behind a
-    /// selected chip or an AI surface -- a tint, never a large fill.
+    /// The fill behind a chip or a selected surface. Grey now, for the same
+    /// reason -- a tint, never a large fill, and never competing.
     static let softAccent = Color("SoftAccent")
 
     /// Corner radius shared by every card, so surfaces read as one system.
     static let cornerRadius: CGFloat = 16
+
+    /// The one place colour is still allowed: what happened to a post. These
+    /// carry meaning, so they stay saturated while everything around them
+    /// goes quiet.
+    enum Status {
+        static let done = Color.green
+        static let waiting = Color.orange
+        static let broken = Color.red
+        static let running = Color.blue
+    }
 }
 
 /// The standard surface: a grouped-background card.

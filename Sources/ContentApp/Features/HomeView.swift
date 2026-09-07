@@ -54,6 +54,15 @@ struct HomeView: View {
                     hasAccount: !session.connections.isEmpty
                 )
 
+                // The app showing itself around. Every slide goes to the thing
+                // it describes, and what it leads with depends on what is not
+                // set up yet.
+                PromoCarousel(
+                    hasAccount: !session.connections.isEmpty,
+                    hasGenerator: session.hasWorkingGenerator,
+                    hasPlan: session.plan != nil
+                )
+
                 if let connection = session.connections.first {
                     AccountCard(connection: connection)
                 } else {

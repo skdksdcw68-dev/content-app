@@ -277,27 +277,65 @@ async function ensureGroup(
  * Attaches the newest build that has finished processing. A group with no
  * build attached shows testers an empty TestFlight entry, which looks like the
  * invite was broken.
+ *
+ * "Newest that has finished processing" is a trap, and it has now cost two
+ * rounds of "I don't see any changes". Apple takes five to fifteen minutes to
+ * process an upload, so running this straight after a build attaches the
+ * PREVIOUS one -- silently, with a cheerful success message naming a number
+ * nobody checks. The person then tests yesterday's app.
+ *
+ * So: `--build N` waits for that specific build, and says what it is waiting
+ * for. Without it the behaviour is unchanged, but it now warns when the build
+ * it picked is not the newest one uploaded.
  */
-async function attachLatestBuild(token: string, appId: string, groupId: string): Promise<void> {
-  const builds = await api<Listed<BuildAttributes>>(
-    token,
-    "GET",
-    `/v1/builds?filter[app]=${appId}&limit=10&sort=-uploadedDate`
-  );
+async function attachLatestBuild(
+  token: string,
+  appId: string,
+  groupId: string,
+  wanted?: string
+): Promise<void> {
+  const deadline = Date.now() + 20 * 60_000;
 
-  const usable = builds.data.find(
-    (build) => build.attributes.processingState === "VALID" && !build.attributes.expired
-  );
+  for (;;) {
+    const builds = await api<Listed<BuildAttributes>>(
+      token,
+      "GET",
+      `/v1/builds?filter[app]=${appId}&limit=10&sort=-uploadedDate`
+    );
 
-  if (!usable) {
-    console.log("  No processed build to attach yet -- re-run once processing finishes.");
-    return;
+    const live = builds.data.filter((build) => !build.attributes.expired);
+    const target = wanted
+      ? live.find((build) => build.attributes.version === wanted)
+      : live[0];
+
+    if (wanted && !target) {
+      console.log(`  Build ${wanted} has not reached App Store Connect yet. Waiting...`);
+    } else if (target && target.attributes.processingState !== "VALID") {
+      console.log(`  Build ${target.attributes.version} is ${target.attributes.processingState}. Waiting...`);
+    } else if (target) {
+      await api(token, "POST", `/v1/betaGroups/${groupId}/relationships/builds`, {
+        data: [{ type: "builds", id: target.id }],
+      });
+      console.log(`  Attached build ${target.attributes.version}`);
+
+      // The warning that would have caught this the first time.
+      const newest = live[0]?.attributes.version;
+      if (newest && newest !== target.attributes.version) {
+        console.log(`  NOTE: build ${newest} is newer and still processing.`);
+        console.log(`        Re-run with --build ${newest} to attach that one instead.`);
+      }
+      return;
+    } else {
+      console.log("  No usable build found.");
+      return;
+    }
+
+    if (Date.now() > deadline) {
+      console.log("  Gave up after 20 minutes. Re-run once processing finishes.");
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30_000));
   }
-
-  await api(token, "POST", `/v1/betaGroups/${groupId}/relationships/builds`, {
-    data: [{ type: "builds", id: usable.id }],
-  });
-  console.log(`  Attached build ${usable.attributes.version}`);
 }
 
 async function addTesters(
@@ -349,12 +387,13 @@ if (!testerList && !shouldAttach) {
   await audit(token, app.id);
   console.log("\n  Read-only.");
   console.log("    --group NAME --attach                 put the newest build in front of a group");
+  console.log("    --group NAME --attach --build 14      wait for THAT build, then attach it");
   console.log("    --group NAME --testers a@b.com,c@d.com  invite people to it\n");
 } else if (!testerList) {
   // Attach-only: make the build everyone already has access to actually the
   // newest one.
   const group = await ensureGroup(token, app.id, flag("group") ?? "Internal", { create: false });
-  await attachLatestBuild(token, app.id, group.id);
+  await attachLatestBuild(token, app.id, group.id, flag("build"));
   console.log("");
   await audit(token, app.id);
   console.log("");

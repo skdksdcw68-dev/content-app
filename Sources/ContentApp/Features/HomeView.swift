@@ -12,7 +12,6 @@ struct HomeView: View {
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
-    private var published: [PendingPost] { session.posts.filter { $0.state == .published } }
     private var failed: [PendingPost] { session.posts.filter { $0.state == .failed } }
 
     /// The next few still ahead of us. Anything whose slot has passed is not
@@ -28,24 +27,46 @@ struct HomeView: View {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
     }
 
+    /// Everything already dealt with, newest first. What is waiting or in
+    /// flight has its own card above; this is the body of work.
+    private var recent: [PendingPost] {
+        session.posts
+            .filter { $0.state == .published || $0.state == .cancelled }
+            .prefix(6)
+            .map { $0 }
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                // The one big action, first, before any status. What somebody
+                // opens this app to do is start something; what happened to
+                // last Tuesday's upload is what they scroll for.
+                NavigationLink {
+                    CreateView()
+                } label: {
+                    CreateNewButton()
+                }
+                .buttonStyle(.plain)
+
+                QuickActions(
+                    hasPlan: session.plan != nil,
+                    hasAccount: !session.connections.isEmpty
+                )
+
                 if let connection = session.connections.first {
                     AccountCard(connection: connection)
                 } else {
                     ConnectFirstCard()
                 }
 
-                // Failures lead, because they are the only state that will not
-                // resolve itself without somebody looking at it.
+                // Failures lead among the status cards, because they are the
+                // only state that will not resolve itself without somebody
+                // looking at it.
                 if !failed.isEmpty {
                     FailedCard(posts: failed) { approving = $0 }
                 }
 
-                // The plan sits above the queue on purpose. What is going out
-                // over the next month is the reason to open this app; what
-                // happened to one upload is the reason to scroll.
                 if let plan = session.plan {
                     NavigationLink {
                         PlanView()
@@ -61,16 +82,19 @@ struct HomeView: View {
 
                 if !needsYou.isEmpty {
                     NeedsYouCard(posts: needsYou) { approving = $0 }
-                } else if !session.connections.isEmpty {
-                    NothingWaitingCard(hasPosts: !session.posts.isEmpty)
                 }
 
                 if !inFlight.isEmpty {
                     InFlightCard(posts: inFlight)
                 }
 
-                if !published.isEmpty {
-                    PublishedCard(posts: published)
+                // Everything else as tiles rather than another list. A month of
+                // posts read as rows is a spreadsheet; read as cards it is work
+                // you recognise at a glance, which is what it actually is.
+                if !recent.isEmpty {
+                    RecentGrid(posts: recent) { approving = $0 }
+                } else if !session.connections.isEmpty {
+                    NothingYetCard()
                 }
 
                 if !session.connections.isEmpty {
@@ -190,20 +214,6 @@ private struct NeedsYouCard: View {
     }
 }
 
-private struct NothingWaitingCard: View {
-    let hasPosts: Bool
-
-    var body: some View {
-        Card("Nothing needs you", systemImage: "checkmark.circle") {
-            Text(hasPosts
-                 ? "Everything here has been dealt with."
-                 : "Add a video in Library and it will show up here for approval.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
 
 // MARK: - In flight and done
 
@@ -225,25 +235,6 @@ private struct InFlightCard: View {
     }
 }
 
-private struct PublishedCard: View {
-    let posts: [PendingPost]
-
-    var body: some View {
-        Card("Posted", systemImage: "checkmark.circle.fill") {
-            ForEach(posts.prefix(5)) { post in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(post.caption.isEmpty ? post.post.hook : post.caption)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    Text(CreatorInfo.label(for: post.privacy))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-}
 
 private struct FailedCard: View {
     let posts: [PendingPost]
@@ -381,5 +372,177 @@ private struct PlanCard: View {
         day.timeZone = timezone
         day.dateFormat = "EEE"
         return "\(day.string(from: date)) \(time.string(from: date))"
+    }
+}
+
+// MARK: - Starting something
+
+/// The primary action, given the weight of one.
+///
+/// Full width, filled, and above everything else. The two things this app is
+/// for both begin behind it, and until now they were buried one inside Chat and
+/// one behind a toolbar button in Library.
+private struct CreateNewButton: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .bold))
+            Text("Create new")
+                .font(.headline)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .opacity(0.6)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        .frame(maxWidth: .infinity)
+        .background(Theme.accent, in: Capsule())
+    }
+}
+
+/// The same destinations, one tap shallower.
+///
+/// A row of chips rather than a second stack of cards: these are shortcuts, and
+/// a shortcut that takes as much room as the thing it shortcuts is not one.
+private struct QuickActions: View {
+    let hasPlan: Bool
+    let hasAccount: Bool
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                if hasPlan {
+                    Chip(symbol: "calendar", title: "The plan") { PlanView() }
+                }
+                Chip(symbol: "sparkles", title: "Ideas") { ChatView() }
+                if hasAccount {
+                    Chip(symbol: "chart.line.uptrend.xyaxis", title: "Insights") { InsightsView() }
+                }
+                Chip(symbol: "square.grid.2x2", title: "Everything") { LibraryView() }
+            }
+            .padding(.horizontal, 2)
+        }
+        // The row bleeds to the screen edges while the cards around it keep
+        // their margin, so it reads as scrollable rather than as clipped.
+        .padding(.horizontal, -16)
+        .safeAreaPadding(.horizontal, 16)
+    }
+}
+
+private struct Chip<Destination: View>: View {
+    let symbol: String
+    let title: String
+    @ViewBuilder var destination: () -> Destination
+
+    var body: some View {
+        NavigationLink(destination: destination) {
+            HStack(spacing: 7) {
+                Image(systemName: symbol)
+                    .font(.caption.weight(.semibold))
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+            }
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color(.secondarySystemGroupedBackground), in: Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - The work, as tiles
+
+private struct RecentGrid: View {
+    let posts: [PendingPost]
+    let open: (PendingPost) -> Void
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recent")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(posts) { post in
+                    Button { open(post) } label: {
+                        PostTile(post: post)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+}
+
+/// One post, as something you recognise rather than something you read.
+///
+/// There is no thumbnail yet -- the video lives in Storage behind a signed URL
+/// and fetching thirty of them to draw a home screen is not worth it. So the
+/// tile is a colour and a caption, tinted by what happened to it, which is the
+/// thing you are actually scanning for.
+private struct PostTile: View {
+    let post: PendingPost
+
+    private var tint: Color {
+        switch post.state {
+        case .published: return .green
+        case .failed:    return .red
+        case .cancelled: return .orange
+        default:         return Theme.accent
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack(alignment: .topTrailing) {
+                LinearGradient(
+                    colors: [tint.opacity(0.85), tint.opacity(0.45)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                Image(systemName: post.state == .published ? "checkmark.circle.fill" : "clock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+                    .padding(10)
+            }
+            .frame(height: 96)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(post.caption.isEmpty ? post.post.hook : post.caption)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Color.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+
+                Text(post.statusLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+    }
+}
+
+private struct NothingYetCard: View {
+    var body: some View {
+        Card("Nothing has gone out yet", systemImage: "square.grid.2x2") {
+            Text("Plan a month or add a video and it shows up here once it has posted.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

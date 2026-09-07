@@ -59,6 +59,24 @@ struct RootView: View {
             Tab("You", systemImage: "person.crop.circle") {
                 NavigationStack { ProfileView() }
             }
+
+            // The detached one, sitting in its own circle beside the bar.
+            //
+            // `.search` is the only role iOS 26 detaches, and it is the reason
+            // the previous version of this app hand-built a tab bar and then
+            // read as hand-built. This gets the same shape from the system: the
+            // pill keeps four tabs, the plus floats to its right, and all the
+            // Liquid Glass behaviour comes free.
+            //
+            // Semantically it is the search slot, which is a stretch. It takes
+            // a custom icon and shows whatever content it is given rather than
+            // forcing a search field, so the stretch is in the name and not in
+            // the behaviour. If a future iOS insists on a search field here,
+            // the fallback is `.tabViewBottomAccessory` with a Create pill --
+            // a different shape, same job, still native.
+            Tab("Create", systemImage: "plus", role: .search) {
+                NavigationStack { CreateView() }
+            }
         }
         // The bar gets out of the way when reading and comes back on the way
         // up. Behaviour the system owns; asking for it is the whole cost.

@@ -38,7 +38,12 @@ struct GeneratorSheet: View {
                 } header: {
                     Text("Higgsfield")
                 } footer: {
-                    Text("From higgsfield.ai → API keys. Both halves are needed; the secret is shown only once when you create it.")
+                    // cloud.higgsfield.ai, NOT higgsfield.ai. They are separate
+                    // surfaces: the one people know is the consumer app, and
+                    // API keys only exist in Higgsfield Cloud. Sending someone
+                    // to the wrong one means hunting for a page that is not
+                    // there and concluding this feature is broken.
+                    Text("Made at cloud.higgsfield.ai — the Cloud dashboard, not the main higgsfield.ai app. Both halves are needed.")
                 }
 
                 Section {

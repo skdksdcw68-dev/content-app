@@ -283,4 +283,73 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(proposal.planned, 28, "one came back without a rationale")
         XCTAssertEqual(proposal.dropped, 1)
     }
+
+    // MARK: - Generators
+
+    /// The shape `my_generators()` returns. It deliberately contains no secret
+    /// and no way to reconstruct one, and this test is where that stays true:
+    /// a column added to that function shows up here before it shows up in a
+    /// log or a crash report.
+    func testGeneratorDecodesWithoutEverCarryingAKey() throws {
+        let json = """
+        {
+          "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+          "provider": "higgsfield",
+          "label": "",
+          "last_probe_at": "2026-09-07T07:20:00.123456+00:00",
+          "last_probe_ok": true,
+          "last_probe_detail": "verified (404)"
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let generator = try decoder.decode(Generator.self, from: json)
+
+        XCTAssertTrue(generator.isWorking)
+        XCTAssertEqual(generator.name, "Higgsfield", "an empty label falls back to the provider")
+        XCTAssertNotNil(generator.lastProbeAt)
+
+        // The one assertion that matters: nothing on this type is the key.
+        let mirror = Mirror(reflecting: generator)
+        let names = mirror.children.compactMap(\.label)
+        for forbidden in ["secret", "key", "token", "ct"] {
+            XCTAssertFalse(
+                names.contains { $0.lowercased().contains(forbidden) },
+                "Generator must not carry anything named \(forbidden)"
+            )
+        }
+    }
+
+    /// A key that worked once and has since stopped is the case worth getting
+    /// right: it must say what happened rather than quietly reading as fine.
+    func testABrokenGeneratorExplainsItself() throws {
+        let json = """
+        {
+          "id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+          "provider": "higgsfield",
+          "label": "Main",
+          "last_probe_at": null,
+          "last_probe_ok": false,
+          "last_probe_detail": "Higgsfield rejected that key pair."
+        }
+        """.data(using: .utf8)!
+
+        let generator = try JSONDecoder().decode(Generator.self, from: json)
+
+        XCTAssertFalse(generator.isWorking)
+        XCTAssertEqual(generator.name, "Main", "a label wins over the provider name")
+        XCTAssertEqual(generator.statusLine, "Higgsfield rejected that key pair.")
+    }
+
+    /// `sourcing` is the state a post sits in while a video is being made. It
+    /// is not terminal and it is not waiting on a person, and a row that got
+    /// either wrong would offer a button that does nothing.
+    func testSourcingIsNeitherFinishedNorWaitingOnYou() {
+        XCTAssertFalse(PostStatus.sourcing.isTerminal)
+        XCTAssertFalse(PostStatus.sourcing.isWaitingOnYou)
+        XCTAssertTrue(PostStatus.needsApproval.isWaitingOnYou)
+        XCTAssertTrue(PostStatus.posted.isTerminal)
+        XCTAssertTrue(PostStatus.failed.isTerminal)
+    }
 }

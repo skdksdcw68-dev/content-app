@@ -40,6 +40,10 @@ final class AppSession {
     /// returns only that a credential exists and whether it last worked.
     private(set) var generators: [Generator] = []
 
+    /// How this brand wants to be run. Carries the autopilot switch, which is
+    /// off until somebody turns it on.
+    private(set) var settings: BrandSettings?
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -71,6 +75,7 @@ final class AppSession {
             await refreshPosts()
             await refreshPlan()
             await refreshGenerators()
+            await refreshSettings()
             state = .ready
         } catch {
             state = .failed(readableMessage(error))
@@ -747,4 +752,53 @@ private struct ConnectedGenerator: Decodable {
 private struct StartedJob: Decodable {
     let jobId: String
     enum CodingKeys: String, CodingKey { case jobId = "job_id" }
+}
+
+// MARK: - Autopilot
+
+extension AppSession {
+    func refreshSettings() async {
+        guard let brandID = brand?.id else { return }
+        do {
+            let rows: [BrandSettings] = try await client
+                .from("brand_settings")
+                .select("is_on,posts_per_day,requires_approval,quiet_hours_start,quiet_hours_end,render_lead_hours")
+                .eq("brand_id", value: brandID.uuidString)
+                .execute()
+                .value
+            settings = rows.first
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Turns the autopilot on or off.
+    ///
+    /// This is the switch that decides whether media starts making itself. Off
+    /// by default and never flipped on anyone's behalf: everything it enables
+    /// spends the person's money without asking again.
+    @discardableResult
+    func setAutopilot(_ on: Bool) async -> Bool {
+        guard let brandID = brand?.id else { return false }
+
+        // Changed locally first so the toggle does not lag a round trip, and
+        // put back if the write fails -- a switch that silently springs back is
+        // worse than one that never moved.
+        let previous = settings
+        settings?.isOn = on
+
+        do {
+            _ = try await client
+                .from("brand_settings")
+                .update(["is_on": on])
+                .eq("brand_id", value: brandID.uuidString)
+                .execute()
+            await refreshSettings()
+            return true
+        } catch {
+            settings = previous
+            lastError = readableMessage(error)
+            return false
+        }
+    }
 }

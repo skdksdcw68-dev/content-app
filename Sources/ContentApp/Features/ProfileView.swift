@@ -64,6 +64,34 @@ struct ProfileView: View {
                 Text("Autocast makes the videos with a generator you pay for, using your own key. Nothing is generated without one.")
             }
 
+            Section {
+                Toggle("Make the videos for me", isOn: Binding(
+                    get: { session.settings?.isOn ?? false },
+                    set: { on in Task { await session.setAutopilot(on) } }
+                ))
+                .disabled(session.settings == nil || !session.hasWorkingGenerator)
+
+                if let settings = session.settings, settings.isOn {
+                    LabeledContent("Made") {
+                        Text("\(settings.renderLeadHours)h before each post")
+                            .foregroundStyle(.secondary)
+                    }
+                    LabeledContent("Hours", value: settings.quietWindow)
+                }
+            } header: {
+                Text("Autopilot")
+            } footer: {
+                // Off by default and said out loud, because everything this
+                // turns on spends money without asking again.
+                if !session.hasWorkingGenerator {
+                    Text("Connect a generator above and Autocast can start each video a day before its slot, without being asked.")
+                } else if session.settings?.isOn == true {
+                    Text("Each video is made about a day before its slot and comes back to you for approval. You are billed by your generator for what it makes. Nothing is posted until you approve it.")
+                } else {
+                    Text("Turn this on and Autocast starts each video about a day before its slot. It still comes back to you before anything is posted.")
+                }
+            }
+
             Section("Coming next") {
                 SoonRow(symbol: "music.note", title: "Music", detail: "A track picked and mixed into each video.")
                 SoonRow(symbol: "camera.aperture", title: "More platforms", detail: "Instagram Reels and YouTube Shorts.")
@@ -73,6 +101,7 @@ struct ProfileView: View {
         .refreshable {
             await session.refreshConnections()
             await session.refreshGenerators()
+            await session.refreshSettings()
         }
         .sheet(isPresented: $addingGenerator) { GeneratorSheet() }
     }

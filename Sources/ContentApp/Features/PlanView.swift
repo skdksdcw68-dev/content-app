@@ -74,6 +74,15 @@ struct PlanView: View {
         }
         .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await attachPicked() }
+        // Generation takes minutes and finishes on a server. Without this the
+        // row says "Being made" and then says it forever, until somebody
+        // happens to pull down -- which reads as the feature not working.
+        //
+        // Polling rather than Realtime: the interesting change is a row moving
+        // from `sourcing` to `needs_approval`, which is one query, and a
+        // subscription that has to be torn down correctly on every navigation
+        // is a lot of machinery for a screen somebody watches for two minutes.
+        .task(id: isMaking) { await watchWhileMaking() }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .confirmationDialog(
             "Throw this plan away?",
@@ -173,6 +182,29 @@ struct PlanView: View {
 
     private func approve() async {
         if await session.activatePlan() { dismiss() }
+    }
+
+    /// True while anything on this plan is being generated.
+    private var isMaking: Bool { posts.contains { $0.status == .sourcing } }
+
+    /// Checks back while a video is being made, and stops the moment it is not.
+    ///
+    /// Twelve seconds because generation takes minutes -- this is not a race,
+    /// it is the difference between a screen that resolves itself and one that
+    /// looks stuck. The task is keyed on `isMaking`, so finishing tears it down
+    /// rather than leaving a timer running behind a screen nobody is looking at.
+    private func watchWhileMaking() async {
+        guard isMaking else { return }
+
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+
+            await session.refreshPlan()
+            await session.refreshPosts()
+
+            if !isMaking { return }
+        }
     }
 
     /// Puts a video against the day it was picked for.

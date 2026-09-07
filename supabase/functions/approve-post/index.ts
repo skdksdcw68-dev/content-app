@@ -178,8 +178,13 @@ Deno.serve(async (request) => {
         consent_ui_version: CONSENT_UI_VERSION,
         // Recorded as displayed, not as stored. This is the evidence that the
         // creator was identified before publishing.
-        shown_creator_username: info.creator_username,
-        shown_creator_avatar_url: info.creator_avatar_url,
+        //
+        // Coalesced because both columns are NOT NULL and both values come
+        // straight from TikTok's response. A field TikTok omits would otherwise
+        // become a 23502 surfacing as "Something went wrong on our side" on the
+        // one screen that must never fail confusingly.
+        shown_creator_username: info.creator_username ?? "",
+        shown_creator_avatar_url: info.creator_avatar_url ?? "",
         granted_ip: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
         granted_ua: request.headers.get("user-agent"),
       })

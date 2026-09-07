@@ -85,9 +85,13 @@ final class AppSession {
     /// One brand for now. The schema supports several and the UI will, but
     /// shipping a brand switcher before there is a second brand is furniture.
     private func loadBrand(for userID: UUID) async throws {
+        // Ordered, because `limit(1)` without one asks Postgres for "any row"
+        // and it is entitled to answer differently on different days. Anyone
+        // who ends up with two brands would then see one of them at random.
         let existing: [Brand] = try await client
             .from("brands")
             .select()
+            .order("created_at", ascending: true)
             .limit(1)
             .execute()
             .value

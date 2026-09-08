@@ -159,13 +159,23 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// How far along, for the bar at the top. Welcome has none -- a progress
     /// bar on the first screen tells somebody how long this will take before
     /// they have agreed to take it.
+    /// 🔴 The bar used to reach 100% on the generator screen — the last screen
+    /// somebody still has to act on. It told them they had finished while they
+    /// were still working, which is the one thing a progress bar must never
+    /// do: the last step looked like no step at all, and pressing the button
+    /// under a full bar feels like being tricked.
+    ///
+    /// The denominator counts the steps *plus the end*, so every screen is a
+    /// fraction of the way there and only `done` is full. Five screens now
+    /// read 17, 33, 50, 67, 83 — and the bar still has somewhere to go when
+    /// the last one is on screen, which is what makes it worth having.
     var progress: Double? {
-        let total = Double(OnboardingQuestion.all.count + 2)
+        let steps = Double(OnboardingQuestion.all.count + 2)
         switch self {
         case .welcome:          return nil
-        case .question(let i):  return Double(i + 1) / total
-        case .connectAccount:   return Double(OnboardingQuestion.all.count + 1) / total
-        case .connectGenerator: return 1
+        case .question(let i):  return Double(i + 1) / (steps + 1)
+        case .connectAccount:   return Double(OnboardingQuestion.all.count + 1) / (steps + 1)
+        case .connectGenerator: return steps / (steps + 1)
         case .done:             return 1
         }
     }

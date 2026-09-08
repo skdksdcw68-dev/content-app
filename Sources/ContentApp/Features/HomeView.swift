@@ -65,7 +65,18 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
+            // 🔴 Spacing was a flat 16 between nine cards, and that is why the
+            // screen read as badly as it did. Nine boxes at one weight, evenly
+            // spaced, gives the eye nothing to land on: everything competes and
+            // nothing wins, and the page reads as a pile rather than a screen.
+            //
+            // Distance is the cheapest hierarchy there is. Things that belong
+            // together sit 10 apart, groups sit 26 apart, and the reader gets
+            // the grouping for free without a single line or box being drawn.
+            VStack(spacing: 0) {
+                greeting
+                    .padding(.bottom, 18)
+
                 // The one big action, first, before any status. What somebody
                 // opens this app to do is start something; what happened to
                 // last Tuesday's upload is what they scroll for.
@@ -75,11 +86,13 @@ struct HomeView: View {
                     CreateNewButton()
                 }
                 .buttonStyle(.plain)
+                .padding(.bottom, 10)
 
                 QuickActions(
                     hasPlan: session.plan != nil,
                     hasAccount: !session.connections.isEmpty
                 )
+                .padding(.bottom, 26)
 
                 // The app showing itself around. Every slide goes to the thing
                 // it describes, and what it leads with depends on what is not
@@ -89,11 +102,14 @@ struct HomeView: View {
                     hasGenerator: session.hasWorkingGenerator,
                     hasPlan: session.plan != nil
                 )
+                .padding(.bottom, 26)
 
                 if let connection = session.connections.first {
                     AccountCard(connection: connection)
+                        .padding(.bottom, 26)
                 } else {
                     ConnectFirstCard()
+                        .padding(.bottom, 26)
                 }
 
                 // Failures lead among the status cards, because they are the
@@ -101,6 +117,7 @@ struct HomeView: View {
                 // looking at it.
                 if !failed.isEmpty {
                     FailedCard(posts: failed) { approving = $0 }
+                        .padding(.bottom, 10)
                 }
 
                 // The three cards from the design. They cover what PlanCard and
@@ -115,13 +132,16 @@ struct HomeView: View {
                     needsApproval: needsYou.count,
                     timezone: brandTimeZone
                 )
+                .padding(.bottom, 10)
 
                 if !needsYou.isEmpty {
                     NeedsYouCard(posts: needsYou) { approving = $0 }
+                        .padding(.bottom, 10)
                 }
 
                 if !inFlight.isEmpty {
                     InFlightCard(posts: inFlight)
+                        .padding(.bottom, 10)
                 }
 
                 // Everything else as tiles rather than another list. A month of
@@ -129,16 +149,23 @@ struct HomeView: View {
                 // you recognise at a glance, which is what it actually is.
                 if !recent.isEmpty {
                     RecentGrid(posts: recent) { approving = $0 }
+                        .padding(.top, 16)
                 } else if !session.connections.isEmpty {
                     NothingYetCard()
+                        .padding(.top, 16)
                 }
 
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
         }
         .background(Theme.canvas)
-        .navigationTitle("Home")
+        // No title. "Good evening" is the title now, and a large "Home" above
+        // it was the same job done twice, in two type sizes, six points apart.
+        // The bar keeps its avatar and gets out of the way.
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { ProfileView() } label: {
@@ -152,6 +179,70 @@ struct HomeView: View {
             await session.refreshPlan()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
+    }
+}
+
+// MARK: - The top of the page
+
+private extension HomeView {
+    /// A line that says where things stand before anything is asked of you.
+    ///
+    /// The page began on a full-width purple button. Opening an app and being
+    /// handed a call to action before a single word of greeting is what makes
+    /// a screen feel like a form -- and there was no title anywhere, so the
+    /// first thing the eye met was the loudest thing on the page.
+    ///
+    /// It reports rather than decorates: what is actually waiting, in one
+    /// sentence, and nothing when nothing is.
+    var greeting: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(timeOfDay)
+                .font(.title.bold())
+                .foregroundStyle(Color.primary)
+
+            Text(standing)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var timeOfDay: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12:  "Good morning"
+        case 12..<18: "Good afternoon"
+        default:      "Good evening"
+        }
+    }
+
+    /// Most pressing first. Each of these is a thing somebody can act on, and
+    /// the last line is the one that means there is nothing to do.
+    var standing: String {
+        if !failed.isEmpty {
+            return failed.count == 1
+                ? "One post didn't go out. It needs you."
+                : "\(failed.count) posts didn't go out. They need you."
+        }
+        if !needsYou.isEmpty {
+            return needsYou.count == 1
+                ? "One post is waiting for your approval."
+                : "\(needsYou.count) posts are waiting for your approval."
+        }
+        if !inFlight.isEmpty {
+            return inFlight.count == 1
+                ? "One post is being made right now."
+                : "\(inFlight.count) posts are being made right now."
+        }
+        if session.connections.isEmpty {
+            return "Connect an account and Autocast can start posting for you."
+        }
+        if scheduledThisWeek > 0 {
+            return scheduledThisWeek == 1
+                ? "One post scheduled this week. Nothing needs you."
+                : "\(scheduledThisWeek) posts scheduled this week. Nothing needs you."
+        }
+        return "Nothing waiting. A good time to make something."
     }
 }
 

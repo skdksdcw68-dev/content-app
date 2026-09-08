@@ -102,7 +102,7 @@ struct OnboardingConnect: View {
                     title: "TikTok",
                     detail: "Post short video to your account",
                     symbol: "music.note",
-                    mark: .init(letter: "T", tint: .black),
+                    logo: .tiktok,
                     avatar: session.connections.first?.avatarURL,
                     state: session.connections.isEmpty
                         ? .available
@@ -114,7 +114,7 @@ struct OnboardingConnect: View {
                     title: "Instagram Reels",
                     detail: "Waiting on Meta's review",
                     symbol: "camera",
-                    mark: .init(letter: "I", tint: .pink),
+                    logo: .instagram,
                     state: .soon
                 ),
                 .init(
@@ -122,7 +122,7 @@ struct OnboardingConnect: View {
                     title: "YouTube Shorts",
                     detail: "Waiting on a quota increase",
                     symbol: "play.rectangle",
-                    mark: .init(letter: "Y", tint: .red),
+                    logo: .youtube,
                     state: .soon
                 ),
             ]
@@ -135,6 +135,12 @@ struct OnboardingConnect: View {
                     title: "Higgsfield",
                     detail: "Makes the video from the plan's own description",
                     symbol: "wand.and.stars",
+                    // ⚠️ No drawn logo, and that is deliberate rather than
+                    // unfinished. TikTok, Instagram and YouTube have marks
+                    // built from squares and circles that anybody would
+                    // recognise; Higgsfield's is not something to reproduce
+                    // from memory, and a wrong logo is worse than an honest
+                    // letter. Swap this for their real asset when you have it.
                     mark: .init(letter: "H", tint: .indigo),
                     state: generator == nil ? .available : (generator?.isWorking == true ? .connected : .needsAttention),
                     connectedAs: generator?.isWorking == true ? "Key verified" : generator?.statusLine
@@ -177,13 +183,11 @@ struct ConnectRow: View {
     struct Model: Identifiable {
         enum State { case available, connected, needsAttention, soon, always }
 
-        /// A brand mark: one letter in the platform's own colour.
+        /// A lettermark: one letter in the service's own colour.
         ///
-        /// Not the real logo, and deliberately. Shipping TikTok's or Meta's
-        /// glyph means shipping their file under their brand terms, and there
-        /// is no SF Symbol for either -- so anything "real" here would be a
-        /// shape drawn from memory, which is worse than an honest lettermark.
-        /// It is also what the design itself does.
+        /// Still here, but no longer the answer for the platforms. It is what
+        /// a service gets when there is no mark of theirs anybody would
+        /// recognise -- see `logo` below.
         struct Mark {
             let letter: String
             let tint: Color
@@ -193,6 +197,8 @@ struct ConnectRow: View {
         let title: String
         let detail: String
         let symbol: String
+        /// The real thing, drawn. Takes precedence over `mark`.
+        var logo: BrandLogo?
         var mark: Mark?
         var avatar: URL?
         let state: State
@@ -288,8 +294,10 @@ private struct Badge: View {
                 AsyncImage(url: avatar) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
-                    lettermark
+                    if let logo = row.logo { logo.view } else { lettermark }
                 }
+            } else if let logo = row.logo {
+                logo.view
             } else if row.mark != nil {
                 lettermark
             } else {

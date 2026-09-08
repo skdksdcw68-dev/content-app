@@ -44,7 +44,7 @@ struct HomeView: View {
 
     /// Days in the plan with nothing to publish yet.
     private var needsVideo: Int {
-        let queued = Set(session.posts.map(.postId))
+        let queued = Set(session.posts.map(\.postId))
         return session.planPosts.filter { post in
             post.status != .posted && !queued.contains(post.id)
         }.count

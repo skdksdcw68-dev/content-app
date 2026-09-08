@@ -24,14 +24,17 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
+import { missingForPlan, MODELS, route } from "../_shared/route.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 
-/** Chat is read once and discarded, so it does not need the planner's model.
- *  Overridable without a redeploy, because the cheapest option moves. */
-const MODEL = Deno.env.get("CHAT_MODEL") ?? Deno.env.get("LLM_MODEL") ?? "gpt-4.1-mini";
+/** Conversation runs on the middle tier. The router above it is cheaper and
+ *  the strategy work below it is dearer -- see `MODELS` in _shared/route.ts for
+ *  what each tier is for and why one model everywhere is how you bankrupt a
+ *  product that answers "hi" at strategy prices. */
+const MODEL = MODELS.chat;
 
 /** How much conversation goes back to the model. Past this the cost grows for
  *  context nobody refers to; a chat that has run longer keeps its most recent
@@ -127,6 +130,65 @@ Deno.serve(async (request) => {
 
           if (previous.length > 0) {
             send({ t: "step", kind: "reading", detail: `Looked at your last ${previous.length} openings` });
+          }
+
+          // What are they actually asking for? One cheap call before any
+          // decision about what to spend. See _shared/route.ts.
+          const asked = history[history.length - 1].content;
+          const routed = await route(asked, OPENAI_KEY);
+
+          send({ t: "step", kind: "reading", detail: routed.reading });
+
+          // The gate. A month of content is the single most expensive thing
+          // this product does, and the worst version of it is a month built
+          // against the wrong goal -- so it does not start until the goal is
+          // known and a person has agreed to it.
+          //
+          // Only what is genuinely missing is asked. `brand_knowledge` reports
+          // what the database already holds, and a question somebody already
+          // answered during setup is the fastest way to feel stupid.
+          if (routed.intent === "plan" && brand) {
+            const { data: knowledgeRows } = await asUser
+              .rpc("brand_knowledge", { p_brand: brand.id });
+            const known = (knowledgeRows ?? [])[0];
+
+            if (known) {
+              const { data: strategyRow } = known.strategy_id
+                ? await asUser
+                  .from("strategies")
+                  .select("goal, appetite, audience, cadence")
+                  .eq("id", known.strategy_id)
+                  .maybeSingle()
+                : { data: null };
+
+              const questions = missingForPlan(known, strategyRow);
+
+              if (questions.length > 0) {
+                send({
+                  t: "step",
+                  kind: "reading",
+                  detail: `Checked what I already know about ${brand.name}`,
+                });
+
+                const count = questions.length === 1 ? "one thing" : `${questions.length} things`;
+                for (const chunk of [
+                  `I can plan ${routed.days ?? 30} days for ${brand.name}. `,
+                  `Before I build it I need ${count} from you — `,
+                  "everything else I already have.",
+                ]) {
+                  send({ t: "delta", v: chunk });
+                }
+
+                // Rendered as taps by the app. Sent as data rather than as a
+                // numbered list in the prose, because the answers come back as
+                // values and parsing them out of a sentence is how the wrong
+                // month gets built.
+                send({ t: "questions", questions });
+                send({ t: "done" });
+                controller.close();
+                return;
+              }
+            }
           }
 
           send({ t: "step", kind: "writing", detail: "Writing" });

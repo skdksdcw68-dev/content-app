@@ -44,6 +44,33 @@ struct TaskStep: Identifiable, Equatable {
     }
 }
 
+/// Something the agent needs to know before it will spend anything.
+///
+/// Sent as data rather than as a numbered list in the reply. The answers come
+/// back as values the strategy is built from, and parsing them out of a
+/// sentence is how the wrong month gets built.
+struct ChatQuestion: Identifiable, Equatable, Decodable {
+    struct Option: Identifiable, Equatable, Decodable {
+        var id: String { value }
+        let value: String
+        let label: String
+    }
+
+    var id: String { key }
+    let key: String
+    let prompt: String
+    let options: [Option]
+    /// Every question takes a typed answer too. The buttons are a shortcut, not
+    /// a cage: somebody whose goal is not on the list should not have to pick
+    /// the nearest wrong one.
+    let allowsFreeText: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case key, prompt, options
+        case allowsFreeText
+    }
+}
+
 /// One turn in the conversation.
 ///
 /// The user's turn is a tinted capsule pushed right; the agent's is typography
@@ -63,6 +90,11 @@ struct ChatMessage: Identifiable, Equatable {
     /// What the agent did on this turn, in order. Live while it works, kept
     /// afterwards so the path to an answer stays checkable.
     var steps: [TaskStep] = []
+    /// What it needs answered before it will go and spend money.
+    var questions: [ChatQuestion] = []
+    /// Which of those have been answered, so a tapped card settles rather than
+    /// sitting there inviting the same tap again.
+    var answered: [String: String] = [:]
     var failed = false
 
     static func user(_ text: String) -> ChatMessage {

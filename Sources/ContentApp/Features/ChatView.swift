@@ -80,8 +80,10 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     ForEach(turns) { turn in
-                        ChatTurnView(turn: turn)
-                            .id(turn.id)
+                        ChatTurnView(turn: turn) { question, value in
+                            answer(question, with: value, in: turn.id)
+                        }
+                        .id(turn.id)
                             // Fade only. A new turn sliding up while the scroll
                             // view is also animating to it, with the composer
                             // re-measuring underneath, is three animations on
@@ -231,6 +233,10 @@ struct ChatView: View {
                     case .delta(let text):
                         stream.pending += text
                         scheduleFlush(into: replyIndex)
+                    case .questions(let asked):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].questions = asked
+                        }
                     case .failed(let message):
                         turns[replyIndex].isPending = false
                         turns[replyIndex].failed = true
@@ -269,6 +275,38 @@ struct ChatView: View {
                 turns[replyIndex].text = "Nothing came back. Try rephrasing."
             }
         }
+    }
+
+    /// A tapped answer, sent as though it had been typed.
+    ///
+    /// The card is marked answered first so it settles immediately rather than
+    /// waiting for a round trip -- and it stays on screen showing what was
+    /// chosen, because a conversation where the questions vanish reads as
+    /// though nothing was ever agreed.
+    ///
+    /// Only sends once every question in that turn has an answer. Firing on the
+    /// first tap would start the agent working while somebody is still deciding
+    /// the second thing, which is the exact spending-before-understanding this
+    /// whole flow exists to prevent.
+    private func answer(_ question: ChatQuestion, with value: String, in turnID: ChatMessage.ID) {
+        guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
+        guard turns[index].answered[question.key] == nil else { return }
+
+        turns[index].answered[question.key] = value
+
+        let pending = turns[index].questions.filter { turns[index].answered[$0.key] == nil }
+        guard pending.isEmpty else { return }
+
+        // Said the way a person would say it, so the transcript reads as a
+        // conversation rather than as a form submission.
+        let said = turns[index].questions.compactMap { asked -> String? in
+            guard let picked = turns[index].answered[asked.key] else { return nil }
+            let label = asked.options.first { $0.value == picked }?.label ?? picked
+            return "\(asked.prompt) \(label)"
+        }.joined(separator: " ")
+
+        draft = said
+        send()
     }
 
     private func stop() {

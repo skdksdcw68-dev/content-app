@@ -25,6 +25,7 @@ extension AppSession {
     enum ChatEvent {
         case step(TaskStep)
         case delta(String)
+        case questions([ChatQuestion])
         case failed(String)
     }
 
@@ -75,6 +76,17 @@ extension AppSession {
                   let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let kind = event["t"] as? String
             else { continue }
+
+            // Decoded from the original bytes rather than from the dictionary
+            // above: re-encoding a parsed `Any` back to JSON to decode it again
+            // is two conversions that can each lose a type.
+            if kind == "questions" {
+                struct Frame: Decodable { let questions: [ChatQuestion] }
+                if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
+                    onEvent(.questions(frame.questions))
+                }
+                continue
+            }
 
             switch kind {
             case "delta":

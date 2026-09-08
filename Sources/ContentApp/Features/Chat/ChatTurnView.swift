@@ -6,6 +6,10 @@ import SwiftUI
 /// reply.
 struct ChatTurnView: View {
     let turn: ChatMessage
+    /// Answering a question is the same as saying it out loud, so it goes back
+    /// as an ordinary turn rather than through a side channel. The transcript
+    /// then reads the way the conversation actually went.
+    var onAnswer: (ChatQuestion, String) -> Void = { _, _ in }
 
     var body: some View {
         switch turn.role {
@@ -54,9 +58,127 @@ struct ChatTurnView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    ForEach(turn.questions) { question in
+                        QuestionCard(
+                            question: question,
+                            answer: turn.answered[question.key]
+                        ) { onAnswer(question, $0) }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// One question, with the taps that answer it.
+///
+/// This is the visible half of the rule that a month of content does not get
+/// built until somebody has said what it is for. The agent asks two or three
+/// things it genuinely does not know — never what the brand already says — and
+/// waits.
+///
+/// Once answered it settles into the answer rather than disappearing. A card
+/// that vanishes leaves the conversation reading as though nothing was asked,
+/// and the person cannot see what they agreed to.
+private struct QuestionCard: View {
+    let question: ChatQuestion
+    let answer: String?
+    let onPick: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(question.prompt)
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let answer {
+                Label(label(for: answer), systemImage: "checkmark.circle.fill")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+            } else if question.options.isEmpty {
+                // Nothing to tap, so say what to do instead of showing an empty
+                // row where buttons obviously belong.
+                Text("Type your answer below.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                FlowRow(spacing: 8) {
+                    ForEach(question.options) { option in
+                        Button { onPick(option.value) } label: {
+                            Text(option.label)
+                                .font(.footnote.weight(.medium))
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 8)
+                                .background {
+                                    Capsule().fill(Theme.accent.opacity(0.10))
+                                }
+                                .foregroundStyle(Theme.accent)
+                        }
+                        .buttonStyle(PressButtonStyle())
+                    }
+                }
+
+                if question.allowsFreeText {
+                    Text("Or type your own.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .fill(Theme.surface)
+        }
+    }
+
+    /// The label if the answer came from a button, the raw text if it was typed.
+    private func label(for value: String) -> String {
+        question.options.first { $0.value == value }?.label ?? value
+    }
+}
+
+/// Wraps its children onto as many lines as they need.
+///
+/// `HStack` would push four chips off the edge and `ScrollView(.horizontal)`
+/// hides the last one behind an edge nobody thinks to drag. Options are a set
+/// to choose from, so all of them have to be visible at once.
+private struct FlowRow: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0
+
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > width, x > 0 {
+                x = 0
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return CGSize(width: proposal.width ?? x, height: y + lineHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, lineHeight: CGFloat = 0
+
+        for view in subviews {
+            let size = view.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX, x > bounds.minX {
+                x = bounds.minX
+                y += lineHeight + spacing
+                lineHeight = 0
+            }
+            view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
         }
     }
 }

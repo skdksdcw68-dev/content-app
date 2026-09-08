@@ -142,7 +142,7 @@ private struct PromoCard: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                Color(.secondarySystemGroupedBackground),
+                Theme.surface,
                 in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
             )
             .contentShape(Rectangle())

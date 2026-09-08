@@ -31,8 +31,20 @@ enum Theme {
     /// reason -- a tint, never a large fill, and never competing.
     static let softAccent = Color("SoftAccent")
 
+    /// The page. #F5F5F3 -- warm paper rather than iOS's #F2F2F7, which is
+    /// faintly blue and makes the same layout read colder. It is a two-percent
+    /// difference and it is most of why the reference looks calm.
+    static let canvas = Color("Canvas")
+
+    /// What a card is made of. White on paper; lifted off the canvas in dark,
+    /// so an edge reads without needing a border drawn on it.
+    static let surface = Color("Surface")
+
     /// Corner radius shared by every card, so surfaces read as one system.
     static let cornerRadius: CGFloat = 16
+
+    /// Cards that carry a picture are rounder than cards that carry text.
+    static let mediaRadius: CGFloat = 20
 
     /// The one place colour is still allowed: what happened to a post. These
     /// carry meaning, so they stay saturated while everything around them
@@ -86,7 +98,7 @@ struct Card<Content: View>: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            Color(.secondarySystemGroupedBackground),
+            Theme.surface,
             in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
         )
     }
@@ -123,7 +135,7 @@ struct MetricTile: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(
-            Color(.secondarySystemGroupedBackground),
+            Theme.surface,
             in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
         )
         .accessibilityElement(children: .combine)
@@ -167,5 +179,5 @@ struct ProportionBar: View {
         }
         .padding()
     }
-    .background(Color(.systemGroupedBackground))
+    .background(Theme.canvas)
 }

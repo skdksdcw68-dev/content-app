@@ -49,7 +49,7 @@ struct CreateView: View {
             .padding(.top, 8)
             .padding(.bottom, 24)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.canvas)
         .navigationTitle("Create")
         .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await loadPicked() }
@@ -165,7 +165,7 @@ private struct CreateAction: View {
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                Color(.secondarySystemGroupedBackground),
+                Theme.surface,
                 in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
             )
             .contentShape(Rectangle())

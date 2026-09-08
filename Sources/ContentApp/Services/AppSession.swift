@@ -245,7 +245,7 @@ extension AppSession {
         do {
             posts = try await client
                 .from("post_targets")
-                .select("id,post_id,caption,state,privacy,is_aigc,consent_id,failure_reason,posts!inner(hook,status,created_at)")
+                .select("id,post_id,caption,state,privacy,is_aigc,consent_id,failure_reason,published_at,posts!inner(hook,status,created_at)")
                 .order("id", ascending: false)
                 .limit(50)
                 .execute()

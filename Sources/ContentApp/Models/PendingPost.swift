@@ -17,6 +17,9 @@ struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
     let isAIGC: Bool
     let consentId: UUID?
     let failureReason: String?
+    /// When it actually went out. Needed by the week strip on Home, which has
+    /// to know which day a post landed on rather than which day it was made.
+    let publishedAt: Date?
     let post: Parent
 
     struct Parent: Decodable, Hashable, Sendable {
@@ -42,6 +45,7 @@ struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
         case isAIGC = "is_aigc"
         case consentId = "consent_id"
         case failureReason = "failure_reason"
+        case publishedAt = "published_at"
         case post = "posts"
     }
 

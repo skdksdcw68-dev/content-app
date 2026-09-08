@@ -32,7 +32,7 @@ struct InsightsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.canvas)
         .navigationTitle("Insights")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }

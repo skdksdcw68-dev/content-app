@@ -51,7 +51,7 @@ struct ChatView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(Theme.canvas)
         .navigationTitle("Chat")
         .scrollDismissesKeyboard(.interactively)
         .sheet(isPresented: $planning, onDismiss: {

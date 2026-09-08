@@ -65,8 +65,24 @@ struct RootView: View {
                 NavigationStack { HomeView() }
             }
 
+            // The one tab that hides the bar it lives in.
+            //
+            // Not a preference. The composer is pinned to the bottom of the
+            // screen by UIKit, through the keyboard's own frame -- it does not
+            // know the tab bar exists and cannot be told, because the whole
+            // reason it is done that way is that SwiftUI's layout was too slow
+            // to keep up with the keyboard. Two things owning the bottom edge
+            // means the send button sits behind the bar.
+            //
+            // A conversation is also a place you are *in* rather than a section
+            // you are browsing, which is why every assistant on the platform
+            // gives it the full screen. The way back is the chevron in the top
+            // left, since the bar that would normally offer one is gone.
             Tab("Chat", systemImage: "sparkles", value: AppTab.chat) {
-                NavigationStack { ChatView() }
+                NavigationStack {
+                    ChatView(onClose: { tab = .home })
+                        .toolbar(.hidden, for: .tabBar)
+                }
             }
 
             Tab("Library", systemImage: "square.grid.2x2.fill", value: AppTab.library) {
@@ -95,9 +111,13 @@ struct RootView: View {
                 NavigationStack { CreateView() }
             }
         }
-        // The bar gets out of the way when reading and comes back on the way
-        // up. Behaviour the system owns; asking for it is the whole cost.
-        .tabBarMinimizeBehavior(.onScrollDown)
+        // 🔴 `.tabBarMinimizeBehavior(.onScrollDown)` was here, and it is gone
+        // because Abel hated it -- correctly. It is a genuinely good iOS 26
+        // behaviour for a reading app, where the content is the point and the
+        // chrome is in the way. This is a control centre: the bar is how you
+        // move between the four things the product does, and a bar that
+        // disappears while you scroll a status page makes you scroll back up
+        // to reach it. Free from the system is not a reason to take it.
     }
 }
 

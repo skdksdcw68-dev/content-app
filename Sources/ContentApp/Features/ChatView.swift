@@ -19,6 +19,10 @@ import UIKit
 /// of model time and belongs to `propose-plan`, so the agent offers it as an
 /// action and the sheet does the work.
 struct ChatView: View {
+    /// Set when this screen is covering the tab bar, which is the only way it
+    /// is used. Without it there would be no way out of the conversation.
+    var onClose: (() -> Void)? = nil
+
     @Environment(AppSession.self) private var session
 
     @State private var turns: [ChatMessage] = []
@@ -135,6 +139,22 @@ struct ChatView: View {
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if let onClose {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismissKeyboard()
+                        onClose()
+                    } label: {
+                        // Down rather than back: the conversation came up over
+                        // the app and this puts it away, which is what every
+                        // sheet-shaped thing on the platform does.
+                        Image(systemName: "chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .accessibilityLabel("Close chat")
+                }
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {

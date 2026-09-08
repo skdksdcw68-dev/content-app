@@ -41,9 +41,13 @@ struct OnboardingConnect: View {
     // MARK: - What is on the screen
 
     private var header: some View {
-        // No progress bar here. It lives in the flow, above the page, so it
-        // stays put and fills rather than sliding away with every screen.
         VStack(alignment: .leading, spacing: 6) {
+            if let progress = session.onboarding.progress {
+                ProgressView(value: progress)
+                    .tint(Theme.accent)
+                    .padding(.bottom, 2)
+            }
+
             Text(kind == .account ? "Connect your account" : "Connect a video engine")
                 .font(.title2.bold())
                 .fixedSize(horizontal: false, vertical: true)

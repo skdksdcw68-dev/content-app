@@ -27,7 +27,14 @@ struct OnboardingFlowView: View {
                         }
                     }
                 }
-                .animation(.snappy(duration: 0.25), value: session.onboarding)
+                // Forward slides in from the right, back from the left, and the
+                // outgoing screen leaves the way it came. Without the direction
+                // the two feel identical and the flow stops having a shape.
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .leading).combined(with: .opacity)
+                ))
+                .animation(.snappy(duration: 0.3), value: session.onboarding)
         }
     }
 
@@ -42,19 +49,47 @@ struct OnboardingFlowView: View {
             // the set, and an out-of-range index would crash on launch.
             if index < OnboardingQuestion.all.count {
                 OnboardingQuestionView(question: OnboardingQuestion.all[index])
+                    // Keyed by question, so moving between two of them is a
+                    // real insertion and removal rather than SwiftUI quietly
+                    // reusing the same view and changing its text.
+                    .id(OnboardingQuestion.all[index].id)
             } else {
                 OnboardingConnect(kind: .account)
             }
 
         case .connectAccount:
-            OnboardingConnect(kind: .account)
+            OnboardingConnect(kind: .account).id("account")
 
         case .connectGenerator:
-            OnboardingConnect(kind: .generator)
+            OnboardingConnect(kind: .generator).id("generator")
 
         case .done:
             Color.clear
         }
+    }
+}
+
+// MARK: - Entrance
+
+/// Fades and lifts its content into place, after a delay.
+///
+/// The pattern email-app uses on its splash: state flipped in `onAppear` inside
+/// `withAnimation`, staggered with `.delay`. Wrapped up here because a screen
+/// with four staggered pieces would otherwise be four copies of the same three
+/// lines, and they would drift apart.
+private struct Entrance<Content: View>: View {
+    var delay: Double = 0
+    @ViewBuilder var content: Content
+
+    @State private var shown = false
+
+    var body: some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .offset(y: shown ? 0 : 10)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.45).delay(delay)) { shown = true }
+            }
     }
 }
 
@@ -63,41 +98,58 @@ struct OnboardingFlowView: View {
 private struct OnboardingWelcome: View {
     @Environment(AppSession.self) private var session
 
+    @State private var floating = false
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            // The artwork already in the bundle rather than a new asset. It is
-            // the same picture the carousel uses for planning, which is the
-            // thing this screen is promising.
-            OnboardingArt(name: "promo-plan")
-                .frame(maxWidth: .infinity)
-                .frame(height: 240)
-                .padding(.horizontal, 24)
+            Entrance {
+                OnboardingArt(name: "welcome-hero", fallback: "promo-plan")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 260)
+                    // A slow drift, so the screen is alive without asking for
+                    // attention. Two and a half seconds each way is below the
+                    // speed anything reads as animation.
+                    .offset(y: floating ? -8 : 8)
+                    .animation(
+                        .easeInOut(duration: 2.5).repeatForever(autoreverses: true),
+                        value: floating
+                    )
+                    .onAppear { floating = true }
+            }
+            .padding(.horizontal, 24)
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("You built something.\nLet's tell people about it.")
-                    .font(.largeTitle.bold())
-                    .fixedSize(horizontal: false, vertical: true)
+                Entrance(delay: 0.15) {
+                    Text("You built something.\nLet's tell people about it.")
+                        .font(.largeTitle.bold())
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
 
-                Text("Autocast writes your posts, makes the videos, and puts them out on time. You say yes; it does the rest.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Entrance(delay: 0.28) {
+                    Text("Autocast writes your posts, makes the videos, and puts them out on time. You say yes; it does the rest.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.top, 32)
 
             Spacer(minLength: 24)
 
-            Button { session.onboardingNext() } label: {
-                Text("Get started")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, minHeight: 30)
+            Entrance(delay: 0.4) {
+                Button { session.onboardingNext() } label: {
+                    Text("Get started")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, minHeight: 30)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
         }
@@ -106,13 +158,15 @@ private struct OnboardingWelcome: View {
     }
 }
 
-/// The picture, or a soft stand-in when the file is not in the bundle.
+/// The picture. Falls back rather than leaving a hole, so the flow ships before
+/// the art does and improves when it lands.
 private struct OnboardingArt: View {
     let name: String
+    var fallback: String?
 
     var body: some View {
         Group {
-            if let art = UIImage(named: name) {
+            if let art = UIImage(named: name) ?? fallback.flatMap(UIImage.init(named:)) {
                 Image(uiImage: art).resizable().scaledToFit()
             } else {
                 RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous)
@@ -132,6 +186,14 @@ private struct OnboardingQuestionView: View {
 
     private var chosen: Set<String> { session.onboardingAnswers[question.id] ?? [] }
 
+    /// Two columns, the way email-app lays its options out. A wrapping field of
+    /// chips packed tighter and read worse: the eye has no column to run down,
+    /// so finding one option among twelve became a scan rather than a glance.
+    private let columns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
+    ]
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -139,19 +201,28 @@ private struct OnboardingQuestionView: View {
             ScrollView {
                 if question.isDetailed {
                     VStack(spacing: 10) {
-                        ForEach(question.options) { option in
-                            DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
-                                toggle(option)
+                        ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
+                            Entrance(delay: 0.10 + Double(index) * 0.05) {
+                                DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
+                                    toggle(option)
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                 } else {
-                    ChipField(
-                        options: question.options,
-                        chosen: chosen,
-                        toggle: toggle
-                    )
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
+                            // Staggered by position, capped so the twelfth tile
+                            // is not still arriving after somebody has already
+                            // reached for it.
+                            Entrance(delay: min(0.10 + Double(index) * 0.03, 0.4)) {
+                                OptionTile(option: option, isChosen: chosen.contains(option.id)) {
+                                    toggle(option)
+                                }
+                            }
+                        }
+                    }
                     .padding(.horizontal, 20)
                 }
             }
@@ -167,10 +238,12 @@ private struct OnboardingQuestionView: View {
                 Text(chosen.isEmpty ? "Skip" : "Continue")
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, minHeight: 30)
+                    .contentTransition(.opacity)
             }
             .buttonStyle(.borderedProminent)
             .tint(chosen.isEmpty ? Color.secondary : Theme.accent)
             .controlSize(.large)
+            .animation(.snappy(duration: 0.2), value: chosen.isEmpty)
             .padding(.horizontal, 20)
             .padding(.top, 10)
             .padding(.bottom, 12)
@@ -184,16 +257,25 @@ private struct OnboardingQuestionView: View {
                 ProgressView(value: progress)
                     .tint(Theme.accent)
                     .padding(.bottom, 2)
+                    // The bar animating between steps is the thing that makes
+                    // six screens feel like one flow rather than six screens.
+                    .animation(.snappy(duration: 0.4), value: progress)
             }
 
-            Text(question.title)
-                .font(.title2.bold())
-                .fixedSize(horizontal: false, vertical: true)
+            Entrance {
+                Text(question.title)
+                    .font(.title2.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
-            Text(question.subtitle)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Entrance(delay: 0.06) {
+                Text(question.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)
@@ -206,39 +288,42 @@ private struct OnboardingQuestionView: View {
     }
 }
 
-/// Chips that wrap, because the labels are of wildly different lengths and a
-/// two-column grid would leave "An app" occupying the same box as "Software
-/// people pay for".
-private struct ChipField: View {
-    let options: [OnboardingQuestion.Option]
-    let chosen: Set<String>
-    let toggle: (OnboardingQuestion.Option) -> Void
+// MARK: - Option chrome
+
+/// A tile in the two-column grid: symbol above label.
+private struct OptionTile: View {
+    let option: OnboardingQuestion.Option
+    let isChosen: Bool
+    let choose: () -> Void
 
     var body: some View {
-        // The system's own flow layout. Hand-rolling wrapping with
-        // GeometryReader is the classic way to end up with something that
-        // breaks at one Dynamic Type size and nobody notices for a month.
-        FlowLayout(spacing: 10) {
-            ForEach(options) { option in
-                Button { toggle(option) } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: option.symbol)
-                            .font(.caption.weight(.semibold))
-                        Text(option.label)
-                            .font(.subheadline.weight(.medium))
-                    }
-                    .foregroundStyle(chosen.contains(option.id) ? Theme.onAccent : Color.primary)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
-                    .background(
-                        chosen.contains(option.id) ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surface),
-                        in: Capsule()
-                    )
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(chosen.contains(option.id) ? [.isSelected, .isButton] : .isButton)
+        Button(action: choose) {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: option.symbol)
+                    .font(.system(size: 20, weight: .semibold))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(isChosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                    .frame(width: 26, alignment: .leading)
+
+                Text(option.label)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(13)
+            .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                shape.fill(isChosen ? AnyShapeStyle(Theme.accent.opacity(0.10)) : AnyShapeStyle(Theme.surface))
+                    .overlay(shape.strokeBorder(isChosen ? Theme.accent : .clear, lineWidth: 1.5))
+            }
+            // A small settle on pick, so choosing feels like it landed.
+            .scaleEffect(isChosen ? 0.98 : 1)
         }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isChosen ? [.isSelected, .isButton] : .isButton)
     }
 }
 
@@ -273,12 +358,13 @@ private struct DetailedOption: View {
                 Image(systemName: isChosen ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
                     .foregroundStyle(isChosen ? Theme.accent : Color(.tertiaryLabel))
+                    .contentTransition(.symbolEffect(.replace))
             }
             .multilineTextAlignment(.leading)
             .padding(14)
             .background {
                 let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-                shape.fill(Theme.surface)
+                shape.fill(isChosen ? AnyShapeStyle(Theme.accent.opacity(0.10)) : AnyShapeStyle(Theme.surface))
                     .overlay(shape.strokeBorder(isChosen ? Theme.accent : .clear, lineWidth: 1.5))
             }
         }

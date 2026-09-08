@@ -102,14 +102,29 @@ struct OnboardingConnect: View {
                     title: "TikTok",
                     detail: "Post short video to your account",
                     symbol: "music.note",
+                    mark: .init(letter: "T", tint: .black),
                     avatar: session.connections.first?.avatarURL,
                     state: session.connections.isEmpty
                         ? .available
                         : (session.connections.first?.isHealthy == true ? .connected : .needsAttention),
                     connectedAs: session.connections.first?.label
                 ),
-                .init(id: "reels", title: "Instagram Reels", detail: "Waiting on Meta's review", symbol: "camera", state: .soon),
-                .init(id: "shorts", title: "YouTube Shorts", detail: "Waiting on a quota increase", symbol: "play.rectangle", state: .soon),
+                .init(
+                    id: "reels",
+                    title: "Instagram Reels",
+                    detail: "Waiting on Meta's review",
+                    symbol: "camera",
+                    mark: .init(letter: "I", tint: .pink),
+                    state: .soon
+                ),
+                .init(
+                    id: "shorts",
+                    title: "YouTube Shorts",
+                    detail: "Waiting on a quota increase",
+                    symbol: "play.rectangle",
+                    mark: .init(letter: "Y", tint: .red),
+                    state: .soon
+                ),
             ]
 
         case .generator:
@@ -120,11 +135,26 @@ struct OnboardingConnect: View {
                     title: "Higgsfield",
                     detail: "Makes the video from the plan's own description",
                     symbol: "wand.and.stars",
+                    mark: .init(letter: "H", tint: .indigo),
                     state: generator == nil ? .available : (generator?.isWorking == true ? .connected : .needsAttention),
                     connectedAs: generator?.isWorking == true ? "Key verified" : generator?.statusLine
                 ),
-                .init(id: "own", title: "Your own videos", detail: "Always available. Pick from your camera roll.", symbol: "video", state: .always),
-                .init(id: "more", title: "More engines", detail: "One provider at a time until this one is proven", symbol: "square.stack.3d.up", state: .soon),
+                .init(
+                    id: "own",
+                    title: "Your own videos",
+                    detail: "Always available. Pick from your camera roll.",
+                    symbol: "video",
+                    mark: .init(letter: "V", tint: .teal),
+                    state: .always
+                ),
+                .init(
+                    id: "more",
+                    title: "More engines",
+                    detail: "One provider at a time until this one is proven",
+                    symbol: "square.stack.3d.up",
+                    mark: .init(letter: "+", tint: .gray),
+                    state: .soon
+                ),
             ]
         }
     }
@@ -147,10 +177,23 @@ struct ConnectRow: View {
     struct Model: Identifiable {
         enum State { case available, connected, needsAttention, soon, always }
 
+        /// A brand mark: one letter in the platform's own colour.
+        ///
+        /// Not the real logo, and deliberately. Shipping TikTok's or Meta's
+        /// glyph means shipping their file under their brand terms, and there
+        /// is no SF Symbol for either -- so anything "real" here would be a
+        /// shape drawn from memory, which is worse than an honest lettermark.
+        /// It is also what the design itself does.
+        struct Mark {
+            let letter: String
+            let tint: Color
+        }
+
         let id: String
         let title: String
         let detail: String
         let symbol: String
+        var mark: Mark?
         var avatar: URL?
         let state: State
         var connectedAs: String?
@@ -194,10 +237,14 @@ struct ConnectRow: View {
     private var trailing: some View {
         switch row.state {
         case .connected:
-            Label("Connected", systemImage: "checkmark.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption.weight(.semibold))
+            // No word. The row already shows the account handle underneath the
+            // title, which says "connected" better than the word does, and a
+            // green pill reading CONNECTED beside it was the loudest thing on a
+            // screen whose whole job is to be scanned.
+            Image(systemName: "checkmark.circle.fill")
+                .font(.title3)
                 .foregroundStyle(.green)
+                .transition(.scale.combined(with: .opacity))
 
         case .needsAttention:
             Button("Reconnect", action: act)
@@ -228,11 +275,10 @@ struct ConnectRow: View {
 
 /// The picture beside a row.
 ///
-/// Real when there is one -- once TikTok is connected this is the creator's own
-/// avatar, which is the difference between "an account is linked" and "your
-/// account is linked". Before that it is the same placeholder Contacts uses for
-/// somebody with no photo, rather than a brand logo we do not have the right to
-/// draw or the file to draw it from.
+/// Once an account is connected this is the creator's own avatar, which is the
+/// difference between "an account is linked" and "yours is". Before that it is
+/// the platform's lettermark in its own colour, and where there is neither, the
+/// same placeholder Contacts uses for somebody with no photo.
 private struct Badge: View {
     let row: ConnectRow.Model
 
@@ -242,22 +288,33 @@ private struct Badge: View {
                 AsyncImage(url: avatar) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
-                    placeholder
+                    lettermark
                 }
+            } else if row.mark != nil {
+                lettermark
             } else {
-                placeholder
+                ZStack {
+                    Circle().fill(Theme.softAccent)
+                    Image(systemName: "person.crop.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color(.tertiaryLabel))
+                }
             }
         }
         .frame(width: 40, height: 40)
         .clipShape(Circle())
+        .opacity(row.state == .soon ? 0.45 : 1)
     }
 
-    private var placeholder: some View {
-        ZStack {
-            Circle().fill(Theme.softAccent)
-            Image(systemName: row.avatar == nil && row.state != .soon ? row.symbol : "person.crop.circle.fill")
-                .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var lettermark: some View {
+        if let mark = row.mark {
+            ZStack {
+                Circle().fill(mark.tint)
+                Text(mark.letter)
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
         }
     }
 }

@@ -105,10 +105,11 @@ struct HomeView: View {
                 )
                 .padding(.bottom, 26)
 
-                if let connection = session.connections.first {
-                    AccountCard(connection: connection)
-                        .padding(.bottom, 26)
-                } else {
+                // Only while there is nothing connected. Once there is, this
+                // card repeats what the avatar in the bar already says, and a
+                // card whose only content is "yes, still fine" is a card that
+                // is spending space to say nothing.
+                if session.connections.isEmpty {
                     ConnectFirstCard()
                         .padding(.bottom, 26)
                 }
@@ -251,40 +252,6 @@ private extension HomeView {
 
 // MARK: - Account
 
-private struct AccountCard: View {
-    let connection: PlatformConnection
-
-    var body: some View {
-        Card {
-            HStack(spacing: 12) {
-                AsyncImage(url: connection.avatarURL) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 34))
-                        .foregroundStyle(.secondary)
-                }
-                .frame(width: 46, height: 46)
-                .clipShape(Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(connection.label)
-                        .font(.headline)
-                    Text(connection.problem ?? "Connected and ready")
-                        .font(.caption)
-                        .foregroundStyle(connection.isHealthy ? Color.secondary : Color.red)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: connection.isHealthy ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                    .font(.title3)
-                    .foregroundStyle(connection.isHealthy ? Color.green : Color.orange)
-            }
-        }
-    }
-}
 
 private struct ConnectFirstCard: View {
     var body: some View {
@@ -481,15 +448,15 @@ private struct Chip<Destination: View>: View {
 
     var body: some View {
         NavigationLink(destination: destination) {
-            HStack(spacing: 7) {
+            HStack(spacing: 9) {
                 Image(systemName: symbol)
-                    .font(.caption.weight(.semibold))
+                    .font(.body.weight(.semibold))
                 Text(title)
-                    .font(.subheadline.weight(.medium))
+                    .font(.body.weight(.medium))
             }
             .foregroundStyle(Color.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
             .background(Theme.surface, in: Capsule())
         }
         .buttonStyle(.plain)
@@ -588,46 +555,36 @@ private struct PostTile: View {
 /// rather than broken -- and the only thing on it is the thing to do next.
 private struct NothingYetCard: View {
     var body: some View {
-        ZStack {
-            HStack(spacing: 12) {
-                ForEach(0..<2, id: \.self) { _ in
-                    RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                        .fill(Theme.surface.opacity(0.6))
-                        .frame(height: 190)
-                }
+        VStack(spacing: 8) {
+            EmptyArt(name: "empty-posts", size: 132)
+                .padding(.bottom, 6)
+
+            Text("Nothing here yet")
+                .font(.subheadline)
+                .foregroundStyle(Color(.tertiaryLabel))
+
+            Text("Start posting")
+                .font(.title2.bold())
+
+            Text("Plan a month and it fills this in for you, a day at a time.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+
+            NavigationLink { CreateView() } label: {
+                Text("Create new")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Color.primary)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Theme.surface, in: Capsule())
             }
-
-            VStack(spacing: 6) {
-                EmptyArt(name: "empty-posts")
-                    .padding(.bottom, 4)
-
-                Text("Nothing here yet")
-                    .font(.subheadline)
-                    .foregroundStyle(Color(.tertiaryLabel))
-
-                Text("Start posting")
-                    .font(.title2.bold())
-
-                Text("Plan a month and it fills this in for you, a day at a time.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 8)
-
-                NavigationLink { CreateView() } label: {
-                    Text("Create new")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.primary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Theme.softAccent, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 10)
-                .padding(.horizontal, 24)
-            }
-            .padding(.horizontal, 12)
+            .buttonStyle(.plain)
+            .padding(.top, 14)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 28)
     }
 }
 

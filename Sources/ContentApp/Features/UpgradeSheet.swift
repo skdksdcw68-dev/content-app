@@ -11,7 +11,7 @@ struct UpgradeSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        ZStack(alignment: .topTrailing) {
             ScrollView {
                 VStack(spacing: 0) {
                     Header()
@@ -40,34 +40,42 @@ struct UpgradeSheet: View {
                 }
             }
             .background(Theme.canvas)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .accessibilityLabel("Close")
-                }
-            }
+            // The picture starts at the very top of the sheet. Without this the
+            // scroll view inset a safe area the sheet does not have, and the
+            // header sat below a band of empty colour.
+            .ignoresSafeArea(edges: .top)
             .safeAreaInset(edge: .bottom) { footer }
+
+            // Floating rather than in a bar, so nothing has to be reserved
+            // above the image for it to sit in.
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(9)
+                    .background(.black.opacity(0.28), in: Circle())
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            .accessibilityLabel("Close")
+            .padding(.trailing, 16)
+            .padding(.top, 12)
         }
     }
 
     private var footer: some View {
         VStack(spacing: 8) {
-            Button {
-                // Nothing to call yet. Left inert rather than wired to a
-                // half-finished purchase -- the one place a stub must not
-                // pretend is the one that takes money.
-            } label: {
+            // Not a disabled filled button. That renders grey on grey and reads
+            // as something broken rather than as something not built yet.
+            HStack(spacing: 7) {
+                Image(systemName: "clock")
                 Text("Coming soon")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .disabled(true)
+            .font(.headline)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .background(
+                Capsule().strokeBorder(Color(.separator), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+            )
 
             Text("Not on sale yet. Everything here works today on your own keys — you pay TikTok nothing and your generator directly.")
                 .font(.caption)
@@ -76,9 +84,15 @@ struct UpgradeSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.horizontal, 24)
-        .padding(.top, 12)
+        .padding(.top, 14)
         .padding(.bottom, 8)
-        .background(.bar)
+        .background {
+            Theme.canvas
+                .overlay(alignment: .top) {
+                    Divider().opacity(0.5)
+                }
+                .ignoresSafeArea()
+        }
     }
 }
 

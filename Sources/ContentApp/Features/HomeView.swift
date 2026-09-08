@@ -48,11 +48,6 @@ struct HomeView: View {
                 NavigationLink { CreateView() } label: { CreateNewButton() }
                     .buttonStyle(.plain)
 
-                QuickActions(
-                    hasPlan: session.plan != nil,
-                    hasAccount: !session.connections.isEmpty
-                )
-
                 PromoCarousel(
                     hasAccount: !session.connections.isEmpty,
                     hasGenerator: session.hasWorkingGenerator,
@@ -71,11 +66,16 @@ struct HomeView: View {
                     .buttonStyle(.plain)
                 }
 
-                WeekStrip(
-                    published: session.posts.filter { $0.state == .published },
-                    planned: session.planPosts,
-                    timezone: brandTimeZone
-                )
+                // Only once there is a week to show. Seven identical grey dots
+                // under the word THIS WEEK is not a calm empty state, it is a
+                // component that looks like it failed to load.
+                if session.plan != nil || !session.posts.isEmpty {
+                    WeekStrip(
+                        published: session.posts.filter { $0.state == .published },
+                        planned: session.planPosts,
+                        timezone: brandTimeZone
+                    )
+                }
 
                 Highlights(
                     lastViews: lastViews,
@@ -259,22 +259,18 @@ private struct NextUpCard: View {
     }
 
     var body: some View {
+        // No hero block. The design has a 136pt thumbnail here and there is
+        // nothing to put in it -- the video sits behind a signed URL, and a
+        // tinted rectangle with an icon in the middle does not read as a design
+        // choice, it reads as an image that failed to load. A clean card reads
+        // as finished. When real thumbnails exist they go here and nothing else
+        // about this changes.
         VStack(alignment: .leading, spacing: 0) {
-            ZStack {
-                LinearGradient(
-                    colors: [status.tint.opacity(0.30), status.tint.opacity(0.12)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                Image(systemName: queued == nil ? "video.badge.plus" : "play.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(status.tint.opacity(0.8))
-            }
-            .frame(height: 136)
-            .frame(maxWidth: .infinity)
-            .clipped()
-
             VStack(alignment: .leading, spacing: 12) {
+                Label("Next up", systemImage: "clock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
                 Text(post.hook)
                     .font(.system(size: 16, weight: .semibold))
                     .lineSpacing(2)
@@ -301,7 +297,6 @@ private struct NextUpCard: View {
         }
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous))
-        .shadow(color: .black.opacity(0.04), radius: 8, y: 4)
     }
 
     private var when: String {
@@ -353,11 +348,16 @@ private struct StatusPill: View {
 
 // MARK: - The week
 
-/// Seven days, one dot each.
+/// Seven days, as cells rather than dots.
 ///
-/// Filled behind you, hollow today, faint ahead. It answers "am I keeping this
-/// up" in one glance, which is the question a content app is actually for and
-/// the one a list of rows never answers.
+/// The first version was a day letter, a 7pt dot and an 8pt caption under each
+/// -- three sizes of nothing, and with an empty account all seven looked
+/// identical, which read as a component that had failed to load rather than a
+/// week with nothing in it.
+///
+/// Cells carry the state in their fill, which is legible at a glance and still
+/// legible when the answer is "nothing yet". The counts underneath say in words
+/// what the row says in shape, so neither has to be decoded.
 private struct WeekStrip: View {
     let published: [PendingPost]
     let planned: [PlannedPost]
@@ -367,26 +367,21 @@ private struct WeekStrip: View {
         let id: Date
         let letter: String
         let isToday: Bool
-        let isPast: Bool
         let posted: Bool
         let queued: Bool
+    }
 
-        var label: String? {
-            if posted { return "Posted" }
-            if isToday { return "Today" }
-            if queued { return "Queued" }
-            return nil
-        }
+    private var calendar: Calendar {
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
+        return calendar
     }
 
     private var days: [Day] {
-        var calendar = Calendar.current
-        calendar.timeZone = timezone
-
+        let calendar = self.calendar
         let today = calendar.startOfDay(for: .now)
-        // The week the person is in, starting on whatever their locale calls
-        // the first day -- Monday here, Sunday in the US, and the strip should
-        // read the way their own calendar app does.
+        // The week the person is in, starting on whatever their own locale
+        // calls the first day -- Monday here, Sunday in the US.
         guard let week = calendar.dateInterval(of: .weekOfYear, for: today) else { return [] }
 
         let letters = DateFormatter()
@@ -401,7 +396,6 @@ private struct WeekStrip: View {
                 id: start,
                 letter: letters.string(from: start),
                 isToday: calendar.isDate(start, inSameDayAs: today),
-                isPast: start < today,
                 posted: published.contains { post in
                     guard let at = post.publishedAt else { return false }
                     return calendar.isDate(at, inSameDayAs: start)
@@ -415,46 +409,68 @@ private struct WeekStrip: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("This week")
-                .font(.caption.weight(.bold))
-                .textCase(.uppercase)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("This week")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Text(summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
-            HStack(alignment: .top, spacing: 0) {
+            HStack(spacing: 6) {
                 ForEach(days) { day in
-                    VStack(spacing: 6) {
-                        Text(day.letter)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(day.isToday ? Color.primary : Color(.tertiaryLabel))
-
-                        dot(for: day)
-                            .frame(width: 20, height: 20)
-
-                        Text(day.label ?? " ")
-                            .font(.system(size: 8, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .frame(maxWidth: .infinity)
+                    cell(day)
                 }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
     }
 
-    @ViewBuilder
-    private func dot(for day: Day) -> some View {
-        if day.isToday {
-            Circle().stroke(Color.primary, lineWidth: 1.5).frame(width: 12, height: 12)
-        } else if day.posted {
-            Circle().fill(Color.primary).frame(width: 7, height: 7)
-        } else if day.queued {
-            Circle().fill(Color(.tertiaryLabel)).frame(width: 7, height: 7)
-        } else {
-            Circle().fill(Color(.quaternaryLabel)).frame(width: 7, height: 7)
+    private func cell(_ day: Day) -> some View {
+        Text(day.letter)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(day.posted ? Theme.onAccent : (day.isToday ? Color.primary : .secondary))
+            .frame(maxWidth: .infinity)
+            .frame(height: 38)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+                if day.posted {
+                    shape.fill(Theme.accent)
+                } else if day.queued {
+                    shape.fill(Theme.softAccent)
+                } else {
+                    shape.fill(Color(.tertiarySystemGroupedBackground))
+                }
+            }
+            .overlay {
+                if day.isToday {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Theme.accent, lineWidth: 1.5)
+                }
+            }
+            .accessibilityLabel(label(day))
+    }
+
+    private var summary: String {
+        let posted = days.filter(.posted).count
+        let queued = days.filter { $0.queued && !$0.posted }.count
+
+        switch (posted, queued) {
+        case (0, 0):  return "Nothing yet"
+        case (0, _):  return "(queued) coming"
+        case (_, 0):  return "(posted) posted"
+        default:      return "(posted) posted · (queued) coming"
         }
+    }
+
+    private func label(_ day: Day) -> String {
+        if day.posted { return "Posted" }
+        if day.queued { return "Scheduled" }
+        return day.isToday ? "Today, nothing scheduled" : "Nothing"
     }
 }
 
@@ -474,51 +490,6 @@ private struct CreateNewButton: View {
         .padding(.vertical, 17)
         .frame(maxWidth: .infinity)
         .background(Theme.accent, in: Capsule())
-    }
-}
-
-private struct QuickActions: View {
-    let hasPlan: Bool
-    let hasAccount: Bool
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                if hasPlan {
-                    Chip(symbol: "calendar", title: "The plan") { PlanView() }
-                }
-                Chip(symbol: "sparkles", title: "Ideas") { ChatView() }
-                if hasAccount {
-                    Chip(symbol: "chart.bar", title: "Insights") { InsightsView() }
-                }
-                Chip(symbol: "square.grid.2x2", title: "Everything") { LibraryView() }
-            }
-            .padding(.horizontal, 2)
-        }
-        .padding(.horizontal, -24)
-        .safeAreaPadding(.horizontal, 24)
-    }
-}
-
-private struct Chip<Destination: View>: View {
-    let symbol: String
-    let title: String
-    @ViewBuilder var destination: () -> Destination
-
-    var body: some View {
-        NavigationLink(destination: destination) {
-            HStack(spacing: 7) {
-                Image(systemName: symbol)
-                    .font(.caption.weight(.semibold))
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-            }
-            .foregroundStyle(Color.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Theme.surface, in: Capsule())
-        }
-        .buttonStyle(.plain)
     }
 }
 

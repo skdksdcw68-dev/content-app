@@ -150,15 +150,27 @@ function verdictFor(status: number): Verdict {
   return "stop";
 }
 
-/** Said the way somebody who has not read this file would need to hear it. */
-function humanly(status: number, detail: string): string {
+/**
+ * Said the way somebody who has not read this file would need to hear it --
+ * without throwing away what the provider actually said.
+ *
+ * The first version of this replaced their words with ours, and that turned out
+ * to be exactly wrong: a 403 was reported as "out of credits" on our authority
+ * alone, and when topping up did not fix it there was nothing left to read. Our
+ * sentence tells someone what to do; theirs is the evidence for it, and the
+ * evidence is the half you need when the advice is wrong.
+ */
+function humanly(status: number, model: string, detail: string): string {
+  const said = detail ? ` Higgsfield said: "${detail}" (${model}, ${status}).` : "";
+
   if (status === 401) {
-    return "Higgsfield rejected your key. Reconnect it under You → Generators.";
+    return `Higgsfield rejected your key. Reconnect it under You → Generators.${said}`;
   }
   if (status === 403) {
-    return "Your Higgsfield account is out of credits, so nothing can be made until it is topped up.";
+    return "Higgsfield refused this on billing or permissions — check credits and " +
+      `model access for your API key at cloud.higgsfield.ai.${said}`;
   }
-  return detail;
+  return detail || `Higgsfield returned ${status} for ${model}.`;
 }
 
 export interface Credential {
@@ -350,7 +362,10 @@ export async function submit(
     attempts.push(result.attempt);
 
     if (result.verdict === "stop") {
-      throw new Refused(humanly(result.attempt.status, result.attempt.detail), false);
+      throw new Refused(
+        humanly(result.attempt.status, result.attempt.label, result.attempt.detail),
+        false,
+      );
     }
     if (result.verdict === "retry_later") {
       throw new Refused("Higgsfield is having trouble right now. This will be tried again.", true);

@@ -27,14 +27,20 @@ struct OnboardingFlowView: View {
                         }
                     }
                 }
-                // Forward slides in from the right, back from the left, and the
-                // outgoing screen leaves the way it came. Without the direction
-                // the two feel identical and the flow stops having a shape.
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-                .animation(.snappy(duration: 0.3), value: session.onboarding)
+                // 🔴 There was a `.transition(.asymmetric(…))` here and it did
+                // nothing. A transition describes how *the view it is attached
+                // to* enters and leaves, and this one is attached outside the
+                // switch — to a view that never enters or leaves. SwiftUI saw
+                // one view whose contents changed, so the text swapped in place
+                // and the only thing that visibly moved was the button at the
+                // bottom, which had an animation of its own. That was "the page
+                // is only changing at the bottom".
+                //
+                // This is exactly what email-app does, and it works there: a
+                // plain switch, one animation keyed to the step, and SwiftUI's
+                // own crossfade between the two branches. Same duration, so the
+                // two apps feel like the same hand made them.
+                .animation(.snappy(duration: 0.25), value: session.onboarding)
         }
     }
 
@@ -49,19 +55,15 @@ struct OnboardingFlowView: View {
             // the set, and an out-of-range index would crash on launch.
             if index < OnboardingQuestion.all.count {
                 OnboardingQuestionView(question: OnboardingQuestion.all[index])
-                    // Keyed by question, so moving between two of them is a
-                    // real insertion and removal rather than SwiftUI quietly
-                    // reusing the same view and changing its text.
-                    .id(OnboardingQuestion.all[index].id)
             } else {
                 OnboardingConnect(kind: .account)
             }
 
         case .connectAccount:
-            OnboardingConnect(kind: .account).id("account")
+            OnboardingConnect(kind: .account)
 
         case .connectGenerator:
-            OnboardingConnect(kind: .generator).id("generator")
+            OnboardingConnect(kind: .generator)
 
         case .done:
             Color.clear
@@ -199,27 +201,26 @@ private struct OnboardingQuestionView: View {
             header
 
             ScrollView {
+                // No per-element stagger. email-app's question screen has none,
+                // and the reason is not restraint for its own sake: a page that
+                // crossfades in while its twelve tiles separately fade up is two
+                // animations competing over the same half second, and the second
+                // one is still arriving when somebody has already reached for a
+                // tile. The page arrives as one thing.
                 if question.isDetailed {
                     VStack(spacing: 10) {
-                        ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
-                            Entrance(delay: 0.10 + Double(index) * 0.05) {
-                                DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
-                                    toggle(option)
-                                }
+                        ForEach(question.options) { option in
+                            DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
+                                toggle(option)
                             }
                         }
                     }
                     .padding(.horizontal, 20)
                 } else {
                     LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(Array(question.options.enumerated()), id: \.element.id) { index, option in
-                            // Staggered by position, capped so the twelfth tile
-                            // is not still arriving after somebody has already
-                            // reached for it.
-                            Entrance(delay: min(0.10 + Double(index) * 0.03, 0.4)) {
-                                OptionTile(option: option, isChosen: chosen.contains(option.id)) {
-                                    toggle(option)
-                                }
+                        ForEach(question.options) { option in
+                            OptionTile(option: option, isChosen: chosen.contains(option.id)) {
+                                toggle(option)
                             }
                         }
                     }
@@ -262,20 +263,16 @@ private struct OnboardingQuestionView: View {
                     .animation(.snappy(duration: 0.4), value: progress)
             }
 
-            Entrance {
-                Text(question.title)
-                    .font(.title2.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(question.title)
+                .font(.title2.bold())
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Entrance(delay: 0.06) {
-                Text(question.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(question.subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)

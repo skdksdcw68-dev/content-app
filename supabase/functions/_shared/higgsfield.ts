@@ -21,6 +21,8 @@
  *      pointed at a provider URL would find it gone.
  */
 
+import { pickVideoUrl } from "./media.ts";
+
 const BASE = "https://api.higgsfield.ai";
 
 /**
@@ -414,46 +416,7 @@ export async function poll(credential: Credential, statusUrl: string): Promise<P
 
   return {
     status,
-    videoUrl: status === "completed" ? findVideoUrl(body) : null,
+    videoUrl: status === "completed" ? pickVideoUrl(body) : null,
     error: typeof body?.error === "string" ? body.error : null,
   };
-}
-
-/**
- * Finds the output URL wherever this particular model put it.
- *
- * Higgsfield's completed shape varies by output type -- `video.url` for the
- * video models, `results.raw.url` through the SDK, `images[]` for the image
- * ones -- and the endpoint list is long enough that pinning one shape would
- * break the first time somebody picks a different model. So: look in the places
- * it is known to be, and fail loudly rather than returning a plausible nothing.
- */
-function findVideoUrl(body: unknown): string | null {
-  const seen = new Set<unknown>();
-
-  const walk = (node: unknown, depth: number): string | null => {
-    if (depth > 6 || node === null || typeof node !== "object") return null;
-    if (seen.has(node)) return null;
-    seen.add(node);
-
-    if (Array.isArray(node)) {
-      for (const item of node) {
-        const found = walk(item, depth + 1);
-        if (found) return found;
-      }
-      return null;
-    }
-
-    const record = node as Record<string, unknown>;
-    const url = record.url;
-    if (typeof url === "string" && /^https?:\/\//.test(url)) return url;
-
-    for (const value of Object.values(record)) {
-      const found = walk(value, depth + 1);
-      if (found) return found;
-    }
-    return null;
-  };
-
-  return walk(body, 0);
 }

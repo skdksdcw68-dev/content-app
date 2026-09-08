@@ -11,6 +11,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "./crypto.ts";
 import { PublicError } from "./http.ts";
+import { inspect } from "./media.ts";
 import { type Credential, parseCredential, poll, Refused, submit } from "./higgsfield.ts";
 
 const BUCKET = "media";
@@ -261,8 +262,19 @@ async function ingest(
     throw new PublicError("The generated video is larger than storage allows.", 413);
   }
 
-  const mime = response.headers.get("content-type")?.split(";")[0] ?? "video/mp4";
-  const path = `${args.userId}/${args.jobId}/generated.mp4`;
+  const declared = response.headers.get("content-type")?.split(";")[0] ?? "";
+
+  // Before anything is stored, hashed, or bound to consent. Everything
+  // downstream reads `asset_variants` and asks no questions, so this is the
+  // only place where "is it actually a video" can still be answered -- see
+  // media.ts for what a JPEG would otherwise have got away with.
+  const checked = inspect(bytes, declared);
+  if (!checked.ok) {
+    throw new PublicError(checked.reason ?? "The generator did not return a usable video.", 422);
+  }
+
+  const mime = checked.container === "webm" ? "video/webm" : "video/mp4";
+  const path = `${args.userId}/${args.jobId}/generated.${checked.container === "webm" ? "webm" : "mp4"}`;
 
   const { error: uploadError } = await admin.storage
     .from(BUCKET)

@@ -14,13 +14,40 @@ struct HomeView: View {
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
     private var failed: [PendingPost] { session.posts.filter { $0.state == .failed } }
 
-    /// The next few still ahead of us. Anything whose slot has passed is not
-    /// upcoming, whatever the plan says.
-    private var upcoming: [PlannedPost] {
+    /// The next thing due that has not gone out yet.
+    private var nextUp: PlannedPost? {
         session.planPosts
             .filter { ($0.scheduledFor ?? .distantPast) > .now }
-            .prefix(3)
-            .map { $0 }
+            .min { ($0.scheduledFor ?? .distantFuture) < ($1.scheduledFor ?? .distantFuture) }
+    }
+
+    /// Views on the most recent thing that went out, when the platform has
+    /// reported any. Nil for a long while yet: TikTok gives numbers for public
+    /// videos only, so nothing posted before the audit clears will have one.
+    private var lastViews: Int? {
+        session.posts
+            .filter { $0.state == .published }
+            .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+            .first?
+            .metrics?.views
+    }
+
+    private var scheduledThisWeek: Int {
+        var calendar = Calendar.current
+        calendar.timeZone = brandTimeZone
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
+        return session.planPosts.filter { post in
+            guard let at = post.scheduledFor else { return false }
+            return week.contains(at) && at > .now
+        }.count
+    }
+
+    /// Days in the plan with nothing to publish yet.
+    private var needsVideo: Int {
+        let queued = Set(session.posts.map(.postId))
+        return session.planPosts.filter { post in
+            post.status != .posted && !queued.contains(post.id)
+        }.count
     }
 
     private var brandTimeZone: TimeZone {
@@ -76,18 +103,18 @@ struct HomeView: View {
                     FailedCard(posts: failed) { approving = $0 }
                 }
 
-                if let plan = session.plan {
-                    NavigationLink {
-                        PlanView()
-                    } label: {
-                        PlanCard(
-                            plan: plan,
-                            upcoming: upcoming,
-                            timezone: brandTimeZone
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
+                // The three cards from the design. They cover what PlanCard and
+                // the Insights link used to say separately -- what went out and
+                // how it did, what is scheduled, what still needs doing -- and
+                // each appears only when it has something true to report.
+                Highlights(
+                    lastViews: lastViews,
+                    scheduledThisWeek: scheduledThisWeek,
+                    nextUp: nextUp,
+                    needsVideo: needsVideo,
+                    needsApproval: needsYou.count,
+                    timezone: brandTimeZone
+                )
 
                 if !needsYou.isEmpty {
                     NeedsYouCard(posts: needsYou) { approving = $0 }
@@ -106,14 +133,6 @@ struct HomeView: View {
                     NothingYetCard()
                 }
 
-                if !session.connections.isEmpty {
-                    NavigationLink {
-                        InsightsView()
-                    } label: {
-                        InsightsLinkCard()
-                    }
-                    .buttonStyle(.plain)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -280,116 +299,9 @@ private struct FailedCard: View {
     }
 }
 
-/// Insights lives behind a tap rather than a tab. It is the screen you look at
-/// weekly, not the one you open the app for.
-private struct InsightsLinkCard: View {
-    var body: some View {
-        Card {
-            HStack(spacing: 12) {
-                Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 34, height: 34)
-                    .background(Theme.softAccent, in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Insights")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.primary)
-                    Text("Followers and views, straight from TikTok")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(.tertiaryLabel))
-            }
-        }
-    }
-}
 
 // MARK: - The plan
 
-/// What is coming, and whether it is waiting on you.
-///
-/// Two states in one card because they are the same object at different moments:
-/// a proposal you have not read, and a schedule that is running. The difference
-/// that matters to a person is whether they still have to do something.
-private struct PlanCard: View {
-    let plan: ContentPlan
-    let upcoming: [PlannedPost]
-    let timezone: TimeZone
-
-    var body: some View {
-        Card(
-            plan.isProposal ? "A plan is waiting for you" : "Your plan",
-            systemImage: plan.isProposal ? "calendar.badge.exclamationmark" : "calendar"
-        ) {
-            Text(plan.isProposal
-                 ? "A month of posts is written and needs a look. Nothing is scheduled yet."
-                 : "Running. Here is what is next.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if upcoming.isEmpty {
-                Text(plan.isProposal ? "Open it to read the month." : "Nothing left ahead in this plan.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: 10) {
-                    ForEach(upcoming) { post in
-                        HStack(alignment: .top, spacing: 10) {
-                            Text(when(post))
-                                .font(.caption.weight(.semibold).monospacedDigit())
-                                .foregroundStyle(Theme.accent)
-                                .frame(width: 78, alignment: .leading)
-
-                            Text(post.hook)
-                                .font(.subheadline)
-                                .foregroundStyle(Color.primary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            }
-
-            HStack(spacing: 4) {
-                Text(plan.isProposal ? "Read it" : "See the month")
-                Image(systemName: "chevron.right")
-            }
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(Theme.accent)
-        }
-    }
-
-    /// "Today 09:00" for the ones a person can still act on, the weekday after
-    /// that. A bare time on a card is ambiguous once it is not today.
-    private func when(_ post: PlannedPost) -> String {
-        guard let date = post.scheduledFor else { return "--:--" }
-
-        var calendar = Calendar.current
-        calendar.timeZone = timezone
-
-        let time = DateFormatter()
-        time.timeZone = timezone
-        time.dateFormat = "HH:mm"
-
-        if calendar.isDateInToday(date) { return "Today \(time.string(from: date))" }
-        if calendar.isDateInTomorrow(date) { return "Tmrw \(time.string(from: date))" }
-
-        let day = DateFormatter()
-        day.timeZone = timezone
-        day.dateFormat = "EEE"
-        return "\(day.string(from: date)) \(time.string(from: date))"
-    }
-}
 
 // MARK: - Starting something
 
@@ -591,5 +503,139 @@ private struct AccountAvatar: View {
         .clipShape(Circle())
         .overlay(Circle().stroke(ring, lineWidth: 1))
         .accessibilityLabel(connection?.label ?? "Your account")
+    }
+}
+
+// MARK: - Highlights
+
+/// Three cards that each say one true thing and offer the one thing to do
+/// about it.
+///
+/// They replaced a row of figures -- Posts, Views, On time -- which looked
+/// informative and was not: the numbers were 0, a dash and a dash, and none of
+/// them was worth a tap. A card that appears only when it has something to
+/// report is a screen that never lies about being busy.
+///
+/// So each one is conditional. A brand new account sees none of them, which is
+/// correct, and the screen is shorter rather than emptier.
+private struct Highlights: View {
+    let lastViews: Int?
+    let scheduledThisWeek: Int
+    let nextUp: PlannedPost?
+    let needsVideo: Int
+    let needsApproval: Int
+    let timezone: TimeZone
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let lastViews {
+                Highlight(
+                    title: "Your last video got \(lastViews.formatted(.number.notation(.compactName))) views",
+                    detail: "Numbers come from TikTok, a day after posting.",
+                    action: "View insights",
+                    filled: true
+                ) { InsightsView() }
+            }
+
+            if scheduledThisWeek > 0 {
+                Highlight(
+                    title: scheduledThisWeek == 1
+                        ? "1 post scheduled this week"
+                        : "\(scheduledThisWeek) posts scheduled this week",
+                    detail: nextUpLine,
+                    action: "See the plan",
+                    tint: .orange
+                ) { PlanView() }
+            }
+
+            if needsVideo > 0 {
+                Highlight(
+                    title: needsVideo == 1 ? "1 day still needs a video" : "\(needsVideo) days still need a video",
+                    detail: "Make them with your generator, or add your own.",
+                    action: "Open the plan"
+                ) { PlanView() }
+            }
+        }
+    }
+
+    private var nextUpLine: String {
+        guard let date = nextUp?.scheduledFor else { return "Nothing left ahead this week." }
+
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
+
+        let time = DateFormatter()
+        time.timeZone = timezone
+        time.dateFormat = "h:mm a"
+
+        if calendar.isDateInToday(date) { return "Next up: today at \(time.string(from: date))" }
+        if calendar.isDateInTomorrow(date) { return "Next up: tomorrow at \(time.string(from: date))" }
+
+        let day = DateFormatter()
+        day.timeZone = timezone
+        day.dateFormat = "EEEE"
+        return "Next up: \(day.string(from: date)) at \(time.string(from: date))"
+    }
+}
+
+/// One highlight.
+///
+/// `filled` inverts it -- ink background, paper text -- for the card that is
+/// reporting a result rather than asking for something. `tint` washes the
+/// surface faintly for the one that is merely informing. Both are built from
+/// system colours, so both follow Dark Mode without a second palette.
+private struct Highlight<Destination: View>: View {
+    let title: String
+    let detail: String
+    let action: String
+    var filled = false
+    var tint: Color?
+    @ViewBuilder var destination: () -> Destination
+
+    private var foreground: Color { filled ? Theme.onAccent : .primary }
+
+    var body: some View {
+        NavigationLink(destination: destination) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(foreground)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(foreground.opacity(filled ? 0.7 : 1))
+                    .opacity(filled ? 1 : 0.6)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 4) {
+                    Text(action)
+                    Image(systemName: "arrow.right")
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(foreground)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .background(background)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous)
+        if filled {
+            shape.fill(Theme.accent)
+        } else if let tint {
+            shape.fill(tint.opacity(0.12))
+                .overlay(shape.strokeBorder(tint.opacity(0.25), lineWidth: 1))
+        } else {
+            shape.fill(Theme.surface)
+        }
     }
 }

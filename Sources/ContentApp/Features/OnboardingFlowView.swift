@@ -71,87 +71,50 @@ struct OnboardingFlowView: View {
     }
 }
 
-// MARK: - Entrance
-
-/// Fades and lifts its content into place, after a delay.
-///
-/// The pattern email-app uses on its splash: state flipped in `onAppear` inside
-/// `withAnimation`, staggered with `.delay`. Wrapped up here because a screen
-/// with four staggered pieces would otherwise be four copies of the same three
-/// lines, and they would drift apart.
-private struct Entrance<Content: View>: View {
-    var delay: Double = 0
-    @ViewBuilder var content: Content
-
-    @State private var shown = false
-
-    var body: some View {
-        content
-            .opacity(shown ? 1 : 0)
-            .offset(y: shown ? 0 : 10)
-            .onAppear {
-                withAnimation(.easeOut(duration: 0.45).delay(delay)) { shown = true }
-            }
-    }
-}
-
 // MARK: - Welcome
 
+/// Deliberately still.
+///
+/// It had a staggered entrance and a slow drift on the artwork. Both went: this
+/// is the first thing anybody sees, and making them wait four tenths of a second
+/// for the button to finish arriving is charging them for a flourish before they
+/// have agreed to anything. It is drawn once, complete.
 private struct OnboardingWelcome: View {
     @Environment(AppSession.self) private var session
-
-    @State private var floating = false
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            Entrance {
-                OnboardingArt(name: "welcome-hero", fallback: "promo-plan")
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 260)
-                    // A slow drift, so the screen is alive without asking for
-                    // attention. Two and a half seconds each way is below the
-                    // speed anything reads as animation.
-                    .offset(y: floating ? -8 : 8)
-                    .animation(
-                        .easeInOut(duration: 2.5).repeatForever(autoreverses: true),
-                        value: floating
-                    )
-                    .onAppear { floating = true }
-            }
-            .padding(.horizontal, 24)
+            OnboardingArt(name: "welcome-hero", fallback: "promo-plan")
+                .frame(maxWidth: .infinity)
+                .frame(height: 260)
+                .padding(.horizontal, 24)
 
             VStack(alignment: .leading, spacing: 12) {
-                Entrance(delay: 0.15) {
-                    Text("You built something.\nLet's tell people about it.")
-                        .font(.largeTitle.bold())
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text("You built something.\nLet's tell people about it.")
+                    .font(.largeTitle.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                Entrance(delay: 0.28) {
-                    Text("Autocast writes your posts, makes the videos, and puts them out on time. You say yes; it does the rest.")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Text("Autocast writes your posts, makes the videos, and puts them out on time. You say yes; it does the rest.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 24)
             .padding(.top, 32)
 
             Spacer(minLength: 24)
 
-            Entrance(delay: 0.4) {
-                Button { session.onboardingNext() } label: {
-                    Text("Get started")
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            Button { session.onboardingNext() } label: {
+                Text("Get started")
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity, minHeight: 30)
             }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
         }

@@ -9,6 +9,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var approving: PendingPost?
+    @State private var upgrading = false
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -168,9 +169,10 @@ struct HomeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { ProfileView() } label: {
-                    AccountAvatar(connection: session.connections.first)
-                }
+                AccountPill(
+                    connection: session.connections.first,
+                    upgrade: { upgrading = true }
+                )
             }
         }
         .refreshable {
@@ -179,6 +181,7 @@ struct HomeView: View {
             await session.refreshPlan()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
+        .sheet(isPresented: $upgrading) { UpgradeSheet() }
     }
 }
 
@@ -555,13 +558,51 @@ private struct PostTile: View {
     }
 }
 
+/// Nothing has gone out yet.
+///
+/// Centred and open rather than a card, which is the reference's move and the
+/// right one: a card is a container for something, and drawing a container
+/// around an absence makes the absence look like a failure. Two faint panels
+/// behind it show the shape the grid will take, so the space reads as reserved
+/// rather than broken -- and the only thing on it is the thing to do next.
 private struct NothingYetCard: View {
     var body: some View {
-        Card("Nothing has gone out yet", systemImage: "square.grid.2x2") {
-            Text("Plan a month or add a video and it shows up here once it has posted.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        ZStack {
+            HStack(spacing: 12) {
+                ForEach(0..<2, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                        .fill(Theme.surface.opacity(0.6))
+                        .frame(height: 190)
+                }
+            }
+
+            VStack(spacing: 6) {
+                Text("Nothing here yet")
+                    .font(.subheadline)
+                    .foregroundStyle(Color(.tertiaryLabel))
+
+                Text("Start posting")
+                    .font(.title2.bold())
+
+                Text("Plan a month and it fills this in for you, a day at a time.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+
+                NavigationLink { CreateView() } label: {
+                    Text("Create new")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Theme.softAccent, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 10)
+                .padding(.horizontal, 24)
+            }
+            .padding(.horizontal, 12)
         }
     }
 }
@@ -573,6 +614,41 @@ private struct NothingYetCard: View {
 /// The ring is the part worth having: it goes orange when the connection needs
 /// attention, so the place your eye already goes carries the one fact you would
 /// otherwise have to go looking for.
+/// The capsule top-right: an offer on the left, your picture on the right.
+///
+/// Two tap targets in one shape, which is the part worth getting right -- the
+/// words open the offer and the picture opens your account, because a single
+/// control that does two things does whichever one you did not want half the
+/// time. The capsule around them is what makes it read as one object anyway.
+private struct AccountPill: View {
+    let connection: PlatformConnection?
+    let upgrade: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: upgrade) {
+                HStack(spacing: 5) {
+                    Image(systemName: "sparkles")
+                        .font(.caption2.weight(.semibold))
+                    Text("Upgrade")
+                        .font(.subheadline.weight(.medium))
+                }
+                .foregroundStyle(Color.primary)
+                .padding(.leading, 12)
+            }
+            .buttonStyle(.plain)
+
+            NavigationLink { ProfileView() } label: {
+                AccountAvatar(connection: connection)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(3)
+        .background(Theme.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color(.separator).opacity(0.6), lineWidth: 0.5))
+    }
+}
+
 private struct AccountAvatar: View {
     let connection: PlatformConnection?
 

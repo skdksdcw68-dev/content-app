@@ -17,6 +17,23 @@ import path from "node:path";
 
 const BUNDLE_ID = "Autocast";
 
+/**
+ * Who should always be on the internal group.
+ *
+ * Kept here so attaching a build also makes sure they are on it -- adding a
+ * tester was a separate command nobody remembered to run, and a build attached
+ * to a group with nobody in it is invisible.
+ *
+ * NOT_INVITED beside a name is not this script failing. An INTERNAL tester has
+ * to be a user on the App Store Connect account first, and that invitation is
+ * accepted in a browser by the person themselves. The API can put them in the
+ * group -- which it does -- but it cannot accept an invite for them.
+ */
+const ALWAYS_INVITE = [
+  { email: "abelamare1633@gmail.com", firstName: "Abel", lastName: "Amare" },
+  { email: "abelamere45@icloud.com", firstName: "Abel", lastName: "Amare" },
+];
+
 // ------------------------------------------------------------------ plumbing
 
 interface Credentials {
@@ -394,6 +411,9 @@ if (!testerList && !shouldAttach) {
   // newest one.
   const group = await ensureGroup(token, app.id, flag("group") ?? "Internal", { create: false });
   await attachLatestBuild(token, app.id, group.id, flag("build"));
+  // Anyone already on the group is left alone; the API refuses a duplicate and
+  // the helper below reports it rather than failing the run.
+  await addTesters(token, group.id, ALWAYS_INVITE);
   console.log("");
   await audit(token, app.id);
   console.log("");

@@ -84,7 +84,7 @@ struct PromoCarousel: View {
             // The page style is what gives the swipe and the dots. Drawing
             // either by hand is the thing that makes an app look hand-drawn.
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 108)
+            .frame(height: 132)
 
             if slides.count > 1 {
                 Dots(count: slides.count, current: page)
@@ -121,25 +121,31 @@ private struct PromoCard: View {
             case .profile: ProfileView()
             }
         } label: {
-            HStack(spacing: 14) {
+            HStack(spacing: 0) {
+                // Bled to the card edge rather than inset as a chip. The
+                // reference gives its artwork a full third of the card and no
+                // padding of its own -- a picture with a margin on all four
+                // sides reads as an icon, and an icon does not carry a card.
                 PromoArtwork(name: promo.image)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 5) {
                     Text(promo.eyebrow)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
 
                     Text(promo.headline)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(Color.primary)
                         .multilineTextAlignment(.leading)
                         .lineLimit(3)
+                        .minimumScaleFactor(0.85)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
 
                 Spacer(minLength: 0)
             }
-            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 Theme.surface,
@@ -177,8 +183,8 @@ private struct PromoArtwork: View {
                 )
             }
         }
-        .frame(width: 88, height: 88)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(width: 132, height: 132)
+        .clipped()
     }
 }
 

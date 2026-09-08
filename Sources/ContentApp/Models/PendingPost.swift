@@ -20,7 +20,18 @@ struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
     /// When it actually went out. Needed by the week strip on Home, which has
     /// to know which day a post landed on rather than which day it was made.
     let publishedAt: Date?
+    /// What the platform reported about it. Empty until fetch-metrics has run,
+    /// and empty forever for anything posted while the app is unaudited --
+    /// TikTok reports numbers for public videos only.
+    let metrics: Metrics?
     let post: Parent
+
+    struct Metrics: Decodable, Hashable, Sendable {
+        let views: Int?
+        let likes: Int?
+        let comments: Int?
+        let shares: Int?
+    }
 
     struct Parent: Decodable, Hashable, Sendable {
         let hook: String
@@ -46,6 +57,7 @@ struct PendingPost: Identifiable, Decodable, Hashable, Sendable {
         case consentId = "consent_id"
         case failureReason = "failure_reason"
         case publishedAt = "published_at"
+        case metrics
         case post = "posts"
     }
 

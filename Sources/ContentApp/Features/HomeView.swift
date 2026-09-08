@@ -77,9 +77,13 @@ struct HomeView: View {
                     timezone: brandTimeZone
                 )
 
-                StatsRow(
-                    posts: session.posts.filter { $0.state == .published }.count,
-                    onTime: onTime
+                Highlights(
+                    lastViews: lastViews,
+                    scheduledThisWeek: scheduledThisWeek,
+                    nextUp: nextUp,
+                    needsVideo: needsVideo,
+                    needsApproval: needsYou.count,
+                    timezone: brandTimeZone
                 )
 
                 // Only the states that need a person. Everything else is the
@@ -133,13 +137,34 @@ struct HomeView: View {
         return due.count == 1 ? "1 post today" : "\(due.count) posts today"
     }
 
-    /// Published, out of everything that reached a decision. A post that missed
-    /// its window is the only thing that counts against it.
-    private var onTime: Int? {
-        let done = session.posts.filter { $0.state == .published }.count
-        let missed = session.posts.filter { $0.state == .failed }.count
-        guard done + missed > 0 else { return nil }
-        return Int((Double(done) / Double(done + missed) * 100).rounded())
+    /// Views on the most recent thing that went out, when the platform has
+    /// reported any. Nil is the normal state for a long while: TikTok gives
+    /// numbers for public videos only, so nothing posted before the audit
+    /// clears will ever have one.
+    private var lastViews: Int? {
+        session.posts
+            .filter { $0.state == .published }
+            .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
+            .first?
+            .metrics?.views
+    }
+
+    private var scheduledThisWeek: Int {
+        var calendar = Calendar.current
+        calendar.timeZone = brandTimeZone
+        guard let week = calendar.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
+        return session.planPosts.filter { post in
+            guard let at = post.scheduledFor else { return false }
+            return week.contains(at) && at > .now
+        }.count
+    }
+
+    /// Days in the plan with nothing to publish yet.
+    private var needsVideo: Int {
+        let queued = Set(session.posts.map(\.postId))
+        return session.planPosts.filter { post in
+            post.status != .posted && !queued.contains(post.id)
+        }.count
     }
 }
 
@@ -433,44 +458,6 @@ private struct WeekStrip: View {
     }
 }
 
-// MARK: - Numbers
-
-/// Three figures, big, with no card around them.
-///
-/// A dash where a number is not known yet, never a zero. TikTok reports views
-/// only for public videos, so an unaudited account genuinely has no figure --
-/// and a confident 0 would be a lie about something that was never measured.
-private struct StatsRow: View {
-    let posts: Int
-    let onTime: Int?
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            Stat(value: "\(posts)", label: "Posts")
-            Stat(value: "—", label: "Views")
-            Stat(value: onTime.map { "\($0)%" } ?? "—", label: "On time")
-        }
-    }
-
-    private struct Stat: View {
-        let value: String
-        let label: String
-
-        var body: some View {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value)
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Color.primary)
-                    .contentTransition(.numericText())
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
 // MARK: - Starting something
 
 private struct CreateNewButton: View {
@@ -680,5 +667,139 @@ private struct PostTile: View {
         }
         .background(Theme.surface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+    }
+}
+
+// MARK: - Highlights
+
+/// Three cards that each say one true thing and offer the one thing to do
+/// about it.
+///
+/// They replaced a row of figures -- Posts, Views, On time -- which looked
+/// informative and was not: the numbers were 0, a dash and a dash, and none of
+/// them was worth a tap. A card that appears only when it has something to
+/// report is a screen that never lies about being busy.
+///
+/// So each one is conditional. A brand new account sees none of them, which is
+/// correct, and the screen is shorter rather than emptier.
+private struct Highlights: View {
+    let lastViews: Int?
+    let scheduledThisWeek: Int
+    let nextUp: PlannedPost?
+    let needsVideo: Int
+    let needsApproval: Int
+    let timezone: TimeZone
+
+    var body: some View {
+        VStack(spacing: 12) {
+            if let lastViews {
+                Highlight(
+                    title: "Your last video got \(lastViews.formatted(.number.notation(.compactName))) views",
+                    detail: "Numbers come from TikTok, a day after posting.",
+                    action: "View insights",
+                    filled: true
+                ) { InsightsView() }
+            }
+
+            if scheduledThisWeek > 0 {
+                Highlight(
+                    title: scheduledThisWeek == 1
+                        ? "1 post scheduled this week"
+                        : "\(scheduledThisWeek) posts scheduled this week",
+                    detail: nextUpLine,
+                    action: "See the plan",
+                    tint: .orange
+                ) { PlanView() }
+            }
+
+            if needsVideo > 0 {
+                Highlight(
+                    title: needsVideo == 1 ? "1 day still needs a video" : "\(needsVideo) days still need a video",
+                    detail: "Make them with your generator, or add your own.",
+                    action: "Open the plan"
+                ) { PlanView() }
+            }
+        }
+    }
+
+    private var nextUpLine: String {
+        guard let date = nextUp?.scheduledFor else { return "Nothing left ahead this week." }
+
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
+
+        let time = DateFormatter()
+        time.timeZone = timezone
+        time.dateFormat = "h:mm a"
+
+        if calendar.isDateInToday(date) { return "Next up: today at \(time.string(from: date))" }
+        if calendar.isDateInTomorrow(date) { return "Next up: tomorrow at \(time.string(from: date))" }
+
+        let day = DateFormatter()
+        day.timeZone = timezone
+        day.dateFormat = "EEEE"
+        return "Next up: \(day.string(from: date)) at \(time.string(from: date))"
+    }
+}
+
+/// One highlight.
+///
+/// `filled` inverts it -- ink background, paper text -- for the card that is
+/// reporting a result rather than asking for something. `tint` washes the
+/// surface faintly for the one that is merely informing. Both are built from
+/// system colours, so both follow Dark Mode without a second palette.
+private struct Highlight<Destination: View>: View {
+    let title: String
+    let detail: String
+    let action: String
+    var filled = false
+    var tint: Color?
+    @ViewBuilder var destination: () -> Destination
+
+    private var foreground: Color { filled ? Theme.onAccent : .primary }
+
+    var body: some View {
+        NavigationLink(destination: destination) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(foreground)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(foreground.opacity(filled ? 0.7 : 1))
+                    .opacity(filled ? 1 : 0.6)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 4) {
+                    Text(action)
+                    Image(systemName: "arrow.right")
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(foreground)
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(18)
+            .background(background)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var background: some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous)
+        if filled {
+            shape.fill(Theme.accent)
+        } else if let tint {
+            shape.fill(tint.opacity(0.12))
+                .overlay(shape.strokeBorder(tint.opacity(0.25), lineWidth: 1))
+        } else {
+            shape.fill(Theme.surface)
+        }
     }
 }

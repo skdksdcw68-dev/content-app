@@ -31,9 +31,17 @@ struct RootView: View {
                     Task { await session.start() }
                 }
             case .ready:
-                tabs
+                // First run comes before the app, and only once. The step is
+                // read from UserDefaults before any query resolves, so nobody
+                // sees the tabs flash past on the way to the welcome screen.
+                if session.onboarding == .done {
+                    tabs
+                } else {
+                    OnboardingFlowView()
+                }
             }
         }
+        .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
         .alert(
             "That did not work",

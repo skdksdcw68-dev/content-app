@@ -47,6 +47,13 @@ final class AppSession {
     /// Everything the planner is allowed to treat as true about this account.
     private(set) var facts: [BrandFact] = []
 
+    /// Where first-run has got to. Restored before the first network call, so
+    /// somebody halfway through does not watch the app flash past them.
+    private(set) var onboarding: OnboardingStep = AppSession.storedOnboarding()
+    /// Answers held in memory until the step is left, then written to the
+    /// brand. Nothing here is a field of its own.
+    private(set) var onboardingAnswers: [String: Set<String>] = [:]
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -245,7 +252,7 @@ extension AppSession {
         do {
             posts = try await client
                 .from("post_targets")
-                .select("id,post_id,caption,state,privacy,is_aigc,consent_id,failure_reason,published_at,posts!inner(hook,status,created_at)")
+                .select("id,post_id,caption,state,privacy,is_aigc,consent_id,failure_reason,published_at,metrics,posts!inner(hook,status,created_at)")
                 .order("id", ascending: false)
                 .limit(50)
                 .execute()
@@ -902,5 +909,131 @@ private struct NewFact: Encodable {
         case fact, source
         case userId = "user_id"
         case brandId = "brand_id"
+    }
+}
+
+// MARK: - First run
+
+extension AppSession {
+    private static let onboardingKey = "onboarding.step"
+
+    /// Restores where somebody was, or starts them at the beginning.
+    ///
+    /// Read from UserDefaults rather than the database on purpose: this decides
+    /// what to draw before the first network call has finished, and a person
+    /// mid-flow should not see the app flash past them while a query resolves.
+    static func storedOnboarding() -> OnboardingStep {
+        guard let raw = UserDefaults.standard.string(forKey: onboardingKey),
+              let step = OnboardingStep(stored: raw)
+        else { return .welcome }
+        return step
+    }
+
+    func onboardingNext() {
+        switch onboarding {
+        case .welcome:
+            setOnboarding(.question(0))
+        case .question(let index):
+            Task { await saveAnswers() }
+            let next = index + 1
+            setOnboarding(next < OnboardingQuestion.all.count ? .question(next) : .connectAccount)
+        case .connectAccount:
+            setOnboarding(.connectGenerator)
+        case .connectGenerator:
+            setOnboarding(.done)
+        case .done:
+            break
+        }
+    }
+
+    func onboardingBack() {
+        switch onboarding {
+        case .welcome, .done:
+            break
+        case .question(let index):
+            setOnboarding(index == 0 ? .welcome : .question(index - 1))
+        case .connectAccount:
+            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
+        case .connectGenerator:
+            setOnboarding(.connectAccount)
+        }
+    }
+
+    /// Lets somebody run through it again from You, which is also the only way
+    /// to see it during development without deleting the app.
+    func restartOnboarding() { setOnboarding(.welcome) }
+
+    private func setOnboarding(_ step: OnboardingStep) {
+        onboarding = step
+        UserDefaults.standard.set(step.storedValue, forKey: Self.onboardingKey)
+    }
+
+    func onboardingToggle(_ option: OnboardingQuestion.Option, in question: OnboardingQuestion) {
+        var chosen = onboardingAnswers[question.id] ?? []
+
+        if question.selection == .single {
+            chosen = chosen.contains(option.id) ? [] : [option.id]
+        } else if chosen.contains(option.id) {
+            chosen.remove(option.id)
+        } else {
+            chosen.insert(option.id)
+        }
+
+        onboardingAnswers[question.id] = chosen
+    }
+
+    /// Writes the answers where they already live.
+    ///
+    /// Onboarding is not a second home for any of this: the two questions fill
+    /// `brands.niche` and `brands.audience`, and the voice fills
+    /// `brand_settings.tone`. Coming back to You → Your brand afterwards shows
+    /// exactly what was answered here, editable, which is what stops the two
+    /// screens disagreeing about which one is true.
+    private func saveAnswers() async {
+        guard let brandID = brand?.id else { return }
+
+        let labels = { (question: OnboardingQuestion) -> [String] in
+            let chosen = self.onboardingAnswers[question.id] ?? []
+            return question.options.filter { chosen.contains($0.id) }.map(\.label)
+        }
+
+        let product = labels(.product).first
+        let audience = labels(.audience)
+        let voice = (self.onboardingAnswers[OnboardingQuestion.voice.id] ?? []).first
+
+        do {
+            if product != nil || !audience.isEmpty {
+                var fields: [String: String] = [:]
+                // Written as a sentence, because the planner reads a sentence.
+                // Storing "app" would make the field a category and force every
+                // reader to translate it back.
+                if let product { fields["niche"] = product.lowercased() }
+                if !audience.isEmpty { fields["audience"] = audience.joined(separator: ", ") }
+
+                let updated: [Brand] = try await client
+                    .from("brands")
+                    .update(fields)
+                    .eq("id", value: brandID.uuidString)
+                    .select()
+                    .execute()
+                    .value
+                brand = updated.first ?? brand
+            }
+
+            if let voice,
+               let tone = OnboardingQuestion.voice.options.first(where: { $0.id == voice }) {
+                _ = try await client
+                    .from("brand_settings")
+                    .update(["tone": "\(tone.label). \(tone.detail ?? "")".trimmingCharacters(in: .whitespaces)])
+                    .eq("brand_id", value: brandID.uuidString)
+                    .execute()
+                await refreshSettings()
+            }
+        } catch {
+            // Deliberately silent. Losing an onboarding answer is a worse plan
+            // later, not a broken app now, and an alert here would land on top
+            // of a screen that has already moved on.
+            print("onboarding save failed: \(readableMessage(error))")
+        }
     }
 }

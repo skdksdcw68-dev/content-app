@@ -120,6 +120,13 @@ struct HomeView: View {
         }
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Home")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { ProfileView() } label: {
+                    AccountAvatar(connection: session.connections.first)
+                }
+            }
+        }
         .refreshable {
             await session.refreshConnections()
             await session.refreshPosts()
@@ -403,7 +410,7 @@ private struct CreateNewButton: View {
                 .font(.caption.weight(.semibold))
                 .opacity(0.6)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(Theme.onAccent)
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
@@ -553,5 +560,39 @@ private struct NothingYetCard: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+// MARK: - Who you are, top right
+
+/// The connected account's own picture, in the navigation bar.
+///
+/// A ring around it, which is the detail worth copying: it turns an avatar into
+/// something that looks pressable and says "this is yours" without a label. The
+/// ring colour is the honest bit -- it goes orange when the connection needs
+/// attention, so the one place your eye already goes carries the one fact you
+/// would otherwise have to go looking for.
+private struct AccountAvatar: View {
+    let connection: PlatformConnection?
+
+    private var ring: Color {
+        guard let connection else { return Color(.tertiaryLabel) }
+        return connection.isHealthy ? Theme.accent.opacity(0.35) : .orange
+    }
+
+    var body: some View {
+        AsyncImage(url: connection?.avatarURL) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            Image(systemName: "person.crop.circle.fill")
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color(.tertiaryLabel))
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(Circle())
+        .padding(2)
+        .overlay(Circle().stroke(ring, lineWidth: 2))
+        .accessibilityLabel(connection?.label ?? "Your account")
     }
 }

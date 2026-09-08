@@ -136,7 +136,7 @@ private struct CreateAction: View {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: symbol)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(prominent ? Color.white : Theme.accent)
+                    .foregroundStyle(prominent ? Theme.onAccent : Theme.accent)
                     .frame(width: 44, height: 44)
                     .background(
                         prominent ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.softAccent),

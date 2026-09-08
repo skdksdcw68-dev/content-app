@@ -520,7 +520,7 @@ private struct DecisionBar: View {
             Button(action: approve) {
                 HStack(spacing: 6) {
                     if working {
-                        ProgressView().controlSize(.small).tint(.white)
+                        ProgressView().controlSize(.small).tint(Theme.onAccent)
                     }
                     Text(working ? "Scheduling…" : "Approve plan")
                 }

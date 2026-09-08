@@ -106,7 +106,7 @@ private struct Composer: View {
                 Button(action: send) {
                     HStack {
                         if isThinking {
-                            ProgressView().controlSize(.small).tint(.white)
+                            ProgressView().controlSize(.small).tint(Theme.onAccent)
                             Text("Writing…")
                         } else {
                             Image(systemName: "sparkles")

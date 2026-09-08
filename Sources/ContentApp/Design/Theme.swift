@@ -18,6 +18,15 @@ enum Theme {
     /// having a state worth reporting.
     static let accent = Color.accentColor
 
+    /// What goes ON an accent-filled surface.
+    ///
+    /// Not `.white`. The accent flips to near-white in dark mode, so white text
+    /// on it is white on white -- a filled button with nothing readable in it.
+    /// `systemBackground` is the exact inverse of the accent in both schemes:
+    /// white behind black ink, black behind white ink. Anything drawn on top of
+    /// Theme.accent uses this and never a literal colour.
+    static let onAccent = Color(.systemBackground)
+
     /// The fill behind a chip or a selected surface. Grey now, for the same
     /// reason -- a tint, never a large fill, and never competing.
     static let softAccent = Color("SoftAccent")

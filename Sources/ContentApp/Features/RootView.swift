@@ -11,7 +11,13 @@ import SwiftUI
 /// and shrinks out of the way as you scroll down. All of that is free here and
 /// impossible to reproduce convincingly by hand, which is the whole argument.
 struct RootView: View {
+    /// Named rather than positional, the way email-app does it. A selection
+    /// binding is what lets anything outside the bar move between tabs -- an
+    /// onboarding step finishing, a notification, a card on Home.
+    private enum AppTab: Hashable { case home, chat, library, you, create }
+
     @Environment(AppSession.self) private var session
+    @State private var tab: AppTab = .home
 
     var body: some View {
         @Bindable var session = session
@@ -43,20 +49,23 @@ struct RootView: View {
     }
 
     private var tabs: some View {
-        TabView {
-            Tab("Home", systemImage: "house") {
+        // Filled symbols and a selection binding, matching email-app. The
+        // outlined variants read as lighter than the bar they sit in, which is
+        // why every Apple app uses the filled ones here.
+        TabView(selection: $tab) {
+            Tab("Home", systemImage: "house.fill", value: AppTab.home) {
                 NavigationStack { HomeView() }
             }
 
-            Tab("Chat", systemImage: "bubble.left") {
+            Tab("Chat", systemImage: "sparkles", value: AppTab.chat) {
                 NavigationStack { ChatView() }
             }
 
-            Tab("Library", systemImage: "square.grid.2x2") {
+            Tab("Library", systemImage: "square.grid.2x2.fill", value: AppTab.library) {
                 NavigationStack { LibraryView() }
             }
 
-            Tab("You", systemImage: "person.crop.circle") {
+            Tab("You", systemImage: "person.crop.circle.fill", value: AppTab.you) {
                 NavigationStack { ProfileView() }
             }
 
@@ -74,7 +83,7 @@ struct RootView: View {
             // the behaviour. If a future iOS insists on a search field here,
             // the fallback is `.tabViewBottomAccessory` with a Create pill --
             // a different shape, same job, still native.
-            Tab("Create", systemImage: "plus", role: .search) {
+            Tab("Create", systemImage: "plus", value: AppTab.create, role: .search) {
                 NavigationStack { CreateView() }
             }
         }

@@ -53,6 +53,10 @@ final class AppSession {
     /// Answers held in memory until the step is left, then written to the
     /// brand. Nothing here is a field of its own.
     private(set) var onboardingAnswers: [String: Set<String>] = [:]
+    /// Which way the last move went. A page that slides the same way whether
+    /// you pressed Continue or Back is a page that does not tell you which one
+    /// you pressed.
+    private(set) var onboardingGoingForward = true
 
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
@@ -930,6 +934,7 @@ extension AppSession {
     }
 
     func onboardingNext() {
+        onboardingGoingForward = true
         switch onboarding {
         case .welcome:
             setOnboarding(.question(0))
@@ -947,6 +952,7 @@ extension AppSession {
     }
 
     func onboardingBack() {
+        onboardingGoingForward = false
         switch onboarding {
         case .welcome, .done:
             break
@@ -961,7 +967,10 @@ extension AppSession {
 
     /// Lets somebody run through it again from You, which is also the only way
     /// to see it during development without deleting the app.
-    func restartOnboarding() { setOnboarding(.welcome) }
+    func restartOnboarding() {
+        onboardingGoingForward = true
+        setOnboarding(.welcome)
+    }
 
     private func setOnboarding(_ step: OnboardingStep) {
         onboarding = step

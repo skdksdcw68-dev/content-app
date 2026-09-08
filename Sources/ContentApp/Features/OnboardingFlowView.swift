@@ -15,27 +15,56 @@ struct OnboardingFlowView: View {
 
     var body: some View {
         NavigationStack {
-            content
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        if session.onboarding != .welcome {
-                            Button { session.onboardingBack() } label: {
-                                Image(systemName: "chevron.left").fontWeight(.semibold)
-                            }
-                            .accessibilityLabel("Back")
+            // A ZStack, because a transition needs a container that outlives
+            // both the outgoing and incoming view. Hanging `.transition` off a
+            // bare `switch` gave SwiftUI one view whose contents changed, so
+            // nothing slid -- the text simply swapped and the only thing that
+            // visibly moved was the button at the bottom, which had an
+            // animation of its own.
+            VStack(spacing: 0) {
+                // Outside the transition on purpose. Inside each page it slid
+                // away with the page and jumped to its new value, which is the
+                // opposite of what a progress bar is for. Out here it stays put
+                // and fills -- the one piece of chrome that persists, which is
+                // most of what makes six screens read as one flow.
+                if let progress = session.onboarding.progress {
+                    ProgressView(value: progress)
+                        .tint(Theme.accent)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 6)
+                        .transition(.opacity)
+                }
+
+                ZStack {
+                    Theme.canvas.ignoresSafeArea()
+                    content
+                }
+            }
+            .background(Theme.canvas)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if session.onboarding != .welcome {
+                        Button { session.onboardingBack() } label: {
+                            Image(systemName: "chevron.left").fontWeight(.semibold)
                         }
+                        .accessibilityLabel("Back")
                     }
                 }
-                // Forward slides in from the right, back from the left, and the
-                // outgoing screen leaves the way it came. Without the direction
-                // the two feel identical and the flow stops having a shape.
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                    removal: .move(edge: .leading).combined(with: .opacity)
-                ))
-                .animation(.snappy(duration: 0.3), value: session.onboarding)
+            }
+            .animation(.snappy(duration: 0.35), value: session.onboarding)
         }
+    }
+
+    /// Forward pushes in from the right and leaves to the left; back does the
+    /// reverse. Without the direction the two feel identical and pressing Back
+    /// looks like pressing Continue.
+    private var page: AnyTransition {
+        let forward = session.onboardingGoingForward
+        return .asymmetric(
+            insertion: .move(edge: forward ? .trailing : .leading).combined(with: .opacity),
+            removal:   .move(edge: forward ? .leading : .trailing).combined(with: .opacity)
+        )
     }
 
     @ViewBuilder
@@ -43,6 +72,7 @@ struct OnboardingFlowView: View {
         switch session.onboarding {
         case .welcome:
             OnboardingWelcome()
+                .transition(page)
 
         case .question(let index):
             // Guarded: a stored step can outlive a question being removed from
@@ -53,15 +83,16 @@ struct OnboardingFlowView: View {
                     // real insertion and removal rather than SwiftUI quietly
                     // reusing the same view and changing its text.
                     .id(OnboardingQuestion.all[index].id)
+                    .transition(page)
             } else {
-                OnboardingConnect(kind: .account)
+                OnboardingConnect(kind: .account).transition(page)
             }
 
         case .connectAccount:
-            OnboardingConnect(kind: .account).id("account")
+            OnboardingConnect(kind: .account).id("account").transition(page)
 
         case .connectGenerator:
-            OnboardingConnect(kind: .generator).id("generator")
+            OnboardingConnect(kind: .generator).id("generator").transition(page)
 
         case .done:
             Color.clear
@@ -253,29 +284,16 @@ private struct OnboardingQuestionView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if let progress = session.onboarding.progress {
-                ProgressView(value: progress)
-                    .tint(Theme.accent)
-                    .padding(.bottom, 2)
-                    // The bar animating between steps is the thing that makes
-                    // six screens feel like one flow rather than six screens.
-                    .animation(.snappy(duration: 0.4), value: progress)
-            }
+            Text(question.title)
+                .font(.title2.bold())
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-            Entrance {
-                Text(question.title)
-                    .font(.title2.bold())
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Entrance(delay: 0.06) {
-                Text(question.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(question.subtitle)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 14)

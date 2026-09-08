@@ -31,14 +31,15 @@ enum Theme {
     /// reason -- a tint, never a large fill, and never competing.
     static let softAccent = Color("SoftAccent")
 
-    /// The page. #F5F5F3 -- warm paper rather than iOS's #F2F2F7, which is
-    /// faintly blue and makes the same layout read colder. It is a two-percent
-    /// difference and it is most of why the reference looks calm.
-    static let canvas = Color("Canvas")
-
-    /// What a card is made of. White on paper; lifted off the canvas in dark,
-    /// so an edge reads without needing a border drawn on it.
-    static let surface = Color("Surface")
+    /// The page, and what a card is made of.
+    ///
+    /// Both are the system's own semantic colours, not values copied out of a
+    /// design file. A hex lifted from Figma is correct in exactly one appearance
+    /// and wrong in Dark Mode, in Increased Contrast, and in whatever Apple ships
+    /// next -- these follow all three for free. They are named here only so that
+    /// every screen asks for the same thing.
+    static let canvas = Color(.systemGroupedBackground)
+    static let surface = Color(.secondarySystemGroupedBackground)
 
     /// Corner radius shared by every card, so surfaces read as one system.
     static let cornerRadius: CGFloat = 16

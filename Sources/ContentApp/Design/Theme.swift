@@ -182,3 +182,24 @@ struct ProportionBar: View {
     }
     .background(Theme.canvas)
 }
+
+/// The picture on an empty screen.
+///
+/// Falls back to nothing rather than to a grey box: a screen with no art still
+/// reads as a finished empty state, whereas a placeholder rectangle reads as an
+/// image that failed. That also means artwork can be added file by file without
+/// any screen having to wait for it.
+struct EmptyArt: View {
+    let name: String
+    var size: CGFloat = 120
+
+    var body: some View {
+        if let art = UIImage(named: name) {
+            Image(uiImage: art)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+                .accessibilityHidden(true)
+        }
+    }
+}

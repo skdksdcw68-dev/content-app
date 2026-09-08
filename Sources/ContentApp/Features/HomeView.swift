@@ -416,11 +416,32 @@ private struct CreateNewButton: View {
                 .font(.caption.weight(.semibold))
                 .opacity(0.6)
         }
-        .foregroundStyle(.white)
+        // Theme.onAccent, never a literal white. The accent flips to near-white
+        // in Dark Mode, so `.white` here was white text on a white pill -- the
+        // same bug as before, brought back by restoring an older file.
+        .foregroundStyle(Theme.onAccent)
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
         .frame(maxWidth: .infinity)
-        .background(Theme.accent, in: Capsule())
+        .background {
+            // A flat fill made the most important control on the screen read
+            // as a dead rectangle. Two stops of the same ink and a soft shadow
+            // give it a light source, so it sits above the page rather than
+            // being cut out of it -- and because both stops come from the
+            // accent, it stays correct in either scheme.
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [Theme.accent.opacity(0.92), Theme.accent],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    Capsule().strokeBorder(Theme.onAccent.opacity(0.12), lineWidth: 0.5)
+                )
+                .shadow(color: Theme.accent.opacity(0.25), radius: 10, y: 4)
+        }
     }
 }
 
@@ -577,6 +598,9 @@ private struct NothingYetCard: View {
             }
 
             VStack(spacing: 6) {
+                EmptyArt(name: "empty-posts")
+                    .padding(.bottom, 4)
+
                 Text("Nothing here yet")
                     .font(.subheadline)
                     .foregroundStyle(Color(.tertiaryLabel))

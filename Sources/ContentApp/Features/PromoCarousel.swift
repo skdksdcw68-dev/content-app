@@ -184,7 +184,19 @@ private struct PromoArtwork: View {
             }
         }
         .frame(width: 132, height: 132)
-        .clipped()
+        // Rounded where it meets the outside, square where it meets the text.
+        // Going edge to edge with a plain .clipped() squared off the leading
+        // corners and the card grew a hard rectangle out of its own rounded
+        // shape -- bigger, and worse for it.
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: Theme.cornerRadius,
+                bottomLeadingRadius: Theme.cornerRadius,
+                bottomTrailingRadius: 0,
+                topTrailingRadius: 0,
+                style: .continuous
+            )
+        )
     }
 }
 

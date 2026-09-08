@@ -84,12 +84,13 @@ struct UpgradeSheet: View {
 
 // MARK: - The header
 
-/// The gradient at the top.
+/// The picture at the top, over a mesh gradient.
 ///
-/// A `MeshGradient` rather than an exported image: it is four colours and a
-/// grid, it scales to any screen without a 2x and 3x, it costs nothing in the
-/// bundle, and it can be made to move. An image would be a fixed rectangle that
-/// has to be re-exported the first time the wording changes.
+/// Both, rather than either. The artwork carries it; the gradient sits behind
+/// so the header is never a blank rectangle if the file is missing, and so the
+/// image has something to bleed into at the edges rather than ending on a hard
+/// line. The gradient also drifts, which gives a still picture a little life
+/// without animating the picture itself.
 private struct Header: View {
     @State private var shifted = false
 
@@ -114,6 +115,21 @@ private struct Header: View {
                     shifted = true
                 }
             }
+
+            if let art = UIImage(named: "pro-hero") {
+                Image(uiImage: art)
+                    .resizable()
+                    .scaledToFill()
+                    .opacity(0.95)
+            }
+
+            // Behind the words, so white type stays readable over whatever the
+            // picture happens to be doing at that point.
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.28)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
 
             VStack(spacing: 10) {
                 Image(systemName: "sparkles")

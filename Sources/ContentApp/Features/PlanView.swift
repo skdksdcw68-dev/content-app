@@ -538,11 +538,22 @@ private struct DecisionBar: View {
 
 private struct NoPlanYet: View {
     var body: some View {
-        ContentUnavailableView {
-            Label("No plan yet", systemImage: "calendar")
-        } description: {
-            Text("Ask in Chat for a month of content and it will be written here for you to look over.")
+        VStack(spacing: 10) {
+            EmptyArt(name: "empty-plan", size: 140)
+                .padding(.bottom, 6)
+
+            Text("No plan yet")
+                .font(.title3.bold())
+
+            Text("Ask for a month and it gets written here, with a time against every day, for you to look over before anything is scheduled.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 32)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Theme.canvas)
     }
 }
 

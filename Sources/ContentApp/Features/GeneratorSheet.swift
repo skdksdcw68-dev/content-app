@@ -27,6 +27,13 @@ struct GeneratorSheet: View {
         NavigationStack {
             Form {
                 Section {
+                    EmptyArt(name: "generator-hero", size: 110)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .listRowBackground(Color.clear)
+
+                Section {
                     TextField("Key ID", text: $keyID)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

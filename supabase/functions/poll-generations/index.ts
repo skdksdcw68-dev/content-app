@@ -152,7 +152,14 @@ async function startDueRenders(admin: ReturnType<typeof createClient>): Promise<
 
       await admin
         .from("posts")
-        .update({ status: "failed", failure_reason: reason })
+        .update({
+          status: "failed",
+          failure_reason: reason,
+          // The code is what Home reads. The reason stays for diagnostics and
+          // is never shown as-is -- it names a supplier and quotes an HTTP
+          // status, neither of which is the customer's problem.
+          failure_code: thrown instanceof PublicError ? thrown.failureCode : null,
+        })
         .eq("id", row.post_id);
     }
   }

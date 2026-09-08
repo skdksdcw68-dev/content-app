@@ -135,17 +135,23 @@ export async function startJob(
     // A provider having a bad minute is not a verdict on this post. The job is
     // put back rather than buried, and the caller is told not to fail the post.
     const retryable = error instanceof Refused && error.retryable;
+    const failureCode = error instanceof Refused ? error.code : null;
 
     await admin
       .from("generation_jobs")
       .update(
         retryable
-          ? { status: "queued", error: detail }
-          : { status: "failed", error: detail, finished_at: new Date().toISOString() },
+          ? { status: "queued", error: detail, failure_code: failureCode }
+          : {
+            status: "failed",
+            error: detail,
+            failure_code: failureCode,
+            finished_at: new Date().toISOString(),
+          },
       )
       .eq("id", job.id);
 
-    throw new PublicError(detail, 502, retryable);
+    throw new PublicError(detail, 502, retryable, failureCode);
   }
 }
 
@@ -270,7 +276,12 @@ async function ingest(
   // media.ts for what a JPEG would otherwise have got away with.
   const checked = inspect(bytes, declared);
   if (!checked.ok) {
-    throw new PublicError(checked.reason ?? "The generator did not return a usable video.", 422);
+    throw new PublicError(
+      checked.reason ?? "The generator did not return a usable video.",
+      422,
+      false,
+      "bad_output",
+    );
   }
 
   const mime = checked.container === "webm" ? "video/webm" : "video/mp4";

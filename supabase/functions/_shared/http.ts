@@ -34,6 +34,10 @@ export class PublicError extends Error {
      *  caller running unattended can leave the work in the queue instead of
      *  marking it dead. Nothing is retried on the strength of a 4xx. */
     readonly retryable = false,
+    /** Set when the cause was classified at the point of failure. Travels to
+     *  whoever records the outcome, so the customer-facing wording is chosen
+     *  from a code rather than reconstructed from this message. */
+    readonly failureCode: string | null = null,
   ) {
     super(message);
   }

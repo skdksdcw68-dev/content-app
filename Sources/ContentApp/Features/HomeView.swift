@@ -10,6 +10,9 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var approving: PendingPost?
     @State private var upgrading = false
+    @State private var showingGenerator = false
+    @State private var showingConnect = false
+    @State private var showingPlan = false
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -51,6 +54,19 @@ struct HomeView: View {
         }.count
     }
 
+    /// Can Autocast produce the missing videos on its own right now?
+    ///
+    /// All three have to hold: the switch is on, there is a generator that last
+    /// worked, and nothing is currently blocking. Claiming "we are handling it"
+    /// while generation is refusing every request is the worst copy on the
+    /// screen -- it is the reassurance that stopped anyone looking for three
+    /// days in September.
+    private var autopilotWillHandle: Bool {
+        session.settings?.isOn == true
+            && session.hasWorkingGenerator
+            && !session.health.contains(where: \.isBlocked)
+    }
+
     private var brandTimeZone: TimeZone {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
     }
@@ -80,8 +96,14 @@ struct HomeView: View {
                 // reading, and a notice below the fold is a notice nobody sees
                 // -- which is exactly how three days went by in September.
                 if let worst = session.health.first {
-                    HealthBanner(finding: worst)
-                        .padding(.bottom, 18)
+                    HealthBanner(finding: worst) { route in
+                        switch route {
+                        case .generator:   showingGenerator = true
+                        case .connections: showingConnect = true
+                        case .plan:        showingPlan = true
+                        }
+                    }
+                    .padding(.bottom, 18)
                 }
 
                 greeting
@@ -141,7 +163,8 @@ struct HomeView: View {
                     nextUp: nextUp,
                     needsVideo: needsVideo,
                     needsApproval: needsYou.count,
-                    timezone: brandTimeZone
+                    timezone: brandTimeZone,
+                    autopilotWillHandle: autopilotWillHandle
                 )
                 .padding(.bottom, 10)
 
@@ -192,6 +215,15 @@ struct HomeView: View {
             await session.refreshHealth()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
+        .sheet(isPresented: $showingGenerator) { GeneratorSheet() }
+        // The banner asked for it, so it happens here rather than sending
+        // somebody to You and hoping they find the same button.
+        .onChange(of: showingConnect) { _, wants in
+            guard wants else { return }
+            showingConnect = false
+            Task { await session.connectTikTok() }
+        }
+        .navigationDestination(isPresented: $showingPlan) { PlanView() }
         .sheet(isPresented: $upgrading) { UpgradeSheet() }
     }
 }
@@ -233,30 +265,46 @@ private extension HomeView {
     /// Most pressing first. Each of these is a thing somebody can act on, and
     /// the last line is the one that means there is nothing to do.
     var standing: String {
-        if !failed.isEmpty {
-            return failed.count == 1
-                ? "One post didn't go out. It needs you."
-                : "\(failed.count) posts didn't go out. They need you."
+        // The banner directly above already carries the specifics and the
+        // button. This is the one-line state, not a second copy of it.
+        if session.health.contains(where: \.isBlocked) {
+            return "One thing needs your attention."
         }
         if !needsYou.isEmpty {
             return needsYou.count == 1
                 ? "One post is waiting for your approval."
                 : "\(needsYou.count) posts are waiting for your approval."
         }
+        // Work in progress reads as the machine running, so it outranks the
+        // scheduled count -- "3 scheduled" while something is being made now
+        // describes the quieter half of what is happening.
         if !inFlight.isEmpty {
-            return inFlight.count == 1
-                ? "One post is being made right now."
-                : "\(inFlight.count) posts are being made right now."
+            return "Autocast is preparing your next posts."
         }
         if session.connections.isEmpty {
             return "Connect an account and Autocast can start posting for you."
         }
+
+        // Autopilot on and nothing wrong: say so, because this is the state the
+        // whole product is for and the old copy actively contradicted it. It
+        // used to read "Nothing waiting. A good time to make something." while
+        // a month of posts was scheduled and running unattended -- inviting
+        // somebody to do by hand the exact job they had already delegated.
+        if session.settings?.isOn == true {
+            guard scheduledThisWeek > 0 else {
+                return "Everything is handled. Nothing is due this week."
+            }
+            return scheduledThisWeek == 1
+                ? "Everything is handled. One post goes out this week."
+                : "Everything is handled. \(scheduledThisWeek) posts go out this week."
+        }
+
         if scheduledThisWeek > 0 {
             return scheduledThisWeek == 1
-                ? "One post scheduled this week. Nothing needs you."
-                : "\(scheduledThisWeek) posts scheduled this week. Nothing needs you."
+                ? "One post scheduled this week. Turn on Autopilot and it runs itself."
+                : "\(scheduledThisWeek) posts scheduled this week. Turn on Autopilot and it runs itself."
         }
-        return "Nothing waiting. A good time to make something."
+        return "Nothing is scheduled yet. Your next plan can run on its own."
     }
 }
 
@@ -683,6 +731,8 @@ private struct Highlights: View {
     let needsVideo: Int
     let needsApproval: Int
     let timezone: TimeZone
+    /// Whether the missing videos are Autocast's problem or the person's.
+    let autopilotWillHandle: Bool
 
     var body: some View {
         VStack(spacing: 12) {
@@ -707,10 +757,24 @@ private struct Highlights: View {
             }
 
             if needsVideo > 0 {
+                // 🔴 This used to read "Make them with your generator, or add
+                // your own", which hands the work back to the person who bought
+                // the thing precisely so they would not have to do it. When
+                // Autocast can produce these itself -- autopilot on, a working
+                // generator, nothing blocked -- the honest report is that it is
+                // already handling them, and no action is offered because none
+                // is wanted.
+                //
+                // The distinction matters more than the wording: only ask when
+                // the answer genuinely cannot come from here.
                 Highlight(
-                    title: needsVideo == 1 ? "1 day still needs a video" : "\(needsVideo) days still need a video",
-                    detail: "Make them with your generator, or add your own.",
-                    action: "Open the plan"
+                    title: autopilotWillHandle
+                        ? (needsVideo == 1 ? "1 day is being prepared" : "\(needsVideo) days are being prepared")
+                        : (needsVideo == 1 ? "1 day still needs a video" : "\(needsVideo) days still need a video"),
+                    detail: autopilotWillHandle
+                        ? "Autocast is making the video for you. Nothing to do."
+                        : "Turn on Autopilot and Autocast makes these itself.",
+                    action: autopilotWillHandle ? nil : "Open the plan"
                 ) { PlanView() }
             }
         }
@@ -745,7 +809,10 @@ private struct Highlights: View {
 private struct Highlight<Destination: View>: View {
     let title: String
     let detail: String
-    let action: String
+    /// Nil when the card is a report rather than a request. A card that reports
+    /// work already in hand should not also offer a button: an arrow is an
+    /// instruction, and there is nothing here to instruct.
+    let action: String?
     var filled = false
     var tint: Color?
     @ViewBuilder var destination: () -> Destination
@@ -753,7 +820,15 @@ private struct Highlight<Destination: View>: View {
     private var foreground: Color { filled ? Theme.onAccent : .primary }
 
     var body: some View {
-        NavigationLink(destination: destination) {
+        if action == nil {
+            card
+        } else {
+            NavigationLink(destination: destination) { card }
+                .buttonStyle(.plain)
+        }
+    }
+
+    private var card: some View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(title)
                     .font(.headline)
@@ -768,20 +843,20 @@ private struct Highlight<Destination: View>: View {
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 4) {
-                    Text(action)
-                    Image(systemName: "arrow.right")
+                if let action {
+                    HStack(spacing: 4) {
+                        Text(action)
+                        Image(systemName: "arrow.right")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(foreground)
+                    .padding(.top, 4)
                 }
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(foreground)
-                .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(18)
             .background(background)
             .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 
     @ViewBuilder

@@ -131,11 +131,24 @@ export function modelFor(path: string): VideoModel | undefined {
  *   423/503  temporarily blocked, or disabled. Another model may be up.
  *   5xx      their bad minute. Not a verdict on anything -- come back later.
  */
+/** Why it was refused, as a closed set decided here -- next to the response
+ *  that caused it -- rather than reconstructed later by matching on words.
+ *  What the customer eventually reads is chosen from this, never from the
+ *  provider prose, which stays on the job row for diagnostics. */
+export type FailureCode =
+  | "no_credits"
+  | "bad_key"
+  | "no_models"
+  | "provider_down"
+  | "refused"
+  | "bad_output";
+
 export class Refused extends Error {
   constructor(
     message: string,
     /** True when nothing about this is settled and the job should run again. */
     readonly retryable: boolean,
+    readonly code: FailureCode,
   ) {
     super(message);
     this.name = "Refused";
@@ -367,10 +380,15 @@ export async function submit(
       throw new Refused(
         humanly(result.attempt.status, result.attempt.label, result.attempt.detail),
         false,
+        result.attempt.status === 403 ? "no_credits" : "bad_key",
       );
     }
     if (result.verdict === "retry_later") {
-      throw new Refused("Higgsfield is having trouble right now. This will be tried again.", true);
+      throw new Refused(
+        "Higgsfield is having trouble right now. This will be tried again.",
+        true,
+        "provider_down",
+      );
     }
   }
 
@@ -382,6 +400,7 @@ export async function submit(
     "Your Higgsfield account cannot use any of the vertical video models this app supports. " +
       `Check your plan and model access at cloud.higgsfield.ai. Tried: ${tried}.`,
     false,
+    "no_models",
   );
 }
 

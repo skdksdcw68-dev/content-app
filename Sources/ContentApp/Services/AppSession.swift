@@ -54,6 +54,14 @@ final class AppSession {
     /// brand. Nothing here is a field of its own.
     private(set) var onboardingAnswers: [String: Set<String>] = [:]
 
+    /// What is actually wrong with autopilot right now, worst first.
+    ///
+    /// Outcome checks rather than a heartbeat. `scheduler_health()` reported
+    /// both cron loops firing every minute through three days in September in
+    /// which the product made nothing at all -- so this asks whether anything
+    /// came out, not whether the machine turned.
+    private(set) var health: [HealthFinding] = []
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -86,6 +94,7 @@ final class AppSession {
             await refreshPlan()
             await refreshGenerators()
             await refreshSettings()
+            await refreshHealth()
             state = .ready
         } catch {
             state = .failed(readableMessage(error))
@@ -767,6 +776,20 @@ private struct StartedJob: Decodable {
 // MARK: - Autopilot
 
 extension AppSession {
+    /// Asks the database what is wrong with this account.
+    ///
+    /// Cheap, and read on every start: the whole point is that nobody has to
+    /// go looking. A failure here is deliberately silent -- a monitor that
+    /// raises its own error banner when it cannot run is worse than one that
+    /// says nothing, because the thing it is monitoring may well be fine.
+    func refreshHealth() async {
+        do {
+            health = try await client.rpc("autopilot_health").execute().value
+        } catch {
+            health = []
+        }
+    }
+
     func refreshSettings() async {
         guard let brandID = brand?.id else { return }
         do {

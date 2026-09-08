@@ -75,6 +75,15 @@ struct HomeView: View {
             // together sit 10 apart, groups sit 26 apart, and the reader gets
             // the grouping for free without a single line or box being drawn.
             VStack(spacing: 0) {
+                // Above the greeting, deliberately. When autopilot has stopped
+                // producing, that is the only thing on this screen worth
+                // reading, and a notice below the fold is a notice nobody sees
+                // -- which is exactly how three days went by in September.
+                if let worst = session.health.first {
+                    HealthBanner(finding: worst)
+                        .padding(.bottom, 18)
+                }
+
                 greeting
                     .padding(.bottom, 18)
 
@@ -180,6 +189,7 @@ struct HomeView: View {
             await session.refreshConnections()
             await session.refreshPosts()
             await session.refreshPlan()
+            await session.refreshHealth()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(isPresented: $upgrading) { UpgradeSheet() }

@@ -23,10 +23,143 @@
 
 const BASE = "https://api.higgsfield.ai";
 
-/** Text to video, cheapest of the endpoints that does it in one call. Held here
- *  as a constant because it is a choice, not a fact -- a better default is a
- *  one-line change and no migration. */
-export const DEFAULT_MODEL = "/bytedance/seedance/v1/lite/text-to-video";
+/**
+ * The models we can actually post with, cheapest first.
+ *
+ * Two things make this a list of objects rather than a list of paths.
+ *
+ * The first is that **the bodies are not interchangeable**. Higgsfield's
+ * text-to-video endpoints share exactly one field -- `prompt`. Kling takes a
+ * duration of 5 or 10 and no resolution; Sora takes 4, 8 or 12 and spells its
+ * resolution "720p"; Seedance takes any integer and spells it "1080". Sending
+ * one body to all of them trades a 404 for a 422 and looks identical from the
+ * outside.
+ *
+ * The second is that **most of their catalogue cannot do vertical**. Of the
+ * eleven text-to-video endpoints in the spec, only these five accept an
+ * `aspect_ratio` of 9:16 at all -- Kling 2.5 Turbo and every Minimax Hailuo
+ * model have no aspect ratio field whatsoever, so they can only produce
+ * landscape. For a product that posts to TikTok that makes them unusable, not
+ * merely worse, and they are left out rather than left in as a bad last resort.
+ */
+export interface VideoModel {
+  /** The endpoint path, which on this API *is* the model identifier. */
+  path: string;
+  /** What to call it when a person has to read about it going wrong. */
+  label: string;
+  /** This model's own body. See above for why each one builds its own. */
+  body(prompt: string, seconds: number): Record<string, unknown>;
+}
+
+/** Snaps a requested length to the nearest one a model will accept. Asking
+ *  Sora for five seconds is a 422; asking it for four is a video. */
+function nearest(seconds: number, allowed: number[]): number {
+  return allowed.reduce((best, option) =>
+    Math.abs(option - seconds) < Math.abs(best - seconds) ? option : best
+  );
+}
+
+export const MODELS: readonly VideoModel[] = [
+  {
+    path: "/bytedance/seedance/v1/lite/text-to-video",
+    label: "Seedance Lite",
+    body: (prompt, seconds) => ({
+      prompt,
+      aspect_ratio: "9:16",
+      resolution: "1080",
+      duration: seconds,
+    }),
+  },
+  {
+    path: "/bytedance/seedance/v1/pro/fast/text-to-video",
+    label: "Seedance Pro",
+    body: (prompt, seconds) => ({
+      prompt,
+      aspect_ratio: "9:16",
+      resolution: "1080",
+      duration: seconds,
+    }),
+  },
+  {
+    path: "/kling-video/v2.1/master/text-to-video",
+    label: "Kling 2.1 Master",
+    body: (prompt, seconds) => ({
+      prompt,
+      aspect_ratio: "9:16",
+      duration: nearest(seconds, [5, 10]),
+    }),
+  },
+  {
+    path: "/sora-2/text-to-video",
+    label: "Sora 2",
+    body: (prompt, seconds) => ({
+      prompt,
+      aspect_ratio: "9:16",
+      resolution: "720p",
+      duration: nearest(seconds, [4, 8, 12]),
+    }),
+  },
+  {
+    path: "/sora-2/text-to-video/pro",
+    label: "Sora 2 Pro",
+    body: (prompt, seconds) => ({
+      prompt,
+      aspect_ratio: "9:16",
+      resolution: "1080p",
+      duration: nearest(seconds, [4, 8, 12]),
+    }),
+  },
+];
+
+/** Kept so a caller that stored a path can still name a model. */
+export function modelFor(path: string): VideoModel | undefined {
+  return MODELS.find((model) => model.path === path);
+}
+
+/**
+ * What a refusal means for the job that hit it.
+ *
+ * Straight out of Higgsfield's own error table, because guessing here is how
+ * you either give up on a working account or hammer a broken one:
+ *
+ *   401/403  the key or the balance. No other model fixes either, so stop.
+ *   404      "not found *for this account*" -- this model, not the account.
+ *   400/422  this model will not take this body. Ours should be right, so it
+ *            is worth trying the next rather than failing the day outright.
+ *   423/503  temporarily blocked, or disabled. Another model may be up.
+ *   5xx      their bad minute. Not a verdict on anything -- come back later.
+ */
+export class Refused extends Error {
+  constructor(
+    message: string,
+    /** True when nothing about this is settled and the job should run again. */
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "Refused";
+  }
+}
+
+type Verdict = "try_next" | "stop" | "retry_later";
+
+function verdictFor(status: number): Verdict {
+  if (status === 401 || status === 403) return "stop";
+  if (status === 404 || status === 400 || status === 422) return "try_next";
+  if (status === 423 || status === 503) return "try_next";
+  if (status >= 500) return "retry_later";
+  return "stop";
+}
+
+/** Said the way somebody who has not read this file would need to hear it. */
+function humanly(status: number, detail: string): string {
+  if (status === 401) {
+    return "Higgsfield rejected your key. Reconnect it under You → Generators.";
+  }
+  if (status === 403) {
+    return "Your Higgsfield account is out of credits, so nothing can be made until it is topped up.";
+  }
+  return detail;
+}
 
 export interface Credential {
   keyId: string;
@@ -46,6 +179,10 @@ export interface Submitted {
   statusUrl: string;
   cancelUrl: string | null;
   status: JobStatus;
+  /** Which model took it. Remembered against the credential so the next job
+   *  starts where this one finished instead of walking the list again. */
+  model: string;
+  modelLabel: string;
 }
 
 export interface Polled {
@@ -109,16 +246,28 @@ export interface SubmitOptions {
   /** Where Higgsfield should call back. Passed as a query parameter, which is
    *  the provider's own convention, not ours. */
   webhookUrl?: string;
-  model?: string;
+  /** A model known to have worked for this credential before. Tried first, and
+   *  the rest of the list still follows if it has since been withdrawn. */
+  preferModel?: string;
+  /** Short by default: a five-second clip costs a fraction of a ten-second one,
+   *  and the first three seconds decide whether anybody watches. */
   seconds?: number;
 }
 
-export async function submit(
+/** One attempt against one model, kept so a total failure can say what it
+ *  actually tried rather than "generation failed". */
+interface Attempt {
+  label: string;
+  status: number;
+  detail: string;
+}
+
+async function submitTo(
   credential: Credential,
+  model: VideoModel,
   options: SubmitOptions,
-): Promise<Submitted> {
-  const path = options.model ?? DEFAULT_MODEL;
-  const url = new URL(`${BASE}${path}`);
+): Promise<{ ok: true; submitted: Submitted } | { ok: false; attempt: Attempt; verdict: Verdict }> {
+  const url = new URL(`${BASE}${model.path}`);
   if (options.webhookUrl) url.searchParams.set("hf_webhook", options.webhookUrl);
 
   const response = await fetch(url.toString(), {
@@ -127,37 +276,96 @@ export async function submit(
       Authorization: authHeader(credential),
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      prompt: options.prompt,
-      // Vertical, because this is going to TikTok and nowhere else yet. Short,
-      // because a five-second clip costs a fraction of a ten-second one and the
-      // first three seconds are what decide whether anybody watches.
-      aspect_ratio: "9:16",
-      resolution: "1080",
-      duration: options.seconds ?? 5,
-    }),
+    body: JSON.stringify(model.body(options.prompt, options.seconds ?? 5)),
   });
 
   const body = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(
-      typeof body?.detail === "string"
-        ? body.detail
-        : `Higgsfield refused the request (${response.status})`,
-    );
+    const detail = typeof body?.detail === "string"
+      ? body.detail
+      : `Higgsfield returned ${response.status}`;
+    return {
+      ok: false,
+      attempt: { label: model.label, status: response.status, detail },
+      verdict: verdictFor(response.status),
+    };
   }
 
   if (!body?.request_id || !body?.status_url) {
-    throw new Error("Higgsfield accepted the request but said nothing useful about it");
+    // Accepted, but with nothing to poll. Treated as this model misbehaving
+    // rather than as a submission, because a job with no status_url can never
+    // finish and would sit in the queue until a human noticed.
+    return {
+      ok: false,
+      attempt: {
+        label: model.label,
+        status: 200,
+        detail: "accepted the request but returned no status URL",
+      },
+      verdict: "try_next",
+    };
   }
 
   return {
-    requestId: String(body.request_id),
-    statusUrl: String(body.status_url),
-    cancelUrl: body.cancel_url ? String(body.cancel_url) : null,
-    status: (body.status ?? "queued") as JobStatus,
+    ok: true,
+    submitted: {
+      requestId: String(body.request_id),
+      statusUrl: String(body.status_url),
+      cancelUrl: body.cancel_url ? String(body.cancel_url) : null,
+      status: (body.status ?? "queued") as JobStatus,
+      model: model.path,
+      modelLabel: model.label,
+    },
   };
+}
+
+/**
+ * Gets the video started, on whichever model this account can actually use.
+ *
+ * The version of this that only knew one model is what put three days of
+ * Autopilot on the floor: Seedance answered `model_not_found`, which is
+ * Higgsfield's way of saying "not on your plan", and the day was over. One
+ * provider's catalogue changing underneath a user is a Tuesday, not an
+ * exception, so it is handled here rather than reported.
+ */
+export async function submit(
+  credential: Credential,
+  options: SubmitOptions,
+): Promise<Submitted> {
+  // The one that worked last time first, then everything else in price order.
+  // Not *only* the remembered one: model access is granted and withdrawn on
+  // Higgsfield's side, so a stale memory must not become a permanent failure.
+  const preferred = options.preferModel ? modelFor(options.preferModel) : undefined;
+  const order = preferred
+    ? [preferred, ...MODELS.filter((model) => model.path !== preferred.path)]
+    : [...MODELS];
+
+  const attempts: Attempt[] = [];
+
+  for (const model of order) {
+    const result = await submitTo(credential, model, options);
+    if (result.ok) return result.submitted;
+
+    attempts.push(result.attempt);
+
+    if (result.verdict === "stop") {
+      throw new Refused(humanly(result.attempt.status, result.attempt.detail), false);
+    }
+    if (result.verdict === "retry_later") {
+      throw new Refused("Higgsfield is having trouble right now. This will be tried again.", true);
+    }
+  }
+
+  // Every model refused. That is an account fact, not a transient one, so the
+  // job is not retried -- and the message says where to go, because "no models
+  // available" with no address is a dead end for the person reading it.
+  const tried = attempts.map((a) => `${a.label} (${a.status})`).join(", ");
+  throw new Refused(
+    "Your Higgsfield account cannot use any of the vertical video models this app supports. " +
+      `Check your plan and model access at cloud.higgsfield.ai. Tried: ${tried}.`,
+    false,
+  );
 }
 
 /**

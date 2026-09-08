@@ -13,7 +13,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import { json } from "../_shared/http.ts";
+import { json, PublicError } from "../_shared/http.ts";
 import { finishJob, startJob } from "../_shared/generate.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -143,6 +143,12 @@ async function startDueRenders(admin: ReturnType<typeof createClient>): Promise<
       // happened, rather than left as a day that silently stays empty.
       const reason = thrown instanceof Error ? thrown.message : "could not start";
       console.error("startDueRenders", row.post_id, reason);
+
+      // A provider outage is not this post's fault. Leaving the post alone
+      // means the next tick picks it up again -- writing `failed` here would
+      // turn five bad minutes at Higgsfield into a permanently dead day, which
+      // is exactly what `model_not_found` did for three days in September.
+      if (thrown instanceof PublicError && thrown.retryable) continue;
 
       await admin
         .from("posts")

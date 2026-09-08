@@ -11,7 +11,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "./crypto.ts";
 import { PublicError } from "./http.ts";
-import { type Credential, parseCredential, poll, submit } from "./higgsfield.ts";
+import { type Credential, parseCredential, poll, Refused, submit } from "./higgsfield.ts";
 
 const BUCKET = "media";
 
@@ -23,7 +23,7 @@ const MAX_BYTES = 45 * 1024 * 1024;
 export async function credentialFor(
   admin: SupabaseClient,
   userId: string,
-): Promise<{ id: string; credential: Credential }> {
+): Promise<{ id: string; credential: Credential; lastGoodModel: string | null }> {
   const { data: rows, error } = await admin.rpc("generator_for_user", { p_user: userId });
   if (error) throw error;
 
@@ -42,7 +42,11 @@ export async function credentialFor(
   }
 
   const secret = await open(row.secret_ct, `${row.id}:provider`);
-  return { id: row.id, credential: parseCredential(secret) };
+  return {
+    id: row.id,
+    credential: parseCredential(secret),
+    lastGoodModel: row.last_good_model ?? null,
+  };
 }
 
 /**
@@ -64,7 +68,7 @@ export async function startJob(
     webhookBase: string;
   },
 ): Promise<{ jobId: string; requestId: string }> {
-  const { id: credentialId, credential } = await credentialFor(admin, args.userId);
+  const { id: credentialId, credential, lastGoodModel } = await credentialFor(admin, args.userId);
 
   // The row before the request, so a submission that succeeds and then loses
   // its response still has somewhere to be recovered from. The other order
@@ -93,6 +97,7 @@ export async function startJob(
       // an unguessable URL is what stops a stranger claiming a job finished.
       // Even so the body is never believed -- see finishJob.
       webhookUrl: `${args.webhookBase}/hf-webhook/${job.webhook_token}`,
+      preferModel: lastGoodModel ?? undefined,
     });
 
     await admin
@@ -103,22 +108,43 @@ export async function startJob(
         status_url: submitted.statusUrl,
         cancel_url: submitted.cancelUrl,
         submitted_at: new Date().toISOString(),
+        // Which model took it, kept on the job so a bad batch can be traced to
+        // the model that made it rather than guessed at.
+        input: { prompt: args.prompt, model: submitted.model },
         // The webhook is an optimisation. This is the path that guarantees
         // completion, and it exists from the moment the job is submitted.
         poll_after: new Date(Date.now() + 20_000).toISOString(),
       })
       .eq("id", job.id);
 
+    // So tomorrow starts with the model that worked today instead of walking
+    // the list again. A hint only -- see 0017.
+    if (submitted.model !== lastGoodModel) {
+      await admin.rpc("remember_good_model", {
+        p_credential_id: credentialId,
+        p_model: submitted.model,
+      });
+    }
+
     await admin.from("posts").update({ status: "sourcing" }).eq("id", args.postId);
 
     return { jobId: job.id, requestId: submitted.requestId };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "submission failed";
+    // A provider having a bad minute is not a verdict on this post. The job is
+    // put back rather than buried, and the caller is told not to fail the post.
+    const retryable = error instanceof Refused && error.retryable;
+
     await admin
       .from("generation_jobs")
-      .update({ status: "failed", error: detail, finished_at: new Date().toISOString() })
+      .update(
+        retryable
+          ? { status: "queued", error: detail }
+          : { status: "failed", error: detail, finished_at: new Date().toISOString() },
+      )
       .eq("id", job.id);
-    throw new PublicError(detail, 502);
+
+    throw new PublicError(detail, 502, retryable);
   }
 }
 

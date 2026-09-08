@@ -27,7 +27,14 @@ export function preflight(): Response {
  * something a client should be able to probe for.
  */
 export class PublicError extends Error {
-  constructor(message: string, readonly status = 400) {
+  constructor(
+    message: string,
+    readonly status = 400,
+    /** Set when the cause is a bad minute rather than a bad request, so a
+     *  caller running unattended can leave the work in the queue instead of
+     *  marking it dead. Nothing is retried on the strength of a 4xx. */
+    readonly retryable = false,
+  ) {
     super(message);
   }
 }

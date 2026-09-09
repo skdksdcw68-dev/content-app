@@ -128,6 +128,12 @@ verify_jwt = false
 [functions.connector-callback]
 verify_jwt = false
 
+# The long-job executor. Same cron pattern and the same shared secret: it
+# carries one step of one agent run per tick, so closing the app changes
+# nothing and a step that dies costs one step rather than the whole job.
+[functions.run-agent-jobs]
+verify_jwt = false
+
 # Woken every minute by pg_cron through pg_net, which carries no JWT. What
 # stands in for one is a shared secret in `x-cron-secret`, compared in constant
 # time and kept in `private.scheduler_config` rather than in the cron command --

@@ -25,6 +25,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { missingForPlan, MODELS, route } from "../_shared/route.ts";
+import { choicesFor } from "../_shared/connectors/choose.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -203,6 +204,87 @@ Deno.serve(async (request) => {
           // Only what is genuinely missing is asked. `brand_knowledge` reports
           // what the database already holds, and a question somebody already
           // answered during setup is the fastest way to feel stupid.
+          // Somebody asked for something to be made. Before anything is
+          // spent, find out what can actually make it -- and say so with the
+          // real constraints, because "Sora 2" means nothing next to "720p
+          // only, 4/8/12 seconds".
+          //
+          // The gate is `worthAsking`, not "are there options". One model is
+          // not a choice, and several that differ in nothing a person can act
+          // on is a list of names -- asking somebody to rank names they have
+          // no basis to rank is how a product turns into paperwork. When it is
+          // not worth asking, Auto has already decided and the work starts.
+          if (routed.intent === "make") {
+            const choices = await choicesFor(admin, auth.user.id, "video_generation", {
+              aspectRatio: "9:16",
+              seconds: 5,
+            });
+
+            if (choices.options.length === 0) {
+              for (
+                const chunk of [
+                  "Nothing you have connected can make video yet. ",
+                  "Connect a generator from the plus menu and I can start straight away.",
+                ]
+              ) {
+                said += chunk;
+                send({ t: "delta", v: chunk });
+              }
+              await remember();
+              send({ t: "done" });
+              controller.close();
+              return;
+            }
+
+            send({
+              t: "step",
+              kind: "reading",
+              detail: `Found ${choices.options.length} video model${
+                choices.options.length === 1 ? "" : "s"
+              } you can use`,
+            });
+
+            if (choices.worthAsking) {
+              for (
+                const chunk of [
+                  "I can make that. ",
+                  `You have ${choices.options.length} video models available — `,
+                  "pick one, or let me choose.",
+                ]
+              ) {
+                said += chunk;
+                send({ t: "delta", v: chunk });
+              }
+
+              send({ t: "models", capability: "video_generation", choices });
+              await remember({ kind: "models", choices });
+              send({ t: "done" });
+              controller.close();
+              return;
+            }
+
+            // Not worth asking, so it is not asked. The choice is still
+            // reported -- somebody should always be able to see what was used
+            // and what it cost, even when they were not consulted.
+            const auto = choices.auto;
+            for (
+              const chunk of [
+                `I'll use ${auto?.label ?? "the one model you have"}. `,
+                auto?.reason ? `${auto.reason} ` : "",
+                "Starting now.",
+              ]
+            ) {
+              if (!chunk) continue;
+              said += chunk;
+              send({ t: "delta", v: chunk });
+            }
+            send({ t: "chose", choice: auto });
+            await remember({ kind: "chose", choice: auto });
+            send({ t: "done" });
+            controller.close();
+            return;
+          }
+
           if (routed.intent === "plan" && brand) {
             const { data: knowledgeRows } = await asUser
               .rpc("brand_knowledge", { p_brand: brand.id });

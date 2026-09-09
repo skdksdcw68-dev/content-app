@@ -25,6 +25,7 @@ import {
   type Adapter,
   type Authorization,
   type Capability,
+  type Constraints,
   type Discovery,
   type ModelDescriptor,
   type Polled,
@@ -37,6 +38,58 @@ import {
 function credentialFrom(auth: Authorization): Credential {
   return parseCredential(auth.secret);
 }
+
+/**
+ * What each REST model actually accepts, read from Higgsfield's OpenAPI.
+ *
+ * Not decoration for a picker -- these are the enums that decide whether a
+ * request is a video or a 422. Sora takes 4, 8 or 12 seconds and spells its
+ * resolution "720p"; Seedance takes any integer and spells it "1080"; Kling
+ * takes 5 or 10 and has no resolution field at all. One body sent to all three
+ * fails on two of them, which is why `higgsfield.ts` builds a body per model
+ * and why the same facts belong in front of somebody choosing.
+ */
+const REST_CONSTRAINTS: Record<string, Constraints> = {
+  "/bytedance/seedance/v1/lite/text-to-video": {
+    durations: [5, 10],
+    resolutions: ["480", "720", "1080"],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    formats: ["mp4"],
+    typicalSeconds: 90,
+    notes: ["Cheapest of the video models.", "No audio."],
+  },
+  "/bytedance/seedance/v1/pro/fast/text-to-video": {
+    durations: [5, 10],
+    resolutions: ["480", "720", "1080"],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    formats: ["mp4"],
+    typicalSeconds: 120,
+    notes: ["Higher fidelity than Lite.", "No audio."],
+  },
+  "/kling-video/v2.1/master/text-to-video": {
+    durations: [5, 10],
+    aspectRatios: ["9:16", "16:9", "1:1"],
+    formats: ["mp4"],
+    typicalSeconds: 180,
+    notes: ["No resolution choice — the model decides.", "Accepts a negative prompt."],
+  },
+  "/sora-2/text-to-video": {
+    durations: [4, 8, 12],
+    resolutions: ["720p"],
+    aspectRatios: ["9:16", "16:9"],
+    formats: ["mp4"],
+    typicalSeconds: 240,
+    notes: ["720p only.", "Durations are 4, 8 or 12 seconds — nothing between."],
+  },
+  "/sora-2/text-to-video/pro": {
+    durations: [4, 8, 12],
+    resolutions: ["720p", "1080p"],
+    aspectRatios: ["9:16", "16:9"],
+    formats: ["mp4"],
+    typicalSeconds: 300,
+    notes: ["Highest fidelity here.", "Slowest, and the most expensive."],
+  },
+};
 
 export const higgsfieldRest: Adapter = {
   slug: "higgsfield",
@@ -60,9 +113,21 @@ export const higgsfieldRest: Adapter = {
       external_id: model.path,
       label: model.label,
       metadata: {
-        // Every model in this list is vertical-capable; the ones that are not
-        // were excluded there, for TikTok. Recorded so a chooser can say why.
-        aspect_ratios: ["9:16"],
+        // Read off Higgsfield's published OpenAPI schema per endpoint, not
+        // guessed: these are the enums each model actually accepts, and they
+        // differ enough that one body sent to all of them fails.
+        constraints: REST_CONSTRAINTS[model.path] ?? {
+          aspectRatios: ["9:16"],
+        },
+        // Their REST surface quotes no price anywhere. `unknown` rather than a
+        // number we made up -- an invented figure in a picker is worse than an
+        // honest gap, because somebody would choose on it.
+        cost: {
+          unit: "credits",
+          amount: null,
+          basis: "Higgsfield bills credits per generation; the REST API does not quote a rate.",
+          quoted: false,
+        },
         note: "Availability depends on the Higgsfield plan behind this key.",
       },
       // The list is already cheapest-first, so position is the ranking.

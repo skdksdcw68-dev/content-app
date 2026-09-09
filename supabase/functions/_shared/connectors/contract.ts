@@ -71,6 +71,59 @@ export interface Verdict {
   detail: string;
 }
 
+/**
+ * How a provider charges. Deliberately not "tokens".
+ *
+ * Every billing system in this space is different and assuming one is how a
+ * picker ends up lying: Higgsfield sells credits, an LLM bills tokens, a
+ * video house may charge per second of output, and a subscription tier grants
+ * an allowance that costs nothing at the moment of use. Flattening those into
+ * one number would make the cheapest-looking option the wrong one.
+ *
+ * `unknown` is a first-class member and the default. A price nobody published
+ * is shown as not stated, never as zero -- free and unknown are different
+ * facts, and only one of them is safe to act on.
+ */
+export type CostUnit =
+  | "credits"
+  | "tokens"
+  | "usd"
+  | "per_image"
+  | "per_video"
+  | "per_second"
+  | "per_generation"
+  | "allowance"
+  | "unknown";
+
+export interface Cost {
+  unit: CostUnit;
+  /** Null whenever the unit is `unknown`, or the provider quotes a price it
+   *  will only commit to per request. */
+  amount: number | null;
+  /** What the amount buys, when that is not obvious: "per 5s clip", "per 1M
+   *  input tokens". Free text because providers describe this in prose. */
+  basis?: string;
+  /** True when the number came from the provider, false when it is our own
+   *  reading of their documentation. The picker says which. */
+  quoted: boolean;
+}
+
+/** What a model can actually be asked for. Every field optional: a provider
+ *  that does not say is different from one that says "any", and the picker
+ *  shows the difference rather than inventing a range. */
+export interface Constraints {
+  durations?: number[];
+  resolutions?: string[];
+  aspectRatios?: string[];
+  formats?: string[];
+  /** Roughly how long generation takes, in seconds, when the provider says.
+   *  Shown as an estimate and never as a promise. */
+  typicalSeconds?: number;
+  /** Anything a person should know before choosing: "no audio", "1 request at
+   *  a time", "vertical only". */
+  notes?: string[];
+}
+
 /** One model a connection turned out to offer. Shape matches what
  *  `record_discovery` expects, so discovery output goes straight to the
  *  database without a translation step in between. */

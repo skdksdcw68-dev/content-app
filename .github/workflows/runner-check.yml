@@ -18,6 +18,11 @@
 name: Runner check
 
 on:
+  # Fires on its own push. `workflow_dispatch` only exists once the file is on
+  # the default branch, and this question is not worth a commit to main.
+  push:
+    paths:
+      - .github/workflows/runner-check.yml
   workflow_dispatch: {}
 
 jobs:

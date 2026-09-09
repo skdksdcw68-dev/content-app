@@ -71,6 +71,65 @@ struct ChatQuestion: Identifiable, Equatable, Decodable {
     }
 }
 
+/// What a provider charges, in whatever unit it actually charges in.
+///
+/// Not a number, because the units genuinely differ: credits, tokens, per
+/// second of output, or an allowance already paid for. `unknown` is the common
+/// case and is shown as "Cost not stated" — never as zero, because free and
+/// unknown are different facts and only one is safe to act on.
+struct ModelCost: Equatable, Decodable {
+    let unit: String
+    let amount: Double?
+    let basis: String?
+    let quoted: Bool
+
+    var label: String {
+        guard let amount, unit != "unknown" else { return "Cost not stated" }
+        switch unit {
+        case "allowance": return "Included in your plan"
+        case "usd":       return String(format: "$%.2f", amount)
+        default:          return "\(formatted(amount)) \(unit)"
+        }
+    }
+
+    private func formatted(_ value: Double) -> String {
+        value == value.rounded() ? String(Int(value)) : String(format: "%.2f", value)
+    }
+}
+
+/// What a model will actually accept. Every field optional, because a provider
+/// that does not say is different from one that says "any", and inventing a
+/// range would be worse than the gap.
+struct ModelConstraints: Equatable, Decodable {
+    var durations: [Int]?
+    var resolutions: [String]?
+    var aspectRatios: [String]?
+    var formats: [String]?
+    var typicalSeconds: Int?
+    var notes: [String]?
+}
+
+/// One model the agent found, offered as a choice.
+struct ModelChoice: Identifiable, Equatable, Decodable {
+    var id: String { modelId }
+    let modelId: String
+    let provider: String
+    let label: String
+    let externalId: String
+    let cost: ModelCost
+    let constraints: ModelConstraints
+    let reason: String?
+    let recommended: Bool
+}
+
+/// Everything the agent found for one capability.
+struct ModelOffer: Equatable, Decodable {
+    let capability: String
+    let options: [ModelChoice]
+    let worthAsking: Bool
+    let auto: ModelChoice?
+}
+
 /// One turn in the conversation.
 ///
 /// The user's turn is a tinted capsule pushed right; the agent's is typography
@@ -92,6 +151,10 @@ struct ChatMessage: Identifiable, Equatable {
     var steps: [TaskStep] = []
     /// What it needs answered before it will go and spend money.
     var questions: [ChatQuestion] = []
+    /// The models it found, when a choice is worth making.
+    var offer: ModelOffer? = nil
+    /// Which one was taken, once somebody picked or Auto decided.
+    var chosenModel: String? = nil
     /// Which of those have been answered, so a tapped card settles rather than
     /// sitting there inviting the same tap again.
     var answered: [String: String] = [:]

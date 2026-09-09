@@ -62,6 +62,14 @@ final class AppSession {
     /// came out, not whether the machine turned.
     private(set) var health: [HealthFinding] = []
 
+    /// Providers this person has connected, and what each can do.
+    ///
+    /// Named apart from `connections`, which is TikTok accounts: the platforms
+    /// you post TO versus the providers you make things WITH.
+    private(set) var connectedProviders: [ProviderConnection] = []
+    /// What could be connected that is not. Drives the Plus menu.
+    private(set) var connectable: [ConnectableProvider] = []
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 

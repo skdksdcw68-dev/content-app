@@ -36,6 +36,7 @@ struct ChatView: View {
     /// room for it and the empty page centres above it.
     @State private var barHeight: CGFloat = 54
     @State private var composerReset = 0
+    @State private var composerFocus = 0
     /// The reply in flight, so the stop button has something to stop.
     @State private var work: Task<Void, Never>?
 
@@ -64,12 +65,13 @@ struct ChatView: View {
         var showsOptions: Bool
         var isWorking: Bool
         var reset: Int
+        var focus: Int
     }
 
     private var composerInputs: ComposerInputs {
         ComposerInputs(
             text: draft, showsOptions: showsOptions,
-            isWorking: isWorking, reset: composerReset
+            isWorking: isWorking, reset: composerReset, focus: composerFocus
         )
     }
 
@@ -80,9 +82,15 @@ struct ChatView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     ForEach(turns) { turn in
-                        ChatTurnView(turn: turn) { question, value in
-                            answer(question, with: value, in: turn.id)
-                        }
+                        ChatTurnView(
+                            turn: turn,
+                            onAnswer: { question, value in
+                                answer(question, with: value, in: turn.id)
+                            },
+                            onChooseModel: { choice in
+                                choose(choice, in: turn.id)
+                            }
+                        )
                         .id(turn.id)
                             // Fade only. A new turn sliding up while the scroll
                             // view is also animating to it, with the composer
@@ -127,6 +135,7 @@ struct ChatView: View {
                         showsOptions: $showsOptions,
                         isWorking: isWorking,
                         resetToken: composerReset,
+                        focusToken: composerFocus,
                         onSend: send,
                         onStop: stop
                     )
@@ -175,11 +184,39 @@ struct ChatView: View {
             ChatOptionsSheet { action in
                 showsOptions = false
                 switch action {
-                case .planMonth: planning = true
-                case .ask(let text): draft = text; send()
+                case .planMonth:
+                    planning = true
+
+                case .ask(let text):
+                    draft = text
+                    // A prompt ending in a space is an invitation, not a
+                    // question -- "Research " wants the rest typed, so the
+                    // field is focused instead of the turn being sent.
+                    if text.hasSuffix(" ") { composerFocus += 1 } else { send() }
+
+                case .connect(let slug):
+                    Task {
+                        let ok = await session.connectProvider(slug)
+                        if ok { say("Connected. I can see what it offers now.") }
+                    }
+
+                case .reconnect(let provider):
+                    Task {
+                        let ok = await session.connectProvider(provider.providerSlug)
+                        if ok { say("Reconnected \(provider.providerName).") }
+                    }
+
+                case .refresh(let provider):
+                    Task {
+                        let found = await session.refreshCapabilities(provider.id)
+                        say(
+                            found > 0
+                                ? "\(provider.providerName) has \(found) model\(found == 1 ? "" : "s") available."
+                                : "\(provider.providerName) is connected but offering nothing right now."
+                        )
+                    }
                 }
             }
-            .presentationDetents([.medium])
         }
         .sheet(isPresented: $planning, onDismiss: {
             // Pushed on dismiss rather than from inside the sheet: a push that
@@ -233,6 +270,12 @@ struct ChatView: View {
                     case .delta(let text):
                         stream.pending += text
                         scheduleFlush(into: replyIndex)
+                    case .models(let offer):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].offer = offer
+                        }
+                    case .chose(let choice):
+                        turns[replyIndex].chosenModel = choice.label
                     case .questions(let asked):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].questions = asked
@@ -307,6 +350,38 @@ struct ChatView: View {
 
         draft = said
         send()
+    }
+
+    /// A model was picked, or Auto was accepted.
+    ///
+    /// Sent back as an ordinary turn for the same reason a tapped answer is:
+    /// the transcript should read like the conversation that happened, and
+    /// "Use Sora 2" is what somebody would have typed.
+    ///
+    /// The card settles into the choice rather than disappearing, so reopening
+    /// the thread still shows what was decided.
+    private func choose(_ choice: ModelChoice?, in turnID: ChatMessage.ID) {
+        guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
+        guard turns[index].chosenModel == nil else { return }
+
+        let label = choice?.label ?? turns[index].offer?.auto?.label ?? "the best available"
+        turns[index].chosenModel = label
+
+        draft = choice.map { "Use \($0.label)." } ?? "You choose."
+        send()
+    }
+
+    /// Puts a line in the conversation from the app rather than the agent.
+    ///
+    /// Used for things the app did itself -- connecting a provider, asking it
+    /// again what it offers. It reads as the agent speaking because from the
+    /// person's side it is: they pressed something in the plus menu and this is
+    /// what came back. Not persisted, because it describes an action rather
+    /// than a turn, and a transcript full of "Connected." is noise on reopen.
+    private func say(_ text: String) {
+        withAnimation(.easeOut(duration: 0.2)) {
+            turns.append(ChatMessage(role: .assistant, text: text))
+        }
     }
 
     private func stop() {
@@ -405,55 +480,5 @@ private struct EmptyChat: View {
             }
         }
         .padding(.horizontal, 24)
-    }
-}
-
-// MARK: - The plus menu
-
-/// What the plus offers. A real sheet rather than a menu, because two of these
-/// open something of their own and a menu that opens a sheet reads as a stutter.
-private struct ChatOptionsSheet: View {
-    enum Action {
-        case planMonth
-        case ask(String)
-    }
-
-    let onPick: (Action) -> Void
-
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button {
-                        onPick(.planMonth)
-                    } label: {
-                        Label {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Plan 30 days").foregroundStyle(.primary)
-                                Text("Writes and schedules a month at once")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "calendar").foregroundStyle(Theme.accent)
-                        }
-                    }
-                }
-
-                Section("Ask about") {
-                    Button {
-                        onPick(.ask("What do you actually know about my brand?"))
-                    } label: {
-                        Label("What it knows", systemImage: "brain")
-                    }
-                    Button {
-                        onPick(.ask("What should I post about this week?"))
-                    } label: {
-                        Label("This week", systemImage: "lightbulb")
-                    }
-                }
-            }
-            .navigationTitle("Add")
-            .navigationBarTitleDisplayMode(.inline)
-        }
     }
 }

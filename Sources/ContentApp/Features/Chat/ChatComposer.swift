@@ -24,6 +24,10 @@ struct ChatComposer: View {
     /// left it three lines tall, with the placeholder sitting in the space the
     /// question used to take.
     let resetToken: Int
+    /// Bumped by the owner to put the cursor in the field. Focus has to live on
+    /// this side of the UIKit hosting boundary, so it is asked for rather than
+    /// set from outside.
+    let focusToken: Int
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -48,6 +52,7 @@ struct ChatComposer: View {
             .animation(.easeOut(duration: 0.22), value: isExpanded)
             .sensoryFeedback(.impact(weight: .light), trigger: showsOptions)
             .sensoryFeedback(.impact(weight: .medium), trigger: isWorking)
+            .onChange(of: focusToken) { _, _ in isFocused = true }
     }
 
     private var capsule: some View {

@@ -26,6 +26,8 @@ extension AppSession {
         case step(TaskStep)
         case delta(String)
         case questions([ChatQuestion])
+        case models(ModelOffer)
+        case chose(ModelChoice)
         case failed(String)
     }
 
@@ -80,6 +82,21 @@ extension AppSession {
             // Decoded from the original bytes rather than from the dictionary
             // above: re-encoding a parsed `Any` back to JSON to decode it again
             // is two conversions that can each lose a type.
+            if kind == "models" || kind == "chose" {
+                // Decoded from the original bytes for the same reason the
+                // questions frame is: re-encoding a parsed `Any` back to JSON
+                // to decode it again is two conversions that can each lose a
+                // type, and this payload has doubles and optionals in it.
+                struct Offer: Decodable { let choices: ModelOffer }
+                struct Chose: Decodable { let choice: ModelChoice? }
+                if kind == "models", let frame = try? JSONDecoder().decode(Offer.self, from: data) {
+                    onEvent(.models(frame.choices))
+                } else if let frame = try? JSONDecoder().decode(Chose.self, from: data), let choice = frame.choice {
+                    onEvent(.chose(choice))
+                }
+                continue
+            }
+
             if kind == "questions" {
                 struct Frame: Decodable { let questions: [ChatQuestion] }
                 if let frame = try? JSONDecoder().decode(Frame.self, from: data) {

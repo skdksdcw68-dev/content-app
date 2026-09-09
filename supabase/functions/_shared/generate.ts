@@ -12,7 +12,20 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.1
 import { open } from "./crypto.ts";
 import { PublicError } from "./http.ts";
 import { inspect } from "./media.ts";
-import { type Credential, parseCredential, poll, Refused, submit } from "./higgsfield.ts";
+import { type Credential, parseCredential, poll, Refused } from "./higgsfield.ts";
+import { NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
+
+/**
+ * The model that worked last time for this person, whatever provider it was on.
+ *
+ * A hint for ordering and never a restriction: access is granted and withdrawn
+ * on the provider's side, so a stale memory must not become a permanent
+ * failure. `routeSubmit` treats it the same way -- tried first, then the rest.
+ */
+async function rememberedModel(admin: SupabaseClient, userId: string): Promise<string | null> {
+  const { data } = await admin.rpc("generator_for_user", { p_user: userId });
+  return (data ?? [])[0]?.last_good_model ?? null;
+}
 
 const BUCKET = "media";
 
@@ -69,7 +82,11 @@ export async function startJob(
     webhookBase: string;
   },
 ): Promise<{ jobId: string; requestId: string }> {
-  const { id: credentialId, credential, lastGoodModel } = await credentialFor(admin, args.userId);
+  // Which provider, if any, is now a question rather than an import. The old
+  // line here read `credentialFor(...)` and everything after it assumed
+  // Higgsfield -- see _shared/connectors/route.ts for what replaced it and why
+  // the recovery ladder matters more than the decoupling.
+  const lastGoodModel = await rememberedModel(admin, args.userId);
 
   // The row before the request, so a submission that succeeds and then loses
   // its response still has somewhere to be recovered from. The other order
@@ -81,8 +98,9 @@ export async function startJob(
       brand_id: args.brandId,
       post_id: args.postId,
       kind: "video_generate",
-      provider: "higgsfield",
-      credential_id: credentialId,
+      // Filled in once routing has chosen. Recording a guess here and being
+      // wrong is worse than a row that briefly says nothing.
+      provider: "pending",
       status: "queued",
       input: { prompt: args.prompt },
     })
@@ -92,7 +110,9 @@ export async function startJob(
   if (jobError) throw jobError;
 
   try {
-    const submitted = await submit(credential, {
+    const routed = await routeSubmit(admin, {
+      userId: args.userId,
+      capability: "video_generation",
       prompt: args.prompt,
       // The token is in the path, not a header: the provider signs nothing, so
       // an unguessable URL is what stops a stranger claiming a job finished.
@@ -101,17 +121,25 @@ export async function startJob(
       preferModel: lastGoodModel ?? undefined,
     });
 
+    const submitted = routed.submitted;
+
     await admin
       .from("generation_jobs")
       .update({
         status: "submitted",
-        provider_request_id: submitted.requestId,
-        status_url: submitted.statusUrl,
-        cancel_url: submitted.cancelUrl,
+        provider: routed.providerSlug,
+        credential_id: routed.connectionId,
+        provider_request_id: submitted.ref,
+        status_url: submitted.statusUrl ?? null,
         submitted_at: new Date().toISOString(),
-        // Which model took it, kept on the job so a bad batch can be traced to
-        // the model that made it rather than guessed at.
-        input: { prompt: args.prompt, model: submitted.model },
+        // Which model took it, and on whose connection, kept on the job so a
+        // bad batch can be traced rather than guessed at.
+        input: {
+          prompt: args.prompt,
+          model: routed.model,
+          model_label: routed.modelLabel,
+          provider: routed.providerSlug,
+        },
         // The webhook is an optimisation. This is the path that guarantees
         // completion, and it exists from the moment the job is submitted.
         poll_after: new Date(Date.now() + 20_000).toISOString(),
@@ -120,22 +148,40 @@ export async function startJob(
 
     // So tomorrow starts with the model that worked today instead of walking
     // the list again. A hint only -- see 0017.
-    if (submitted.model !== lastGoodModel) {
+    if (routed.model !== lastGoodModel) {
       await admin.rpc("remember_good_model", {
-        p_credential_id: credentialId,
-        p_model: submitted.model,
+        p_credential_id: routed.connectionId,
+        p_model: routed.model,
       });
     }
 
     await admin.from("posts").update({ status: "sourcing" }).eq("id", args.postId);
 
-    return { jobId: job.id, requestId: submitted.requestId };
+    return { jobId: job.id, requestId: submitted.ref };
   } catch (error) {
     const detail = error instanceof Error ? error.message : "submission failed";
     // A provider having a bad minute is not a verdict on this post. The job is
     // put back rather than buried, and the caller is told not to fail the post.
     const retryable = error instanceof Refused && error.retryable;
-    const failureCode = error instanceof Refused ? error.code : null;
+
+    // `NothingCanDoThis` means the ladder ran out -- every model on every
+    // connected provider refused, and its code is the last real reason. That is
+    // a different sentence from one provider having a bad minute, and Home
+    // needs to be able to tell them apart.
+    const failureCode = error instanceof NothingCanDoThis
+      ? error.code
+      : error instanceof Refused
+      ? error.code
+      : null;
+
+    if (error instanceof NothingCanDoThis && error.attempts.length > 0) {
+      // What was tried, on the job rather than in the message. The person gets
+      // the consequence; this is for whoever has to work out why.
+      await admin
+        .from("generation_jobs")
+        .update({ output: { attempts: error.attempts } })
+        .eq("id", job.id);
+    }
 
     await admin
       .from("generation_jobs")
@@ -174,7 +220,7 @@ export async function finishJob(
 ): Promise<FinishOutcome> {
   const { data: job } = await admin
     .from("generation_jobs")
-    .select("id, user_id, brand_id, post_id, status, status_url, credential_id, asset_id, input")
+    .select("id, user_id, brand_id, post_id, status, status_url, credential_id, provider_request_id, asset_id, input")
     .eq("id", jobId)
     .maybeSingle();
 
@@ -186,8 +232,15 @@ export async function finishJob(
   }
   if (!job.status_url) return { state: "waiting" };
 
-  const { credential } = await credentialFor(admin, job.user_id);
-  const result = await poll(credential, job.status_url);
+  // Polled through the connection that submitted it, not through whichever
+  // credential this person happens to have now. A job started on one provider
+  // must be finished on that provider -- and once more than one is connected,
+  // "their generator" stops being a single thing that can be looked up.
+  const result = await routePoll(admin, {
+    connectionId: job.credential_id,
+    ref: String(job.provider_request_id ?? ""),
+    statusUrl: job.status_url,
+  });
 
   if (result.status === "queued" || result.status === "in_progress") {
     await admin

@@ -94,7 +94,12 @@ export async function candidatesFor(
     if (!connection) continue;
     details.set(id, {
       authKind: connection.auth_kind,
-      endpoint: connection.mcp_url ?? connection.api_base ?? "",
+      // Which door decides which address. `mcp_url ?? api_base` looks harmless
+      // and hands a REST adapter the MCP endpoint the moment a provider has
+      // both -- which Higgsfield now does, being reachable either way.
+      endpoint: connection.auth_kind === "api_key"
+        ? (connection.api_base ?? "")
+        : (connection.mcp_url ?? connection.api_base ?? ""),
     });
   }
 
@@ -225,6 +230,57 @@ export async function routeSubmit(
     lastCode,
     attempts,
   );
+}
+
+/**
+ * Asks the connection that started a job whether it has finished.
+ *
+ * Through the connection the job recorded, not through "this person's
+ * generator": once more than one provider is connected that phrase stops
+ * naming anything, and a job started on one and polled on another is a job
+ * that never completes.
+ *
+ * The shape returned matches what `finishJob` already handled, so the calling
+ * code did not have to learn a new vocabulary to stop knowing about vendors.
+ */
+export async function routePoll(
+  admin: SupabaseClient,
+  args: { connectionId: string; ref: string; statusUrl: string },
+): Promise<{ status: "queued" | "in_progress" | "completed" | "failed" | "nsfw"; videoUrl: string | null; error: string | null }> {
+  const { data } = await admin.rpc("read_connection", { p_connection: args.connectionId });
+  const connection = (data ?? [])[0];
+
+  if (!connection) {
+    // The connection was forgotten while a job was in flight. Terminal, and
+    // said plainly rather than retried against nothing.
+    return { status: "failed", videoUrl: null, error: "connection_gone" };
+  }
+
+  const adapter = adapterFor(connection.provider_slug, connection.auth_kind);
+  const secret = await secretFor(admin, args.connectionId, connection.auth_kind);
+  const endpoint = connection.auth_kind === "api_key"
+    ? (connection.api_base ?? "")
+    : (connection.mcp_url ?? connection.api_base ?? "");
+
+  const polled = await adapter.poll(
+    { connectionId: args.connectionId, secret, endpoint },
+    { ref: args.ref, statusUrl: args.statusUrl, state: "running" },
+  );
+
+  if (polled.state === "queued") return { status: "queued", videoUrl: null, error: null };
+  if (polled.state === "running") return { status: "in_progress", videoUrl: null, error: null };
+  if (polled.state === "done") {
+    return { status: "completed", videoUrl: polled.outputUrl ?? null, error: null };
+  }
+
+  return {
+    // `refused` is the shared word for what Higgsfield calls nsfw, and the
+    // distinction matters downstream: retrying the same prompt fails the same
+    // way and charges again for the privilege.
+    status: polled.verdict?.code === "refused" ? "nsfw" : "failed",
+    videoUrl: null,
+    error: polled.verdict?.detail ?? null,
+  };
 }
 
 /** An adapter's verdict, however the failure arrived. */

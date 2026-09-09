@@ -42,14 +42,43 @@ platform :ios do
       bundle_identifier: BUNDLE_ID
     )
 
-    # Whichever CI is running. Both counters strictly increase per build, which
-    # is all App Store Connect requires; the timestamp is a last resort for a
-    # local run. Re-running the SAME failed build reuses its number -- if that
-    # build already reached ASC, bump MARKETING_VERSION in project.yml.
+    # Asked of App Store Connect rather than taken from the CI counter.
+    #
+    # The CI counter was the obvious choice and it broke the moment the project
+    # moved to a second Codemagic account: that account's build index starts at
+    # 1, so a build went up numbered 3 while ASC already held 19 through 29 for
+    # this version. Apple discards a build whose number is not higher than the
+    # last, and it does it during processing -- the upload succeeds, nothing
+    # ever appears in TestFlight, and the only clue is an email.
+    #
+    # ASC is the only thing that actually knows what has been used, so it is
+    # asked. That makes the number independent of which CI runs, how many times
+    # it has run, and whether the account was replaced this morning.
+    latest =
+      begin
+        latest_testflight_build_number(
+          api_key: api_key,
+          app_identifier: BUNDLE_ID,
+          version: get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
+        )
+      rescue StandardError => e
+        # A version with no builds yet raises rather than returning 0. Falling
+        # back to the CI counter is right there: a fresh version starts low and
+        # nothing has been used.
+        UI.important("Could not read the latest TestFlight build number (#{e.message}); falling back to the CI counter")
+        nil
+      end
+
     build_number =
-      ENV["BUILD_NUMBER"] ||          # Codemagic
-      ENV["GITHUB_RUN_NUMBER"] ||     # GitHub Actions
-      Time.now.strftime("%Y%m%d%H%M")
+      if latest
+        latest.to_i + 1
+      else
+        ENV["BUILD_NUMBER"] ||          # Codemagic
+          ENV["GITHUB_RUN_NUMBER"] ||   # GitHub Actions
+          Time.now.strftime("%Y%m%d%H%M")
+      end
+
+    UI.message("Building as #{build_number}")
 
     increment_build_number(
       build_number: build_number,

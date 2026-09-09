@@ -54,31 +54,31 @@ platform :ios do
     # ASC is the only thing that actually knows what has been used, so it is
     # asked. That makes the number independent of which CI runs, how many times
     # it has run, and whether the account was replaced this morning.
+    # Deliberately NOT filtered by version. The first attempt passed
+    # `version: get_version_number(...)`, which reads the setting off the
+    # target -- and MARKETING_VERSION is declared at project level here, so it
+    # raised, the rescue swallowed it, and the whole thing quietly fell back to
+    # the CI counter. That is how a build went up numbered 4 while 29 existed.
+    #
+    # What is wanted is the highest number ever used for this app, whatever
+    # version it belonged to, because the counter only has to move forwards.
+    # Unfiltered is both simpler and more correct.
     latest =
       begin
-        latest_testflight_build_number(
-          api_key: api_key,
-          app_identifier: BUNDLE_ID,
-          version: get_version_number(xcodeproj: XCODEPROJ, target: SCHEME)
-        )
+        latest_testflight_build_number(api_key: api_key, app_identifier: BUNDLE_ID)
       rescue StandardError => e
-        # A version with no builds yet raises rather than returning 0. Falling
-        # back to the CI counter is right there: a fresh version starts low and
-        # nothing has been used.
-        UI.important("Could not read the latest TestFlight build number (#{e.message}); falling back to the CI counter")
+        UI.important("Could not read the latest TestFlight build number (#{e.message})")
         nil
       end
 
-    build_number =
-      if latest
-        latest.to_i + 1
-      else
-        ENV["BUILD_NUMBER"] ||          # Codemagic
-          ENV["GITHUB_RUN_NUMBER"] ||   # GitHub Actions
-          Time.now.strftime("%Y%m%d%H%M")
-      end
+    ci = (ENV["BUILD_NUMBER"] || ENV["GITHUB_RUN_NUMBER"]).to_i
 
-    UI.message("Building as #{build_number}")
+    # Whichever is further along. The CI counter alone goes backwards when the
+    # account changes; ASC alone would stall if it could not be read. Taking
+    # the max means neither failure can produce a number that has been used.
+    build_number = [latest.to_i + 1, ci, 1].max
+
+    UI.message("Building as #{build_number} (TestFlight had #{latest || 'nothing readable'}, CI counter #{ci})")
 
     increment_build_number(
       build_number: build_number,

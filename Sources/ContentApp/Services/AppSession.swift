@@ -24,7 +24,7 @@ final class AppSession {
     private(set) var isConnecting = false
     /// Any longer-running action the person started: uploading, approving,
     /// publishing. Drives the spinners and stops a second tap.
-    private(set) var isWorking = false
+    internal(set) var isWorking = false
     private(set) var posts: [PendingPost] = []
 
     /// The one plan that is either running or waiting to be agreed to. A brand
@@ -62,13 +62,19 @@ final class AppSession {
     /// came out, not whether the machine turned.
     private(set) var health: [HealthFinding] = []
 
+    // NOTE: `internal(set)` rather than `private(set)`. Swift scopes
+    // `private(set)` to the FILE, and AppSession is now legitimately split --
+    // connectors and chat live in their own extensions. The intent is
+    // unchanged and unenforceable either way inside one module: views read
+    // these, AppSession writes them.
+
     /// Providers this person has connected, and what each can do.
     ///
     /// Named apart from `connections`, which is TikTok accounts: the platforms
     /// you post TO versus the providers you make things WITH.
-    private(set) var connectedProviders: [ProviderConnection] = []
+    internal(set) var connectedProviders: [ProviderConnection] = []
     /// What could be connected that is not. Drives the Plus menu.
-    private(set) var connectable: [ConnectableProvider] = []
+    internal(set) var connectable: [ConnectableProvider] = []
 
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?

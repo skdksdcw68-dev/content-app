@@ -1,0 +1,40 @@
+# Which runners can this account actually get?
+#
+# Every Actions run on this repo has failed in under fifteen seconds with an
+# empty step list -- the job is created, no runner is ever assigned, and it is
+# marked failed before Checkout. That symptom says nothing about the code, and
+# it has been read as "GitHub Actions is broken here" for weeks.
+#
+# It matters now because the repo is public, and public repos get GitHub's
+# standard runners -- macOS included -- at no cost. If a runner can be had, this
+# project has free CI and does not need paid build minutes at all.
+#
+# Two jobs that do nothing, so the answer is unambiguous:
+#   ubuntu works, macos does not  -> macOS runners are restricted for this account
+#   neither works                 -> Actions is restricted account-wide
+#   both work                     -> whatever was wrong is fixed; use Actions
+#
+# Delete this file once the question is answered.
+name: Runner check
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "ubuntu runner assigned"
+
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - run: echo "macos-15 runner assigned"
+
+  mac-latest:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "macos-latest runner assigned"

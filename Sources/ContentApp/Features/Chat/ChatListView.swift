@@ -69,7 +69,7 @@ struct ChatListView: View {
         // you work in, not something you peek at.
         .fullScreenCover(item: $opened) { thread in
             NavigationStack {
-                ChatView(threadId: thread.id, onClose: { opened = nil })
+                ChatView(onClose: { opened = nil }, threadId: thread.id)
                     .toolbar(.hidden, for: .tabBar)
             }
         }

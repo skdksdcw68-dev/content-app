@@ -40,7 +40,10 @@ extension AppSession {
                 .rpc("thread_messages", params: ["p_thread": thread.uuidString])
                 .execute()
                 .value
-            return rows.map(.asTurn)
+            // An explicit closure rather than a key path. The key path form is
+            // tidier and its backslash has now been eaten four times by shell
+            // escaping in this project, which is a good enough reason.
+            return rows.map { $0.asTurn }
         } catch {
             return []
         }

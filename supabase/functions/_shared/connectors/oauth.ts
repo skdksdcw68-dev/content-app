@@ -84,6 +84,31 @@ export interface Registration {
 /** Registers Autocast with a provider. Once per provider, not per user: DCR
  *  issues a client id for the application, and every person's authorization
  *  then runs against it. */
+/**
+ * How Autocast introduces itself on somebody else's consent screen.
+ *
+ * The first real authorization showed a grey letter avatar and
+ * "dosszkllkassvyprkhrg.supabase.co" under a warning about trusting it. Every
+ * word of that was accurate and the whole thing read like a phishing attempt --
+ * which is the point at which a person quite reasonably taps Deny.
+ *
+ * These four fields are standard registration metadata and every OAuth consent
+ * screen renders them. They cost nothing and they are the difference between
+ * "Autocast, netrocast.com" and an unexplained subdomain.
+ */
+const BRANDING = {
+  client_uri: "https://netrocast.com",
+  logo_uri: "https://netrocast.com/appicon.png",
+  tos_uri: "https://netrocast.com/terms.html",
+  policy_uri: "https://netrocast.com/privacy.html",
+} as const;
+
+/** Whether a stored registration predates the branding above, so it can be
+ *  redone rather than left looking anonymous forever. */
+export function needsRebranding(registered: Record<string, unknown> | null): boolean {
+  return !registered || typeof registered.logo_uri !== "string";
+}
+
 export async function register(
   metadata: ServerMetadata,
   redirectUri: string,
@@ -103,6 +128,7 @@ export async function register(
       response_types: ["code"],
       token_endpoint_auth_method: "none",
       scope,
+      ...BRANDING,
     }),
   });
 

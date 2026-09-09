@@ -79,6 +79,10 @@ verify_jwt = true
 [functions.connector-start]
 verify_jwt = true
 
+# Re-asks a connection what it can do. Same session as the app.
+[functions.connector-refresh]
+verify_jwt = true
+
 [functions.propose-plan]
 verify_jwt = true
 

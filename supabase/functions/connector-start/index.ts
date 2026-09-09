@@ -23,6 +23,7 @@ import {
   authorizeUrl,
   discoverResource,
   discoverServer,
+  needsRebranding,
   pkce,
   register,
 } from "../_shared/connectors/oauth.ts";
@@ -87,7 +88,17 @@ Deno.serve(async (request) => {
     const { data: known } = await admin.rpc("read_provider_client", { p_slug: slug });
     let client = (known ?? [])[0] as { client_id: string; redirect_uri: string } | undefined;
 
-    if (!client || client.redirect_uri !== redirectUri) {
+    // A registration made before the branding existed is redone once, so the
+    // consent screen stops showing a grey letter and a raw subdomain. Cheap:
+    // DCR is idempotent from our side and the new client id simply replaces the
+    // old one for future authorizations.
+    const { data: stored } = await admin
+      .from("provider_clients")
+      .select("registered")
+      .eq("provider_id", provider.id)
+      .maybeSingle();
+
+    if (!client || client.redirect_uri !== redirectUri || needsRebranding(stored?.registered ?? null)) {
       const registration = await register(server, redirectUri, scope);
       await admin.rpc("upsert_provider_client", {
         p_slug: slug,

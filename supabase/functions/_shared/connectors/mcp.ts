@@ -192,6 +192,51 @@ const TOOL_CAPABILITIES: Record<string, Record<string, Capability>> = {
 };
 
 /**
+ * When the table does not recognise a name, read it.
+ *
+ * The first real connection to Higgsfield discovered nothing: `tools/list`
+ * answered, and not one name matched the table above, so the account came back
+ * with zero capabilities and the person was told they were connected to
+ * something that could do nothing.
+ *
+ * An exact-name table was the wrong shape for a claim of "any MCP server". Tool
+ * names are prose written by whoever built the server, and the whole point of
+ * this adapter is to meet servers nobody has met yet.
+ *
+ * So: the table is the override, and this is the default. It looks for a verb
+ * that means "make one" and a noun that says what -- which is how these tools
+ * are named across every MCP server worth connecting, because the names are
+ * written for a model to read.
+ *
+ * Batch and variant forms are deliberately skipped: they are the same
+ * capability at a different arity, and letting one win the slot means submitting
+ * a single request to a tool expecting a list.
+ */
+function inferCapability(name: string, description = ""): Capability | null {
+  const text = `${name} ${description}`.toLowerCase();
+  const bare = name.toLowerCase();
+
+  // Reading, listing, status and cost tools are not the thing itself. Without
+  // this, `job_status` and `models_explore` look like generation.
+  if (/(status|list|show|explore|search|get|describe|cancel|balance|cost|wait)/.test(bare)) {
+    return null;
+  }
+  if (/(batch|multi|variant)/.test(bare)) return null;
+
+  const makes = /(generate|create|make|render|produce|synthesi|compose)/.test(text);
+  if (!makes) return null;
+
+  // Order matters: voice before audio, because a voice tool almost always says
+  // "audio" too and the more specific reading is the true one.
+  if (/\bvoice\b|speech|tts|narrat/.test(text)) return "voice_generation";
+  if (/\bvideo\b|clip|footage|motion/.test(text)) return "video_generation";
+  if (/\bimage\b|photo|picture|art\b|visual/.test(text)) return "image_generation";
+  if (/\baudio\b|music|sound|song/.test(text)) return "audio_generation";
+
+  return null;
+}
+
+/**
  * A tool that lists the models behind a capability, where the provider has one.
  *
  * Higgsfield needs this: its models are not tools, they are a `model` parameter
@@ -249,7 +294,10 @@ export function mcpAdapter(slug: string): Adapter {
       const map = TOOL_CAPABILITIES[slug] ?? {};
       const found = new Map<Capability, string>();
       for (const tool of tools) {
-        const capability = map[tool.name];
+        // Table first, then read the name. The table is how a provider with
+        // unconventional names is handled; the reading is how a server nobody
+        // has met yet still works.
+        const capability = map[tool.name] ?? inferCapability(tool.name, tool.description);
         // First tool wins for a capability: the batch variants come after the
         // single ones and are the same thing at a different arity.
         if (capability && !found.has(capability)) found.set(capability, tool.name);

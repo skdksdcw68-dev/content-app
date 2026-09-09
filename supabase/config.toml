@@ -74,6 +74,11 @@ enable_confirmations = true
 [functions.agent-chat]
 verify_jwt = true
 
+# Starts a provider connection. Returns only a URL to open -- never a client id,
+# a verifier, a code or a token.
+[functions.connector-start]
+verify_jwt = true
+
 [functions.propose-plan]
 verify_jwt = true
 
@@ -107,6 +112,16 @@ verify_jwt = true
 # The platform redirects a browser here after the person approves access. The
 # PKCE `state` we issued is what proves the callback belongs to a flow we started.
 [functions.oauth-callback]
+verify_jwt = false
+
+# The same shape for AI providers rather than platforms. A provider redirecting
+# a browser back carries no Supabase session, so the `state` minted in
+# connector-start stands in for one: stashed server-side against the pending
+# connection, consumed exactly once, and a callback carrying a state nobody
+# stashed touches nothing. This is also the reason the redirect lands here at
+# all rather than in the app -- the code is exchanged and the tokens are sealed
+# on this side, so no credential ever reaches the client.
+[functions.connector-callback]
 verify_jwt = false
 
 # Woken every minute by pg_cron through pg_net, which carries no JWT. What

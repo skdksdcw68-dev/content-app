@@ -56,16 +56,13 @@ struct ChatOptionsSheet: View {
                 Section {
                     ForEach(session.connectedProviders) { provider in
                         ConnectedRow(provider: provider) {
-                            // A connection that discovered nothing is not
-                            // broken, it just has not been asked again. Offer
-                            // the cheap fix before the expensive one.
-                            if provider.isHealthy && provider.modelCount == 0 {
-                                onPick(.refresh(provider))
-                            } else if provider.isHealthy {
-                                onPick(.refresh(provider))
-                            } else {
-                                onPick(.reconnect(provider))
-                            }
+                            // A healthy connection is asked again what it
+                            // offers; a broken one is signed into again.
+                            // Re-asking is the cheaper fix and covers the
+                            // commonest case — a connection that discovered
+                            // nothing is not broken, it just has not been
+                            // asked since the provider granted something.
+                            onPick(provider.isHealthy ? .refresh(provider) : .reconnect(provider))
                         }
                     }
 

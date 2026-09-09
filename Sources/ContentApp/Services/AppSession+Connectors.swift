@@ -147,11 +147,15 @@ extension AppSession {
     @discardableResult
     func refreshCapabilities(_ connectionId: UUID? = nil) async -> Int {
         do {
+            // Typed rather than `?? [:]`: an empty dictionary literal has no
+            // element type to infer from, so the compiler cannot decide what
+            // the encodable body is.
+            var payload: [String: String] = [:]
+            if let connectionId { payload["connectionId"] = connectionId.uuidString }
+
             let result: DiscoveryResult = try await client.functions.invoke(
                 "connector-refresh",
-                options: FunctionInvokeOptions(
-                    body: connectionId.map { ["connectionId": $0.uuidString] } ?? [:]
-                )
+                options: FunctionInvokeOptions(body: payload)
             )
             await refreshConnectedProviders()
             return result.recorded

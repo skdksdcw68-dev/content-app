@@ -28,6 +28,10 @@ import { missingForPlan, MODELS, route } from "../_shared/route.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+/** Only ever used to write the assistant's own turn. The client's policy in
+ *  0002 allows it to insert `role = 'user'` and nothing else, on purpose: an
+ *  assistant message the app could write is one it could forge. */
+const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 
 /** Conversation runs on the middle tier. The router above it is cheaper and
@@ -48,6 +52,10 @@ interface Turn {
 
 interface Body {
   messages?: Turn[];
+  /** The conversation this belongs to. Omitted on the first turn, and the id of
+   *  the thread opened for it comes back on the stream. */
+  threadId?: string;
+  brandId?: string;
 }
 
 /** One server-sent line. Kept to a single shape so the client parses one thing. */
@@ -81,10 +89,59 @@ Deno.serve(async (request) => {
       throw new PublicError("The last message has to be yours.");
     }
 
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+    const asked = history[history.length - 1].content;
+
+    // The conversation is kept server-side, not in the view. A chat that dies
+    // when the app is swiped away is not a command centre -- and the agent is
+    // going to need to work while the phone is closed, which it cannot do
+    // against a transcript that only exists on the phone.
+    //
+    // Opened before the stream starts so the id can be sent on its first frame:
+    // a client that loses the connection halfway still knows where its turn
+    // went, rather than opening a second thread on the retry.
+    let threadId = body.threadId ?? null;
+    if (!threadId) {
+      const { data: opened, error: openError } = await asUser
+        .rpc("open_thread", { p_brand: body.brandId ?? null, p_title: asked });
+      if (openError) console.error("open_thread", openError);
+      threadId = (opened as string | null) ?? null;
+    }
+
+    if (threadId) {
+      // As the person, through the client policy that lets them write only
+      // their own turns. The assistant's turn is written below with the service
+      // role, because a message the client could author is one it could forge.
+      const { error: sayError } = await asUser.rpc("append_message", {
+        p_thread: threadId,
+        p_role: "user",
+        p_text: asked,
+      });
+      if (sayError) console.error("append_message user", sayError);
+    }
+
     const stream = new ReadableStream({
       async start(controller) {
         const send = (event: Record<string, unknown>) =>
           controller.enqueue(new TextEncoder().encode(sse(event)));
+
+        /** Everything the assistant said this turn, kept so it can be stored
+         *  once the stream ends. Storing per delta would be one write per
+         *  token and a transcript full of fragments. */
+        let said = "";
+
+        const remember = async (hint: Record<string, unknown> | null = null) => {
+          if (!threadId || (!said && !hint)) return;
+          const { error } = await admin.rpc("append_message", {
+            p_thread: threadId,
+            p_role: "assistant",
+            p_text: said,
+            p_render_hint: hint,
+          });
+          if (error) console.error("append_message assistant", error);
+        };
+
+        if (threadId) send({ t: "thread", id: threadId });
 
         try {
           // Read under RLS, as the user. Each step is announced only after the
@@ -134,7 +191,6 @@ Deno.serve(async (request) => {
 
           // What are they actually asking for? One cheap call before any
           // decision about what to spend. See _shared/route.ts.
-          const asked = history[history.length - 1].content;
           const routed = await route(asked, OPENAI_KEY);
 
           send({ t: "step", kind: "reading", detail: routed.reading });
@@ -176,6 +232,7 @@ Deno.serve(async (request) => {
                   `Before I build it I need ${count} from you — `,
                   "everything else I already have.",
                 ]) {
+                  said += chunk;
                   send({ t: "delta", v: chunk });
                 }
 
@@ -184,6 +241,10 @@ Deno.serve(async (request) => {
                 // values and parsing them out of a sentence is how the wrong
                 // month gets built.
                 send({ t: "questions", questions });
+                // The questions go into the transcript with the turn, so
+                // reopening the thread shows what was asked rather than a
+                // sentence promising questions that are no longer there.
+                await remember({ kind: "questions", questions });
                 send({ t: "done" });
                 controller.close();
                 return;
@@ -342,6 +403,7 @@ wording, their claims, or their product details in a real reply.
                 const delta = parsed?.choices?.[0]?.delta?.content;
                 if (typeof delta === "string" && delta.length > 0) {
                   wrote = true;
+                  said += delta;
                   send({ t: "delta", v: delta });
                 }
               } catch {
@@ -354,10 +416,15 @@ wording, their claims, or their product details in a real reply.
           if (!wrote) {
             send({ t: "error", message: "Nothing came back. Try rephrasing." });
           }
+          await remember();
           send({ t: "done" });
           controller.close();
         } catch (thrown) {
           console.error("agent-chat", thrown);
+          // Whatever was written before it broke is still kept. A person who
+          // watched half an answer arrive and then reopens the thread should
+          // find that half, not a gap -- and the client already showed it.
+          await remember();
           send({ t: "error", message: "Something went wrong writing that." });
           controller.close();
         }

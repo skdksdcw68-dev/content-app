@@ -98,7 +98,7 @@ export interface Registration {
  */
 const BRANDING = {
   client_uri: "https://netrocast.com",
-  logo_uri: "https://netrocast.com/appicon.png",
+  logo_uri: "https://netrocast.com/logo.png",
   tos_uri: "https://netrocast.com/terms.html",
   policy_uri: "https://netrocast.com/privacy.html",
 } as const;

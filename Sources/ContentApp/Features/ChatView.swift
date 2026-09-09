@@ -22,6 +22,8 @@ struct ChatView: View {
     /// Set when this screen is covering the tab bar, which is the only way it
     /// is used. Without it there would be no way out of the conversation.
     var onClose: (() -> Void)? = nil
+    /// A saved conversation to reopen. Nil starts a new one.
+    var threadId: UUID? = nil
 
     @Environment(AppSession.self) private var session
 
@@ -39,6 +41,8 @@ struct ChatView: View {
     @State private var composerFocus = 0
     /// The reply in flight, so the stop button has something to stop.
     @State private var work: Task<Void, Never>?
+    /// The conversation being written to, once the server has said which.
+    @State private var thread: UUID?
 
     /// Where streamed tokens wait between draws.
     ///
@@ -147,6 +151,11 @@ struct ChatView: View {
             }
         }
         .background(Theme.canvas)
+        .task {
+            guard let threadId, turns.isEmpty else { return }
+            thread = threadId
+            turns = await session.messages(in: threadId)
+        }
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -255,7 +264,7 @@ struct ChatView: View {
             var broke = false
 
             do {
-                try await session.streamReply(for: turns) { event in
+                try await session.streamReply(for: turns, in: thread) { event in
                     guard turns.indices.contains(replyIndex) else { return }
                     switch event {
                     case .step(let step):
@@ -276,6 +285,8 @@ struct ChatView: View {
                         }
                     case .chose(let choice):
                         turns[replyIndex].chosenModel = choice.label
+                    case .thread(let id):
+                        thread = id
                     case .questions(let asked):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].questions = asked

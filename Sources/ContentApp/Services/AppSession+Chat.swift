@@ -20,11 +20,39 @@ import Supabase
 /// never leaves the main actor. Same shape at the call site, no `Sendable`.
 extension AppSession {
 
+    /// Saved conversations, newest activity first.
+    func threads() async -> [ChatThread] {
+        do {
+            return try await client.rpc("my_threads").execute().value
+        } catch {
+            return []
+        }
+    }
+
+    /// One conversation, replayed.
+    ///
+    /// Read from the server rather than kept in the view, which is what makes a
+    /// conversation survive the app being closed -- and what lets a long job
+    /// finishing while you were away be there when you come back.
+    func messages(in thread: UUID) async -> [ChatMessage] {
+        do {
+            let rows: [StoredMessage] = try await client
+                .rpc("thread_messages", params: ["p_thread": thread.uuidString])
+                .execute()
+                .value
+            return rows.map(.asTurn)
+        } catch {
+            return []
+        }
+    }
+
+
     /// What the stream can say. One case per server event, so a line we do not
     /// understand is a gap rather than a silently wrong branch.
     enum ChatEvent {
         case step(TaskStep)
         case delta(String)
+        case thread(UUID)
         case questions([ChatQuestion])
         case models(ModelOffer)
         case chose(ModelChoice)
@@ -37,6 +65,7 @@ extension AppSession {
     /// read, which drops the connection, which is what the stop button is for.
     func streamReply(
         for turns: [ChatMessage],
+        in thread: UUID? = nil,
         onEvent: (ChatEvent) -> Void
     ) async throws {
         let token = try await client.auth.session.accessToken
@@ -57,7 +86,9 @@ extension AppSession {
             .filter { !$0.isPending && !$0.failed && !$0.text.isEmpty }
             .map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.text] }
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["messages": payload])
+        var body: [String: Any] = ["messages": payload]
+        if let thread { body["threadId"] = thread.uuidString }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
@@ -105,6 +136,11 @@ extension AppSession {
                 continue
             }
 
+            if kind == "thread", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
+                onEvent(.thread(uuid))
+                continue
+            }
+
             switch kind {
             case "delta":
                 if let value = event["v"] as? String { onEvent(.delta(value)) }
@@ -124,5 +160,38 @@ extension AppSession {
                 break
             }
         }
+    }
+}
+
+/// A stored turn, as `thread_messages` returns it.
+///
+/// Rebuilt into a `ChatMessage` rather than decoded straight into one, because
+/// the two are different things: the transcript keeps what was said, while a
+/// live turn also carries the pending state and the steps of the reply being
+/// written. Anything transient is deliberately not restored -- a step that
+/// finished yesterday is not still happening.
+private struct StoredMessage: Decodable {
+    let seq: Int
+    let role: String
+    let text: String
+    let renderHint: RenderHint?
+
+    private enum CodingKeys: String, CodingKey {
+        case seq, role, text
+        case renderHint = "render_hint"
+    }
+
+    /// What the server attached to this turn, when it was more than prose.
+    struct RenderHint: Decodable {
+        let kind: String?
+        let questions: [ChatQuestion]?
+        let choices: ModelOffer?
+    }
+
+    var asTurn: ChatMessage {
+        var turn = ChatMessage(role: role == "user" ? .user : .assistant, text: text)
+        turn.questions = renderHint?.questions ?? []
+        turn.offer = renderHint?.choices
+        return turn
     }
 }

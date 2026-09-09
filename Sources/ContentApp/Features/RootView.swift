@@ -74,15 +74,17 @@ struct RootView: View {
             // to keep up with the keyboard. Two things owning the bottom edge
             // means the send button sits behind the bar.
             //
-            // A conversation is also a place you are *in* rather than a section
-            // you are browsing, which is why every assistant on the platform
-            // gives it the full screen. The way back is the chevron in the top
-            // left, since the bar that would normally offer one is gone.
+            // A conversation is a place you are *in* rather than a section you
+            // are browsing, which is why it takes the full screen and hides the
+            // bar. But the TAB is not a conversation -- it used to open
+            // straight into whichever chat was in memory, so there was no way
+            // back to an earlier one and no obvious way to start a fresh one.
+            //
+            // So the tab is the list, where the bar belongs because browsing is
+            // browsing, and a conversation is presented over it. The bar hides
+            // only once you are inside one.
             Tab("Chat", systemImage: "sparkles", value: AppTab.chat) {
-                NavigationStack {
-                    ChatView(onClose: { tab = .home })
-                        .toolbar(.hidden, for: .tabBar)
-                }
+                NavigationStack { ChatListView() }
             }
 
             Tab("Library", systemImage: "square.grid.2x2.fill", value: AppTab.library) {

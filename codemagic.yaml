@@ -134,6 +134,17 @@ workflows:
 
           echo "Signing identities available:"
           security find-identity -v -p codesigning
+      - name: Work out the build number
+        script: |
+          set -euo pipefail
+          # Asked of App Store Connect rather than taken from Codemagic's own
+          # counter, which restarts at 1 on a new account -- builds went up
+          # numbered 3, 4 and 5 while 29 already existed. fastlane's
+          # latest_testflight_build_number was tried twice and returned nothing
+          # both times, so this queries the API directly.
+          NEXT="$(node scripts/next-build-number.mjs)"
+          echo "BUILD_NUMBER=$NEXT" >> "$CM_ENV"
+          echo "Building as $NEXT"
       - name: Set up Ruby and fastlane
         script: |
           set -euo pipefail

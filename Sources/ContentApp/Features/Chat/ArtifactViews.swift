@@ -420,11 +420,20 @@ private struct CampaignCard: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 case .approved:
-                    NavigationLink { PlanView() } label: {
-                        Label("Open the plan", systemImage: "calendar")
+                    // Approved is not the same as written: the strategy can be
+                    // agreed in one conversation and the posts written in the
+                    // next. Both are offered, and writing again is a new
+                    // proposal rather than an overwrite.
+                    Button { onApprove(artifact) } label: {
+                        Text("Write the posts")
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.accent)
+
+                    NavigationLink { PlanView() } label: {
+                        Label("Plan", systemImage: "calendar")
+                    }
+                    .buttonStyle(.bordered)
                 case .draft, nil:
                     Button { onApprove(artifact) } label: {
                         Text("Approve and write the posts")

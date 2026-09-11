@@ -10,9 +10,6 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var approving: PendingPost?
     @State private var upgrading = false
-    @State private var showingGenerator = false
-    @State private var showingConnect = false
-    @State private var showingPlan = false
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -91,21 +88,16 @@ struct HomeView: View {
             // together sit 10 apart, groups sit 26 apart, and the reader gets
             // the grouping for free without a single line or box being drawn.
             VStack(spacing: 0) {
-                // Above the greeting, deliberately. When autopilot has stopped
-                // producing, that is the only thing on this screen worth
-                // reading, and a notice below the fold is a notice nobody sees
-                // -- which is exactly how three days went by in September.
-                if let worst = session.health.first {
-                    HealthBanner(finding: worst) { route in
-                        switch route {
-                        case .generator:   showingGenerator = true
-                        case .connections: showingConnect = true
-                        case .plan:        showingPlan = true
-                        }
-                    }
-                    .padding(.bottom, 18)
-                }
-
+                // No banner. There was a red card here, and Abel asked for it
+                // gone: it sat permanently on top of Home reporting a condition
+                // he already knew about and could not act on yet, which made
+                // the whole screen read as broken.
+                //
+                // The signal is not dropped, because the reason it existed is
+                // real -- generation failed silently for three days in
+                // September and nothing said so. It moves into the greeting as
+                // one plain sentence: still the first thing on the screen,
+                // no longer a red box.
                 greeting
                     .padding(.bottom, 18)
 
@@ -215,15 +207,6 @@ struct HomeView: View {
             await session.refreshHealth()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
-        .sheet(isPresented: $showingGenerator) { GeneratorSheet() }
-        // The banner asked for it, so it happens here rather than sending
-        // somebody to You and hoping they find the same button.
-        .onChange(of: showingConnect) { _, wants in
-            guard wants else { return }
-            showingConnect = false
-            Task { await session.connectTikTok() }
-        }
-        .navigationDestination(isPresented: $showingPlan) { PlanView() }
         .sheet(isPresented: $upgrading) { UpgradeSheet() }
     }
 }
@@ -265,10 +248,13 @@ private extension HomeView {
     /// Most pressing first. Each of these is a thing somebody can act on, and
     /// the last line is the one that means there is nothing to do.
     var standing: String {
-        // The banner directly above already carries the specifics and the
-        // button. This is the one-line state, not a second copy of it.
-        if session.health.contains(where: \.isBlocked) {
-            return "One thing needs your attention."
+        // What the red banner used to say, as one sentence. The finding's own
+        // title is already written for a person -- "Your generation credits are
+        // unavailable" -- so it is used as-is rather than summarised into
+        // "something needs attention", which points at nothing now there is no
+        // banner to point at.
+        if let blocked = session.health.first(where: \.isBlocked) {
+            return "\(blocked.title)."
         }
         if !needsYou.isEmpty {
             return needsYou.count == 1

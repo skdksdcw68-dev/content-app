@@ -145,6 +145,13 @@ export interface Discovery {
   accountLabel: string;
   externalAccountId: string | null;
   models: ModelDescriptor[];
+  /**
+   * Everything the provider reported, whether or not it mapped to anything.
+   * Kept because a server offering fifteen tools we did not recognise must not
+   * look the same as a server offering none -- which is precisely what the
+   * first real Higgsfield connection did.
+   */
+  tools?: Array<{ name: string; description: string; capability: Capability | null }>;
 }
 
 /** What one connection needs to talk to its provider. Assembled by the caller

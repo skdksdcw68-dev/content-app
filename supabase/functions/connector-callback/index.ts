@@ -27,24 +27,26 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const PUBLIC_FUNCTIONS = Deno.env.get("PUBLIC_FUNCTIONS_URL") ?? `${SUPABASE_URL}/functions/v1`;
 
-/** A page rather than a redirect when there is no scheme to return to, so the
- *  person sees something rather than a blank tab. `ASWebAuthenticationSession`
- *  closes itself on the scheme, so the happy path rarely renders this. */
-function page(title: string, detail: string, ok: boolean): Response {
-  return new Response(
-    `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
- body{font:-apple-system-body,system-ui,sans-serif;margin:0;min-height:100vh;
-      display:grid;place-items:center;background:#fff;color:#111;padding:24px}
- @media (prefers-color-scheme:dark){body{background:#000;color:#fff}}
- .c{text-align:center;max-width:22rem}
- .m{font-size:44px;line-height:1;margin-bottom:14px}
- h1{font-size:1.15rem;margin:0 0 6px} p{margin:0;opacity:.6;font-size:.9rem}
-</style>
-<div class="c"><div class="m">${ok ? "&#10003;" : "&#9888;"}</div>
-<h1>${title}</h1><p>${detail}</p></div>`,
-    { status: ok ? 200 : 400, headers: { "Content-Type": "text/html; charset=utf-8" } },
-  );
+/**
+ * Where a browser goes when there is no app scheme to return to.
+ *
+ * This used to return an HTML page from here, and it arrived as source code:
+ * Supabase serves every Edge Function response as `text/plain` with `nosniff`,
+ * on purpose, so that nobody can host a phishing page on supabase.co. Setting
+ * `Content-Type: text/html` is silently overridden. So the page lives on
+ * netrocast.com, which GitHub Pages serves as HTML, and this sends people there
+ * with a status and nothing else.
+ *
+ * `ASWebAuthenticationSession` closes itself on the app scheme, so the happy
+ * path from inside the app never reaches this.
+ */
+const LANDING = "https://netrocast.com/connected.html";
+
+function landing(status: "connected" | "failed", reason?: string): Response {
+  const target = new URL(LANDING);
+  target.searchParams.set("status", status);
+  if (reason) target.searchParams.set("reason", reason);
+  return Response.redirect(target.toString(), 302);
 }
 
 Deno.serve(async (request) => {
@@ -62,14 +64,14 @@ Deno.serve(async (request) => {
     | undefined;
 
   if (!attempt) {
-    return page("That link has expired", "Start the connection again from Autocast.", false);
+    return landing("failed", "expired");
   }
 
   const back = (ok: boolean, reason?: string) => {
     if (!attempt.return_scheme) {
       return ok
-        ? page("Connected", "You can close this and go back to Autocast.", true)
-        : page("Could not connect", reason ?? "Please try again.", false);
+        ? landing("connected")
+        : landing("failed", reason);
     }
     const target = new URL(`${attempt.return_scheme}://connector`);
     target.searchParams.set("status", ok ? "connected" : "failed");
@@ -142,6 +144,15 @@ Deno.serve(async (request) => {
         p_connection: attempt.connection_id,
         p_models: discovery.models,
       });
+      // The raw list too, mapped or not -- so "why did this connect with
+      // nothing" has an answer in the database instead of needing a live
+      // session caught at the right moment.
+      if (discovery.tools) {
+        await admin.rpc("record_tools", {
+          p_connection: attempt.connection_id,
+          p_tools: discovery.tools,
+        });
+      }
     } catch (thrown) {
       // The authorization is real even if discovery stumbled, and throwing it
       // away would make the person log in again for nothing. Connected with no

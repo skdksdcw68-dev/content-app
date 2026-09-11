@@ -85,15 +85,13 @@ struct ChatOptionsSheet: View {
                     Text("Signing in keeps the key on our side — Autocast never stores it on your phone.")
                 }
 
-                Section("Ask about") {
-                    Row(symbol: "brain", title: "What it knows") {
-                        onPick(.ask("What do you actually know about my brand?"))
-                    }
-                    Row(symbol: "lightbulb", title: "This week") {
-                        onPick(.ask("What should I post about this week?"))
-                    }
-                }
             }
+            // Denser than a default List on purpose. This sheet is a launcher:
+            // somebody opens it, taps one thing, and it goes. Default row
+            // height and section spacing made it a full-screen page, which is
+            // why it opened covering the conversation it was launched from.
+            .listSectionSpacing(.compact)
+            .environment(\.defaultMinListRowHeight, 40)
             .navigationTitle("Add")
             .navigationBarTitleDisplayMode(.inline)
             .task {
@@ -101,6 +99,12 @@ struct ChatOptionsSheet: View {
                 await session.refreshConnectable()
             }
         }
+        // Opens at a compact height with the conversation still visible above
+        // it, and pulls up to full when there is more to scroll. The sheet had
+        // no detents at all before, so it always opened full-screen.
+        .presentationDetents([.height(460), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(24)
     }
 
     /// Says what making a video would actually use, so somebody is not offered
@@ -126,19 +130,24 @@ private struct Row: View {
     var body: some View {
         Button(action: action) {
             Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
                     if let detail {
                         Text(detail)
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
                     }
                 }
             } icon: {
-                Image(systemName: symbol).foregroundStyle(Theme.accent)
+                Image(systemName: symbol)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.accent)
             }
         }
+        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
     }
 }
 

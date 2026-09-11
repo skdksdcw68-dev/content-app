@@ -357,6 +357,14 @@ export function mcpAdapter(slug: string): Adapter {
         accountLabel: String((info.serverInfo as { name?: string })?.name ?? server),
         externalAccountId: null,
         models,
+        // Every tool, mapped or not. Descriptions trimmed: they are prose
+        // written for a model to read and can run long, and this is for a
+        // person diagnosing a connection, not for the model.
+        tools: tools.map((tool) => ({
+          name: tool.name,
+          description: (tool.description ?? "").slice(0, 280),
+          capability: map[tool.name] ?? inferCapability(tool.name, tool.description),
+        })),
       };
     },
 

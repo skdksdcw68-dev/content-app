@@ -100,6 +100,10 @@ Deno.serve(async (request) => {
       recorded = Number(count ?? 0);
       capabilities = [...new Set(discovery.models.map((m) => m.capability))];
 
+      if (discovery.tools) {
+        await admin.rpc("record_tools", { p_connection: target, p_tools: discovery.tools });
+      }
+
       if (discovery.accountLabel) {
         await admin.rpc("activate_connection", {
           p_connection: target,

@@ -113,6 +113,9 @@ struct ChatView: View {
                             onAnimate: { artifact in
                                 animate(artifact)
                             },
+                            onApprove: { artifact in
+                                approve(artifact)
+                            },
                             onRunFinished: { run in
                                 runFinished(run)
                             }
@@ -392,9 +395,15 @@ struct ChatView: View {
                         turns[replyIndex].chosenModel = choice.label
                     case .thread(let id):
                         thread = id
-                    case .questions(let asked):
+                    case .questions(let asked, let request, let days):
+                        turns[replyIndex].questionRequest = request
+                        turns[replyIndex].questionDays = days
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].questions = asked
+                        }
+                    case .artifact(let id):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].artifactId = id
                         }
                     case .failed(let message):
                         turns[replyIndex].isPending = false
@@ -464,8 +473,48 @@ struct ChatView: View {
             return "\(asked.prompt) \(label)"
         }.joined(separator: " ")
 
+        // The sentence is for the transcript; the values travel as data, so
+        // the answers are saved as what was tapped rather than re-read from
+        // prose -- which is how they used to be lost.
         draft = said
-        send(action: nil)
+        send(action: .answers(
+            turns[index].answered,
+            request: turns[index].questionRequest,
+            days: turns[index].questionDays
+        ))
+    }
+
+    /// The person approves a campaign's strategy, and the posts get written.
+    ///
+    /// Approval is theirs, through `approve_strategy`; the agent cannot give
+    /// it. Writing the posts is the existing planner, and what it writes lands
+    /// as a proposal -- nothing is scheduled until they switch the plan on.
+    private func approve(_ artifact: Artifact) {
+        guard let strategyID = artifact.body.strategyId, !session.isPlanning else { return }
+        Task {
+            guard await session.approveStrategy(strategyID) else {
+                say("That approval didn't go through. Try again.")
+                return
+            }
+            say("Approved. Writing the posts now — this takes about a minute.")
+
+            let brief = [artifact.body.request, artifact.body.summary, artifact.body.angle]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n")
+
+            if let proposal = await session.proposePlan(
+                brief: brief,
+                days: artifact.body.days ?? 30,
+                postsPerDay: artifact.body.cadence ?? 1
+            ) {
+                proposed = proposal
+                showingPlan = true
+                say("Wrote \(proposal.planned) posts. Look them over in the plan, then switch it on.")
+            } else {
+                say("The posts didn't get written this time. Approve again to retry — the strategy is saved.")
+            }
+        }
     }
 
     /// A model was picked, or Auto was accepted -- and the job starts.

@@ -66,6 +66,51 @@ extension AppSession {
         }
     }
 
+    /// The person approves a strategy. Through `approve_strategy`, which
+    /// refuses anyone but the owner -- the agent cannot approve its own plan.
+    func approveStrategy(_ id: UUID) async -> Bool {
+        do {
+            _ = try await client
+                .rpc("approve_strategy", params: ["p_strategy": id.uuidString])
+                .execute()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// Where a strategy stands: approved, still a draft, or replaced by a
+    /// newer one. Read from the server, so a reopened card tells the truth.
+    func strategyStanding(_ id: UUID) async -> StrategyStanding {
+        struct Row: Decodable {
+            let id: UUID
+            /// Text, not a date: only whether it is there matters, and a
+            /// timestamp format mismatch should not read as "not approved".
+            let approvedAt: String?
+            private enum CodingKeys: String, CodingKey {
+                case id
+                case approvedAt = "approved_at"
+            }
+        }
+        guard let brandID = brand?.id else { return .draft }
+        do {
+            let rows: [Row] = try await client
+                .rpc("current_strategy", params: ["p_brand": brandID.uuidString])
+                .execute()
+                .value
+            guard let live = rows.first else { return .replaced }
+            guard live.id == id else { return .replaced }
+            return live.approvedAt == nil ? .draft : .approved
+        } catch {
+            return .draft
+        }
+    }
+
+    enum StrategyStanding {
+        case draft, approved, replaced
+    }
+
     /// Puts a picture in this person's uploads folder and returns its path.
     ///
     /// Always JPEG and never larger than it needs to be: a phone photo is

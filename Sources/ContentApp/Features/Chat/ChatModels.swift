@@ -147,6 +147,13 @@ struct Artifact: Identifiable, Equatable, Decodable {
         let size: Int
     }
 
+    /// One content theme in a campaign, and how much of it there is.
+    struct Pillar: Equatable, Decodable {
+        let name: String
+        let share: Int
+        let why: String
+    }
+
     /// What each kind carries. Every field optional and read leniently: one
     /// kind's shape must never stop another kind's card from drawing.
     struct Body: Equatable, Decodable {
@@ -161,11 +168,23 @@ struct Artifact: Identifiable, Equatable, Decodable {
         var width: Int?
         var height: Int?
         var sourceTitle: String?
+        // A campaign's strategy.
+        var strategyId: UUID?
+        var request: String?
+        var days: Int?
+        var cadence: Int?
+        var goal: String?
+        var audience: String?
+        var appetite: String?
+        var angle: String?
+        var pillars: [Pillar]?
 
         private enum CodingKeys: String, CodingKey {
             case summary, findings, filename, format, manifest, prompt, seconds, width, height
+            case request, days, cadence, goal, audience, appetite, angle, pillars
             case modelLabel = "model_label"
             case sourceTitle = "source_title"
+            case strategyId = "strategy_id"
         }
 
         init() {}
@@ -183,6 +202,15 @@ struct Artifact: Identifiable, Equatable, Decodable {
             width = try? c.decodeIfPresent(Int.self, forKey: .width)
             height = try? c.decodeIfPresent(Int.self, forKey: .height)
             sourceTitle = try? c.decodeIfPresent(String.self, forKey: .sourceTitle)
+            strategyId = try? c.decodeIfPresent(UUID.self, forKey: .strategyId)
+            request = try? c.decodeIfPresent(String.self, forKey: .request)
+            days = try? c.decodeIfPresent(Int.self, forKey: .days)
+            cadence = try? c.decodeIfPresent(Int.self, forKey: .cadence)
+            goal = try? c.decodeIfPresent(String.self, forKey: .goal)
+            audience = try? c.decodeIfPresent(String.self, forKey: .audience)
+            appetite = try? c.decodeIfPresent(String.self, forKey: .appetite)
+            angle = try? c.decodeIfPresent(String.self, forKey: .angle)
+            pillars = try? c.decodeIfPresent([Pillar].self, forKey: .pillars)
         }
     }
 
@@ -308,6 +336,10 @@ struct ChatMessage: Identifiable, Equatable {
     /// exactly that job instead of the router guessing what "Use Kling" means.
     var offerRequest: String? = nil
     var offerReferences: [String] = []
+    /// What the questions on this turn were asked for, so the answers can go
+    /// straight on to a strategy without the router reading them back.
+    var questionRequest: String? = nil
+    var questionDays: Int? = nil
     /// Long work handed to the worker on this turn. The card follows it live
     /// and becomes the result when it lands.
     var runId: UUID? = nil

@@ -167,6 +167,7 @@ struct ArtifactCard: View {
     let artifactId: UUID
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
+    var onApprove: (Artifact) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
     @State private var artifact: Artifact?
@@ -178,6 +179,8 @@ struct ArtifactCard: View {
                 switch artifact.kind {
                 case "research":
                     ReportCard(artifact: artifact, onExport: onExport)
+                case "campaign", "plan":
+                    CampaignCard(artifact: artifact, onExport: onExport, onApprove: onApprove)
                 case "image":
                     ImageCard(artifact: artifact, onAnimate: onAnimate)
                 case "video":
@@ -307,6 +310,155 @@ private struct ReportSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+}
+
+// MARK: Campaign
+
+/// A campaign's strategy, before a single post exists.
+///
+/// This is the confirm step made visible: what it is for, the angle, the mix
+/// of themes and why. Nothing is written until the person approves it here,
+/// and even then what gets written is a proposal they switch on themselves.
+private struct CampaignCard: View {
+    let artifact: Artifact
+    let onExport: (Artifact, String) -> Void
+    let onApprove: (Artifact) -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var standing: AppSession.StrategyStanding?
+
+    private var facts: [String] {
+        var out: [String] = []
+        if let days = artifact.body.days { out.append("\(days) days") }
+        if let cadence = artifact.body.cadence { out.append(cadence == 1 ? "1 a day" : "\(cadence) a day") }
+        if let goal = artifact.body.goal { out.append(readable(goal)) }
+        return out
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Campaign", systemImage: "flag")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(artifact.title)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if !facts.isEmpty {
+                    Text(facts.joined(separator: "  ·  "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let summary = artifact.body.summary, !summary.isEmpty {
+                Text(summary)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let angle = artifact.body.angle, !angle.isEmpty {
+                Text(angle)
+                    .font(.footnote.italic())
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let pillars = artifact.body.pillars, !pillars.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(pillars, id: \.name) { pillar in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack {
+                                Text(pillar.name)
+                                    .font(.footnote.weight(.semibold))
+                                Spacer()
+                                Text("\(pillar.share)%")
+                                    .font(.footnote.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            ProgressView(value: Double(pillar.share), total: 100)
+                                .tint(Theme.accent)
+                        }
+                    }
+                }
+            }
+
+            actions
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                .fill(Theme.surface)
+        }
+        .task(id: artifact.id) {
+            if let id = artifact.body.strategyId { standing = await session.strategyStanding(id) }
+        }
+        .onChange(of: session.isPlanning) { _, planning in
+            // Approving flips the strategy; read it again once the posts are
+            // written so the card settles into what is now true.
+            guard !planning, let id = artifact.body.strategyId else { return }
+            Task { standing = await session.strategyStanding(id) }
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        HStack(spacing: 8) {
+            if session.isPlanning {
+                ProgressView().controlSize(.small)
+                Text("Writing the posts…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                switch standing {
+                case .replaced:
+                    Text("Replaced by a newer strategy")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                case .approved:
+                    NavigationLink { PlanView() } label: {
+                        Label("Open the plan", systemImage: "calendar")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                case .draft, nil:
+                    Button { onApprove(artifact) } label: {
+                        Text("Approve and write the posts")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.accent)
+                    .disabled(standing == nil)
+                }
+
+                Menu {
+                    Button { onExport(artifact, "docx") } label: {
+                        Label("Word document", systemImage: "doc.richtext")
+                    }
+                    Button { onExport(artifact, "pdf") } label: {
+                        Label("PDF", systemImage: "doc")
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Export")
+            }
+        }
+        .font(.footnote.weight(.semibold))
+        .controlSize(.small)
+    }
+
+    private func readable(_ goal: String) -> String {
+        switch goal {
+        case "followers": "Grow followers"
+        case "customers": "Get customers"
+        case "awareness": "Build awareness"
+        case "launch":    "Promote a launch"
+        default:          goal
         }
     }
 }

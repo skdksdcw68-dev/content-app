@@ -81,7 +81,11 @@ extension AppSession {
         case step(TaskStep)
         case delta(String)
         case thread(UUID)
-        case questions([ChatQuestion])
+        /// Questions to answer, with the request and length they were asked
+        /// for, so the answers can go straight on to a strategy.
+        case questions([ChatQuestion], request: String?, days: Int?)
+        /// Something made on this turn, drawn as its card.
+        case artifact(UUID)
         /// The models that can do it, with the request they were offered for.
         case models(ModelOffer, request: String?, references: [String])
         case chose(ModelChoice)
@@ -99,6 +103,8 @@ extension AppSession {
         case export(artifact: UUID, format: String)
         case generate(capability: String, prompt: String, model: String?, references: [String])
         case animate(artifact: UUID)
+        /// Every question on a card, answered by tapping -- as values.
+        case answers([String: String], request: String?, days: Int?)
 
         var payload: [String: Any] {
             switch self {
@@ -113,6 +119,11 @@ extension AppSession {
                 return out
             case .animate(let artifact):
                 return ["type": "animate", "artifactId": artifact.uuidString]
+            case .answers(let answers, let request, let days):
+                var out: [String: Any] = ["type": "answers", "answers": answers]
+                if let request { out["request"] = request }
+                if let days { out["days"] = days }
+                return out
             }
         }
     }
@@ -200,10 +211,19 @@ extension AppSession {
             }
 
             if kind == "questions" {
-                struct Frame: Decodable { let questions: [ChatQuestion] }
-                if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
-                    onEvent(.questions(frame.questions))
+                struct Frame: Decodable {
+                    let questions: [ChatQuestion]
+                    let request: String?
+                    let days: Int?
                 }
+                if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
+                    onEvent(.questions(frame.questions, request: frame.request, days: frame.days))
+                }
+                continue
+            }
+
+            if kind == "artifact", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
+                onEvent(.artifact(uuid))
                 continue
             }
 
@@ -263,9 +283,10 @@ private struct StoredMessage: Decodable {
         let runKind: String?
         let artifactId: UUID?
         let paths: [String]?
+        let days: Int?
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths
+            case kind, questions, choices, request, references, paths, days
             case runId = "run_id"
             case runKind = "run_kind"
             case artifactId = "artifact_id"
@@ -278,6 +299,8 @@ private struct StoredMessage: Decodable {
         turn.offer = renderHint?.choices
         turn.offerRequest = renderHint?.request
         turn.offerReferences = renderHint?.references ?? []
+        turn.questionRequest = renderHint?.request
+        turn.questionDays = renderHint?.days
         turn.runId = renderHint?.runId
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId

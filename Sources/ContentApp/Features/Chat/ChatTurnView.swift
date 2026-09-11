@@ -14,6 +14,7 @@ struct ChatTurnView: View {
     var onChooseModel: (ModelChoice?) -> Void = { _ in }
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
+    var onApprove: (Artifact) -> Void = { _ in }
     /// A run this turn started has ended while it was being watched.
     var onRunFinished: (UUID) -> Void = { _ in }
 
@@ -90,7 +91,12 @@ struct ChatTurnView: View {
                     }
 
                     if let artifactId = turn.artifactId {
-                        ArtifactCard(artifactId: artifactId, onExport: onExport, onAnimate: onAnimate)
+                        ArtifactCard(
+                            artifactId: artifactId,
+                            onExport: onExport,
+                            onAnimate: onAnimate,
+                            onApprove: onApprove
+                        )
                     }
                 }
             }

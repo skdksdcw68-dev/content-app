@@ -69,7 +69,10 @@ type Action =
     model?: string;
     references?: string[];
   }
-  | { type: "animate"; artifactId: string; prompt?: string };
+  | { type: "animate"; artifactId: string; prompt?: string }
+  /** Every question on a card, answered by tapping. The values are the
+   *  options' own values, so nothing is parsed back out of a sentence. */
+  | { type: "answers"; answers: Record<string, string>; request?: string; days?: number };
 
 interface Body {
   messages?: Turn[];
@@ -218,6 +221,113 @@ Deno.serve(async (request) => {
           finish();
         };
 
+        /**
+         * The confirm-and-reason half of planning: a strategy the person can
+         * read and approve before a single post is written.
+         *
+         * 0024 built the tables for this and said agent-chat would draft the
+         * strategy. It never did, so answering the questions put the answers
+         * in the transcript and nowhere else, and the next turn asked them
+         * again. This is that missing step.
+         *
+         * The card it produces is a `campaign` artefact. Approving it is the
+         * person's act, through `approve_strategy`, which refuses the service
+         * role -- the agent cannot approve its own plan.
+         */
+        const draftCampaign = async (
+          brand: { id: string; name: string; niche?: string; audience?: string },
+          strategyId: string,
+          request: string,
+          days: number,
+        ) => {
+          const { data: rows } = await asUser.rpc("current_strategy", { p_brand: brand.id });
+          const strategy = ((rows ?? []) as Array<Record<string, unknown>>).find((row) => row.id === strategyId) ??
+            (rows ?? [])[0] ?? {};
+
+          const { data: facts } = await asUser
+            .from("brand_memory").select("fact").eq("brand_id", brand.id).limit(40);
+          const known = ((facts ?? []) as Array<{ fact: string }>).map((row) => row.fact).filter(Boolean);
+
+          send({ t: "step", kind: "planning", detail: "Working out the strategy" });
+
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: MODELS.deep,
+              response_format: { type: "json_object" },
+              messages: [
+                {
+                  role: "system",
+                  content: [
+                    "You design a short-form video campaign strategy for one account. JSON only:",
+                    '{"title":string,"summary":string,"angle":string,"pillars":[{"name":string,"share":number,"why":string}]}',
+                    "title: under seven words, what the campaign is. summary: two or three plain sentences on what it does and why it fits the goal.",
+                    "angle: one sentence, the through-line every post shares. pillars: three or four content themes whose shares sum to 100.",
+                    "Use only the facts given. Never invent a feature, a customer, a number, a price or a date. No hype words.",
+                  ].join("\n"),
+                },
+                {
+                  role: "user",
+                  content: [
+                    `Account: ${brand.name}. Subject: ${brand.niche || "not stated"}.`,
+                    `Request: ${request || "plan the next stretch of content"}`,
+                    `Days: ${days}. Goal: ${strategy.goal ?? "not stated"}. Appetite: ${strategy.appetite ?? "balanced"}.`,
+                    `Audience: ${strategy.audience || brand.audience || "not stated"}. Posts per day: ${strategy.cadence ?? 1}.`,
+                    known.length > 0 ? `Facts:\n${known.map((f) => `- ${f}`).join("\n")}` : "Facts: none recorded.",
+                  ].join("\n"),
+                },
+              ],
+            }),
+          });
+          if (!response.ok) throw new Error(`strategy ${response.status}`);
+          const drafted = JSON.parse((await response.json()).choices?.[0]?.message?.content ?? "{}");
+
+          const pillars = (Array.isArray(drafted.pillars) ? drafted.pillars : [])
+            .slice(0, 4)
+            .map((p: Record<string, unknown>) => ({
+              name: String(p.name ?? "").slice(0, 40),
+              share: Math.max(0, Math.min(100, Math.round(Number(p.share) || 0))),
+              why: String(p.why ?? "").slice(0, 200),
+            }))
+            .filter((p: { name: string }) => p.name);
+          const summary = String(drafted.summary ?? "").slice(0, 600);
+
+          // The reasoning is the agent's to write; an approved strategy is
+          // never rewritten underneath the approval, so this is skipped then.
+          if (!strategy.approved_at) {
+            await admin.rpc("draft_strategy", { p_strategy: strategyId, p_summary: summary, p_pillar_mix: pillars });
+          }
+
+          const { data: artifactId } = await admin.rpc("create_artifact", {
+            p_user: auth.user!.id,
+            p_kind: "campaign",
+            p_title: String(drafted.title ?? `${days}-day plan`).slice(0, 80),
+            p_body: {
+              strategy_id: strategyId,
+              request,
+              days,
+              cadence: strategy.cadence ?? 1,
+              goal: strategy.goal ?? null,
+              appetite: strategy.appetite ?? null,
+              audience: strategy.audience || brand.audience || null,
+              summary,
+              angle: String(drafted.angle ?? "").slice(0, 300),
+              pillars,
+            },
+            p_thread: threadId,
+          });
+
+          speak(
+            strategy.approved_at
+              ? "Here's the strategy you approved. I can write the posts now."
+              : `Here's what I'd run for ${brand.name}. Approve it and I'll write every post — nothing goes out until you approve those too.`,
+          );
+          send({ t: "artifact", id: artifactId });
+          await remember({ kind: "artifact", artifact_id: artifactId });
+          finish();
+        };
+
         /** Artefacts in this conversation, newest first -- what "it" means. */
         const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
           if (!threadId) return null;
@@ -258,6 +368,52 @@ Deno.serve(async (request) => {
                 model: action.model ?? null,
                 references,
               }, null);
+            }
+
+            if (action.type === "answers") {
+              const answers = action.answers ?? {};
+
+              // The one export question travels this way too.
+              if (answers.format) {
+                const source = await latestExportable();
+                if (!source) {
+                  speak("There's nothing in this conversation to export yet.");
+                  await remember();
+                  return finish();
+                }
+                const format = ["docx", "pdf", "zip"].includes(answers.format) ? answers.format : "pdf";
+                speak(`Making ${format === "zip" ? "a ZIP of everything" : `the ${format.toUpperCase()}`} of "${source.title}".`);
+                return await startRun("export", { artifact_id: source.id, format }, null);
+              }
+
+              const { data: brandRow } = await asUser
+                .from("brands").select("id, name, niche, audience").limit(1).maybeSingle();
+              if (!brandRow) {
+                speak("Set up your brand first, under You, and I can plan for it.");
+                await remember();
+                return finish();
+              }
+
+              const cadence = Number.parseInt(answers.cadence ?? "", 10);
+              // As the person: these are their answers, and the function
+              // checks they are writing to their own brand.
+              const { data: strategyId, error: recordError } = await asUser.rpc("record_answers", {
+                p_brand: brandRow.id,
+                p_thread: threadId,
+                p_goal: answers.goal ?? null,
+                p_appetite: answers.appetite ?? null,
+                p_audience: answers.audience ?? null,
+                p_cadence: Number.isFinite(cadence) ? cadence : null,
+              });
+              if (recordError || !strategyId) throw recordError ?? new Error("answers not recorded");
+
+              send({ t: "step", kind: "reading", detail: "Saved your answers" });
+              return await draftCampaign(
+                brandRow,
+                strategyId as string,
+                action.request ?? "",
+                Math.min(Math.max(Number(action.days) || 30, 1), 60),
+              );
             }
 
             if (action.type === "animate") {
@@ -472,6 +628,17 @@ Deno.serve(async (request) => {
 
               const questions = missingForPlan(known, strategyRow);
 
+              // Everything it needs is already known, so nothing is asked --
+              // straight to the strategy card, which is still a confirmation.
+              if (questions.length === 0) {
+                let strategyId = known.strategy_id as string | null;
+                if (!strategyId) {
+                  const { data } = await asUser.rpc("record_answers", { p_brand: brand.id, p_thread: threadId });
+                  strategyId = data as string;
+                }
+                return await draftCampaign(brand, strategyId, asked, routed.days ?? 30);
+              }
+
               if (questions.length > 0) {
                 send({
                   t: "step",
@@ -492,12 +659,14 @@ Deno.serve(async (request) => {
                 // Rendered as taps by the app. Sent as data rather than as a
                 // numbered list in the prose, because the answers come back as
                 // values and parsing them out of a sentence is how the wrong
-                // month gets built.
-                send({ t: "questions", questions });
+                // month gets built. The request and length travel with them,
+                // so the answers can go straight on to the strategy.
+                const days = routed.days ?? 30;
+                send({ t: "questions", questions, request: asked, days });
                 // The questions go into the transcript with the turn, so
                 // reopening the thread shows what was asked rather than a
                 // sentence promising questions that are no longer there.
-                await remember({ kind: "questions", questions });
+                await remember({ kind: "questions", questions, request: asked, days });
                 send({ t: "done" });
                 controller.close();
                 return;

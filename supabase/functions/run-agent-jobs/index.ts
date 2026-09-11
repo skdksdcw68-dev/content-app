@@ -397,6 +397,26 @@ function documentFrom(source: { kind: string; title: string; body: Record<string
     };
   }
 
+  if (source.kind === "campaign") {
+    const pillars = (body.pillars ?? []) as Array<{ name: string; share: number; why: string }>;
+    const facts = [
+      body.goal ? `Goal: ${body.goal}` : "",
+      body.audience ? `Audience: ${body.audience}` : "",
+      body.appetite ? `Risk: ${body.appetite}` : "",
+      `${body.days ?? 30} days, ${body.cadence ?? 1} post${Number(body.cadence ?? 1) === 1 ? "" : "s"} a day`,
+    ].filter(Boolean);
+    return {
+      title: source.title,
+      subtitle: `Campaign strategy · ${date}`,
+      sections: [
+        { heading: "The idea", paragraphs: paragraphs(String(body.summary ?? "")) },
+        ...(body.angle ? [{ heading: "The angle", paragraphs: [String(body.angle)] }] : []),
+        { heading: "Content pillars", paragraphs: pillars.map((p) => `${p.name} — ${p.share}%. ${p.why}`) },
+        { heading: "Details", paragraphs: facts },
+      ],
+    };
+  }
+
   if (Array.isArray(body.sections)) {
     return { title: source.title, subtitle: date, sections: body.sections as Document["sections"] };
   }

@@ -27,7 +27,7 @@ import { NothingCanDoThis, routePoll, routeSubmit } from "../_shared/connectors/
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import type { Capability, Submitted } from "../_shared/connectors/contract.ts";
 import { buildDocx, buildPdf, buildZip, type Document } from "../_shared/exports.ts";
-import { inspect } from "../_shared/media.ts";
+import { imageSize, inspect } from "../_shared/media.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -707,7 +707,16 @@ async function saveGenerated(
     await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: "bad_output" });
     await tell(admin, run, refusal("bad_output", what));
     return "failed bad_output";
+  } else {
+    // Its real shape, so the chat can draw it exactly rather than guess.
+    const size = imageSize(bytes);
+    if (size) {
+      extra.width = size.width;
+      extra.height = size.height;
+    }
   }
+  const settings = (run.input.settings ?? {}) as Record<string, unknown>;
+  if (settings.resolution) extra.resolution = settings.resolution;
 
   const ext = mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : what === "video" ? "mp4" : "png";
   const prompt = String(run.input.prompt ?? "");

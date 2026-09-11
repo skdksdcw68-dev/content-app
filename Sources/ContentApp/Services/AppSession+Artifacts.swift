@@ -66,6 +66,36 @@ extension AppSession {
         }
     }
 
+    /// The provider's own price for one image or video with exactly these
+    /// settings -- its dry run, which submits nothing. Nil when it will not say.
+    func quote(capability: String, model: String, prompt: String, settings: GenerationSettings) async -> ModelCost? {
+        struct Request: Encodable, Sendable {
+            let capability: String
+            let model: String
+            let prompt: String
+            let settings: Settings
+            struct Settings: Encodable, Sendable {
+                let resolution: String?
+                let duration: Int?
+            }
+        }
+        struct Response: Decodable { let cost: ModelCost }
+        do {
+            let response: Response = try await client.functions.invoke(
+                "quote",
+                options: FunctionInvokeOptions(body: Request(
+                    capability: capability,
+                    model: model,
+                    prompt: prompt,
+                    settings: .init(resolution: settings.resolution, duration: settings.duration.map { Int($0.rounded()) })
+                ))
+            )
+            return response.cost
+        } catch {
+            return nil
+        }
+    }
+
     /// The person approves a strategy. Through `approve_strategy`, which
     /// refuses anyone but the owner -- the agent cannot approve its own plan.
     func approveStrategy(_ id: UUID) async -> Bool {

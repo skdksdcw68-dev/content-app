@@ -83,6 +83,11 @@ verify_jwt = true
 [functions.connector-refresh]
 verify_jwt = true
 
+# Prices one image or video for the Generate card. The provider's dry run --
+# nothing is submitted, nothing is spent.
+[functions.quote]
+verify_jwt = true
+
 [functions.propose-plan]
 verify_jwt = true
 

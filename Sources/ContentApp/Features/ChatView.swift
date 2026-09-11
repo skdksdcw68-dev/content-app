@@ -67,6 +67,9 @@ struct ChatView: View {
     /// the view is not rebuilt on every token.
     private static let flushMilliseconds: UInt64 = 80
 
+    /// Space between the last message and the top of the bar.
+    private static let clearance: CGFloat = 20
+
     @MainActor
     private final class StreamBuffer {
         var pending = ""
@@ -97,15 +100,15 @@ struct ChatView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 20) {
+                LazyVStack(alignment: .leading, spacing: 24) {
                     ForEach(turns) { turn in
                         ChatTurnView(
                             turn: turn,
                             onAnswer: { question, value in
                                 answer(question, with: value, in: turn.id)
                             },
-                            onChooseModel: { choice in
-                                choose(choice, in: turn.id)
+                            onGenerate: { choice, settings, price in
+                                generate(choice, settings: settings, price: price, in: turn.id)
                             },
                             onExport: { artifact, format in
                                 export(artifact, as: format)
@@ -149,14 +152,25 @@ struct ChatView: View {
             // through its material; this is only how far the last message
             // clears it, and it grows with the bar.
             .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Room to breathe between the last line and the bar: the bar
+                // is glass, and text running right up to its edge read as the
+                // two touching.
                 Color.clear
-                    .frame(height: barHeight + KeyboardBarController.keyboardGap)
+                    .frame(height: barHeight + KeyboardBarController.keyboardGap + Self.clearance)
                     .allowsHitTesting(false)
             }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
             .onChange(of: turns.count) { _, _ in scrollToEnd(proxy, duration: 0.3) }
             .onChange(of: barHeight) { _, _ in scrollToEnd(proxy, duration: 0.18) }
+            // The keyboard takes the bottom of the screen; the last message
+            // should rise with it, not be left underneath it.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                Task {
+                    try? await Task.sleep(for: .milliseconds(60))
+                    scrollToEnd(proxy, duration: 0.25)
+                }
+            }
             .overlay {
                 KeyboardAttachedBar(height: $barHeight, inputs: composerInputs) {
                     ChatComposer(
@@ -523,22 +537,35 @@ struct ChatView: View {
         }
     }
 
-    /// A model was picked, or Auto was accepted -- and the job starts.
+    /// Generate was pressed on a card -- and only now is anything spent.
     ///
-    /// The transcript still reads like the conversation ("Use Sora 2."), but
-    /// the request travels as data: the prompt the offer was made for, the
-    /// model's own id, and any pictures attached to the original ask. Before
-    /// this, the words went back through the router, which read "Use Sora 2"
-    /// as a new request to make something and offered the models again.
+    /// The transcript still reads like the conversation ("Generate with Kling
+    /// v3.0 · 720p · 5s"), but the request travels as data: the subject the
+    /// offer was made for, the model's own id, the settings on the card, the
+    /// price it showed, and any pictures attached to the original ask.
     ///
-    /// The card settles into the choice rather than disappearing, so reopening
-    /// the thread still shows what was decided.
-    private func choose(_ choice: ModelChoice?, in turnID: ChatMessage.ID) {
+    /// The card settles into one line saying what was made, so reopening the
+    /// thread still shows what was decided.
+    private func generate(
+        _ choice: ModelChoice,
+        settings: GenerationSettings,
+        price: ModelCost?,
+        in turnID: ChatMessage.ID
+    ) {
         guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
         guard turns[index].chosenModel == nil, !isWorking, let offer = turns[index].offer else { return }
 
-        let label = choice?.label ?? offer.auto?.label ?? "the best available"
-        turns[index].chosenModel = label
+        var parts = [choice.label]
+        if let resolution = settings.resolution {
+            parts.append(resolution.hasSuffix("k") ? resolution.uppercased() : resolution)
+        }
+        if let duration = settings.duration { parts.append("\(Int(duration.rounded()))s") }
+        let summary = parts.joined(separator: " · ")
+        if let price, price.amount != nil {
+            turns[index].chosenModel = "\(summary) · \(price.label)"
+        } else {
+            turns[index].chosenModel = summary
+        }
 
         // The request as the server recorded it; the turn before the offer for
         // offers made before the server started recording it.
@@ -546,12 +573,14 @@ struct ChatView: View {
             ?? turns[..<index].last(where: { $0.role == .user })?.text
             ?? ""
 
-        draft = choice.map { "Use \($0.label)." } ?? "You choose."
+        draft = "Generate with \(summary)"
         send(action: .generate(
             capability: offer.capability,
             prompt: request,
-            model: choice?.externalId ?? offer.auto?.externalId,
-            references: turns[index].offerReferences
+            model: choice.externalId,
+            references: turns[index].offerReferences,
+            settings: settings,
+            quoted: price
         ))
     }
 

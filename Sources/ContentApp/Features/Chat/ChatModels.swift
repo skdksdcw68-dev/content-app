@@ -99,14 +99,34 @@ struct ModelCost: Equatable, Decodable {
 
 /// What a model will actually accept. Every field optional, because a provider
 /// that does not say is different from one that says "any", and inventing a
-/// range would be worse than the gap.
+/// range would be worse than the gap. Read leniently, field by field: one odd
+/// value from a provider must not stop the whole card from drawing.
 struct ModelConstraints: Equatable, Decodable {
-    var durations: [Int]?
+    struct Defaults: Equatable, Decodable {
+        var resolution: String?
+        var duration: Double?
+    }
+
+    var durations: [Double]?
     var resolutions: [String]?
     var aspectRatios: [String]?
-    var formats: [String]?
     var typicalSeconds: Int?
     var notes: [String]?
+    var defaults: Defaults?
+
+    private enum CodingKeys: String, CodingKey {
+        case durations, resolutions, aspectRatios, typicalSeconds, notes, defaults
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        durations = try? c.decodeIfPresent([Double].self, forKey: .durations)
+        resolutions = try? c.decodeIfPresent([String].self, forKey: .resolutions)
+        aspectRatios = try? c.decodeIfPresent([String].self, forKey: .aspectRatios)
+        typicalSeconds = try? c.decodeIfPresent(Int.self, forKey: .typicalSeconds)
+        notes = try? c.decodeIfPresent([String].self, forKey: .notes)
+        defaults = try? c.decodeIfPresent(Defaults.self, forKey: .defaults)
+    }
 }
 
 /// One model the agent found, offered as a choice.
@@ -120,6 +140,23 @@ struct ModelChoice: Identifiable, Equatable, Decodable {
     let constraints: ModelConstraints
     let reason: String?
     let recommended: Bool
+    /// False when it costs more than the account has.
+    let affordable: Bool?
+    /// "Cheapest", "Popular".
+    let badges: [String]?
+}
+
+/// What the person already asked for in words -- "2k", "5 seconds" -- so the
+/// card starts on it.
+struct OfferSettings: Equatable, Decodable {
+    var resolution: String?
+    var duration: Double?
+    var aspectRatio: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case resolution, duration
+        case aspectRatio = "aspect_ratio"
+    }
 }
 
 /// Everything the agent found for one capability.
@@ -128,6 +165,22 @@ struct ModelOffer: Equatable, Decodable {
     let options: [ModelChoice]
     let worthAsking: Bool
     let auto: ModelChoice?
+    /// The model the card starts on: one they named, or Auto's pick.
+    let preselect: String?
+    let settings: OfferSettings?
+}
+
+/// What was set on the Generate card, sent with the job.
+struct GenerationSettings: Equatable {
+    var resolution: String?
+    var duration: Double?
+
+    var payload: [String: Any] {
+        var out: [String: Any] = [:]
+        if let resolution { out["resolution"] = resolution }
+        if let duration { out["duration"] = Int(duration.rounded()) }
+        return out
+    }
 }
 
 /// Something the agent made: a report, a file, an image, a video.
@@ -167,6 +220,7 @@ struct Artifact: Identifiable, Equatable, Decodable {
         var seconds: Double?
         var width: Int?
         var height: Int?
+        var resolution: String?
         var sourceTitle: String?
         // A campaign's strategy.
         var strategyId: UUID?
@@ -180,7 +234,7 @@ struct Artifact: Identifiable, Equatable, Decodable {
         var pillars: [Pillar]?
 
         private enum CodingKeys: String, CodingKey {
-            case summary, findings, filename, format, manifest, prompt, seconds, width, height
+            case summary, findings, filename, format, manifest, prompt, seconds, width, height, resolution
             case request, days, cadence, goal, audience, appetite, angle, pillars
             case modelLabel = "model_label"
             case sourceTitle = "source_title"
@@ -201,6 +255,7 @@ struct Artifact: Identifiable, Equatable, Decodable {
             seconds = try? c.decodeIfPresent(Double.self, forKey: .seconds)
             width = try? c.decodeIfPresent(Int.self, forKey: .width)
             height = try? c.decodeIfPresent(Int.self, forKey: .height)
+            resolution = try? c.decodeIfPresent(String.self, forKey: .resolution)
             sourceTitle = try? c.decodeIfPresent(String.self, forKey: .sourceTitle)
             strategyId = try? c.decodeIfPresent(UUID.self, forKey: .strategyId)
             request = try? c.decodeIfPresent(String.self, forKey: .request)
@@ -234,6 +289,8 @@ struct Artifact: Identifiable, Equatable, Decodable {
     let provider: String?
     let model: String?
     let actualCost: Charged?
+    /// The price shown before it was made -- what the Generate card said.
+    let estimatedCost: Charged?
 
     private enum CodingKeys: String, CodingKey {
         case id, kind, title, status, version, mime, body, provider, model
@@ -241,6 +298,7 @@ struct Artifact: Identifiable, Equatable, Decodable {
         case storagePath = "storage_path"
         case byteSize = "byte_size"
         case actualCost = "actual_cost"
+        case estimatedCost = "estimated_cost"
     }
 
     init(from decoder: Decoder) throws {
@@ -258,6 +316,7 @@ struct Artifact: Identifiable, Equatable, Decodable {
         provider = try? c.decodeIfPresent(String.self, forKey: .provider)
         model = try? c.decodeIfPresent(String.self, forKey: .model)
         actualCost = try? c.decodeIfPresent(Charged.self, forKey: .actualCost)
+        estimatedCost = try? c.decodeIfPresent(Charged.self, forKey: .estimatedCost)
     }
 
     /// "84 KB", "3.2 MB". Nil when the size is not known yet.

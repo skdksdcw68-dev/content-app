@@ -10,8 +10,9 @@ struct ChatTurnView: View {
     /// as an ordinary turn rather than through a side channel. The transcript
     /// then reads the way the conversation actually went.
     var onAnswer: (ChatQuestion, String) -> Void = { _, _ in }
-    /// Nil means Auto: the person declined to choose, which is a choice.
-    var onChooseModel: (ModelChoice?) -> Void = { _ in }
+    /// Generate was pressed on a card: this model, these settings, at the
+    /// price the card showed.
+    var onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void = { _, _, _ in }
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
     var onApprove: (Artifact) -> Void = { _ in }
@@ -71,10 +72,13 @@ struct ChatTurnView: View {
                     }
 
                     if let offer = turn.offer {
-                        ModelPicker(
+                        GenerationCard(
                             offer: offer,
-                            chosen: turn.chosenModel
-                        ) { onChooseModel($0) }
+                            request: turn.offerRequest,
+                            settled: turn.chosenModel
+                        ) { choice, settings, price in
+                            onGenerate(choice, settings, price)
+                        }
                     }
 
                     ForEach(turn.questions) { question in
@@ -99,138 +103,6 @@ struct ChatTurnView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
-/// The models that could do it, with what is actually known about each.
-///
-/// Names alone would be useless: "Sora 2" means nothing next to "720p only,
-/// 4/8/12 seconds, about four minutes". So every row carries the constraints
-/// that were read off the provider's own schema, and the price in whatever unit
-/// that provider bills in.
-///
-/// "Cost not stated" appears a lot and that is correct. Higgsfield's REST
-/// surface quotes no price anywhere, and an invented figure would be worse than
-/// the gap because somebody would choose on it.
-///
-/// Auto is first and pre-selected. Most people should not have to care, and the
-/// ones who do can see exactly what Auto would have taken and why.
-private struct ModelPicker: View {
-    let offer: ModelOffer
-    let chosen: String?
-    let onChoose: (ModelChoice?) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let chosen {
-                Label(chosen, systemImage: "checkmark.circle.fill")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(Theme.accent)
-            } else {
-                if let auto = offer.auto {
-                    Button { onChoose(nil) } label: {
-                        AutoRow(auto: auto)
-                    }
-                    .buttonStyle(PressButtonStyle())
-                }
-
-                ForEach(offer.options) { option in
-                    Button { onChoose(option) } label: {
-                        ModelRow(option: option)
-                    }
-                    .buttonStyle(PressButtonStyle())
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-private struct AutoRow: View {
-    let auto: ModelChoice
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "wand.and.stars")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.onAccent)
-                .frame(width: 26, height: 26)
-                .background(Circle().fill(Theme.accent))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Let me choose")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(auto.reason ?? "Picks the best available.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 4)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                .fill(Theme.accent.opacity(0.10))
-        }
-    }
-}
-
-private struct ModelRow: View {
-    let option: ModelChoice
-
-    /// The facts, in the order somebody scanning would want them.
-    private var facts: [String] {
-        var out: [String] = [option.cost.label]
-        if let resolutions = option.constraints.resolutions, !resolutions.isEmpty {
-            out.append(resolutions.joined(separator: "/"))
-        }
-        if let durations = option.constraints.durations, !durations.isEmpty {
-            out.append(durations.map(String.init).joined(separator: "/") + "s")
-        }
-        if let seconds = option.constraints.typicalSeconds {
-            out.append("~\(max(1, seconds / 60)) min")
-        }
-        return out
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(option.label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    if option.recommended {
-                        Text("Recommended")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill(Theme.accent.opacity(0.12)))
-                    }
-                }
-
-                Text(facts.joined(separator: "  ·  "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let notes = option.constraints.notes, !notes.isEmpty {
-                    Text(notes.joined(separator: " "))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            Spacer(minLength: 4)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                .fill(Theme.surface)
         }
     }
 }

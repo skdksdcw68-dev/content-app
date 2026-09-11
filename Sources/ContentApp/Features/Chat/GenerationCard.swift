@@ -1,0 +1,286 @@
+import SwiftUI
+
+/// Choose, see the price, confirm -- then it is made.
+///
+/// Replaces a list of model names that started a paid job on the first tap.
+/// Abel asked for the shape Higgsfield's own screen has: pick the model, pick
+/// the quality, see exactly what it costs, press Generate. So:
+///
+///   - the models that can do it, cheapest first, each with its real price
+///     from the provider and the provider's own one-line description; any the
+///     balance cannot cover are shown but cannot be picked
+///   - the quality and length the SELECTED model actually offers, read from
+///     its catalogue entry, starting on its own default or on what was asked
+///   - one button carrying the price of exactly that combination, asked of the
+///     provider again whenever something changes
+///
+/// Nothing is spent until that button is pressed.
+struct GenerationCard: View {
+    let offer: ModelOffer
+    let request: String?
+    /// Set once Generate was pressed (or on a reopened conversation, once it
+    /// was answered). The card then settles into one line saying what was made.
+    let settled: String?
+    let onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var selectedID: String?
+    @State private var resolution: String?
+    @State private var duration: Double?
+    @State private var price: ModelCost?
+    @State private var pricing = false
+    @State private var pricingTask: Task<Void, Never>?
+
+    private var selected: ModelChoice? {
+        offer.options.first { $0.externalId == selectedID }
+    }
+
+    private var isVideo: Bool { offer.capability == "video_generation" }
+
+    var body: some View {
+        if let settled {
+            Label(settled, systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.accent)
+        } else {
+            VStack(alignment: .leading, spacing: 14) {
+                models
+
+                if let options = selected?.constraints.resolutions, options.count > 1 {
+                    ChoiceChips(title: "Quality", options: options, label: qualityLabel, selection: $resolution)
+                }
+
+                if isVideo, let options = selected?.constraints.durations, options.count > 1 {
+                    ChoiceChips(
+                        title: "Length",
+                        options: options,
+                        label: { "\(Int($0.rounded()))s" },
+                        selection: $duration
+                    )
+                }
+
+                generateButton
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Theme.surface)
+            }
+            .task { start() }
+            .onChange(of: selectedID) { _, _ in
+                // A new model has its own choices; keep what still applies.
+                adoptDefaults(keeping: true)
+                reprice()
+            }
+            .onChange(of: resolution) { _, _ in reprice() }
+            .onChange(of: duration) { _, _ in reprice() }
+        }
+    }
+
+    // MARK: - Pieces
+
+    private var models: some View {
+        VStack(spacing: 6) {
+            ForEach(offer.options) { option in
+                let usable = option.affordable != false
+                Button {
+                    if usable { selectedID = option.externalId }
+                } label: {
+                    ModelOptionRow(
+                        option: option,
+                        isSelected: option.externalId == selectedID,
+                        price: option.externalId == selectedID ? (price ?? option.cost) : option.cost
+                    )
+                }
+                .buttonStyle(PressButtonStyle())
+                .disabled(!usable)
+            }
+        }
+    }
+
+    private var generateButton: some View {
+        Button {
+            guard let selected else { return }
+            onGenerate(selected, GenerationSettings(resolution: resolution, duration: duration), price ?? selected.cost)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                Text("Generate")
+                    .fontWeight(.semibold)
+                Spacer(minLength: 8)
+                if pricing {
+                    ProgressView().controlSize(.small).tint(Theme.onAccent)
+                } else if let shown = price ?? selected?.cost, shown.amount != nil {
+                    Text(shown.label)
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 30)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Theme.accent)
+        .controlSize(.large)
+        .disabled(selected == nil || selected?.affordable == false)
+    }
+
+    // MARK: - Behaviour
+
+    private func start() {
+        guard selectedID == nil else { return }
+        let usable = offer.options.filter { $0.affordable != false }
+        selectedID = [offer.preselect, offer.auto?.externalId]
+            .compactMap { $0 }
+            .first { id in usable.contains { $0.externalId == id } }
+            ?? usable.first?.externalId
+            ?? offer.options.first?.externalId
+        adoptDefaults(keeping: false)
+        price = selected?.cost
+        // The first price was asked for the settings Autocast guessed; if the
+        // card starts on different ones, ask again so the button is true.
+        if resolution != nil || duration != nil { reprice() }
+    }
+
+    /// The selected model's own defaults, or what was asked for in words when
+    /// the model offers it. "2k" typed earlier starts the card on 2K.
+    private func adoptDefaults(keeping: Bool) {
+        guard let selected else { return }
+        let resolutions = selected.constraints.resolutions ?? []
+        let wanted = keeping ? resolution : offer.settings?.resolution
+        resolution = match(wanted, in: resolutions)
+            ?? match(selected.constraints.defaults?.resolution, in: resolutions)
+            ?? resolutions.first
+
+        let durations = selected.constraints.durations ?? []
+        let asked = keeping ? duration : offer.settings?.duration
+        if let asked, let nearest = durations.min(by: { abs($0 - asked) < abs($1 - asked) }) {
+            duration = nearest
+        } else {
+            duration = selected.constraints.defaults?.duration ?? durations.first
+        }
+        if !isVideo { duration = nil }
+    }
+
+    private func match(_ wanted: String?, in options: [String]) -> String? {
+        guard let wanted else { return nil }
+        return options.first { $0.lowercased() == wanted.lowercased() }
+    }
+
+    /// Asks the provider for exactly this combination, a moment after the last
+    /// change -- tapping through three qualities should cost one request.
+    private func reprice() {
+        guard let selected else { return }
+        pricingTask?.cancel()
+        pricing = true
+        let settings = GenerationSettings(resolution: resolution, duration: duration)
+        pricingTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            let quoted = await session.quote(
+                capability: offer.capability,
+                model: selected.externalId,
+                prompt: request ?? "",
+                settings: settings
+            )
+            guard !Task.isCancelled else { return }
+            if let quoted, quoted.amount != nil { price = quoted }
+            pricing = false
+        }
+    }
+
+    private func qualityLabel(_ value: String) -> String {
+        // "1k" reads as a typo; "1K" reads as a resolution.
+        value.hasSuffix("k") ? value.uppercased() : value
+    }
+}
+
+/// One model: a radio mark, its name and what it is for, and its price.
+private struct ModelOptionRow: View {
+    let option: ModelChoice
+    let isSelected: Bool
+    let price: ModelCost
+
+    private var usable: Bool { option.affordable != false }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.body)
+                .foregroundStyle(isSelected ? Theme.accent : Color.secondary.opacity(0.5))
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(option.label)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    ForEach(option.badges ?? [], id: \.self) { badge in
+                        Text(badge)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(badge == "Cheapest" ? Color.green : Theme.accent)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill((badge == "Cheapest" ? Color.green : Theme.accent).opacity(0.12)))
+                    }
+                }
+                if let note = option.constraints.notes?.first {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(usable ? Color.secondary : Color.orange)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text(price.amount == nil ? "—" : price.label)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .foregroundStyle(usable ? Color.primary : Color.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(isSelected ? Theme.accent.opacity(0.10) : Color.clear)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(isSelected ? Theme.accent.opacity(0.35) : Color(uiColor: .separator).opacity(0.5), lineWidth: 1)
+        }
+        .opacity(usable ? 1 : 0.55)
+        .contentShape(Rectangle())
+    }
+}
+
+/// A row of options, one selected. Used for quality and length.
+private struct ChoiceChips<Value: Hashable>: View {
+    let title: String
+    let options: [Value]
+    let label: (Value) -> String
+    @Binding var selection: Value?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(options, id: \.self) { option in
+                    let isOn = option == selection
+                    Button { selection = option } label: {
+                        Text(label(option))
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .foregroundStyle(isOn ? Theme.onAccent : Color.primary)
+                            .background(Capsule().fill(isOn ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.07))))
+                    }
+                    .buttonStyle(PressButtonStyle())
+                }
+            }
+        }
+    }
+}

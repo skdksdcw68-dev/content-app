@@ -70,6 +70,7 @@ extension AppSession {
     private func settledChoice(_ reply: String) -> String {
         var said = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         if said.hasPrefix("You choose") { return "Auto" }
+        if said.hasPrefix("Generate with ") { said.removeFirst(14) }
         if said.hasPrefix("Use ") { said.removeFirst(4) }
         if said.hasSuffix(".") { said.removeLast() }
         return said.isEmpty ? "Chosen" : said
@@ -101,7 +102,10 @@ extension AppSession {
     /// works until it does not, and then the tap does something else.
     enum ChatAction {
         case export(artifact: UUID, format: String)
-        case generate(capability: String, prompt: String, model: String?, references: [String])
+        case generate(
+            capability: String, prompt: String, model: String?, references: [String],
+            settings: GenerationSettings, quoted: ModelCost?
+        )
         case animate(artifact: UUID)
         /// Every question on a card, answered by tapping -- as values.
         case answers([String: String], request: String?, days: Int?)
@@ -110,12 +114,16 @@ extension AppSession {
             switch self {
             case .export(let artifact, let format):
                 return ["type": "export", "artifactId": artifact.uuidString, "format": format]
-            case .generate(let capability, let prompt, let model, let references):
+            case .generate(let capability, let prompt, let model, let references, let settings, let quoted):
                 var out: [String: Any] = [
                     "type": "generate", "capability": capability,
                     "prompt": prompt, "references": references,
+                    "settings": settings.payload,
                 ]
                 if let model { out["model"] = model }
+                if let quoted, let amount = quoted.amount {
+                    out["quoted"] = ["amount": amount, "unit": quoted.unit]
+                }
                 return out
             case .animate(let artifact):
                 return ["type": "animate", "artifactId": artifact.uuidString]

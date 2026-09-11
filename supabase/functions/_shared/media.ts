@@ -251,3 +251,53 @@ export function inspect(bytes: Uint8Array, declaredMime: string): Inspection {
   // platform have the last word on that one field.
   return { ok: true, container: "mp4", seconds, width, height, reason: null };
 }
+
+/**
+ * An image's pixel size, read from its header -- PNG, JPEG or WebP.
+ *
+ * Stored with every generated image so the chat can draw it at its real shape.
+ * Without it the card had to guess, and a guessed frame centred a tall picture
+ * in the middle of the conversation instead of on the agent's side.
+ */
+export function imageSize(bytes: Uint8Array): { width: number; height: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const at = (i: number) => bytes[i];
+
+  // PNG: signature, then IHDR -- width and height as big-endian at 16 and 20.
+  if (bytes.length > 24 && at(0) === 0x89 && at(1) === 0x50 && at(2) === 0x4e && at(3) === 0x47) {
+    return { width: view.getUint32(16), height: view.getUint32(20) };
+  }
+
+  // WebP: RIFF....WEBP, then a VP8 / VP8L / VP8X chunk.
+  if (bytes.length > 30 && at(0) === 0x52 && at(1) === 0x49 && at(8) === 0x57 && at(9) === 0x45) {
+    const chunk = String.fromCharCode(at(12), at(13), at(14), at(15));
+    if (chunk === "VP8X") {
+      return {
+        width: 1 + (at(24) | (at(25) << 8) | (at(26) << 16)),
+        height: 1 + (at(27) | (at(28) << 8) | (at(29) << 16)),
+      };
+    }
+    if (chunk === "VP8 ") {
+      return { width: view.getUint16(26, true) & 0x3fff, height: view.getUint16(28, true) & 0x3fff };
+    }
+    if (chunk === "VP8L") {
+      const b = view.getUint32(21, true);
+      return { width: (b & 0x3fff) + 1, height: ((b >> 14) & 0x3fff) + 1 };
+    }
+  }
+
+  // JPEG: walk the markers to the first start-of-frame.
+  if (bytes.length > 4 && at(0) === 0xff && at(1) === 0xd8) {
+    let i = 2;
+    while (i + 9 < bytes.length) {
+      if (at(i) !== 0xff) { i++; continue; }
+      const marker = at(i + 1);
+      const length = view.getUint16(i + 2);
+      if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
+        return { height: view.getUint16(i + 5), width: view.getUint16(i + 7) };
+      }
+      i += 2 + length;
+    }
+  }
+  return null;
+}

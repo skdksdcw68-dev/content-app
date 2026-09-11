@@ -33,6 +33,8 @@ export interface Choice {
   /** False when its price is more than the account has. Absent when either
    *  is unknown. */
   affordable?: boolean;
+  /** Short tags for the row: "Cheapest", "Popular". */
+  badges?: string[];
 }
 
 export interface Choices {
@@ -249,6 +251,27 @@ export async function choicesFor(
     }
   }
 
+  // The provider lists its catalogue most-featured first, so the order they
+  // arrived in is the nearest thing to "popular" there is. Kept before the
+  // re-sort below so the badge can say which one it was.
+  const popular = options[0]?.modelId;
+
+  // Cheapest first -- "better credits mean lower" -- with anything they cannot
+  // afford after everything they can, and unpriced rows last of all.
+  options.sort((a, b) => {
+    const over = Number(a.affordable === false) - Number(b.affordable === false);
+    if (over !== 0) return over;
+    if (a.cost.amount === null && b.cost.amount === null) return 0;
+    if (a.cost.amount === null) return 1;
+    if (b.cost.amount === null) return -1;
+    return a.cost.amount - b.cost.amount;
+  });
+
+  const cheapest = options.find((o) => o.cost.amount !== null && o.affordable !== false);
+  if (cheapest) cheapest.badges = ["Cheapest"];
+  const featured = options.find((o) => o.modelId === popular);
+  if (featured && featured !== cheapest) featured.badges = [...(featured.badges ?? []), "Popular"];
+
   const auto = pick(options.filter((o) => o.affordable !== false).length > 0
     ? options.filter((o) => o.affordable !== false)
     : options, intent);
@@ -417,12 +440,34 @@ function constraintsFrom(raw: Record<string, unknown>): Constraints {
       .filter((v) => Number.isFinite(v));
     return out.length > 0 ? out : undefined;
   };
-  const params = (raw.parameters ?? {}) as Record<string, { enum?: unknown; values?: unknown; options?: unknown }>;
+  // Parameters come either keyed by name or -- Higgsfield's shape -- as a list
+  // of {name, options, default, min, max}. Only the keyed shape was read, so
+  // no model ever showed its resolutions and the picker could not offer them.
+  type Param = { name?: unknown; enum?: unknown; values?: unknown; options?: unknown; default?: unknown; min?: unknown; max?: unknown };
+  const listed = Array.isArray(raw.parameters) ? raw.parameters as Param[] : [];
+  const keyed = !Array.isArray(raw.parameters) ? (raw.parameters ?? {}) as Record<string, Param> : {};
+  const param = (name: string): Param | undefined => listed.find((p) => p.name === name) ?? keyed[name];
+  const choices = (p?: Param) => p?.options ?? p?.enum ?? p?.values;
+
+  // A duration given as a range becomes a few sensible stops inside it.
+  const durationParam = param("duration");
+  let durations = numbers(raw.durations ?? choices(durationParam));
+  if (!durations && typeof durationParam?.min === "number" && typeof durationParam?.max === "number") {
+    const lo = durationParam.min as number, hi = durationParam.max as number;
+    durations = [...new Set([lo, 5, 8, 10, hi].filter((d) => d >= lo && d <= hi))].sort((a, b) => a - b);
+  }
+
+  const resolutionParam = param("resolution");
+  const resolutions = strings(raw.resolutions ?? choices(resolutionParam));
 
   return {
-    aspectRatios: strings(raw.aspect_ratios ?? raw.aspectRatios ?? params.aspect_ratio?.enum ?? params.aspect_ratio?.values),
-    durations: numbers(raw.durations ?? params.duration?.enum ?? params.duration?.values),
-    resolutions: strings(raw.resolutions ?? params.resolution?.enum ?? params.resolution?.values),
+    aspectRatios: strings(raw.aspect_ratios ?? raw.aspectRatios ?? choices(param("aspect_ratio"))),
+    durations,
+    resolutions,
+    defaults: {
+      resolution: typeof resolutionParam?.default === "string" ? resolutionParam.default : resolutions?.[0],
+      duration: typeof durationParam?.default === "number" ? durationParam.default : durations?.[0],
+    },
   };
 }
 

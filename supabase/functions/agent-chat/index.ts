@@ -71,6 +71,10 @@ type Action =
     /** The `externalId` of a picked model. Absent means Auto. */
     model?: string;
     references?: string[];
+    /** What was set on the card: resolution, duration, aspect ratio. */
+    settings?: Record<string, unknown>;
+    /** The price the card showed for exactly these settings. */
+    quoted?: { amount: number; unit: string } | null;
   }
   | { type: "animate"; artifactId: string; prompt?: string }
   /** Every question on a card, answered by tapping. The values are the
@@ -597,79 +601,44 @@ Deno.serve(async (request) => {
 
           const credits = balance ? `${trim(balance.amount)} ${balance.unit}` : null;
           const affordable = choices.options.filter((o) => o.affordable !== false);
-          const runInput = (model: string | null, cost: unknown) => ({
-            capability: job.capability,
-            prompt: job.prompt,
-            model,
-            settings: job.settings,
-            quoted_cost: cost,
-            references: job.references.map((path) => ({ path, kind: "image" })),
-            ...(job.sourceArtifactId ? { source_artifact_id: job.sourceArtifactId } : {}),
-          });
 
-          // Exactly the one they named -- so naming it was the choice, and it
-          // starts with its price said. Unless it costs more than they have:
-          // then that is said instead, and nothing is spent.
-          if (job.only && job.settled && choices.options.length === 1) {
-            const chosen = choices.options[0];
-            if (chosen.affordable === false && credits) {
-              speak(
-                `${chosen.label} needs ${trim(chosen.cost.amount ?? 0)} ${chosen.cost.unit} and you have ${credits}. `,
-                "Top up on Higgsfield, or name a cheaper model and I'll use that.",
-              );
-              await remember();
-              return finish();
-            }
-            speak(
-              `Making ${job.prompt} with ${chosen.label}${priced(chosen.cost)}`,
-              job.settings.resolution ? ` at ${job.settings.resolution}` : "",
-              ".",
-            );
-            send({ t: "chose", choice: chosen });
-            return await startRun("generate", runInput(chosen.externalId, chosen.cost.amount !== null ? chosen.cost : null), job.brandId);
-          }
+          // Nothing is spent from here. Every image and video ends in a card
+          // -- model, quality, length, the exact price -- and only the
+          // Generate button on it starts the job. Abel asked for exactly this:
+          // be asked which model and which resolution, see the cost, confirm.
+          // A model they named precisely is simply the one already selected.
+          const preselect = job.only && job.settled
+            ? choices.options[0]?.externalId
+            : choices.auto?.externalId ?? affordable[0]?.externalId;
+          const offer = { ...choices, preselect, settings: job.settings };
 
-          if (choices.worthAsking || affordable.length === 0) {
-            const money = affordable.length === 0 && credits
-              ? ` None of these fit your ${credits} right now — topping up on Higgsfield would unlock them.`
-              : credits
-              ? ` You have ${credits}.`
-              : "";
-            speak(
-              job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
-              job.only
-                ? `More than one model matches "${job.named}" — which one did you mean?`
-                : `${job.intro ?? `Here's what can make ${job.prompt}.`} Pick one, or let me choose.`,
-              money,
-            );
-            // The request travels with the offer -- the SUBJECT, not the
-            // sentence -- so a tap starts exactly this job, and a typed "use
-            // Kling" afterwards still knows what to make and from what.
-            send({ t: "models", capability: job.capability, choices, request: job.prompt, references: job.references });
-            await remember({
-              kind: "models",
-              choices,
-              request: job.prompt,
-              references: job.references,
-              settings: job.settings,
-              source_artifact_id: job.sourceArtifactId ?? null,
-            });
-            return finish();
-          }
-
-          // Not worth asking, so it is not asked -- the choice and its price
-          // are still said, so what was used and what it cost is never hidden.
-          const auto = choices.auto;
+          const money = affordable.length === 0 && credits
+            ? ` None of these fit your ${credits} right now — topping up on Higgsfield would unlock them.`
+            : credits
+            ? ` You have ${credits}.`
+            : "";
           speak(
-            `Making ${job.prompt} with ${auto?.label ?? "the one model you have"}${auto ? priced(auto.cost) : ""}. `,
-            auto?.reason ? `${auto.reason} ` : "",
+            job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
+            job.only && job.settled
+              ? `Ready to make ${job.prompt} with ${choices.options[0].label}. Pick the quality and tap Generate.`
+              : job.only
+              ? `More than one model matches "${job.named}". Pick one and tap Generate.`
+              : `${job.intro ?? `Let's make ${job.prompt}.`} Pick a model and quality, then tap Generate.`,
+            money,
           );
-          send({ t: "chose", choice: auto });
-          return await startRun(
-            "generate",
-            runInput(auto?.externalId ?? null, auto?.cost.amount !== null ? auto?.cost : null),
-            job.brandId,
-          );
+          // The request travels with the offer -- the SUBJECT, not the
+          // sentence -- so Generate starts exactly this job, and a typed "use
+          // Kling" afterwards still knows what to make and from what.
+          send({ t: "models", capability: job.capability, choices: offer, request: job.prompt, references: job.references });
+          await remember({
+            kind: "models",
+            choices: offer,
+            request: job.prompt,
+            references: job.references,
+            settings: job.settings,
+            source_artifact_id: job.sourceArtifactId ?? null,
+          });
+          return finish();
         };
 
         try {
@@ -701,7 +670,17 @@ Deno.serve(async (request) => {
               // the tap answers, not on the button.
               const offer = await lastOffer();
               const same = offer !== null && offer.request === action.prompt;
-              const settings = same ? offer!.settings : {};
+              // What they asked for in words, then what they set on the card --
+              // the card wins, it is the later and more exact of the two.
+              const settings = {
+                ...(same ? offer!.settings : {}),
+                ...Object.fromEntries(
+                  Object.entries(action.settings ?? {}).filter(([k, v]) =>
+                    ["resolution", "duration", "aspect_ratio"].includes(k) &&
+                    (typeof v === "string" || typeof v === "number")
+                  ),
+                ),
+              };
               // An Animate offer's source travels on the offer, not the button.
               const source = same ? offer!.sourceArtifactId : null;
               speak(
@@ -709,11 +688,15 @@ Deno.serve(async (request) => {
                   ? "Animating it."
                   : `Making ${action.prompt}.`,
               );
+              const quoted = action.quoted && typeof action.quoted.amount === "number"
+                ? { unit: String(action.quoted.unit ?? "credits"), amount: action.quoted.amount, quoted: true }
+                : null;
               return await startRun("generate", {
                 capability,
                 prompt: action.prompt,
                 model: action.model ?? null,
                 settings,
+                quoted_cost: quoted,
                 references,
                 ...(source ? { source_artifact_id: source } : {}),
               }, null);

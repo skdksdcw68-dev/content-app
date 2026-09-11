@@ -1,6 +1,8 @@
+import AVFoundation
 import AVKit
 import QuickLook
 import SwiftUI
+import UIKit
 
 // MARK: - A run, while it runs
 
@@ -547,6 +549,41 @@ private struct FileCard: View {
     }
 }
 
+// MARK: Media
+
+/// How big a picture or video sits in the conversation: its real shape, on the
+/// agent's side, never wider than a comfortable column or taller than a
+/// screenful.
+///
+/// Computed, not left to layout. An image told only "fit, at most 380 tall"
+/// took the full column width and centred the picture inside it -- which is why
+/// results sat in the middle of the chat however the card was aligned.
+private func mediaSize(width: Int?, height: Int?) -> CGSize {
+    let aspect: CGFloat = {
+        if let width, let height, width > 0, height > 0 { return CGFloat(width) / CGFloat(height) }
+        return 9.0 / 16.0
+    }()
+    let maxWidth: CGFloat = 250, maxHeight: CGFloat = 400
+    var size = CGSize(width: maxWidth, height: maxWidth / aspect)
+    if size.height > maxHeight { size = CGSize(width: maxHeight * aspect, height: maxHeight) }
+    return size
+}
+
+/// The line under a result: which model, what setting, what it cost.
+private func mediaCaption(_ artifact: Artifact) -> String {
+    var parts: [String] = []
+    if let label = artifact.body.modelLabel { parts.append(label) }
+    if let resolution = artifact.body.resolution {
+        parts.append(resolution.hasSuffix("k") ? resolution.uppercased() : resolution)
+    }
+    if let seconds = artifact.body.seconds { parts.append("\(Int(seconds.rounded()))s") }
+    let cost = artifact.actualCost ?? artifact.estimatedCost
+    if let amount = cost?.amount, let unit = cost?.unit {
+        parts.append("\(amount.formatted(.number.precision(.fractionLength(0...2)))) \(unit)")
+    }
+    return parts.joined(separator: " · ")
+}
+
 // MARK: Image
 
 private struct ImageCard: View {
@@ -557,45 +594,54 @@ private struct ImageCard: View {
     @State private var remote: URL?
     @State private var preview: URL?
 
+    private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Button {
                 Task { preview = await session.localCopy(of: artifact) }
             } label: {
                 AsyncImage(url: remote) { phase in
                     if let image = phase.image {
-                        image.resizable().scaledToFit()
+                        image.resizable().scaledToFill()
                     } else {
-                        Rectangle().fill(Theme.surface)
-                            .aspectRatio(9.0 / 16.0, contentMode: .fit)
-                            .overlay { ProgressView().controlSize(.small) }
+                        Theme.surface.overlay { ProgressView().controlSize(.small) }
                     }
                 }
-                .frame(maxHeight: 380)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+                .frame(width: size.width, height: size.height)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
             .buttonStyle(.plain)
-            // On the agent's side, like its words. A fitted image narrower
-            // than the column was centred by its frame.
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityLabel("Open the image")
 
             HStack(spacing: 8) {
                 Button { onAnimate(artifact) } label: {
-                    Label("Animate", systemImage: "play.rectangle")
+                    Label("Animate", systemImage: "play.fill")
+                        .font(.subheadline.weight(.semibold))
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
 
-                if let label = artifact.body.modelLabel {
-                    Text(label)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                Button {
+                    Task { preview = await session.localCopy(of: artifact) }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.subheadline.weight(.semibold))
                 }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Save or share")
             }
-            .font(.footnote.weight(.semibold))
             .controlSize(.small)
+
+            let caption = mediaCaption(artifact)
+            if !caption.isEmpty {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
             if let path = artifact.storagePath { remote = await session.signedURL(for: path) }
         }
@@ -605,68 +651,129 @@ private struct ImageCard: View {
 
 // MARK: Video
 
+/// A video the way a feed shows one: playing on its own, silently, on a loop,
+/// at its real shape. Tap for sound; the corner button opens it full screen,
+/// where it can be saved or shared.
 private struct VideoCard: View {
     let artifact: Artifact
 
     @Environment(AppSession.self) private var session
-    @State private var player: AVPlayer?
+    @State private var url: URL?
+    @State private var muted = true
     @State private var preview: URL?
 
+    private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Group {
-                if let player {
-                    VideoPlayer(player: player)
+        VStack(alignment: .leading, spacing: 8) {
+            ZStack {
+                if let url {
+                    LoopingVideo(url: url, muted: muted)
                 } else {
-                    Rectangle().fill(Theme.surface)
-                        .overlay { ProgressView().controlSize(.small) }
+                    Theme.surface.overlay { ProgressView().controlSize(.small) }
                 }
             }
-            .aspectRatio(aspect, contentMode: .fit)
-            .frame(maxHeight: 420)
-            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: 8) {
+            .frame(width: size.width, height: size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .onTapGesture { muted.toggle() }
+            .overlay(alignment: .bottomLeading) {
+                if let seconds = artifact.body.seconds {
+                    Text(clock(seconds))
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.black.opacity(0.45), in: Capsule())
+                        .padding(10)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(.black.opacity(0.45), in: Circle())
+                    .padding(10)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .topTrailing) {
                 Button {
                     Task { preview = await session.localCopy(of: artifact) }
                 } label: {
-                    Label("Save or share", systemImage: "square.and.arrow.up")
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(.black.opacity(0.45), in: Circle())
                 }
-                .buttonStyle(.bordered)
+                .padding(10)
+                .accessibilityLabel("Open full screen")
+            }
 
-                Text(facts)
+            let caption = mediaCaption(artifact)
+            if !caption.isEmpty {
+                Text(caption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
-            .font(.footnote.weight(.semibold))
-            .controlSize(.small)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
-            guard player == nil, let path = artifact.storagePath,
-                  let url = await session.signedURL(for: path) else { return }
-            player = AVPlayer(url: url)
+            guard url == nil, let path = artifact.storagePath else { return }
+            url = await session.signedURL(for: path)
         }
         .quickLookPreview($preview)
     }
 
-    /// The real shape, read off the file on the server, rather than assumed.
-    private var aspect: CGFloat {
-        if let w = artifact.body.width, let h = artifact.body.height, w > 0, h > 0 {
-            return CGFloat(w) / CGFloat(h)
-        }
-        return 9.0 / 16.0
+    private func clock(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+}
+
+/// An AVPlayerLayer that loops, starts when it appears and stops when it
+/// leaves -- a scrolled-past video should not keep decoding.
+private struct LoopingVideo: UIViewRepresentable {
+    let url: URL
+    let muted: Bool
+
+    func makeUIView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        let item = AVPlayerItem(url: url)
+        let player = AVQueuePlayer()
+        context.coordinator.looper = AVPlayerLooper(player: player, templateItem: item)
+        player.isMuted = muted
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        player.play()
+        return view
     }
 
-    private var facts: String {
-        var parts: [String] = []
-        if let seconds = artifact.body.seconds { parts.append("\(Int(seconds.rounded()))s") }
-        if let label = artifact.body.modelLabel { parts.append(label) }
-        if let cost = artifact.actualCost, let amount = cost.amount, let unit = cost.unit {
-            parts.append("\(amount.formatted()) \(unit)")
+    func updateUIView(_ view: PlayerView, context: Context) {
+        view.playerLayer.player?.isMuted = muted
+    }
+
+    static func dismantleUIView(_ view: PlayerView, coordinator: Coordinator) {
+        view.playerLayer.player?.pause()
+        coordinator.looper = nil
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var looper: AVPlayerLooper?
+    }
+
+    final class PlayerView: UIView {
+        override static var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            // Plays while on screen, pauses when the cell leaves the window.
+            if window == nil { playerLayer.player?.pause() } else { playerLayer.player?.play() }
         }
-        return parts.joined(separator: " · ")
     }
 }
 

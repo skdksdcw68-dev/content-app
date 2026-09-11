@@ -55,6 +55,37 @@ struct ChatView: View {
     /// A run ended while a reply was streaming; reload once it is done.
     @State private var reloadWhenIdle = false
 
+    /// The message just sent, held at the top of the screen while its reply
+    /// arrives underneath -- ChatGPT's way. Nil when the conversation was
+    /// opened rather than added to; then it simply sits at the bottom.
+    @State private var pinned: ChatMessage.ID?
+    /// Set by `send` so the next new turn scrolls the sent message to the top
+    /// instead of scrolling to the end.
+    @State private var scrollsToPinned = false
+    /// Where the pinned message starts inside the conversation, and how tall
+    /// the conversation is: together, how much of it is from there down. Nil
+    /// until measured, which leaves a full screen of room so the first scroll
+    /// always has somewhere to go.
+    @State private var pinnedTop: CGFloat?
+    @State private var stackHeight: CGFloat = 0
+    /// The part of the scroll view that shows messages, between the bars.
+    @State private var visibleHeight: CGFloat = 0
+    /// Scrolled up far enough that the newest line is out of sight.
+    @State private var showsJump = false
+
+    private static let conversationSpace = "conversation"
+    private static let endID = "end"
+
+    /// Empty space after the last turn, so the pinned message can sit at the
+    /// top with room for the reply below it. The reply grows into it, and once
+    /// the reply is longer than the screen it is gone -- the conversation then
+    /// ends where the words do, and the jump button offers the rest.
+    private var runway: CGFloat {
+        guard pinned != nil else { return 0 }
+        guard let pinnedTop else { return visibleHeight }
+        return max(0, visibleHeight - (stackHeight - pinnedTop))
+    }
+
     /// Where streamed tokens wait between draws.
     ///
     /// A class on purpose, and it is the whole point: `@State` watches the
@@ -100,42 +131,78 @@ struct ChatView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    ForEach(turns) { turn in
-                        ChatTurnView(
-                            turn: turn,
-                            onAnswer: { question, value in
-                                answer(question, with: value, in: turn.id)
-                            },
-                            onGenerate: { choice, settings, price in
-                                generate(choice, settings: settings, price: price, in: turn.id)
-                            },
-                            onExport: { artifact, format in
-                                export(artifact, as: format)
-                            },
-                            onAnimate: { artifact in
-                                animate(artifact)
-                            },
-                            onApprove: { artifact in
-                                approve(artifact)
-                            },
-                            onRunFinished: { run in
-                                runFinished(run)
-                            }
-                        )
-                        .id(turn.id)
-                            // Fade only. A new turn sliding up while the scroll
-                            // view is also animating to it, with the composer
-                            // re-measuring underneath, is three animations on
-                            // one send -- the message appears, gets carried
-                            // off, and comes back.
-                            .transition(.opacity)
+                VStack(spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 24) {
+                        ForEach(turns) { turn in
+                            ChatTurnView(
+                                turn: turn,
+                                onAnswer: { question, value in
+                                    answer(question, with: value, in: turn.id)
+                                },
+                                onGenerate: { choice, settings, price in
+                                    generate(choice, settings: settings, price: price, in: turn.id)
+                                },
+                                onExport: { artifact, format in
+                                    export(artifact, as: format)
+                                },
+                                onAnimate: { artifact in
+                                    animate(artifact)
+                                },
+                                onApprove: { artifact in
+                                    approve(artifact)
+                                },
+                                onRunFinished: { run in
+                                    runFinished(run)
+                                }
+                            )
+                            .id(turn.id)
+                                // Fade only. A new turn sliding up while the scroll
+                                // view is also animating to it, with the composer
+                                // re-measuring underneath, is three animations on
+                                // one send -- the message appears, gets carried
+                                // off, and comes back.
+                                .transition(.opacity)
+                                .onGeometryChange(for: CGFloat.self) { geometry in
+                                    geometry.frame(in: .named(Self.conversationSpace)).minY
+                                } action: { top in
+                                    if turn.id == pinned { pinnedTop = top }
+                                }
+                        }
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 24)
+                    .animation(.easeOut(duration: 0.18), value: turns.count)
+                    .coordinateSpace(.named(Self.conversationSpace))
+                    // Only while something is pinned: the lazy stack's height
+                    // changes as rows are measured during any scroll, and
+                    // recording it then would redraw the conversation for
+                    // nothing.
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if pinned != nil { stackHeight = height }
+                    }
+
+                    Color.clear
+                        .frame(height: runway)
+                        .allowsHitTesting(false)
+                    // The very end, runway included. Scrolling "to the end" means
+                    // here: the last turn's own bottom would pull a pinned message
+                    // back down the screen.
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.endID)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
-                .animation(.easeOut(duration: 0.18), value: turns.count)
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                geometry.containerSize.height - geometry.contentInsets.top - geometry.contentInsets.bottom
+            } action: { _, height in
+                visibleHeight = max(0, height)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                let end = geometry.contentSize.height + geometry.contentInsets.bottom - geometry.containerSize.height
+                return geometry.contentOffset.y < end - 120
+            } action: { _, away in
+                showsJump = away
             }
             .background {
                 if showsWordmark {
@@ -158,10 +225,41 @@ struct ChatView: View {
                 Color.clear
                     .frame(height: barHeight + KeyboardBarController.keyboardGap + Self.clearance)
                     .allowsHitTesting(false)
+                    // Back to the newest line, from anywhere up the page.
+                    .overlay(alignment: .top) {
+                        if showsJump && !turns.isEmpty {
+                            Button { scrollToEnd(proxy, duration: 0.35) } label: {
+                                Image(systemName: "arrow.down")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                                    .frame(width: 38, height: 38)
+                                    .contentShape(Circle())
+                            }
+                            .buttonStyle(.plain)
+                            .glassEffect(.regular.interactive(), in: .circle)
+                            .offset(y: -32)
+                            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+                            .accessibilityLabel("Scroll to the newest message")
+                        }
+                    }
+                    .animation(.easeOut(duration: 0.2), value: showsJump)
             }
             .scrollDismissesKeyboard(.interactively)
             .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
-            .onChange(of: turns.count) { _, _ in scrollToEnd(proxy, duration: 0.3) }
+            .onChange(of: turns.count) { old, _ in
+                if scrollsToPinned, let pinned {
+                    // Just sent: that message to the top, its reply to come
+                    // in below it.
+                    scrollsToPinned = false
+                    withAnimation(.easeOut(duration: 0.35)) {
+                        proxy.scrollTo(pinned, anchor: .top)
+                    }
+                } else {
+                    // Opened: straight to the end, not an animated ride down
+                    // from the first message.
+                    scrollToEnd(proxy, duration: old == 0 ? nil : 0.3)
+                }
+            }
             .onChange(of: barHeight) { _, _ in scrollToEnd(proxy, duration: 0.18) }
             // The keyboard takes the bottom of the screen; the last message
             // should rise with it, not be left underneath it.
@@ -362,6 +460,10 @@ struct ChatView: View {
         dismissKeyboard()
         var mine = ChatMessage.user(asked)
         mine.attachments = attached
+        // Only a send pins. A reopened conversation sits at the bottom.
+        pinned = mine.id
+        pinnedTop = nil
+        scrollsToPinned = true
         turns.append(mine)
         draft = ""
         composerReset += 1
@@ -613,6 +715,9 @@ struct ChatView: View {
         guard let thread else { return }
         let fresh = await session.messages(in: thread)
         guard !fresh.isEmpty else { return }
+        // A result arriving is the end of that exchange: the conversation
+        // settles to the bottom, where the result is.
+        pinned = nil
         withAnimation(.easeOut(duration: 0.2)) { turns = fresh }
     }
 
@@ -646,6 +751,7 @@ struct ChatView: View {
         work = nil
         isWorking = false
         stream.pending = ""
+        pinned = nil
         withAnimation(.easeOut(duration: 0.2)) { turns = [] }
     }
 
@@ -671,10 +777,17 @@ struct ChatView: View {
 
     // MARK: - Chrome
 
-    private func scrollToEnd(_ proxy: ScrollViewProxy, duration: Double) {
-        guard let last = turns.last else { return }
-        withAnimation(.easeOut(duration: duration)) {
-            proxy.scrollTo(last.id, anchor: .bottom)
+    /// To the very end, runway included -- so a pinned message stays where it
+    /// is when the reply fits, and a long reply shows its last line. Nil
+    /// duration jumps without animating.
+    private func scrollToEnd(_ proxy: ScrollViewProxy, duration: Double?) {
+        guard !turns.isEmpty else { return }
+        if let duration {
+            withAnimation(.easeOut(duration: duration)) {
+                proxy.scrollTo(Self.endID, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.endID, anchor: .bottom)
         }
     }
 

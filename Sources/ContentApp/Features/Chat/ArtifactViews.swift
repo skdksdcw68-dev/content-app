@@ -177,8 +177,13 @@ struct ArtifactCard: View {
     @State private var missing = false
 
     var body: some View {
+        // Read from memory first: the list recycles rows that leave the
+        // screen, and one coming back should draw what it drew, not a spinner
+        // and a second fetch.
+        let known = artifact ?? MediaCache.shared.artifact(artifactId)
+
         Group {
-            if let artifact {
+            if let artifact = known {
                 switch artifact.kind {
                 case "research":
                     ReportCard(artifact: artifact, onExport: onExport)
@@ -203,7 +208,7 @@ struct ArtifactCard: View {
             }
         }
         .task(id: artifactId) {
-            guard artifact == nil else { return }
+            guard known == nil else { return }
             artifact = await session.artifact(artifactId)
             missing = artifact == nil
         }
@@ -549,234 +554,6 @@ private struct FileCard: View {
     }
 }
 
-// MARK: Media
-
-/// How big a picture or video sits in the conversation: its real shape, on the
-/// agent's side, never wider than a comfortable column or taller than a
-/// screenful.
-///
-/// Computed, not left to layout. An image told only "fit, at most 380 tall"
-/// took the full column width and centred the picture inside it -- which is why
-/// results sat in the middle of the chat however the card was aligned.
-private func mediaSize(width: Int?, height: Int?) -> CGSize {
-    let aspect: CGFloat = {
-        if let width, let height, width > 0, height > 0 { return CGFloat(width) / CGFloat(height) }
-        return 9.0 / 16.0
-    }()
-    let maxWidth: CGFloat = 250, maxHeight: CGFloat = 400
-    var size = CGSize(width: maxWidth, height: maxWidth / aspect)
-    if size.height > maxHeight { size = CGSize(width: maxHeight * aspect, height: maxHeight) }
-    return size
-}
-
-/// The line under a result: which model, what setting, what it cost.
-private func mediaCaption(_ artifact: Artifact) -> String {
-    var parts: [String] = []
-    if let label = artifact.body.modelLabel { parts.append(label) }
-    if let resolution = artifact.body.resolution {
-        parts.append(resolution.hasSuffix("k") ? resolution.uppercased() : resolution)
-    }
-    if let seconds = artifact.body.seconds { parts.append("\(Int(seconds.rounded()))s") }
-    let cost = artifact.actualCost ?? artifact.estimatedCost
-    if let amount = cost?.amount, let unit = cost?.unit {
-        parts.append("\(amount.formatted(.number.precision(.fractionLength(0...2)))) \(unit)")
-    }
-    return parts.joined(separator: " · ")
-}
-
-// MARK: Image
-
-private struct ImageCard: View {
-    let artifact: Artifact
-    let onAnimate: (Artifact) -> Void
-
-    @Environment(AppSession.self) private var session
-    @State private var remote: URL?
-    @State private var preview: URL?
-
-    private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button {
-                Task { preview = await session.localCopy(of: artifact) }
-            } label: {
-                AsyncImage(url: remote) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                    } else {
-                        Theme.surface.overlay { ProgressView().controlSize(.small) }
-                    }
-                }
-                .frame(width: size.width, height: size.height)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Open the image")
-
-            HStack(spacing: 8) {
-                Button { onAnimate(artifact) } label: {
-                    Label("Animate", systemImage: "play.fill")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.accent)
-
-                Button {
-                    Task { preview = await session.localCopy(of: artifact) }
-                } label: {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Save or share")
-            }
-            .controlSize(.small)
-
-            let caption = mediaCaption(artifact)
-            if !caption.isEmpty {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: artifact.id) {
-            if let path = artifact.storagePath { remote = await session.signedURL(for: path) }
-        }
-        .quickLookPreview($preview)
-    }
-}
-
-// MARK: Video
-
-/// A video the way a feed shows one: playing on its own, silently, on a loop,
-/// at its real shape. Tap for sound; the corner button opens it full screen,
-/// where it can be saved or shared.
-private struct VideoCard: View {
-    let artifact: Artifact
-
-    @Environment(AppSession.self) private var session
-    @State private var url: URL?
-    @State private var muted = true
-    @State private var preview: URL?
-
-    private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ZStack {
-                if let url {
-                    LoopingVideo(url: url, muted: muted)
-                } else {
-                    Theme.surface.overlay { ProgressView().controlSize(.small) }
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .onTapGesture { muted.toggle() }
-            .overlay(alignment: .bottomLeading) {
-                if let seconds = artifact.body.seconds {
-                    Text(clock(seconds))
-                        .font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(10)
-                }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(.black.opacity(0.45), in: Circle())
-                    .padding(10)
-                    .allowsHitTesting(false)
-            }
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    Task { preview = await session.localCopy(of: artifact) }
-                } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(.black.opacity(0.45), in: Circle())
-                }
-                .padding(10)
-                .accessibilityLabel("Open full screen")
-            }
-
-            let caption = mediaCaption(artifact)
-            if !caption.isEmpty {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .task(id: artifact.id) {
-            guard url == nil, let path = artifact.storagePath else { return }
-            url = await session.signedURL(for: path)
-        }
-        .quickLookPreview($preview)
-    }
-
-    private func clock(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-}
-
-/// An AVPlayerLayer that loops, starts when it appears and stops when it
-/// leaves -- a scrolled-past video should not keep decoding.
-private struct LoopingVideo: UIViewRepresentable {
-    let url: URL
-    let muted: Bool
-
-    func makeUIView(context: Context) -> PlayerView {
-        let view = PlayerView()
-        let item = AVPlayerItem(url: url)
-        let player = AVQueuePlayer()
-        context.coordinator.looper = AVPlayerLooper(player: player, templateItem: item)
-        player.isMuted = muted
-        view.playerLayer.player = player
-        view.playerLayer.videoGravity = .resizeAspectFill
-        player.play()
-        return view
-    }
-
-    func updateUIView(_ view: PlayerView, context: Context) {
-        view.playerLayer.player?.isMuted = muted
-    }
-
-    static func dismantleUIView(_ view: PlayerView, coordinator: Coordinator) {
-        view.playerLayer.player?.pause()
-        coordinator.looper = nil
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator() }
-
-    final class Coordinator {
-        var looper: AVPlayerLooper?
-    }
-
-    final class PlayerView: UIView {
-        override static var layerClass: AnyClass { AVPlayerLayer.self }
-        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            // Plays while on screen, pauses when the cell leaves the window.
-            if window == nil { playerLayer.player?.pause() } else { playerLayer.player?.play() }
-        }
-    }
-}
-
 // MARK: - Attachments on a turn
 
 /// The pictures somebody attached, small, above what they said.
@@ -830,18 +607,26 @@ private struct AttachmentThumb: View {
     let path: String
 
     @Environment(AppSession.self) private var session
-    @State private var url: URL?
+    @Environment(\.displayScale) private var displayScale
+    @State private var picture: UIImage?
+
+    private var pixels: CGFloat { 64 * displayScale }
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
+        let shown = picture ?? MediaCache.shared.image(MediaCache.key(path, "\(Int(pixels))"))
+
+        ZStack {
+            if let shown {
+                Image(uiImage: shown).resizable().scaledToFill()
             } else {
                 Theme.surface
             }
         }
         .frame(width: 64, height: 64)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .task(id: path) { url = await session.signedURL(for: path, expiresIn: 600) }
+        .task(id: path) {
+            guard picture == nil else { return }
+            picture = await session.attachmentThumbnail(path, longest: pixels)
+        }
     }
 }

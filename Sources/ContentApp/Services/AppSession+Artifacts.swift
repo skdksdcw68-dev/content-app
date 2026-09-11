@@ -1,5 +1,7 @@
 import Foundation
+import Photos
 import Supabase
+import UIKit
 
 /// What the agent made, and the work still making it.
 ///
@@ -9,13 +11,16 @@ import Supabase
 /// allows and nothing else does.
 extension AppSession {
 
-    /// One artefact, if it is this person's.
+    /// One artefact, if it is this person's. Read once: what was made does not
+    /// change, and a row scrolled back into view should not ask again.
     func artifact(_ id: UUID) async -> Artifact? {
+        if let known = MediaCache.shared.artifact(id) { return known }
         do {
             let rows: [Artifact] = try await client
                 .rpc("artifact", params: ["p_id": id.uuidString])
                 .execute()
                 .value
+            if let row = rows.first { MediaCache.shared.keep(row) }
             return rows.first
         } catch {
             return nil
@@ -44,26 +49,93 @@ extension AppSession {
         try? await client.storage.from("artifacts").createSignedURL(path: path, expiresIn: seconds)
     }
 
-    /// The file, on disk under the name somebody would expect, for Quick Look
-    /// and the share sheet. Both need a real file with a real extension; a
-    /// signed URL is neither.
+    /// The file, on the phone under the name somebody would expect -- fetched
+    /// the first time and kept (see `MediaCache`). Quick Look, the share sheet
+    /// and the players all need a real file with a real extension; a signed
+    /// URL is neither, and is a new download every time it is issued.
     func localCopy(of artifact: Artifact) async -> URL? {
         guard let path = artifact.storagePath else { return nil }
-        let name = artifact.body.filename ?? (path as NSString).lastPathComponent
-        let folder = FileManager.default.temporaryDirectory
-            .appendingPathComponent(artifact.id.uuidString, isDirectory: true)
-        let target = folder.appendingPathComponent(name)
-
-        if FileManager.default.fileExists(atPath: target.path) { return target }
-
-        do {
-            let data = try await client.storage.from("artifacts").download(path: path)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try data.write(to: target, options: .atomic)
-            return target
-        } catch {
-            return nil
+        let storage = client.storage.from("artifacts")
+        return await MediaCache.shared.file(artifact.id.uuidString, name: Self.fileName(of: artifact, path: path)) {
+            try? await storage.download(path: path)
         }
+    }
+
+    /// The file if it is already on the phone -- asked synchronously, so a row
+    /// coming back on screen draws what is there without a round trip.
+    func cachedCopy(of artifact: Artifact) -> URL? {
+        guard let path = artifact.storagePath else { return nil }
+        return MediaCache.shared.onDisk(artifact.id.uuidString, name: Self.fileName(of: artifact, path: path))
+    }
+
+    /// A picture somebody attached, small, kept like the results are -- it
+    /// was a new signed link and a new download every time it scrolled by.
+    func attachmentThumbnail(_ path: String, longest pixels: CGFloat) async -> UIImage? {
+        let key = MediaCache.key(path, "\(Int(pixels))")
+        if let known = MediaCache.shared.image(key) { return known }
+        let storage = client.storage.from("artifacts")
+        let name = (path as NSString).lastPathComponent
+        guard let file = await MediaCache.shared.file(path, name: name, fetch: {
+            try? await storage.download(path: path)
+        }) else { return nil }
+        let image = await Task.detached(priority: .userInitiated) {
+            MediaCache.downsample(file, longest: pixels)
+        }.value
+        if let image { MediaCache.shared.keep(image, key) }
+        return image
+    }
+
+    private static func fileName(of artifact: Artifact, path: String) -> String {
+        artifact.body.filename ?? (path as NSString).lastPathComponent
+    }
+
+    /// A generated picture no bigger than it is drawn: from memory if it has
+    /// been drawn before, from the phone if it was fetched before, and from the
+    /// server only the first time.
+    func picture(of artifact: Artifact, longest pixels: CGFloat) async -> UIImage? {
+        let key = MediaCache.key(artifact.id, "\(Int(pixels))")
+        if let known = MediaCache.shared.image(key) { return known }
+        guard let file = await localCopy(of: artifact) else { return nil }
+        let image = await Task.detached(priority: .userInitiated) {
+            MediaCache.downsample(file, longest: pixels)
+        }.value
+        if let image { MediaCache.shared.keep(image, key) }
+        return image
+    }
+
+    /// A video's first frame, kept the same way.
+    func poster(of artifact: Artifact, longest pixels: CGFloat) async -> UIImage? {
+        let key = MediaCache.key(artifact.id, "poster\(Int(pixels))")
+        if let known = MediaCache.shared.image(key) { return known }
+        guard let file = await localCopy(of: artifact) else { return nil }
+        let image = await MediaCache.poster(file, longest: pixels)
+        if let image { MediaCache.shared.keep(image, key) }
+        return image
+    }
+
+    /// Puts a picture or video in the person's photo library. Add-only access:
+    /// the app can put things in and can never read what is there.
+    func saveToPhotos(_ artifact: Artifact) async -> SaveOutcome {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return .notAllowed }
+        guard let file = await localCopy(of: artifact) else { return .failed }
+        let isVideo = artifact.kind == "video"
+        do {
+            try await PHPhotoLibrary.shared().performChanges {
+                if isVideo {
+                    _ = PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: file)
+                } else {
+                    _ = PHAssetChangeRequest.creationRequestForAssetFromImage(atFileURL: file)
+                }
+            }
+            return .saved
+        } catch {
+            return .failed
+        }
+    }
+
+    enum SaveOutcome {
+        case saved, notAllowed, failed
     }
 
     /// The provider's own price for one image or video with exactly these

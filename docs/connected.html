@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connection — Netro Autocast</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Where a provider sends a browser after it has been authorised.
+     It lives here rather than on the Edge Function because Supabase serves
+     every function response as text/plain with nosniff -- a deliberate rule
+     against phishing pages on supabase.co -- so HTML from there arrives as
+     source code. The function redirects here with a status instead. */
+  main.done { min-height: 70vh; display: grid; place-items: center; text-align: center; }
+  .done .card { max-width: 24rem; }
+  .done img { width: 64px; height: 64px; border-radius: 16px; margin-bottom: 1.1rem; }
+  .done h1 { font-size: 1.35rem; margin: 0 0 .5rem; }
+  .done p { margin: 0; color: var(--ink-soft); }
+</style>
+</head>
+<body>
+<main class="done">
+  <div class="card">
+    <img src="logo.png" alt="">
+    <h1 id="t">Connected</h1>
+    <p id="d">You can close this and go back to Autocast.</p>
+  </div>
+</main>
+<script>
+  // Status only, never a secret: the code was exchanged and the token sealed
+  // on the server before this page was ever requested.
+  const q = new URLSearchParams(location.search);
+  const status = q.get("status");
+  const reasons = {
+    expired: ["That link has expired", "Start the connection again from Autocast — sign-in links last ten minutes."],
+    cancelled: ["Not connected", "You declined on the sign-in page. Nothing was saved."],
+    failed: ["Could not connect", "Something went wrong finishing the sign-in. Try again from Autocast."],
+  };
+  if (status && status !== "connected") {
+    const [t, d] = reasons[q.get("reason")] || reasons[status] || reasons.failed;
+    document.getElementById("t").textContent = t;
+    document.getElementById("d").textContent = d;
+  }
+</script>
+</body>
+</html>

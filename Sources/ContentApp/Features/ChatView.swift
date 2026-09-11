@@ -782,6 +782,10 @@ struct ChatView: View {
     /// duration jumps without animating.
     private func scrollToEnd(_ proxy: ScrollViewProxy, duration: Double?) {
         guard !turns.isEmpty else { return }
+        // Just sent and not yet measured, the runway is a whole screen: the
+        // end is past where the message should sit, and going there would
+        // carry it off the top.
+        guard pinned == nil || pinnedTop != nil else { return }
         if let duration {
             withAnimation(.easeOut(duration: duration)) {
                 proxy.scrollTo(Self.endID, anchor: .bottom)

@@ -78,6 +78,11 @@ export interface Intent {
   balance?: Balance | null;
 }
 
+/** Words that carry no identity in a model name. "v" is the version prefix:
+ *  Higgsfield labels one model "Kling v3.0", and "Kling 3.0" typed by a person
+ *  should be that model, not a question about which Kling. */
+const NOISE = new Set(["model", "the", "use", "using", "with", "a", "an", "please", "higgsfield", "v", "version"]);
+
 /**
  * The models a typed name could mean, best first.
  *
@@ -93,7 +98,7 @@ export function matchModels<T extends { label: string; externalId: string }>(poo
       .replace(/([a-z])(\d)/g, "$1 $2")
       .replace(/(\d)([a-z])/g, "$1 $2")
       .split(/[^a-z0-9]+/)
-      .filter((t) => t && !["model", "the", "use", "using", "with", "a", "an", "please", "higgsfield"].includes(t));
+      .filter((t) => t && !NOISE.has(t));
 
   const wanted = [...new Set(tokens(typed))];
   if (wanted.length === 0) return [];
@@ -135,7 +140,7 @@ export function matchModels<T extends { label: string; externalId: string }>(poo
 export function settlesOn<T extends { label: string }>(matches: T[], typed: string): T | null {
   const tokens = (text: string) =>
     text.toLowerCase().replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2")
-      .split(/[^a-z0-9]+/).filter((t) => t && !["model", "the", "use", "using", "with", "a", "an", "please", "higgsfield"].includes(t));
+      .split(/[^a-z0-9]+/).filter((t) => t && !NOISE.has(t));
   const wanted = new Set(tokens(typed));
   const covers = (m: T) => [...wanted].every((t) => new Set(tokens(m.label)).has(t));
   const exact = matches.filter((m) => {
@@ -165,7 +170,7 @@ export async function choicesFor(
   // Only what can do this request. If the filter would leave nothing, the
   // metadata is more likely incomplete than every model unable -- so the full
   // list stands rather than a false "nothing can make this".
-  const able = everything.filter((c) => suits(c.metadata, intent.withPicture === true));
+  const able = everything.filter((c) => suits(c.metadata, intent.withPicture === true, capability));
   let candidates = able.length > 0 ? able : everything;
   if (intent.only && intent.only.length > 0) {
     const order = intent.only;

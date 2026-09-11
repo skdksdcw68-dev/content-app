@@ -73,10 +73,20 @@ function isEditor(metadata: Record<string, unknown>): boolean {
   return EDITOR.test(words);
 }
 
-export function suits(metadata: Record<string, unknown>, withPicture: boolean): boolean {
+/** Whether a video model can START from a picture -- a first frame, not just
+ *  a style reference. Animating an image needs this; "Kling 3.0 Omni Edit"
+ *  takes image references but edits an existing video, and was offered for
+ *  "animate this". */
+function startsFromPicture(metadata: Record<string, unknown>): boolean {
+  return rolesOf(metadata).some((role) => /^(image|start_image|first_frame|start_frame)$/i.test(role));
+}
+
+export function suits(metadata: Record<string, unknown>, withPicture: boolean, capability?: string): boolean {
   if (needsSomethingWeLack(metadata)) return false;
 
-  if (withPicture) return takesPicture(metadata);
+  if (withPicture) {
+    return capability === "video_generation" ? startsFromPicture(metadata) : takesPicture(metadata);
+  }
 
   // From words alone.
   if (metadata.text_only === true) return true;

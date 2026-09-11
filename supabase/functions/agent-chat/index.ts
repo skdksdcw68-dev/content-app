@@ -364,6 +364,34 @@ Deno.serve(async (request) => {
           };
         };
 
+        /**
+         * The make request waiting on its subject, if the last thing Autocast
+         * said was "what should it be of?". The reply IS the subject -- "a cup
+         * of tea" on its own reads as chat -- and the model and settings named
+         * before the question still apply.
+         */
+        const lastAwaiting = async (): Promise<{
+          capability: string;
+          model: string | null;
+          settings: Record<string, unknown>;
+        } | null> => {
+          if (!threadId) return null;
+          const { data } = await admin
+            .from("messages")
+            .select("render_hint")
+            .eq("thread_id", threadId)
+            .eq("role", "assistant")
+            .order("seq", { ascending: false })
+            .limit(1);
+          const hint = (data ?? [])[0]?.render_hint as Record<string, unknown> | null | undefined;
+          if (hint?.kind !== "awaiting_subject") return null;
+          return {
+            capability: String(hint.capability ?? "image_generation"),
+            model: typeof hint.model === "string" ? hint.model : null,
+            settings: (hint.settings as Record<string, unknown>) ?? {},
+          };
+        };
+
         /** Artefacts in this conversation, newest first -- what "it" means. */
         const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
           if (!threadId) return null;
@@ -767,7 +795,7 @@ Deno.serve(async (request) => {
           // openings") made the agent look like it was checking up on
           // somebody before answering "hi". Steps are for work a person would
           // want to watch: making something, pricing it, researching.
-          const pending = await lastOffer();
+          const [pending, awaiting] = await Promise.all([lastOffer(), lastAwaiting()]);
           const context = [
             ...history.slice(0, -1).slice(-6).map((turn) =>
               `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 300)}`
@@ -861,23 +889,48 @@ Deno.serve(async (request) => {
 
           // A named model means something is being made, even when the words
           // around it ("use nano banana pro2 with 2k resolution") read as chat.
-          if (routed.intent === "make" || routed.model) {
-            // WHAT to make: the subject the router pulled out, or what the
-            // last offer was for. Never the raw sentence -- the first real
-            // image went to Higgsfield with the prompt "I want a photo or
-            // image not a video", and came back as exactly that much sense.
-            const prompt = routed.subject?.trim() || pending?.request || asked;
-            const settings = { ...(pending?.settings ?? {}), ...routed.settings };
+          // An answer to "what should it be of?" continues that request, even
+          // though "a cup of tea" on its own reads as chat.
+          const continuing = awaiting !== null && (routed.intent === "make" || routed.intent === "chat");
+
+          if (routed.intent === "make" || routed.model || continuing) {
+            const namedModel = routed.model ?? awaiting?.model ?? null;
+
+            // Typed "animate this" means the last picture made here, the same
+            // as the Animate button under it.
+            let sourceArtifactId = pending?.sourceArtifactId ?? null;
+            let animating = "";
+            if (!sourceArtifactId && /\banimat|bring (it|this|that)? ?to life|make (it|this|that) move/i.test(asked) && threadId) {
+              const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
+              const image = ((data ?? []) as Array<{ id: string; kind: string; body: Record<string, unknown> }>)
+                .find((row) => row.kind === "image");
+              if (image) {
+                sourceArtifactId = image.id;
+                animating = `${String(image.body?.prompt ?? "this image")}, brought to life with subtle, natural motion`;
+              }
+            }
+
+            // WHAT to make: the subject the router pulled out, the reply to
+            // "what should it be of?", or what the last offer was for. Never
+            // the instruction sentence -- "use nano banana pro with 2k" sent as
+            // a prompt came back as a drawing of a handheld console labelled
+            // NANO BANANA PRO 2K.
+            const subject = routed.subject?.trim() || (continuing ? asked.trim() : "");
+            const prompt = subject || pending?.request || animating;
+            const settings = { ...(awaiting?.settings ?? {}), ...(pending?.settings ?? {}), ...routed.settings };
             const references = attachments.length > 0 ? attachments : (pending?.references ?? []);
 
             // Which kind: a model they named settles it, then what they said,
-            // then what was already on offer, then video.
-            let capability: "image_generation" | "video_generation" = routed.media === "image"
+            // then what they were already making, then video.
+            const earlier = awaiting?.capability ?? pending?.capability;
+            let capability: "image_generation" | "video_generation" = animating
+              ? "video_generation"
+              : routed.media === "image"
               ? "image_generation"
               : routed.media === "video"
               ? "video_generation"
-              : pending?.capability === "image_generation" || pending?.capability === "video_generation"
-              ? pending.capability
+              : earlier === "image_generation" || earlier === "video_generation"
+              ? earlier
               : "video_generation";
 
             // A name is looked up across EVERYTHING they have, not the eight
@@ -886,26 +939,28 @@ Deno.serve(async (request) => {
             let only: string[] | undefined;
             let unmatched = false;
             let settled = false;
-            if (routed.model) {
+            if (namedModel) {
               const pools = await Promise.all(
                 (["image_generation", "video_generation"] as const).map(async (cap) =>
                   (await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap }))
                 ),
               );
-              const matches = matchModels(pools.flat(), routed.model);
+              const matches = matchModels(pools.flat(), namedModel);
               if (matches.length > 0) {
                 // A name can span kinds -- Higgsfield has three Kling video
                 // models and a Kling image one. The kind comes from what they
-                // said, then from what they were just choosing between, then
-                // from where most of the matches are.
+                // said, then from what they were already making, then from
+                // where most of the matches are.
                 const kinds = new Set(matches.map((m) => m.capability));
-                const said = routed.media === "image"
+                const said = animating
+                  ? "video_generation"
+                  : routed.media === "image"
                   ? "image_generation"
                   : routed.media === "video"
                   ? "video_generation"
                   : null;
-                const offered = pending && kinds.has(pending.capability as typeof capability)
-                  ? pending.capability as typeof capability
+                const offered = earlier && kinds.has(earlier as typeof capability)
+                  ? earlier as typeof capability
                   : null;
                 capability = said && kinds.has(said)
                   ? said
@@ -914,7 +969,7 @@ Deno.serve(async (request) => {
                   )[0];
 
                 const same = matches.filter((m) => m.capability === capability).slice(0, 4);
-                const exact = settlesOn(same, routed.model);
+                const exact = settlesOn(same, namedModel);
                 // Started without asking only when nothing about it is a
                 // guess: one model, and the kind either certain or said.
                 settled = exact !== null && (kinds.size === 1 || said !== null || offered !== null);
@@ -923,18 +978,28 @@ Deno.serve(async (request) => {
                 unmatched = true;
               }
             }
+
+            // Nothing to make yet: a model or a setting, but not the thing.
+            // One question, and the model and settings wait with it.
+            if (!prompt && !sourceArtifactId) {
+              const noun = capability === "image_generation" ? "image" : "video";
+              speak(`Sure — what should the ${noun} be of?`);
+              await remember({ kind: "awaiting_subject", capability, model: namedModel, settings });
+              return finish();
+            }
+
             return await produce({
               capability,
               prompt,
               settings,
               references,
-              // Answering an offer that was for animating something keeps
-              // animating that thing.
-              sourceArtifactId: pending?.sourceArtifactId ?? null,
+              // Answering an offer that was for animating something, or saying
+              // "animate this", animates that thing.
+              sourceArtifactId,
               only,
               settled,
               unmatched,
-              named: routed.model,
+              named: namedModel,
               brandId: brand?.id ?? null,
             });
           }

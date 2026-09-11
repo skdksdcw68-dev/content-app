@@ -201,7 +201,7 @@ export async function routeSubmit(
   // remover is not a fallback for "make an image". Unfiltered if the filter
   // would empty it, for the same reason as in `choicesFor`.
   const withPicture = (args.references?.length ?? 0) > 0;
-  const able = everything.filter((c) => suits(c.metadata, withPicture));
+  const able = everything.filter((c) => suits(c.metadata, withPicture, args.capability));
   const all = able.length > 0 ? able : everything;
 
   if (all.length === 0) {

@@ -15,7 +15,6 @@ struct OnboardingConnect: View {
     let kind: Kind
 
     @Environment(AppSession.self) private var session
-    @State private var addingGenerator = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -35,7 +34,6 @@ struct OnboardingConnect: View {
             footer
         }
         .background(Theme.canvas)
-        .sheet(isPresented: $addingGenerator) { GeneratorSheet() }
     }
 
     // MARK: - What is on the screen
@@ -129,6 +127,9 @@ struct OnboardingConnect: View {
 
         case .generator:
             let generator = session.generators.first
+            // A Higgsfield connection made by signing in counts as much as a
+            // pasted key -- more, since it is now the default way in.
+            let signedIn = session.connectedProviders.first { $0.providerSlug == "higgsfield" }
             return [
                 .init(
                     id: "higgsfield",
@@ -142,8 +143,10 @@ struct OnboardingConnect: View {
                     // from memory, and a wrong logo is worse than an honest
                     // letter. Swap this for their real asset when you have it.
                     mark: .init(letter: "H", tint: .indigo),
-                    state: generator == nil ? .available : (generator?.isWorking == true ? .connected : .needsAttention),
-                    connectedAs: generator?.isWorking == true ? "Key verified" : generator?.statusLine
+                    state: signedIn.map { $0.isHealthy ? .connected : .needsAttention }
+                        ?? (generator == nil ? .available : (generator?.isWorking == true ? .connected : .needsAttention)),
+                    connectedAs: signedIn.map(\.summary)
+                        ?? (generator?.isWorking == true ? "Key verified" : generator?.statusLine)
                 ),
                 .init(
                     id: "own",
@@ -170,7 +173,10 @@ struct OnboardingConnect: View {
         case (.account, .available), (.account, .needsAttention):
             Task { await session.connectTikTok() }
         case (.generator, .available), (.generator, .needsAttention):
-            addingGenerator = true
+            // Sign in to Higgsfield, not paste a key. The key sheet was the
+            // only way in before MCP connection existed, and it asked somebody
+            // to find a developer dashboard and copy two strings.
+            Task { await session.connectProvider("higgsfield") }
         default:
             break
         }

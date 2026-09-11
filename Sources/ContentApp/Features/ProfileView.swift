@@ -3,7 +3,6 @@ import SwiftUI
 /// Who this account is, and what it is allowed to post to.
 struct ProfileView: View {
     @Environment(AppSession.self) private var session
-    @State private var addingGenerator = false
 
     var body: some View {
         List {
@@ -53,25 +52,41 @@ struct ProfileView: View {
             }
 
             Section {
-                if session.generators.isEmpty {
-                    NoGeneratorRow()
-                } else {
-                    ForEach(session.generators) { generator in
-                        GeneratorRow(generator: generator) {
-                            Task { await session.forgetGenerator(generator.id) }
-                        }
+                // Providers connected by signing in. What each one can do is
+                // shown rather than a tick -- "5 models · video, image" is the
+                // question somebody actually has.
+                ForEach(session.connectedProviders) { provider in
+                    ProviderRow(provider: provider) {
+                        Task { await session.disconnect(provider.id) }
                     }
                 }
 
-                Button {
-                    addingGenerator = true
-                } label: {
-                    Label("Add a generator", systemImage: "plus.circle.fill")
+                // Keys pasted before sign-in existed still work and still show.
+                ForEach(session.generators) { generator in
+                    GeneratorRow(generator: generator) {
+                        Task { await session.forgetGenerator(generator.id) }
+                    }
+                }
+
+                if session.connectedProviders.isEmpty && session.generators.isEmpty {
+                    NoGeneratorRow()
+                }
+
+                // Sign in, not paste a key. The connect list comes from the
+                // server, so a provider added later appears here without this
+                // file changing.
+                ForEach(session.connectable) { provider in
+                    Button {
+                        Task { await session.connectProvider(provider.slug) }
+                    } label: {
+                        Label("Connect \(provider.name)", systemImage: "plus.circle.fill")
+                    }
+                    .disabled(session.isWorking)
                 }
             } header: {
                 Text("Generators")
             } footer: {
-                Text("Autocast makes the videos with a generator you pay for, using your own key. Nothing is generated without one.")
+                Text("Sign in to the generator you already pay for. Autocast never sees or stores your password, and you are billed by them, not by us.")
             }
 
             Section {
@@ -108,12 +123,40 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("You")
+        .task {
+            await session.refreshConnectedProviders()
+            await session.refreshConnectable()
+        }
         .refreshable {
             await session.refreshConnections()
             await session.refreshGenerators()
+            await session.refreshConnectedProviders()
+            await session.refreshConnectable()
             await session.refreshSettings()
         }
-        .sheet(isPresented: $addingGenerator) { GeneratorSheet() }
+    }
+}
+
+/// One provider connected by signing in.
+private struct ProviderRow: View {
+    let provider: ProviderConnection
+    let onDisconnect: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: provider.isHealthy ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(provider.isHealthy && provider.modelCount > 0 ? Color.green : Color.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(provider.providerName)
+                Text(provider.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .swipeActions {
+            Button("Disconnect", role: .destructive, action: onDisconnect)
+        }
     }
 }
 

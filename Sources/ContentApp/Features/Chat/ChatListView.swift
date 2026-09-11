@@ -17,141 +17,88 @@ struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
     }
 }
 
-/// Where the Chat tab lands.
+/// Where the Chat tab can go.
 ///
-/// It used to open straight into a conversation, which meant there was no way
-/// to reach an earlier one and no obvious way to start a fresh one -- the tab
-/// was a door into whichever chat happened to be in memory.
+/// Value-based, like the email app's `AIRoute`, and for the reason recorded
+/// there: a view-based push and value-based pushes inside the chat cannot share
+/// one navigation path, so tapping something from inside a conversation would
+/// replace the conversation instead of stacking on it.
+enum ChatRoute: Hashable {
+    /// A saved conversation by id, or a fresh one.
+    case chat(UUID?)
+}
+
+/// The Chat tab: a way into a new conversation, and the ones already had.
 ///
-/// So the tab is the list, and a conversation is something you enter from it.
-/// That also fixes the tab bar: browsing your conversations is browsing, and
-/// the bar belongs there. It hides only once you are inside a conversation,
-/// which is the one place the full screen is worth having.
+/// Built on the email app's `AITabView` rather than invented. The conversation
+/// is PUSHED from here as an ordinary page -- not presented over the app as a
+/// sheet -- because a conversation is somewhere you go into and come back from,
+/// with the system's own back button and swipe-back gesture. The tab bar slides
+/// away with the push and back with the pop (`hidesTabBar()`), which is what
+/// UIKit's `hidesBottomBarWhenPushed` always did.
 struct ChatListView: View {
     @Environment(AppSession.self) private var session
 
     @State private var threads: [ChatThread] = []
-    @State private var opened: ChatThread?
-    @State private var startingNew = false
-    @State private var loading = true
 
     var body: some View {
-        Group {
-            if loading {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if threads.isEmpty {
-                EmptyState { startingNew = true }
-            } else {
-                List {
-                    ForEach(threads) { thread in
-                        Button { opened = thread } label: {
-                            ThreadRow(thread: thread)
+        List {
+            Section {
+                NavigationLink(value: ChatRoute.chat(nil)) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.text.bubble.right.fill")
+                            .font(.body)
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Talk to Autocast")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Plan, research, make — it keeps working when you close the app.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.vertical, 3)
                 }
-                .listStyle(.plain)
+            }
+
+            if !threads.isEmpty {
+                Section {
+                    ForEach(threads) { thread in
+                        NavigationLink(value: ChatRoute.chat(thread.id)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(thread.displayTitle)
+                                    .font(.subheadline.weight(.medium))
+                                    .lineLimit(1)
+                                if !thread.preview.isEmpty {
+                                    Text(thread.preview)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Text(thread.updatedAt.formatted(.relative(presentation: .named)))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
+                        }
+                    }
+                } header: {
+                    Text("Recent chats")
+                }
             }
         }
-        .background(Theme.canvas)
         .navigationTitle("Chat")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { startingNew = true } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .accessibilityLabel("New chat")
+        .navigationDestination(for: ChatRoute.self) { route in
+            switch route {
+            case .chat(let id): ChatView(threadId: id)
             }
         }
-        // A conversation covers the app, keeps the tab bar hidden, and comes
-        // back here. Full screen rather than a sheet because a chat is a place
-        // you work in, not something you peek at.
-        .fullScreenCover(item: $opened) { thread in
-            NavigationStack {
-                ChatView(onClose: { opened = nil }, threadId: thread.id)
-                    .toolbar(.hidden, for: .tabBar)
-            }
-        }
-        .fullScreenCover(isPresented: $startingNew) {
-            NavigationStack {
-                ChatView(onClose: { startingNew = false })
-                    .toolbar(.hidden, for: .tabBar)
-            }
-        }
-        .task { await load() }
-        // Reloaded on return so a conversation that just gained a reply, or one
-        // that was started from the empty state, is in the list.
-        .onChange(of: opened) { _, value in if value == nil { Task { await load() } } }
-        .onChange(of: startingNew) { _, value in if !value { Task { await load() } } }
-        .refreshable { await load() }
-    }
-
-    private func load() async {
-        threads = await session.threads()
-        loading = false
-    }
-}
-
-private struct ThreadRow: View {
-    let thread: ChatThread
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(thread.displayTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Text(thread.updatedAt, format: .relative(presentation: .named))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            if !thread.preview.isEmpty {
-                Text(thread.preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-}
-
-private struct EmptyState: View {
-    let onStart: () -> Void
-
-    var body: some View {
-        VStack(spacing: 18) {
-            VStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                Text("Ask Autocast")
-                    .font(.title3.weight(.semibold))
-                Text("Plan a month, research something, make a video. It keeps working when you close the app.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Button(action: onStart) {
-                Text("Start a chat")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 11)
-                    .background(Capsule().fill(Theme.accent))
-            }
-            .buttonStyle(PressButtonStyle())
-        }
-        .padding(.horizontal, 32)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Reloaded whenever the list comes back into view, so a conversation
+        // that just gained a reply -- or one started a moment ago -- is here
+        // on the pop rather than after a pull-to-refresh.
+        .task { threads = await session.threads() }
+        .onAppear { Task { threads = await session.threads() } }
+        .refreshable { threads = await session.threads() }
     }
 }

@@ -107,6 +107,12 @@ final class AppSession {
             await refreshPosts()
             await refreshPlan()
             await refreshGenerators()
+            // Signed-in providers, loaded at launch alongside pasted keys --
+            // otherwise `hasWorkingGenerator` reads false until something
+            // happens to refresh them, and the Autopilot switch sits disabled
+            // for somebody who is connected.
+            await refreshConnectedProviders()
+            await refreshConnectable()
             await refreshSettings()
             await refreshHealth()
             state = .ready
@@ -750,7 +756,14 @@ extension AppSession {
         }
     }
 
-    var hasWorkingGenerator: Bool { generators.contains(where: \.isWorking) }
+    /// Anything that can actually make a video: a key pasted the old way, or a
+    /// provider connected by signing in that reported the capability. Counting
+    /// only pasted keys left the Autopilot switch disabled for somebody who had
+    /// connected Higgsfield properly.
+    var hasWorkingGenerator: Bool {
+        generators.contains(where: \.isWorking)
+            || connectedProviders.contains { $0.isHealthy && $0.capabilities.contains("video_generation") }
+    }
 
     /// Starts making the video for one planned post.
     ///

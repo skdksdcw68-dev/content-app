@@ -19,9 +19,6 @@ import UIKit
 /// of model time and belongs to `propose-plan`, so the agent offers it as an
 /// action and the sheet does the work.
 struct ChatView: View {
-    /// Set when this screen is covering the tab bar, which is the only way it
-    /// is used. Without it there would be no way out of the conversation.
-    var onClose: (() -> Void)? = nil
     /// A saved conversation to reopen. Nil starts a new one.
     var threadId: UUID? = nil
 
@@ -156,25 +153,16 @@ struct ChatView: View {
             thread = threadId
             turns = await session.messages(in: threadId)
         }
+        // No title. The page is the wordmark when empty and the conversation
+        // when not; a second "Autocast" in the bar would be clutter. The way
+        // back is the system back button and swipe-back, because this is
+        // pushed from the Chat tab like the email app's conversation.
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // Pushed page, so the tab bar slides away with the push and back with
+        // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
+        .hidesTabBar()
         .toolbar {
-            if let onClose {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        dismissKeyboard()
-                        onClose()
-                    } label: {
-                        // Down rather than back: the conversation came up over
-                        // the app and this puts it away, which is what every
-                        // sheet-shaped thing on the platform does.
-                        Image(systemName: "chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    .accessibilityLabel("Close chat")
-                }
-            }
-
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {

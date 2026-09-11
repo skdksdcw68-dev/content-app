@@ -24,8 +24,9 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { open } from "../_shared/crypto.ts";
-import { McpSession, mcpAdapter } from "../_shared/connectors/mcp.ts";
+import { McpSession } from "../_shared/connectors/mcp.ts";
+import { rediscover } from "../_shared/connectors/discovery.ts";
+import { openConnection } from "../_shared/connectors/tokens.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -63,54 +64,44 @@ Deno.serve(async (request) => {
     if (!target) throw new PublicError("No connected provider to refresh.", 404);
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-    const { data: rows } = await admin.rpc("read_connection", { p_connection: target });
-    const connection = (rows ?? [])[0];
-    if (!connection?.access_ct) throw new PublicError("That connection has no credential.", 409);
-
-    const token = await open(connection.access_ct, `${target}:access`);
-    const endpoint = connection.mcp_url ?? connection.api_base;
+    // Opened through the refreshing path: this button is exactly what
+    // somebody presses the day after connecting, when the first token has
+    // expired.
+    const opened = await openConnection(admin, target);
 
     // The raw list, before any mapping, so a failure is legible rather than a
     // shrug. Deliberately outside the adapter: the adapter's job is to map, and
-    // this is asking what it had to map from.
+    // this is asking what it had to map from. Only for signed-in connections;
+    // a pasted key has no tool list to show.
     let tools: string[] = [];
-    try {
-      const session = new McpSession(endpoint, token);
-      await session.open();
-      tools = (await session.tools()).map((tool) => tool.name);
-    } catch (thrown) {
-      console.error("tools/list", thrown);
+    if (opened.authKind !== "api_key") {
+      try {
+        const session = new McpSession(opened.endpoint, opened.secret);
+        await session.open();
+        tools = (await session.tools()).map((tool) => tool.name);
+      } catch (thrown) {
+        console.error("tools/list", thrown);
+      }
     }
 
-    let recorded = 0;
-    let capabilities: string[] = [];
-
     try {
-      const adapter = mcpAdapter(connection.provider_slug);
-      const discovery = await adapter.discover({
-        connectionId: target,
-        secret: token,
-        endpoint,
-      });
+      const found = await rediscover(admin, target);
 
-      const { data: count } = await admin.rpc("record_discovery", {
-        p_connection: target,
-        p_models: discovery.models,
-      });
-      recorded = Number(count ?? 0);
-      capabilities = [...new Set(discovery.models.map((m) => m.capability))];
-
-      if (discovery.tools) {
-        await admin.rpc("record_tools", { p_connection: target, p_tools: discovery.tools });
-      }
-
-      if (discovery.accountLabel) {
+      if (found.accountLabel) {
         await admin.rpc("activate_connection", {
           p_connection: target,
-          p_label: discovery.accountLabel,
-          p_external: discovery.externalAccountId,
+          p_label: found.accountLabel,
+          p_external: null,
         });
       }
+
+      return json({
+        connectionId: target,
+        provider: opened.providerSlug,
+        tools,
+        recorded: found.recorded,
+        capabilities: found.capabilities,
+      });
     } catch (thrown) {
       console.error("discover", thrown);
       // A discovery that throws does not fault the connection: the
@@ -118,21 +109,13 @@ Deno.serve(async (request) => {
       // to reconnect a thing that is connected.
       return json({
         connectionId: target,
-        provider: connection.provider_slug,
+        provider: opened.providerSlug,
         tools,
         recorded: 0,
         capabilities: [],
         error: thrown instanceof Error ? thrown.message : "discovery failed",
       });
     }
-
-    return json({
-      connectionId: target,
-      provider: connection.provider_slug,
-      tools,
-      recorded,
-      capabilities,
-    });
   } catch (error) {
     return fail(error);
   }

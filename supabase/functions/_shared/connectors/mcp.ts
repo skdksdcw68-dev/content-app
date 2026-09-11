@@ -253,8 +253,14 @@ function inferCapability(name: string, description = ""): Capability | null {
  * "with what" -- and a provider without such a tool simply gets one entry per
  * capability, which is honest rather than invented.
  */
-const MODEL_CATALOGUE: Record<string, { tool: string; args: Record<string, unknown> }> = {
-  higgsfield: { tool: "models_explore", args: { action: "list", limit: 100 } },
+const MODEL_CATALOGUE: Record<string, {
+  tool: string;
+  args: Record<string, unknown>;
+  /** Extra arguments that narrow the list to models needing no input file,
+   *  where the catalogue offers such a filter. */
+  textOnly?: Record<string, unknown>;
+}> = {
+  higgsfield: { tool: "models_explore", args: { action: "list", limit: 100 }, textOnly: { input: "text" } },
 };
 
 /** Reads whatever shape a catalogue tool returned. Providers disagree about
@@ -309,24 +315,73 @@ export function mcpAdapter(slug: string): Adapter {
       const models: ModelDescriptor[] = [];
       const catalogue = MODEL_CATALOGUE[slug];
 
-      for (const [capability, toolName] of found) {
+      // Each catalogue slice is asked for once, and each model recorded once.
+      // Audio and voice both read the "audio" slice, so without this the same
+      // model arrived twice in one write and the database refused the whole
+      // list -- which is how the first real sign-in ended up with none.
+      const slices = new Map<string, Array<Record<string, unknown>>>();
+      const seen = new Set<string>();
+
+      // Video and image first: they are what this product makes, so when a
+      // model could belong to two capabilities it lands in the one that matters.
+      const order: Capability[] = ["video_generation", "image_generation", "audio_generation", "voice_generation"];
+      const ordered = [...found].sort(([a], [b]) =>
+        (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)
+      );
+
+      for (const [capability, toolName] of ordered) {
         let listed: Array<Record<string, unknown>> = [];
+        const kind = kindFor(capability);
 
         if (catalogue && tools.some((t) => t.name === catalogue.tool)) {
-          try {
-            const result = await session.call("tools/call", {
-              name: catalogue.tool,
-              arguments: { ...catalogue.args, type: kindFor(capability) },
-            });
-            listed = itemsFrom(result);
-          } catch {
-            // A catalogue that will not answer is not a reason to report the
-            // capability as absent -- the tool is there and it works. Fall
-            // through to the single generic entry below.
+          if (!slices.has(kind)) {
+            try {
+              const result = await session.call("tools/call", {
+                name: catalogue.tool,
+                arguments: { ...catalogue.args, type: kind },
+              });
+              const items = itemsFrom(result);
+
+              // The models that take no picture at all, which are certain to
+              // work from words. Only ever marks a model TRUE: the filter means
+              // "no picture input", not "works without one", and treating the
+              // rest as unable would hide GPT Image and Seedance. See suits.ts.
+              if (catalogue.textOnly && items.length > 0) {
+                try {
+                  const textResult = await session.call("tools/call", {
+                    name: catalogue.tool,
+                    arguments: { ...catalogue.args, type: kind, ...catalogue.textOnly },
+                  });
+                  const textIds = new Set(
+                    itemsFrom(textResult).map((item) => String(item.id ?? item.model_id ?? item.slug ?? item.name ?? "")),
+                  );
+                  for (const item of items) {
+                    const id = String(item.id ?? item.model_id ?? item.slug ?? item.name ?? "");
+                    if (textIds.has(id)) item.text_only = true;
+                  }
+                } catch (thrown) {
+                  console.error("catalogue text-only", kind, thrown instanceof Error ? thrown.message : thrown);
+                }
+              }
+
+              slices.set(kind, items);
+            } catch (thrown) {
+              // A catalogue that will not answer is not a reason to report the
+              // capability as absent -- the tool is there and it works. Fall
+              // through to the single generic entry below.
+              console.error("catalogue", kind, thrown instanceof Error ? thrown.message : thrown);
+              slices.set(kind, []);
+            }
           }
+          listed = (slices.get(kind) ?? []).filter((item) => {
+            const id = String(item.id ?? item.model_id ?? item.slug ?? item.name ?? "");
+            return id && !seen.has(id);
+          });
         }
 
         if (listed.length === 0) {
+          if (seen.has(toolName)) continue;
+          seen.add(toolName);
           models.push({
             capability,
             external_id: toolName,
@@ -339,17 +394,20 @@ export function mcpAdapter(slug: string): Adapter {
 
         listed.forEach((item, index) => {
           const id = String(item.id ?? item.model_id ?? item.slug ?? item.name ?? "");
-          if (!id) return;
+          if (!id || seen.has(id)) return;
+          seen.add(id);
           models.push({
             capability,
             external_id: id,
             label: String(item.name ?? item.title ?? id),
             metadata: {
-              tool: toolName,
               // Kept whole. A chooser needs durations, aspect ratios and cost,
               // and normalising them here would mean a migration every time a
               // provider adds a knob.
               ...item,
+              // After the spread, so a catalogue field called `tool` cannot
+              // redirect the request to some other tool.
+              tool: toolName,
             },
             rank: index,
           });
@@ -464,7 +522,7 @@ export function mcpAdapter(slug: string): Adapter {
 
       const args = argumentsFor(tool, request, [], { spend: false });
       const result = checked(await session.call("tools/call", { name: tool.name, arguments: args }));
-      const credits = numberNamed(result, ["credits", "cost", "price", "total_cost", "credit_cost"]);
+      const credits = numberNamed(result, ["credits_exact", "credits", "credit_cost", "total_cost", "price", "cost"]);
       return credits === null ? null : { unit: "credits", amount: credits, quoted: true, basis: "for this request" };
     },
 
@@ -861,13 +919,19 @@ function mimeFor(url: string, capability: Capability | undefined): string {
   return capability === "image_generation" ? "image/png" : "video/mp4";
 }
 
-/** The first number under one of `names`, or in prose as "N credits". */
+/** A number under one of `names`, tried IN THAT ORDER, or in prose as "N
+ *  credits". Order matters: Higgsfield answers a price check with
+ *  `{cost: {credits: 1, credits_exact: 0.5}}`, and balances are fractional,
+ *  so the exact figure is what is actually deducted. */
 function numberNamed(result: unknown, names: string[]): number | null {
-  for (const object of objectsIn(result)) {
-    for (const [k, v] of entries(object)) {
-      if (!names.includes(k)) continue;
-      const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-      if (Number.isFinite(n)) return n;
+  const objects = objectsIn(result);
+  for (const name of names) {
+    for (const object of objects) {
+      for (const [k, v] of entries(object)) {
+        if (k !== name) continue;
+        const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+        if (Number.isFinite(n)) return n;
+      }
     }
   }
   const prose = textOf(result).match(/(\d+(?:\.\d+)?)\s*credits?/i);

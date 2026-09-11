@@ -26,6 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { missingForPlan, MODELS, route } from "../_shared/route.ts";
 import { choicesFor } from "../_shared/connectors/choose.ts";
+import { rediscover } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -556,13 +557,42 @@ Deno.serve(async (request) => {
             const capability = routed.media === "image" ? "image_generation" : "video_generation";
             const noun = capability === "image_generation" ? "image" : "video";
 
-            const choices = await choicesFor(admin, auth.user.id, capability, {
+            const intentFor = {
               aspectRatio: "9:16",
               seconds: noun === "video" ? 5 : undefined,
               // Asked of the provider with this very prompt, so the price on
               // each row is what this job costs -- not a list price, not a guess.
               quote: { prompt: asked, options: { aspect_ratio: "9:16" } },
-            });
+              withPicture: attachments.length > 0,
+            };
+            let choices = await choicesFor(admin, auth.user.id, capability, intentFor);
+
+            // Nothing found, but something is signed in: ask it again before
+            // saying no. The contract promised discovery would re-run "whenever
+            // a capability lookup finds nothing", and the first real sign-in
+            // is why -- it connected, lost its model list to a failed write,
+            // and chat then told Abel he had nothing that could make an image.
+            if (choices.options.length === 0) {
+              const { data: signedIn } = await asUser
+                .from("connections")
+                .select("id, auth_kind")
+                .eq("status", "active")
+                .is("revoked_at", null);
+              const doors = ((signedIn ?? []) as Array<{ id: string; auth_kind: string | null }>)
+                .filter((row) => row.auth_kind !== "api_key");
+
+              if (doors.length > 0) {
+                send({ t: "step", kind: "reading", detail: "Asking your provider what it can make" });
+                for (const door of doors) {
+                  try {
+                    await rediscover(admin, door.id);
+                  } catch (thrown) {
+                    console.error("rediscover", thrown instanceof Error ? thrown.message : thrown);
+                  }
+                }
+                choices = await choicesFor(admin, auth.user.id, capability, intentFor);
+              }
+            }
 
             if (choices.options.length === 0) {
               speak(

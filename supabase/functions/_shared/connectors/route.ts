@@ -24,6 +24,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { adapterFor } from "./registry.ts";
 import { openConnection } from "./tokens.ts";
+import { suits } from "./suits.ts";
 import type { Capability, Cost, Submitted, SubmitRequest, Verdict } from "./contract.ts";
 
 /** One candidate: a model, on a connection, reachable by an adapter. */
@@ -173,7 +174,13 @@ export async function routeSubmit(
     references?: SubmitRequest["references"];
   },
 ): Promise<RoutedSubmission> {
-  const all = await candidatesFor(admin, args.userId, args.capability);
+  const everything = await candidatesFor(admin, args.userId, args.capability);
+  // The ladder only climbs models that can do this request -- a background
+  // remover is not a fallback for "make an image". Unfiltered if the filter
+  // would empty it, for the same reason as in `choicesFor`.
+  const withPicture = (args.references?.length ?? 0) > 0;
+  const able = everything.filter((c) => suits(c.metadata, withPicture));
+  const all = able.length > 0 ? able : everything;
 
   if (all.length === 0) {
     throw new NothingCanDoThis(

@@ -22,6 +22,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "../_shared/crypto.ts";
 import { discoverResource, discoverServer, exchange, sealTokens } from "../_shared/connectors/oauth.ts";
 import { mcpAdapter } from "../_shared/connectors/mcp.ts";
+import { storeDiscovery } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -140,19 +141,9 @@ Deno.serve(async (request) => {
         endpoint: provider.mcp_url,
       });
       label = discovery.accountLabel || label;
-      await admin.rpc("record_discovery", {
-        p_connection: attempt.connection_id,
-        p_models: discovery.models,
-      });
-      // The raw list too, mapped or not -- so "why did this connect with
-      // nothing" has an answer in the database instead of needing a live
-      // session caught at the right moment.
-      if (discovery.tools) {
-        await admin.rpc("record_tools", {
-          p_connection: attempt.connection_id,
-          p_tools: discovery.tools,
-        });
-      }
+      // Checked, not fire-and-forget. The first real sign-in lost its whole
+      // model list here to an unread error. See _shared/connectors/discovery.ts.
+      await storeDiscovery(admin, attempt.connection_id, discovery);
     } catch (thrown) {
       // The authorization is real even if discovery stumbled, and throwing it
       // away would make the person log in again for nothing. Connected with no

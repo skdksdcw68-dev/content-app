@@ -14,6 +14,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import type { Capability, Constraints, Cost } from "./contract.ts";
 import { candidatesFor, quoteFor } from "./route.ts";
+import { suits } from "./suits.ts";
 
 /** One row in the picker, already said the way a person reads it. */
 export interface Choice {
@@ -61,6 +62,9 @@ export interface Intent {
    *  with this prompt, before the picker is drawn -- so the price shown is the
    *  provider's own number for this job rather than "Cost not stated". */
   quote?: { prompt: string; options?: Record<string, unknown> };
+  /** A picture comes with the request -- attached, or the image being
+   *  animated. Decides which models can do it at all; see `suits`. */
+  withPicture?: boolean;
 }
 
 /** How many rows a picker shows. A catalogue can list forty models; a person
@@ -75,7 +79,12 @@ export async function choicesFor(
   capability: Capability,
   intent: Intent = {},
 ): Promise<Choices> {
-  const candidates = await candidatesFor(admin, userId, capability);
+  const everything = await candidatesFor(admin, userId, capability);
+  // Only what can do this request. If the filter would leave nothing, the
+  // metadata is more likely incomplete than every model unable -- so the full
+  // list stands rather than a false "nothing can make this".
+  const able = everything.filter((c) => suits(c.metadata, intent.withPicture === true));
+  const candidates = able.length > 0 ? able : everything;
 
   const options: Choice[] = candidates.slice(0, SHOWN).map((candidate) => {
     const metadata = candidate.metadata as {

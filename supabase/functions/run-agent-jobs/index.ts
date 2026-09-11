@@ -24,6 +24,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json } from "../_shared/http.ts";
 import { MODELS } from "../_shared/route.ts";
 import { NothingCanDoThis, routePoll, routeSubmit } from "../_shared/connectors/route.ts";
+import { rediscover } from "../_shared/connectors/discovery.ts";
 import type { Capability, Submitted } from "../_shared/connectors/contract.ts";
 import { buildDocx, buildPdf, buildZip, type Document } from "../_shared/exports.ts";
 import { inspect } from "../_shared/media.ts";
@@ -130,6 +131,7 @@ async function advance(admin: Admin, run: Run): Promise<string> {
   if (run.kind === "research") return await researchStep(admin, run);
   if (run.kind === "export") return await exportStep(admin, run);
   if (run.kind === "generate") return await generateStep(admin, run);
+  if (run.kind === "rediscover") return await rediscoverStep(admin, run);
 
   await admin.rpc("finish_agent_run", {
     p_run: run.id,
@@ -457,6 +459,39 @@ function paragraphs(text: string): string[] {
 
 function slug(title: string): string {
   return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60);
+}
+
+// -------------------------------------------------------------- rediscover
+
+/**
+ * Asks one connection again what it offers, and records the answer.
+ *
+ * Read-only against the provider: a tool list and a model catalogue, nothing
+ * made and nothing spent. It exists so discovery can be re-run for somebody
+ * without their session -- after a fix to discovery itself, which is how it
+ * was first needed -- and the connection must belong to the run's owner.
+ */
+async function rediscoverStep(admin: Admin, run: Run): Promise<string> {
+  const connectionId = String(run.input.connection_id ?? "");
+  const { data: rows } = await admin
+    .from("connections")
+    .select("id")
+    .eq("id", connectionId)
+    .eq("user_id", run.user_id)
+    .is("revoked_at", null)
+    .limit(1);
+  if (!rows?.length) {
+    await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: "no such connection" });
+    return "failed";
+  }
+
+  const found = await rediscover(admin, connectionId);
+  await admin.rpc("finish_agent_run", {
+    p_run: run.id,
+    p_status: "succeeded",
+    p_result: { recorded: found.recorded, capabilities: found.capabilities, tools: found.tools },
+  });
+  return `recorded ${found.recorded}`;
 }
 
 // ---------------------------------------------------------------- generate

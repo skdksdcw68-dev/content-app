@@ -103,7 +103,7 @@ export async function candidatesFor(
     });
   }
 
-  return rows.flatMap((row) => {
+  const candidates = rows.flatMap((row) => {
     const detail = details.get(row.connection_id);
     if (!detail) return [];
     return [{
@@ -117,6 +117,11 @@ export async function candidatesFor(
       metadata: row.metadata ?? {},
     }];
   });
+
+  // A signed-in account before a pasted key, keeping each group's own order.
+  // Somebody who signed in did so to stop using the key; and the key's models
+  // are typed constants while a signed-in account's are discovered.
+  return candidates.sort((a, b) => Number(a.authKind === "api_key") - Number(b.authKind === "api_key"));
 }
 
 /** The sealed credential for one connection, opened -- and refreshed first when

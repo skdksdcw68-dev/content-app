@@ -18,7 +18,11 @@ struct ChatOptionsSheet: View {
         case connect(String)
         case reconnect(ProviderConnection)
         case refresh(ProviderConnection)
+        case disconnect(ProviderConnection)
     }
+
+    /// The connection whose options are open.
+    @State private var choosing: ProviderConnection?
 
     @Environment(AppSession.self) private var session
     let onPick: (Action) -> Void
@@ -71,21 +75,16 @@ struct ChatOptionsSheet: View {
 
                 Section {
                     ForEach(session.connectedProviders) { provider in
-                        ConnectedRow(provider: provider) {
-                            // A healthy connection is asked again what it
-                            // offers; a broken one is signed into again.
-                            // Re-asking is the cheaper fix and covers the
-                            // commonest case — a connection that discovered
-                            // nothing is not broken, it just has not been
-                            // asked since the provider granted something.
-                            onPick(provider.isHealthy ? .refresh(provider) : .reconnect(provider))
-                        }
+                        // A tap opens the choices rather than doing one of
+                        // them. It used to re-ask the provider silently, which
+                        // left no way to disconnect from here at all.
+                        ConnectedRow(provider: provider) { choosing = provider }
                     }
 
                     ForEach(session.connectable) { provider in
                         Row(
-                            symbol: "plus.circle",
-                            title: "Connect \(provider.name)",
+                            symbol: "person.crop.circle.badge.plus",
+                            title: provider.action,
                             detail: provider.how
                         ) { onPick(.connect(provider.slug)) }
                     }
@@ -113,6 +112,22 @@ struct ChatOptionsSheet: View {
             .task {
                 await session.refreshConnectedProviders()
                 await session.refreshConnectable()
+            }
+            .confirmationDialog(
+                choosing?.providerName ?? "",
+                isPresented: Binding(get: { choosing != nil }, set: { if !$0 { choosing = nil } }),
+                titleVisibility: .visible,
+                presenting: choosing
+            ) { provider in
+                if provider.isHealthy {
+                    Button("Check what it offers") { onPick(.refresh(provider)) }
+                }
+                Button(provider.isPastedKey ? "Sign in instead" : "Sign in again") {
+                    onPick(.reconnect(provider))
+                }
+                Button("Disconnect", role: .destructive) { onPick(.disconnect(provider)) }
+            } message: { provider in
+                Text("\(provider.door) · \(provider.summary)")
             }
         }
         // Opens at a compact height with the conversation still visible above
@@ -190,7 +205,7 @@ private struct ConnectedRow: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(provider.providerName).foregroundStyle(.primary)
-                    Text(provider.summary)
+                    Text("\(provider.door) · \(provider.summary)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     if !provider.capabilities.isEmpty {
@@ -202,8 +217,7 @@ private struct ConnectedRow: View {
 
                 Spacer(minLength: 8)
 
-                Image(systemName: "arrow.clockwise")
-                    .font(.caption)
+                Image(systemName: "ellipsis.circle")
                     .foregroundStyle(.secondary)
             }
         }

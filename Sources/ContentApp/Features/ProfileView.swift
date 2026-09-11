@@ -4,6 +4,13 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(AppSession.self) private var session
 
+    /// Pasted keys that are not already shown as a connection.
+    private var unbridgedGenerators: [Generator] {
+        session.generators.filter { generator in
+            !session.connectedProviders.contains { $0.id == generator.id }
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -56,30 +63,40 @@ struct ProfileView: View {
                 // shown rather than a tick -- "5 models · video, image" is the
                 // question somebody actually has.
                 ForEach(session.connectedProviders) { provider in
-                    ProviderRow(provider: provider) {
-                        Task { await session.disconnect(provider.id) }
-                    }
+                    ProviderRow(provider: provider)
                 }
 
-                // Keys pasted before sign-in existed still work and still show.
-                ForEach(session.generators) { generator in
+                // Keys pasted before sign-in existed, and only those not
+                // already listed above: 0028 bridged each key into a
+                // connection with the same id, so without this filter one key
+                // showed as two rows.
+                ForEach(unbridgedGenerators) { generator in
                     GeneratorRow(generator: generator) {
                         Task { await session.forgetGenerator(generator.id) }
                     }
                 }
 
-                if session.connectedProviders.isEmpty && session.generators.isEmpty {
+                if session.connectedProviders.isEmpty && unbridgedGenerators.isEmpty {
                     NoGeneratorRow()
                 }
 
                 // Sign in, not paste a key. The connect list comes from the
                 // server, so a provider added later appears here without this
-                // file changing.
+                // file changing -- and a pasted key no longer hides it.
                 ForEach(session.connectable) { provider in
                     Button {
                         Task { await session.connectProvider(provider.slug) }
                     } label: {
-                        Label("Connect \(provider.name)", systemImage: "plus.circle.fill")
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(provider.action)
+                                Text(provider.how)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "person.crop.circle.badge.plus")
+                        }
                     }
                     .disabled(session.isWorking)
                 }
@@ -137,10 +154,17 @@ struct ProfileView: View {
     }
 }
 
-/// One provider connected by signing in.
+/// One connected provider, with its actions in plain sight.
+///
+/// Disconnect used to be a swipe and nothing else, and Abel could not find it
+/// -- a destructive action that has to be discovered is one that effectively
+/// does not exist. The swipe stays for people who expect it; the menu is the
+/// way in for everyone else.
 private struct ProviderRow: View {
     let provider: ProviderConnection
-    let onDisconnect: () -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var confirmingDisconnect = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -149,13 +173,54 @@ private struct ProviderRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(provider.providerName)
-                Text(provider.summary)
+                Text("\(provider.door) · \(provider.summary)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Spacer(minLength: 8)
+
+            Menu {
+                if provider.isHealthy {
+                    Button {
+                        Task { await session.refreshCapabilities(provider.id) }
+                    } label: {
+                        Label("Check what it offers", systemImage: "arrow.clockwise")
+                    }
+                }
+                Button {
+                    Task { await session.connectProvider(provider.providerSlug) }
+                } label: {
+                    Label(provider.isPastedKey ? "Sign in instead" : "Sign in again", systemImage: "person.crop.circle")
+                }
+                Divider()
+                Button(role: .destructive) {
+                    confirmingDisconnect = true
+                } label: {
+                    Label("Disconnect", systemImage: "xmark.circle")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityLabel("Options for \(provider.providerName)")
         }
         .swipeActions {
-            Button("Disconnect", role: .destructive, action: onDisconnect)
+            Button("Disconnect", role: .destructive) { confirmingDisconnect = true }
+        }
+        .confirmationDialog(
+            "Disconnect \(provider.providerName)?",
+            isPresented: $confirmingDisconnect,
+            titleVisibility: .visible
+        ) {
+            Button("Disconnect", role: .destructive) {
+                Task { await session.disconnect(provider.id) }
+            }
+        } message: {
+            Text(provider.isPastedKey
+                 ? "Your pasted key is deleted from Autocast. Nothing changes in your Higgsfield account."
+                 : "Autocast stops using this account and forgets its sign-in. You can sign in again any time.")
         }
     }
 }
@@ -199,7 +264,7 @@ private struct NoGeneratorRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("No generator connected")
                 .font(.subheadline.weight(.medium))
-            Text("Add your Higgsfield key and Autocast can make the videos your plan describes.")
+            Text("Sign in to Higgsfield below and Autocast can make the videos your plan describes.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

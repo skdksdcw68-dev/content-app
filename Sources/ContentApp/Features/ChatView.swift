@@ -243,6 +243,12 @@ struct ChatView: View {
                         if ok { say("Reconnected \(provider.providerName).") }
                     }
 
+                case .disconnect(let provider):
+                    Task {
+                        await session.disconnect(provider.id)
+                        say("Disconnected \(provider.providerName).")
+                    }
+
                 case .refresh(let provider):
                     Task {
                         let found = await session.refreshCapabilities(provider.id)

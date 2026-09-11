@@ -65,6 +65,79 @@ export interface Intent {
   /** A picture comes with the request -- attached, or the image being
    *  animated. Decides which models can do it at all; see `suits`. */
   withPicture?: boolean;
+  /** Offer only these (external ids, in this order) -- the models a name the
+   *  person typed could mean. Always asked when there is more than one: the
+   *  person named a model, so the choice is theirs, not Auto's. */
+  only?: string[];
+}
+
+/**
+ * The models a typed name could mean, best first.
+ *
+ * "nano banana pro2" should find Nano Banana Pro and Nano Banana 2 -- both
+ * fit, and which one was meant is the person's call, not a guess. Scored on how
+ * much of what they typed appears in the model's name or id, then on how little
+ * else the name carries, so "soul 2" prefers "Soul 2.0" over "Soul Cinema".
+ * Nothing is returned unless at least half of what they typed matched.
+ */
+export function matchModels<T extends { label: string; externalId: string }>(pool: T[], typed: string): T[] {
+  const tokens = (text: string) =>
+    text.toLowerCase()
+      .replace(/([a-z])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-z])/g, "$1 $2")
+      .split(/[^a-z0-9]+/)
+      .filter((t) => t && !["model", "the", "use", "using", "with", "a", "an", "please", "higgsfield"].includes(t));
+
+  const wanted = [...new Set(tokens(typed))];
+  if (wanted.length === 0) return [];
+
+  // Scored on the NAME people see and type. The id only breaks ties: it
+  // carries tokens nobody reads -- Higgsfield's `nano_banana_2_shots` is
+  // labelled "Nano Banana Pro", so counting its id let "nano banana pro2"
+  // match it perfectly and alone, which would have started a paid job on a
+  // model nobody meant.
+  const scored = pool.map((model) => {
+    const shown = new Set(tokens(model.label));
+    const id = new Set(tokens(model.externalId));
+    const hit = wanted.filter((t) => shown.has(t)).length;
+    const idHit = wanted.filter((t) => id.has(t)).length;
+    return { model, recall: hit / wanted.length, idHit, extra: shown.size - hit };
+  });
+
+  const best = Math.max(...scored.map((s) => s.recall));
+  if (best < 0.5) return [];
+
+  const seen = new Set<string>();
+  return scored
+    .filter((s) => s.recall === best)
+    .sort((a, b) => a.extra - b.extra || b.idHit - a.idHit)
+    .map((s) => s.model)
+    .filter((m) => !seen.has(m.externalId) && seen.add(m.externalId))
+    // Generous here; the caller narrows to one kind and then to four rows.
+    .slice(0, 12);
+}
+
+/**
+ * The one model a typed name settles on with nothing left to ask, or null.
+ *
+ * Settled means: exactly one model is named precisely what they typed ("nano
+ * banana 2" is Nano Banana 2, not Nano Banana 2 Lite), or only one model's
+ * name contains every word they typed. Anything looser is a question -- and a
+ * question costs a tap, where a wrong guess costs credits.
+ */
+export function settlesOn<T extends { label: string }>(matches: T[], typed: string): T | null {
+  const tokens = (text: string) =>
+    text.toLowerCase().replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2")
+      .split(/[^a-z0-9]+/).filter((t) => t && !["model", "the", "use", "using", "with", "a", "an", "please", "higgsfield"].includes(t));
+  const wanted = new Set(tokens(typed));
+  const covers = (m: T) => [...wanted].every((t) => new Set(tokens(m.label)).has(t));
+  const exact = matches.filter((m) => {
+    const shown = new Set(tokens(m.label));
+    return covers(m) && shown.size === wanted.size;
+  });
+  if (exact.length === 1) return exact[0];
+  const covering = matches.filter(covers);
+  return covering.length === 1 && matches.length === 1 ? covering[0] : null;
 }
 
 /** How many rows a picker shows. A catalogue can list forty models; a person
@@ -84,7 +157,19 @@ export async function choicesFor(
   // metadata is more likely incomplete than every model unable -- so the full
   // list stands rather than a false "nothing can make this".
   const able = everything.filter((c) => suits(c.metadata, intent.withPicture === true));
-  const candidates = able.length > 0 ? able : everything;
+  let candidates = able.length > 0 ? able : everything;
+  if (intent.only && intent.only.length > 0) {
+    const order = intent.only;
+    const named = (pool: typeof everything) =>
+      pool
+        .filter((c) => order.includes(c.externalId))
+        .sort((a, b) => order.indexOf(a.externalId) - order.indexOf(b.externalId));
+    // The same suitability rule as any other offer -- "kling" for a picture
+    // from words should not offer the Kling video editor -- unless that leaves
+    // nothing, in which case what they named is what they get to see.
+    const suitable = named(candidates);
+    candidates = suitable.length > 0 ? suitable : named(everything);
+  }
 
   const options: Choice[] = candidates.slice(0, SHOWN).map((candidate) => {
     const metadata = candidate.metadata as {
@@ -106,6 +191,20 @@ export async function choicesFor(
     };
   });
 
+  // Providers reuse names -- Higgsfield has two "Higgsfield Soul 2.0" and two
+  // "Nano Banana Pro". Two identical rows is not a choice, so a repeated name
+  // carries the model's id, and every row carries the provider's own one-line
+  // description of what it is for, where there is one.
+  const counts = new Map<string, number>();
+  for (const option of options) counts.set(option.label, (counts.get(option.label) ?? 0) + 1);
+  for (const option of options) {
+    if ((counts.get(option.label) ?? 0) > 1) option.label = `${option.label} · ${option.externalId}`;
+    const description = candidates.find((c) => c.externalId === option.externalId)?.metadata?.description;
+    if (typeof description === "string" && description.trim() && !option.constraints.notes?.length) {
+      option.constraints = { ...option.constraints, notes: [description.trim().slice(0, 90)] };
+    }
+  }
+
   if (intent.quote && options.length > 0) {
     await Promise.all(options.slice(0, QUOTED).map(async (option) => {
       const quoted = await within(8_000, quoteFor(admin, {
@@ -114,6 +213,7 @@ export async function choicesFor(
         model: option.externalId,
         prompt: intent.quote!.prompt,
         options: intent.quote!.options,
+        metadata: candidates.find((c) => c.externalId === option.externalId)?.metadata,
       }));
       if (quoted) option.cost = quoted;
     }));
@@ -131,7 +231,9 @@ export async function choicesFor(
   return {
     capability,
     options,
-    worthAsking: shouldAsk(options),
+    // A name that fits several models is always asked: they chose to name
+    // one, so Auto deciding between their candidates would be overruling them.
+    worthAsking: intent.only && options.length > 1 ? true : shouldAsk(options),
     auto: auto ?? null,
   };
 }

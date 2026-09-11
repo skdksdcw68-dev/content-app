@@ -138,7 +138,16 @@ async function secretFor(admin: SupabaseClient, connectionId: string): Promise<s
  *  guess. */
 export async function quoteFor(
   admin: SupabaseClient,
-  args: { connectionId: string; capability: Capability; model: string; prompt: string; options?: Record<string, unknown> },
+  args: {
+    connectionId: string;
+    capability: Capability;
+    model: string;
+    prompt: string;
+    options?: Record<string, unknown>;
+    /** The model's catalogue entry, so its own settings ("2k") are part of
+     *  the price asked for -- a 2k image does not cost what a 1k one does. */
+    metadata?: Record<string, unknown>;
+  },
 ): Promise<Cost | null> {
   try {
     const opened = await openConnection(admin, args.connectionId);
@@ -146,7 +155,7 @@ export async function quoteFor(
     if (!adapter.quote) return null;
     return await adapter.quote(
       { connectionId: args.connectionId, secret: opened.secret, endpoint: opened.endpoint },
-      { capability: args.capability, model: args.model, prompt: args.prompt, options: args.options },
+      { capability: args.capability, model: args.model, prompt: args.prompt, options: args.options, metadata: args.metadata },
     );
   } catch {
     // A quote that fails is a quote nobody has, not a reason to stop.

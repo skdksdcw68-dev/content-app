@@ -528,6 +528,10 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
         options: {
           aspect_ratio: run.input.aspect_ratio ?? "9:16",
           ...(what === "video" && run.input.duration ? { duration: run.input.duration } : {}),
+          // What the person asked for -- "2k", "16:9", "10 seconds". The
+          // adapter sends each only if the tool or the chosen model declares
+          // it, spelled the way the model spells it.
+          ...((run.input.settings ?? {}) as Record<string, unknown>),
         },
         preferModel: typeof run.input.model === "string" ? run.input.model : undefined,
         references,

@@ -672,7 +672,19 @@ function argumentsFor(
   if ("prompt" in props) args.prompt = request.prompt;
 
   for (const [key, value] of Object.entries(request.options ?? {})) {
-    if (key in props && value !== undefined && value !== null) args[key] = value;
+    if (value === undefined || value === null) continue;
+    if (key in props) {
+      args[key] = value;
+      continue;
+    }
+    // A setting the TOOL does not declare but the chosen MODEL does -- "2k
+    // resolution" on Nano Banana Pro. Higgsfield takes model settings at the
+    // top level of `params`, and lists each model's own in its catalogue entry.
+    // Sent only as one of the values the model accepts, spelled its way.
+    const declared = modelParameter(request.metadata, key);
+    if (!declared) continue;
+    const accepted = coerce(value, declared);
+    if (accepted !== undefined) args[key] = accepted;
   }
 
   if (medias.length > 0 && "medias" in props) args.medias = medias;
@@ -686,6 +698,32 @@ function argumentsFor(
   if (spend && "use_unlim" in props) args.use_unlim = false;
 
   return wrapped ? { params: args } : args;
+}
+
+type ModelParameter = { name?: unknown; options?: unknown; min?: unknown; max?: unknown; type?: unknown };
+
+/** One of the chosen model's own settings, from its catalogue entry. */
+function modelParameter(metadata: Record<string, unknown> | undefined, key: string): ModelParameter | null {
+  const list = Array.isArray(metadata?.parameters) ? metadata!.parameters as ModelParameter[] : [];
+  return list.find((p) => p.name === key) ?? null;
+}
+
+/** A requested value as the model spells it, or undefined when it has no
+ *  such value. "2K" becomes "2k"; "8k" on a model that stops at 4k is dropped
+ *  rather than sent to be refused. */
+function coerce(value: unknown, declared: ModelParameter): unknown {
+  if (Array.isArray(declared.options) && declared.options.length > 0) {
+    const wanted = String(value).toLowerCase().replace(/\s+/g, "");
+    return declared.options.find((option) => String(option).toLowerCase().replace(/\s+/g, "") === wanted);
+  }
+  if (declared.type === "number" || typeof declared.min === "number" || typeof declared.max === "number") {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return undefined;
+    if (typeof declared.min === "number" && n < declared.min) return declared.min;
+    if (typeof declared.max === "number" && n > declared.max) return declared.max;
+    return n;
+  }
+  return value;
 }
 
 /** Hands each reference to the provider and returns what its tool wants in
@@ -875,37 +913,68 @@ function mediaUrl(result: unknown, capability: Capability | undefined): string |
     ? "audio"
     : "video";
 
-  // Every URL with the field it was found under. The field matters as much as
-  // the URL: a preview is usually named by its key (`preview_url`), not by
-  // anything in the link itself.
-  const structured: Array<{ key: string; url: string }> = [];
+  // Every URL, with the full path it was found under. The path matters more
+  // than the link: Higgsfield's finished job carries THREE image URLs --
+  // `results.rawUrl` (the file), `results.minUrl` (a preview) and
+  // `params.style.url` (the example picture for the style it used) -- and the
+  // first real image saved was the style's example, because it came first.
+  const found: Array<{ path: string[]; url: string }> = [];
+  const r = result as { content?: Array<Record<string, unknown>> };
+  for (const part of r?.content ?? []) {
+    // MCP's own way of saying "here is the file".
+    if (part.type === "resource_link" && typeof part.uri === "string") found.push({ path: ["resource_link"], url: part.uri });
+  }
   for (const object of objectsIn(result)) {
-    for (const [k, v] of entries(object)) {
-      if (typeof v === "string" && /^https?:\/\//.test(v)) structured.push({ key: k, url: v });
+    for (const [path, v] of walk(object)) {
+      if (typeof v === "string" && /^https?:\/\//.test(v)) found.push({ path, url: v });
     }
   }
-  // Links in prose only when there is nothing structured -- prose has no keys,
-  // so it cannot tell a preview from the file.
-  const pool = structured.length > 0
-    ? structured
-    : [...textOf(result).matchAll(/https?:\/\/[^\s"'<>\\)]+/g)].map((m) => ({ key: "", url: m[0] }));
+  // Links in prose only when there is nothing structured -- prose has no
+  // paths, so it cannot tell the file from a preview or a style sample.
+  const pool = found.length > 0
+    ? found
+    : [...textOf(result).matchAll(/https?:\/\/[^\s"'<>\\)]+/g)].map((m) => ({ path: [] as string[], url: m[0] }));
 
-  const decoy = /thumb|poster|preview|cover|avatar/i;
-  const usable = pool.filter((c) => !decoy.test(c.key) && !decoy.test(c.url));
-
-  const byExtension = usable.find((c) => EXTENSIONS[kind].test(c.url));
-  if (byExtension) return byExtension.url;
-
-  // No extension to go on. A URL under a key naming the kind is the next best
-  // evidence -- `video_url`, `image_url`, `result_url` -- provided its
-  // extension does not say it is something else. An image under a generic
-  // `url` key is not a finished video.
   const otherKinds = Object.entries(EXTENSIONS).filter(([k]) => k !== kind).map(([, re]) => re);
-  const byKey = usable.find((c) =>
-    !otherKinds.some((re) => re.test(c.url)) &&
-    new RegExp(`${kind}|result|output|^url$`, "i").test(c.key)
-  );
-  return byKey?.url ?? null;
+  // Anything inside what was ASKED for is an input, not the output.
+  const inputSegment = /^(params|parameters|request|input|inputs|style|styles|reference|references|medias|avatars?|presets?)$/i;
+  const decoyKey = /(thumb|poster|preview|cover|avatar|^min|min_?url$|_min$|small|blur)/i;
+  const decoyUrl = /(thumb|poster|preview|_min\.|\/min\/)/i;
+
+  let best: { url: string; score: number } | null = null;
+  for (const candidate of pool) {
+    const key = candidate.path[candidate.path.length - 1] ?? "";
+    const parents = candidate.path.slice(0, -1);
+    if (parents.some((segment) => inputSegment.test(segment))) continue;
+    if (decoyKey.test(key) || decoyUrl.test(candidate.url)) continue;
+    if (otherKinds.some((re) => re.test(candidate.url))) continue;
+
+    let score = 0;
+    if (/(raw|original|full|final)/i.test(key)) score += 100;
+    if (candidate.path[0] === "resource_link") score += 80;
+    if (parents.some((segment) => /^(results?|outputs?|generations?|images|videos|files|assets)$/i.test(segment))) score += 50;
+    if (new RegExp(kind, "i").test(key)) score += 30;
+    if (EXTENSIONS[kind].test(candidate.url)) score += 20;
+    if (/^(url|uri|src|href)$/i.test(key)) score += 5;
+
+    // Some evidence is required. A bare link under an unknown key with no
+    // extension is as likely a help page as a file.
+    if (score >= 20 && (!best || score > best.score)) best = { url: candidate.url, score };
+  }
+  return best?.url ?? null;
+}
+
+/** Every (path, value) pair anywhere in a result, depth first. */
+function* walk(value: unknown, path: string[] = []): Generator<[string[], unknown]> {
+  if (Array.isArray(value)) {
+    for (const item of value) yield* walk(item, path);
+  } else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      const next = [...path, k];
+      yield [next, v];
+      yield* walk(v, next);
+    }
+  }
 }
 
 function mimeFor(url: string, capability: Capability | undefined): string {

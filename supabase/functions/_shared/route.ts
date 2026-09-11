@@ -58,6 +58,15 @@ export interface Routed {
   media: "image" | "video" | null;
   /** For `export`: which file. Null when not named. */
   format: "docx" | "pdf" | "zip" | null;
+  /** For `make`: WHAT to make, as a generation prompt -- the scene or the
+   *  thing, never instructions to us, never model names or settings. The
+   *  first real image was asked for as "I want a photo or image not a video",
+   *  and that sentence is what went to the model. */
+  subject: string | null;
+  /** A generation model the person named, as they wrote it. */
+  model: string | null;
+  /** Settings the person asked for, in their own units. */
+  settings: { resolution?: string; aspect_ratio?: string; duration?: number };
 }
 
 /** One thing to ask, with the taps that answer it. */
@@ -161,11 +170,17 @@ export function missingForPlan(known: Knowledge, strategy: Record<string, unknow
  * misread is a conversation instead of a month of content, which is the cheap
  * direction to be wrong in.
  */
-export async function route(message: string, apiKey: string): Promise<Routed> {
+export async function route(message: string, apiKey: string, context = ""): Promise<Routed> {
   const system = [
-    "Classify one message from someone running a social media account. JSON only.",
+    "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain","days":number|null,' +
-    '"media":"image|video"|null,"format":"docx|pdf|zip"|null,"reading":string}',
+    '"media":"image|video"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
+    '"subject":string|null,"model":string|null,' +
+    '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null}}',
+    "",
+    "You also get the recent conversation. USE IT. 'try again', 'that', 'make it a photo instead',",
+    "'not a video', or just a model name all continue what was being made before -- they are make,",
+    "about the same subject, never a new plan or a chat.",
     "",
     "plan     — wants content planned across a stretch of days.",
     "revise   — wants something that already exists changed.",
@@ -176,9 +191,19 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
     "chat     — anything else, including greetings, questions about you, and writing captions or hooks.",
     "",
     "days: only when a stretch is implied. 'a month' is 30, 'next week' is 7.",
-    "media: for make only. 'image' for a picture, photo, thumbnail, poster; 'video' for a clip, reel, video; null if unsaid.",
+    "media: for make only. 'image' for a picture, photo, thumbnail, poster; 'video' for a clip, reel, video;",
+    "  if they named an image model (Nano Banana, Soul, GPT Image, Seedream, Flux...) it is image. null if unsaid.",
     "format: for export only. 'docx' for Word or a document, 'pdf' for PDF, 'zip' for everything or a package.",
     "reading: one short sentence, in your own words, of what they are asking for.",
+    "subject: for make only. WHAT to make, as a short generation prompt in plain words -- the scene or",
+    "  the thing. Never instructions to you, never model names, never settings. Take it from earlier in",
+    "  the conversation when the last message only changes how. Examples:",
+    "  'No i said generate an image of tea with a cup' -> 'a cup of tea'.",
+    "  'Use nano banana pro with 2k' after asking for a cup of tea -> 'a cup of tea'.",
+    "  'I want a photo not a video' after asking for a cup of tea -> 'a cup of tea'.",
+    "model: a generation model they named, exactly as written ('nano banana pro2', 'soul 2', 'kling'), else null.",
+    "settings: only what they asked for. resolution like '1k','2k','4k','720p','1080p'; aspect_ratio like",
+    "  '9:16','16:9','1:1','4:5'; duration in seconds. null for anything not asked.",
   ].join("\n");
 
   try {
@@ -186,11 +211,16 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: MODELS.fast,
+        // The chat tier, not the fast one, since the router started reading
+        // the conversation. "Try again please" was classified as a planning
+        // request by the cheap model reading one line in isolation -- and a
+        // misread here costs a round trip or, worse, the wrong paid job.
+        model: MODELS.chat,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
-          { role: "user", content: message },
+          ...(context ? [{ role: "user", content: `Recent conversation:\n${context}` }] : []),
+          { role: "user", content: `Last message: ${message}` },
         ],
       }),
     });
@@ -200,6 +230,8 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
     const body = await response.json();
     const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
     const intent = parsed?.intent;
+    const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
+    const s = parsed?.settings ?? {};
 
     return {
       intent: INTENTS.includes(intent) ? intent : "chat",
@@ -209,6 +241,13 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
       reading: typeof parsed?.reading === "string" ? parsed.reading : message.slice(0, 80),
       media: parsed?.media === "image" || parsed?.media === "video" ? parsed.media : null,
       format: ["docx", "pdf", "zip"].includes(parsed?.format) ? parsed.format : null,
+      subject: text(parsed?.subject)?.slice(0, 600) ?? null,
+      model: text(parsed?.model)?.slice(0, 60) ?? null,
+      settings: {
+        ...(text(s.resolution) ? { resolution: text(s.resolution)!.toLowerCase() } : {}),
+        ...(text(s.aspect_ratio) ? { aspect_ratio: text(s.aspect_ratio)! } : {}),
+        ...(typeof s.duration === "number" && s.duration > 0 ? { duration: Math.round(s.duration) } : {}),
+      },
     };
   } catch {
     return fallback(message);
@@ -216,5 +255,8 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
 }
 
 function fallback(message: string): Routed {
-  return { intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null };
+  return {
+    intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
+    subject: null, model: null, settings: {},
+  };
 }

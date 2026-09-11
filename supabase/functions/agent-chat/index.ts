@@ -25,7 +25,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { missingForPlan, MODELS, route } from "../_shared/route.ts";
-import { choicesFor } from "../_shared/connectors/choose.ts";
+import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
+import { candidatesFor } from "../_shared/connectors/route.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -329,6 +330,37 @@ Deno.serve(async (request) => {
           finish();
         };
 
+        /**
+         * The model offer this reply answers, if the last thing Autocast said
+         * was one. A typed "use Kling" or "make it a photo" is a reply to it,
+         * and needs what it was offered for: the subject, the references, and
+         * any settings already asked for.
+         */
+        const lastOffer = async (): Promise<{
+          capability: string;
+          request: string;
+          references: string[];
+          settings: Record<string, unknown>;
+        } | null> => {
+          if (!threadId) return null;
+          const { data } = await admin
+            .from("messages")
+            .select("render_hint")
+            .eq("thread_id", threadId)
+            .eq("role", "assistant")
+            .order("seq", { ascending: false })
+            .limit(1);
+          const hint = (data ?? [])[0]?.render_hint as Record<string, unknown> | null | undefined;
+          if (hint?.kind !== "models") return null;
+          const choices = hint.choices as { capability?: string } | undefined;
+          return {
+            capability: String(choices?.capability ?? ""),
+            request: String(hint.request ?? ""),
+            references: Array.isArray(hint.references) ? (hint.references as string[]) : [],
+            settings: (hint.settings as Record<string, unknown>) ?? {},
+          };
+        };
+
         /** Artefacts in this conversation, newest first -- what "it" means. */
         const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
           if (!threadId) return null;
@@ -362,11 +394,16 @@ Deno.serve(async (request) => {
               const references = (action.references ?? [])
                 .filter((path) => path.startsWith(`${auth.user!.id}/uploads/`) && !path.includes(".."))
                 .map((path) => ({ path, kind: "image" }));
+              // Settings asked for before the tap -- "2k" -- live on the offer
+              // the tap answers, not on the button.
+              const offer = await lastOffer();
+              const settings = offer && offer.request === action.prompt ? offer.settings : {};
               speak(capability === "image_generation" ? "Making the image." : "Making the video.");
               return await startRun("generate", {
                 capability,
                 prompt: action.prompt,
                 model: action.model ?? null,
+                settings,
                 references,
               }, null);
             }
@@ -484,9 +521,19 @@ Deno.serve(async (request) => {
             send({ t: "step", kind: "reading", detail: `Looked at your last ${previous.length} openings` });
           }
 
-          // What are they actually asking for? One cheap call before any
-          // decision about what to spend. See _shared/route.ts.
-          const routed = await route(asked, OPENAI_KEY);
+          // What are they actually asking for -- read WITH the conversation.
+          // One line alone is how "Try again please" became a request to plan
+          // a week, and "Use nano banana pro2" a request for a video.
+          const pending = await lastOffer();
+          const context = [
+            ...history.slice(0, -1).slice(-6).map((turn) =>
+              `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 300)}`
+            ),
+            ...(pending
+              ? [`(Autocast then offered ${pending.capability === "image_generation" ? "image" : "video"} models for: "${pending.request}")`]
+              : []),
+          ].join("\n");
+          const routed = await route(asked, OPENAI_KEY, context);
 
           send({ t: "step", kind: "reading", detail: routed.reading });
 
@@ -553,17 +600,81 @@ Deno.serve(async (request) => {
             return await startRun("export", { artifact_id: source.id, format: routed.format }, null);
           }
 
-          if (routed.intent === "make") {
-            const capability = routed.media === "image" ? "image_generation" : "video_generation";
+          // A named model means something is being made, even when the words
+          // around it ("use nano banana pro2 with 2k resolution") read as chat.
+          if (routed.intent === "make" || routed.model) {
+            // WHAT to make: the subject the router pulled out, or what the
+            // last offer was for. Never the raw sentence -- the first real
+            // image went to Higgsfield with the prompt "I want a photo or
+            // image not a video", and came back as exactly that much sense.
+            const prompt = routed.subject?.trim() || pending?.request || asked;
+            const settings = { ...(pending?.settings ?? {}), ...routed.settings };
+            const references = attachments.length > 0 ? attachments : (pending?.references ?? []);
+
+            // Which kind: a model they named settles it, then what they said,
+            // then what was already on offer, then video.
+            let capability: "image_generation" | "video_generation" = routed.media === "image"
+              ? "image_generation"
+              : routed.media === "video"
+              ? "video_generation"
+              : pending?.capability === "image_generation" || pending?.capability === "video_generation"
+              ? pending.capability
+              : "video_generation";
+
+            // A name is looked up across EVERYTHING they have, not the eight
+            // on screen -- "nano banana pro" was not in the first eight image
+            // models, and was answered with a list of video models instead.
+            let only: string[] | undefined;
+            let unmatched = false;
+            let settled = false;
+            if (routed.model) {
+              const pools = await Promise.all(
+                (["image_generation", "video_generation"] as const).map(async (cap) =>
+                  (await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap }))
+                ),
+              );
+              const matches = matchModels(pools.flat(), routed.model);
+              if (matches.length > 0) {
+                // A name can span kinds -- Higgsfield has three Kling video
+                // models and a Kling image one. The kind comes from what they
+                // said, then from what they were just choosing between, then
+                // from where most of the matches are.
+                const kinds = new Set(matches.map((m) => m.capability));
+                const said = routed.media === "image"
+                  ? "image_generation"
+                  : routed.media === "video"
+                  ? "video_generation"
+                  : null;
+                const offered = pending && kinds.has(pending.capability as typeof capability)
+                  ? pending.capability as typeof capability
+                  : null;
+                capability = said && kinds.has(said)
+                  ? said
+                  : offered ?? [...kinds].sort((a, b) =>
+                    matches.filter((m) => m.capability === b).length - matches.filter((m) => m.capability === a).length
+                  )[0];
+
+                const same = matches.filter((m) => m.capability === capability).slice(0, 4);
+                const exact = settlesOn(same, routed.model);
+                // Started without asking only when nothing about it is a
+                // guess: one model, and the kind either certain or said.
+                settled = exact !== null && (kinds.size === 1 || said !== null || offered !== null);
+                only = settled && exact ? [exact.externalId] : same.map((m) => m.externalId);
+              } else {
+                unmatched = true;
+              }
+            }
             const noun = capability === "image_generation" ? "image" : "video";
+            const aspect = settings.aspect_ratio ?? "9:16";
 
             const intentFor = {
-              aspectRatio: "9:16",
-              seconds: noun === "video" ? 5 : undefined,
-              // Asked of the provider with this very prompt, so the price on
-              // each row is what this job costs -- not a list price, not a guess.
-              quote: { prompt: asked, options: { aspect_ratio: "9:16" } },
-              withPicture: attachments.length > 0,
+              aspectRatio: aspect,
+              seconds: settings.duration ?? (noun === "video" ? 5 : undefined),
+              // Asked of the provider with this very prompt and these settings,
+              // so the price on each row is what this job costs.
+              quote: { prompt, options: { aspect_ratio: aspect, ...settings } },
+              withPicture: references.length > 0,
+              only,
             };
             let choices = await choicesFor(admin, auth.user.id, capability, intentFor);
 
@@ -606,19 +717,48 @@ Deno.serve(async (request) => {
             send({
               t: "step",
               kind: "reading",
-              detail: `Found ${choices.options.length} ${noun} model${choices.options.length === 1 ? "" : "s"} you can use`,
+              detail: only
+                ? `Found ${choices.options.length === 1 ? choices.options[0].label : `${choices.options.length} models called that`}`
+                : `Found ${choices.options.length} ${noun} model${choices.options.length === 1 ? "" : "s"} you can use`,
             });
+
+            const priced = (cost: { amount: number | null; unit: string }) =>
+              cost.amount === null ? "" : ` (${Number(cost.amount.toFixed(2))} ${cost.unit})`;
+
+            // Exactly the one they named -- every word they typed, in one
+            // model's name -- so naming it was the choice and it starts, with
+            // its price said. A looser match is asked about instead: a tap is
+            // cheaper than credits spent on a guess.
+            if (only && settled && choices.options.length === 1) {
+              const chosen = choices.options[0];
+              speak(
+                `Using ${chosen.label}${priced(chosen.cost)}`,
+                settings.resolution ? ` at ${settings.resolution}` : "",
+                ` for ${prompt}.`,
+              );
+              send({ t: "chose", choice: chosen });
+              return await startRun("generate", {
+                capability,
+                prompt,
+                model: chosen.externalId,
+                settings,
+                quoted_cost: chosen.cost.amount !== null ? chosen.cost : null,
+                references: references.map((path) => ({ path, kind: "image" })),
+              }, brand?.id ?? null);
+            }
 
             if (choices.worthAsking) {
               speak(
-                "I can make that. ",
-                `These ${choices.options.length} can do it — pick one, or let me choose.`,
+                unmatched ? `I couldn't find "${routed.model}" among your models. ` : "",
+                only
+                  ? `More than one model matches "${routed.model}" — which one?`
+                  : `I can make ${prompt}. These ${choices.options.length} can do it — pick one, or let me choose.`,
               );
-              // The request travels with the offer, so a tap on a model can
-              // start exactly this job without the router reading "Use Kling"
-              // and guessing what it refers to.
-              send({ t: "models", capability, choices, request: asked, references: attachments });
-              await remember({ kind: "models", choices, request: asked, references: attachments });
+              // The request travels with the offer -- the SUBJECT, not the
+              // sentence -- so a tap on a model starts exactly this job, and a
+              // typed "use Kling" afterwards still knows what to make.
+              send({ t: "models", capability, choices, request: prompt, references });
+              await remember({ kind: "models", choices, request: prompt, references, settings });
               return finish();
             }
 
@@ -629,16 +769,17 @@ Deno.serve(async (request) => {
             const auto = choices.auto;
             speak(
               `I'll use ${auto?.label ?? "the one model you have"}`,
-              auto && auto.cost.amount !== null ? ` (${auto.cost.amount} ${auto.cost.unit}). ` : ". ",
+              auto ? `${priced(auto.cost)}. ` : ". ",
               auto?.reason ? `${auto.reason} ` : "",
             );
             send({ t: "chose", choice: auto });
             return await startRun("generate", {
               capability,
-              prompt: asked,
+              prompt,
               model: auto?.externalId ?? null,
+              settings,
               quoted_cost: auto?.cost.amount !== null ? auto?.cost : null,
-              references: attachments.map((path) => ({ path, kind: "image" })),
+              references: references.map((path) => ({ path, kind: "image" })),
             }, brand?.id ?? null);
           }
 

@@ -51,12 +51,36 @@ interface Turn {
   content: string;
 }
 
+/**
+ * Something a button asked for, as data rather than as a sentence.
+ *
+ * Tapping "PDF" on a report card used to have to travel as the words "export
+ * it as a PDF" and survive the router reading them back -- which works until it
+ * does not, and then the tap does something else. A button knows exactly what
+ * it means, so it says so.
+ */
+type Action =
+  | { type: "export"; artifactId: string; format: "docx" | "pdf" | "zip" }
+  | {
+    type: "generate";
+    capability: "image_generation" | "video_generation";
+    prompt: string;
+    /** The `externalId` of a picked model. Absent means Auto. */
+    model?: string;
+    references?: string[];
+  }
+  | { type: "animate"; artifactId: string; prompt?: string };
+
 interface Body {
   messages?: Turn[];
   /** The conversation this belongs to. Omitted on the first turn, and the id of
    *  the thread opened for it comes back on the stream. */
   threadId?: string;
   brandId?: string;
+  action?: Action;
+  /** Files the person attached to this turn, as paths in their own uploads
+   *  folder. Checked against the caller before anything reads them. */
+  attachments?: string[];
 }
 
 /** One server-sent line. Kept to a single shape so the client parses one thing. */
@@ -93,6 +117,17 @@ Deno.serve(async (request) => {
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
     const asked = history[history.length - 1].content;
 
+    // Only paths inside the caller's own uploads folder. Anything else is
+    // dropped rather than refused: a stale path from a previous session is not
+    // worth failing the turn over, and a crafted one gets nothing.
+    const attachments = (body.attachments ?? [])
+      .filter((path) =>
+        typeof path === "string" &&
+        path.startsWith(`${auth.user.id}/uploads/`) &&
+        !path.includes("..")
+      )
+      .slice(0, 4);
+
     // The conversation is kept server-side, not in the view. A chat that dies
     // when the app is swiped away is not a command centre -- and the agent is
     // going to need to work while the phone is closed, which it cannot do
@@ -117,6 +152,9 @@ Deno.serve(async (request) => {
         p_thread: threadId,
         p_role: "user",
         p_text: asked,
+        // Kept with the turn so a reopened conversation still shows what was
+        // attached, not a message referring to a picture that is not there.
+        ...(attachments.length > 0 ? { p_render_hint: { kind: "attachments", paths: attachments } } : {}),
       });
       if (sayError) console.error("append_message user", sayError);
     }
@@ -144,7 +182,106 @@ Deno.serve(async (request) => {
 
         if (threadId) send({ t: "thread", id: threadId });
 
+        const speak = (...chunks: string[]) => {
+          for (const chunk of chunks) {
+            if (!chunk) continue;
+            said += chunk;
+            send({ t: "delta", v: chunk });
+          }
+        };
+
+        const finish = () => {
+          send({ t: "done" });
+          controller.close();
+        };
+
+        /**
+         * Hands long work to the worker and tells the app which run to watch.
+         *
+         * The reply ends here, on purpose. The run keeps going on the cron
+         * worker whether or not this connection survives, and the app follows
+         * it through `run_events` -- so closing the app halfway through a
+         * research job loses nothing, and the result lands in this thread.
+         */
+        const startRun = async (kind: string, input: Record<string, unknown>, brandId: string | null) => {
+          const { data: runId, error } = await admin.rpc("start_agent_run", {
+            p_user: auth.user!.id,
+            p_thread: threadId,
+            p_kind: kind,
+            p_input: input,
+            p_brand: brandId,
+            p_model: MODELS.chat,
+          });
+          if (error || !runId) throw error ?? new Error("the run did not start");
+          send({ t: "run", id: runId, kind });
+          await remember({ kind: "run", run_id: runId, run_kind: kind });
+          finish();
+        };
+
+        /** Artefacts in this conversation, newest first -- what "it" means. */
+        const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
+          if (!threadId) return null;
+          const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
+          const rows = (data ?? []) as Array<{ id: string; kind: string; title: string }>;
+          return rows.find((row) => ["research", "plan", "campaign"].includes(row.kind)) ?? null;
+        };
+
         try {
+          // A button said exactly what it wants. No router, no brand reading,
+          // no trail about looking at openings -- none of that is what a tap on
+          // "PDF" asked for.
+          if (body.action) {
+            const action = body.action;
+
+            if (action.type === "export") {
+              const { data } = await asUser.rpc("artifact", { p_id: action.artifactId });
+              const source = (data ?? [])[0];
+              if (!source) {
+                speak("I can't find that any more.");
+                await remember();
+                return finish();
+              }
+              const format = ["docx", "pdf", "zip"].includes(action.format) ? action.format : "pdf";
+              speak(`Making ${format === "zip" ? "a ZIP of everything" : `the ${format.toUpperCase()}`}.`);
+              return await startRun("export", { artifact_id: source.id, format }, null);
+            }
+
+            if (action.type === "generate") {
+              const capability = action.capability === "image_generation" ? "image_generation" : "video_generation";
+              const references = (action.references ?? [])
+                .filter((path) => path.startsWith(`${auth.user!.id}/uploads/`) && !path.includes(".."))
+                .map((path) => ({ path, kind: "image" }));
+              speak(capability === "image_generation" ? "Making the image." : "Making the video.");
+              return await startRun("generate", {
+                capability,
+                prompt: action.prompt,
+                model: action.model ?? null,
+                references,
+              }, null);
+            }
+
+            if (action.type === "animate") {
+              const { data } = await asUser.rpc("artifact", { p_id: action.artifactId });
+              const source = (data ?? [])[0];
+              if (!source || source.kind !== "image") {
+                speak("I can only animate an image.");
+                await remember();
+                return finish();
+              }
+              const prompt = action.prompt?.trim() ||
+                `Bring this image to life with subtle, natural motion. ${String(source.body?.prompt ?? "")}`.trim();
+              speak("Animating it.");
+              return await startRun("generate", {
+                capability: "video_generation",
+                prompt,
+                source_artifact_id: source.id,
+                // Same provider first, so the image can be handed back by its
+                // own handle rather than re-uploaded.
+                model: null,
+              }, null);
+            }
+          }
+
           // Read under RLS, as the user. Each step is announced only after the
           // read it describes has returned, so the trail can never claim work
           // that did not happen.
@@ -214,75 +351,109 @@ Deno.serve(async (request) => {
           // on is a list of names -- asking somebody to rank names they have
           // no basis to rank is how a product turns into paperwork. When it is
           // not worth asking, Auto has already decided and the work starts.
+          // Research is long work and goes to the worker. Said up front that it
+          // takes minutes and survives the app closing, because a person who
+          // expects an instant answer and gets a card is confused, and one who
+          // was told is not.
+          if (routed.intent === "research") {
+            speak(
+              "I'll look into that properly — a few questions, each answered, then pulled together. ",
+              "It takes a few minutes and keeps going if you close the app.",
+            );
+            return await startRun("research", { topic: asked }, brand?.id ?? null);
+          }
+
+          if (routed.intent === "export") {
+            const source = await latestExportable();
+            if (!source) {
+              speak("There's nothing in this conversation to export yet. Ask me to research something or plan a month, and I can turn it into a file.");
+              await remember();
+              return finish();
+            }
+
+            if (!routed.format) {
+              // The one question that changes the file. Asked with buttons.
+              // Worded so the tapped answer reads "Export it as PDF" -- which is
+              // what goes back through the router, and it must read as an
+              // export with a format, not as a question about files.
+              const questions = [{
+                key: "format",
+                prompt: "Export it as",
+                options: [
+                  { value: "docx", label: "Word document" },
+                  { value: "pdf", label: "PDF" },
+                  { value: "zip", label: "ZIP with everything" },
+                ],
+                allowsFreeText: false,
+              }];
+              speak(`I can export "${source.title}". `);
+              send({ t: "questions", questions });
+              await remember({ kind: "questions", questions });
+              return finish();
+            }
+
+            speak(`Making ${routed.format === "zip" ? "a ZIP of everything" : `the ${routed.format.toUpperCase()}`} of "${source.title}".`);
+            return await startRun("export", { artifact_id: source.id, format: routed.format }, null);
+          }
+
           if (routed.intent === "make") {
-            const choices = await choicesFor(admin, auth.user.id, "video_generation", {
+            const capability = routed.media === "image" ? "image_generation" : "video_generation";
+            const noun = capability === "image_generation" ? "image" : "video";
+
+            const choices = await choicesFor(admin, auth.user.id, capability, {
               aspectRatio: "9:16",
-              seconds: 5,
+              seconds: noun === "video" ? 5 : undefined,
+              // Asked of the provider with this very prompt, so the price on
+              // each row is what this job costs -- not a list price, not a guess.
+              quote: { prompt: asked, options: { aspect_ratio: "9:16" } },
             });
 
             if (choices.options.length === 0) {
-              for (
-                const chunk of [
-                  "Nothing you have connected can make video yet. ",
-                  "Connect a generator from the plus menu and I can start straight away.",
-                ]
-              ) {
-                said += chunk;
-                send({ t: "delta", v: chunk });
-              }
+              speak(
+                `Nothing you have connected can make ${noun === "image" ? "images" : "video"} yet. `,
+                "Connect a generator from the plus menu and I can start straight away.",
+              );
               await remember();
-              send({ t: "done" });
-              controller.close();
-              return;
+              return finish();
             }
 
             send({
               t: "step",
               kind: "reading",
-              detail: `Found ${choices.options.length} video model${
-                choices.options.length === 1 ? "" : "s"
-              } you can use`,
+              detail: `Found ${choices.options.length} ${noun} model${choices.options.length === 1 ? "" : "s"} you can use`,
             });
 
             if (choices.worthAsking) {
-              for (
-                const chunk of [
-                  "I can make that. ",
-                  `You have ${choices.options.length} video models available — `,
-                  "pick one, or let me choose.",
-                ]
-              ) {
-                said += chunk;
-                send({ t: "delta", v: chunk });
-              }
-
-              send({ t: "models", capability: "video_generation", choices });
-              await remember({ kind: "models", choices });
-              send({ t: "done" });
-              controller.close();
-              return;
+              speak(
+                "I can make that. ",
+                `These ${choices.options.length} can do it — pick one, or let me choose.`,
+              );
+              // The request travels with the offer, so a tap on a model can
+              // start exactly this job without the router reading "Use Kling"
+              // and guessing what it refers to.
+              send({ t: "models", capability, choices, request: asked, references: attachments });
+              await remember({ kind: "models", choices, request: asked, references: attachments });
+              return finish();
             }
 
-            // Not worth asking, so it is not asked. The choice is still
-            // reported -- somebody should always be able to see what was used
-            // and what it cost, even when they were not consulted.
+            // Not worth asking, so it is not asked -- and now it actually
+            // starts, rather than saying "Starting now" and doing nothing. The
+            // choice and its price are still reported: somebody should always
+            // be able to see what was used and what it cost.
             const auto = choices.auto;
-            for (
-              const chunk of [
-                `I'll use ${auto?.label ?? "the one model you have"}. `,
-                auto?.reason ? `${auto.reason} ` : "",
-                "Starting now.",
-              ]
-            ) {
-              if (!chunk) continue;
-              said += chunk;
-              send({ t: "delta", v: chunk });
-            }
+            speak(
+              `I'll use ${auto?.label ?? "the one model you have"}`,
+              auto && auto.cost.amount !== null ? ` (${auto.cost.amount} ${auto.cost.unit}). ` : ". ",
+              auto?.reason ? `${auto.reason} ` : "",
+            );
             send({ t: "chose", choice: auto });
-            await remember({ kind: "chose", choice: auto });
-            send({ t: "done" });
-            controller.close();
-            return;
+            return await startRun("generate", {
+              capability,
+              prompt: asked,
+              model: auto?.externalId ?? null,
+              quoted_cost: auto?.cost.amount !== null ? auto?.cost : null,
+              references: attachments.map((path) => ({ path, kind: "image" })),
+            }, brand?.id ?? null);
           }
 
           if (routed.intent === "plan" && brand) {
@@ -432,6 +603,31 @@ wording, their claims, or their product details in a real reply.
             ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
             : "";
 
+          // Attached pictures go to the model as image data on the last turn,
+          // so "write a caption for this" is about this picture. Sent as bytes
+          // rather than as a signed link: a link carries a token, and nothing
+          // that grants access belongs in what a model reads.
+          const pictures: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+          for (const path of attachments) {
+            const { data: file } = await admin.storage.from("artifacts").download(path);
+            if (!file || !/^image\//.test(file.type) || file.size > 8 * 1024 * 1024) continue;
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            }
+            pictures.push({ type: "image_url", image_url: { url: `data:${file.type};base64,${btoa(binary)}` } });
+          }
+          if (pictures.length > 0) {
+            send({ t: "step", kind: "reading", detail: `Looked at ${pictures.length === 1 ? "your picture" : `${pictures.length} pictures`}` });
+          }
+
+          const turns = history.map((turn, index) =>
+            index === history.length - 1 && pictures.length > 0
+              ? { role: turn.role, content: [{ type: "text", text: turn.content }, ...pictures] }
+              : turn
+          );
+
           const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -444,7 +640,7 @@ wording, their claims, or their product details in a real reply.
               messages: [
                 { role: "system", content: system },
                 { role: "system", content: [brief, factBlock, avoid].filter(Boolean).join("\n\n") },
-                ...history,
+                ...turns,
               ],
             }),
           });

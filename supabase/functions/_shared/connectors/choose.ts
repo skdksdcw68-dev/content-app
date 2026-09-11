@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import type { Capability, Constraints, Cost } from "./contract.ts";
-import { candidatesFor } from "./route.ts";
+import { candidatesFor, quoteFor } from "./route.ts";
 
 /** One row in the picker, already said the way a person reads it. */
 export interface Choice {
@@ -57,7 +57,17 @@ export interface Intent {
   /** A model they named, or previously chose. Respected unless it cannot do
    *  what was asked. */
   preferModel?: string;
+  /** When present, the providers that can say what a request costs are asked,
+   *  with this prompt, before the picker is drawn -- so the price shown is the
+   *  provider's own number for this job rather than "Cost not stated". */
+  quote?: { prompt: string; options?: Record<string, unknown> };
 }
+
+/** How many rows a picker shows. A catalogue can list forty models; a person
+ *  choosing between forty is not choosing. The rest stay reachable by Auto. */
+const SHOWN = 8;
+/** How many of those are priced. Each is a round trip to the provider. */
+const QUOTED = 5;
 
 export async function choicesFor(
   admin: SupabaseClient,
@@ -67,7 +77,7 @@ export async function choicesFor(
 ): Promise<Choices> {
   const candidates = await candidatesFor(admin, userId, capability);
 
-  const options: Choice[] = candidates.map((candidate) => {
+  const options: Choice[] = candidates.slice(0, SHOWN).map((candidate) => {
     const metadata = candidate.metadata as {
       cost?: Cost;
       constraints?: Constraints;
@@ -80,10 +90,25 @@ export async function choicesFor(
       externalId: candidate.externalId,
       capability,
       cost: metadata.cost ?? UNKNOWN_COST,
-      constraints: metadata.constraints ?? {},
+      // Typed constraints where an adapter wrote them, otherwise read from
+      // whatever the provider's catalogue returned at discovery.
+      constraints: metadata.constraints ?? constraintsFrom(candidate.metadata),
       recommended: false,
     };
   });
+
+  if (intent.quote && options.length > 0) {
+    await Promise.all(options.slice(0, QUOTED).map(async (option) => {
+      const quoted = await within(8_000, quoteFor(admin, {
+        connectionId: option.connectionId,
+        capability,
+        model: option.externalId,
+        prompt: intent.quote!.prompt,
+        options: intent.quote!.options,
+      }));
+      if (quoted) option.cost = quoted;
+    }));
+  }
 
   const auto = pick(options, intent);
   if (auto) {
@@ -224,6 +249,42 @@ function pick(options: Choice[], intent: Intent): (Choice & { reason: string }) 
     ...winner.option,
     reason: winner.notes.length > 0 ? `${why} — ${winner.notes.join(", ")}.` : `${why}.`,
   };
+}
+
+/**
+ * Constraints read out of a raw catalogue entry.
+ *
+ * A provider's catalogue says what each model accepts in its own words --
+ * `aspect_ratios`, `durations`, `resolutions` -- and discovery keeps the entry
+ * whole. This reads the plausible spellings so the picker can show "5 or 10s,
+ * 9:16" for a model nobody typed in by hand.
+ */
+function constraintsFrom(raw: Record<string, unknown>): Constraints {
+  const strings = (value: unknown): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const out = value
+      .map((v) => typeof v === "string" ? v : (v as { value?: unknown; id?: unknown })?.value ?? (v as { id?: unknown })?.id)
+      .filter((v): v is string => typeof v === "string");
+    return out.length > 0 ? out : undefined;
+  };
+  const numbers = (value: unknown): number[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const out = value
+      .map((v) => typeof v === "number" ? v : Number((v as { value?: unknown })?.value ?? v))
+      .filter((v) => Number.isFinite(v));
+    return out.length > 0 ? out : undefined;
+  };
+  const params = (raw.parameters ?? {}) as Record<string, { enum?: unknown; values?: unknown; options?: unknown }>;
+
+  return {
+    aspectRatios: strings(raw.aspect_ratios ?? raw.aspectRatios ?? params.aspect_ratio?.enum ?? params.aspect_ratio?.values),
+    durations: numbers(raw.durations ?? params.duration?.enum ?? params.duration?.values),
+    resolutions: strings(raw.resolutions ?? params.resolution?.enum ?? params.resolution?.values),
+  };
+}
+
+function within<T>(ms: number, work: Promise<T>): Promise<T | null> {
+  return Promise.race([work, new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))]);
 }
 
 /** How a cost reads in the picker. Never a bare number: "2" means nothing, and

@@ -12,22 +12,32 @@ struct ChatTurnView: View {
     var onAnswer: (ChatQuestion, String) -> Void = { _, _ in }
     /// Nil means Auto: the person declined to choose, which is a choice.
     var onChooseModel: (ModelChoice?) -> Void = { _ in }
+    var onExport: (Artifact, String) -> Void = { _, _ in }
+    var onAnimate: (Artifact) -> Void = { _ in }
+    /// A run this turn started has ended while it was being watched.
+    var onRunFinished: (UUID) -> Void = { _ in }
 
     var body: some View {
         switch turn.role {
         case .user:
-            HStack {
-                Spacer(minLength: 44)
-                Text(turn.text)
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Theme.accent.opacity(0.10))
-                    }
-                    .textSelection(.enabled)
+            VStack(alignment: .trailing, spacing: 6) {
+                if !turn.attachments.isEmpty {
+                    AttachmentStrip(paths: turn.attachments)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                HStack {
+                    Spacer(minLength: 44)
+                    Text(turn.text)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Theme.accent.opacity(0.10))
+                        }
+                        .textSelection(.enabled)
+                }
             }
 
         case .assistant:
@@ -73,6 +83,14 @@ struct ChatTurnView: View {
                             question: question,
                             answer: turn.answered[question.key]
                         ) { onAnswer(question, $0) }
+                    }
+
+                    if let runId = turn.runId {
+                        RunCard(runId: runId, kind: turn.runKind) { onRunFinished(runId) }
+                    }
+
+                    if let artifactId = turn.artifactId {
+                        ArtifactCard(artifactId: artifactId, onExport: onExport, onAnimate: onAnimate)
                     }
                 }
             }

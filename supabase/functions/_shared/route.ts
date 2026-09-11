@@ -41,7 +41,11 @@ export type Intent =
   | "plan"        // build or rebuild a stretch of content
   | "revise"      // change something that already exists
   | "make"        // produce one specific thing now
+  | "research"    // find out about something, properly, in the background
+  | "export"      // give me that as a file
   | "explain";    // what do you know, what did you do, why
+
+const INTENTS: Intent[] = ["chat", "plan", "revise", "make", "research", "export", "explain"];
 
 export interface Routed {
   intent: Intent;
@@ -49,6 +53,11 @@ export interface Routed {
   days: number | null;
   /** The router's one-line reading of the request, for the trail. */
   reading: string;
+  /** For `make`: what kind of thing. Null when the request does not say, and
+   *  then it is video, because that is what this product posts. */
+  media: "image" | "video" | null;
+  /** For `export`: which file. Null when not named. */
+  format: "docx" | "pdf" | "zip" | null;
 }
 
 /** One thing to ask, with the taps that answer it. */
@@ -155,15 +164,20 @@ export function missingForPlan(known: Knowledge, strategy: Record<string, unknow
 export async function route(message: string, apiKey: string): Promise<Routed> {
   const system = [
     "Classify one message from someone running a social media account. JSON only.",
-    '{"intent":"chat|plan|revise|make|explain","days":number|null,"reading":string}',
+    '{"intent":"chat|plan|revise|make|research|export|explain","days":number|null,' +
+    '"media":"image|video"|null,"format":"docx|pdf|zip"|null,"reading":string}',
     "",
-    "plan    — wants content planned across a stretch of days.",
-    "revise  — wants something that already exists changed.",
-    "make    — wants one specific thing produced now.",
-    "explain — asking what you know, what you did, or why.",
-    "chat    — anything else, including greetings and questions about you.",
+    "plan     — wants content planned across a stretch of days.",
+    "revise   — wants something that already exists changed.",
+    "make     — wants an image or a video generated now.",
+    "research — wants something looked into properly: a market, competitors, trends, an audience.",
+    "export   — wants something from this conversation as a file: a document, a PDF, a zip.",
+    "explain  — asking what you know, what you did, or why.",
+    "chat     — anything else, including greetings, questions about you, and writing captions or hooks.",
     "",
     "days: only when a stretch is implied. 'a month' is 30, 'next week' is 7.",
+    "media: for make only. 'image' for a picture, photo, thumbnail, poster; 'video' for a clip, reel, video; null if unsaid.",
+    "format: for export only. 'docx' for Word or a document, 'pdf' for PDF, 'zip' for everything or a package.",
     "reading: one short sentence, in your own words, of what they are asking for.",
   ].join("\n");
 
@@ -181,20 +195,26 @@ export async function route(message: string, apiKey: string): Promise<Routed> {
       }),
     });
 
-    if (!response.ok) return { intent: "chat", days: null, reading: message.slice(0, 80) };
+    if (!response.ok) return fallback(message);
 
     const body = await response.json();
     const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
     const intent = parsed?.intent;
 
     return {
-      intent: ["chat", "plan", "revise", "make", "explain"].includes(intent) ? intent : "chat",
+      intent: INTENTS.includes(intent) ? intent : "chat",
       days: typeof parsed?.days === "number" && parsed.days > 0
         ? Math.min(Math.round(parsed.days), 30)
         : null,
       reading: typeof parsed?.reading === "string" ? parsed.reading : message.slice(0, 80),
+      media: parsed?.media === "image" || parsed?.media === "video" ? parsed.media : null,
+      format: ["docx", "pdf", "zip"].includes(parsed?.format) ? parsed.format : null,
     };
   } catch {
-    return { intent: "chat", days: null, reading: message.slice(0, 80) };
+    return fallback(message);
   }
+}
+
+function fallback(message: string): Routed {
+  return { intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null };
 }

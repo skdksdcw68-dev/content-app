@@ -22,9 +22,9 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import { open } from "../crypto.ts";
 import { adapterFor } from "./registry.ts";
-import type { Capability, Submitted, Verdict } from "./contract.ts";
+import { openConnection } from "./tokens.ts";
+import type { Capability, Cost, Submitted, SubmitRequest, Verdict } from "./contract.ts";
 
 /** One candidate: a model, on a connection, reachable by an adapter. */
 interface Candidate {
@@ -119,18 +119,33 @@ export async function candidatesFor(
   });
 }
 
-/** The sealed credential for one connection, opened. Never returned upward. */
-async function secretFor(admin: SupabaseClient, connectionId: string, authKind: string): Promise<string> {
-  const { data } = await admin.rpc("read_connection", { p_connection: connectionId });
-  const connection = (data ?? [])[0];
-  if (!connection?.access_ct) throw new Error("connection has no credential");
+/** The sealed credential for one connection, opened -- and refreshed first when
+ *  it is about to expire. Never returned upward. */
+async function secretFor(admin: SupabaseClient, connectionId: string): Promise<string> {
+  return (await openConnection(admin, connectionId)).secret;
+}
 
-  // The AAD differs by door: an OAuth token was sealed against
-  // `${id}:access`, a pasted key pair against `${id}:provider` in 0012. Getting
-  // this wrong fails to decrypt rather than decrypting something wrong, which
-  // is the whole reason the binding exists.
-  const aad = authKind === "api_key" ? `${connectionId}:provider` : `${connectionId}:access`;
-  return await open(connection.access_ct, aad);
+/** Asks a model what one request would cost, before anything is spent.
+ *
+ *  Only adapters whose provider will say implement `quote`; everyone else
+ *  answers null, which the chat shows as "Cost not stated" rather than as a
+ *  guess. */
+export async function quoteFor(
+  admin: SupabaseClient,
+  args: { connectionId: string; capability: Capability; model: string; prompt: string; options?: Record<string, unknown> },
+): Promise<Cost | null> {
+  try {
+    const opened = await openConnection(admin, args.connectionId);
+    const adapter = adapterFor(opened.providerSlug, opened.authKind);
+    if (!adapter.quote) return null;
+    return await adapter.quote(
+      { connectionId: args.connectionId, secret: opened.secret, endpoint: opened.endpoint },
+      { capability: args.capability, model: args.model, prompt: args.prompt, options: args.options },
+    );
+  } catch {
+    // A quote that fails is a quote nobody has, not a reason to stop.
+    return null;
+  }
 }
 
 /**
@@ -150,6 +165,7 @@ export async function routeSubmit(
     options?: Record<string, unknown>;
     webhookUrl?: string;
     preferModel?: string;
+    references?: SubmitRequest["references"];
   },
 ): Promise<RoutedSubmission> {
   const all = await candidatesFor(admin, args.userId, args.capability);
@@ -181,7 +197,7 @@ export async function routeSubmit(
 
     try {
       const adapter = adapterFor(candidate.providerSlug, candidate.authKind);
-      const secret = await secretFor(admin, candidate.connectionId, candidate.authKind);
+      const secret = await secretFor(admin, candidate.connectionId);
 
       const submitted = await adapter.submit(
         { connectionId: candidate.connectionId, secret, endpoint: candidate.endpoint },
@@ -190,6 +206,8 @@ export async function routeSubmit(
           model: candidate.externalId,
           prompt: args.prompt,
           options: { ...candidate.metadata.defaults as Record<string, unknown>, ...args.options },
+          metadata: candidate.metadata,
+          references: args.references,
           webhookUrl: args.webhookUrl,
         },
       );
@@ -245,32 +263,35 @@ export async function routeSubmit(
  */
 export async function routePoll(
   admin: SupabaseClient,
-  args: { connectionId: string; ref: string; statusUrl: string },
-): Promise<{ status: "queued" | "in_progress" | "completed" | "failed" | "nsfw"; videoUrl: string | null; error: string | null }> {
-  const { data } = await admin.rpc("read_connection", { p_connection: args.connectionId });
-  const connection = (data ?? [])[0];
-
-  if (!connection) {
-    // The connection was forgotten while a job was in flight. Terminal, and
-    // said plainly rather than retried against nothing.
-    return { status: "failed", videoUrl: null, error: "connection_gone" };
+  args: { connectionId: string; ref: string; statusUrl: string; capability?: Capability },
+): Promise<{
+  status: "queued" | "in_progress" | "completed" | "failed" | "nsfw";
+  videoUrl: string | null;
+  error: string | null;
+  code?: string;
+  mime?: string;
+}> {
+  let opened;
+  try {
+    opened = await openConnection(admin, args.connectionId);
+  } catch (thrown) {
+    // The connection was forgotten while a job was in flight, or its grant
+    // is gone. Terminal, and said plainly rather than retried against nothing.
+    const code = (thrown as { code?: string }).code ?? "connection_gone";
+    return { status: "failed", videoUrl: null, error: code, code };
   }
 
-  const adapter = adapterFor(connection.provider_slug, connection.auth_kind);
-  const secret = await secretFor(admin, args.connectionId, connection.auth_kind);
-  const endpoint = connection.auth_kind === "api_key"
-    ? (connection.api_base ?? "")
-    : (connection.mcp_url ?? connection.api_base ?? "");
+  const adapter = adapterFor(opened.providerSlug, opened.authKind);
 
   const polled = await adapter.poll(
-    { connectionId: args.connectionId, secret, endpoint },
-    { ref: args.ref, statusUrl: args.statusUrl, state: "running" },
+    { connectionId: args.connectionId, secret: opened.secret, endpoint: opened.endpoint },
+    { ref: args.ref, statusUrl: args.statusUrl, state: "running", capability: args.capability },
   );
 
   if (polled.state === "queued") return { status: "queued", videoUrl: null, error: null };
   if (polled.state === "running") return { status: "in_progress", videoUrl: null, error: null };
   if (polled.state === "done") {
-    return { status: "completed", videoUrl: polled.outputUrl ?? null, error: null };
+    return { status: "completed", videoUrl: polled.outputUrl ?? null, error: null, mime: polled.outputMime };
   }
 
   return {
@@ -280,6 +301,7 @@ export async function routePoll(
     status: polled.verdict?.code === "refused" ? "nsfw" : "failed",
     videoUrl: null,
     error: polled.verdict?.detail ?? null,
+    code: polled.verdict?.code,
   };
 }
 

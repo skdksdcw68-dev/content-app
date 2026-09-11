@@ -43,12 +43,37 @@ extension AppSession {
             // An explicit closure rather than a key path. The key path form is
             // tidier and its backslash has now been eaten four times by shell
             // escaping in this project, which is a good enough reason.
-            return rows.map { $0.asTurn }
+            var turns = rows.map { $0.asTurn }
+
+            // An offer or a question somebody already replied to is settled,
+            // not live. Left tappable, a reopened model picker would start a
+            // second generation -- on somebody's own credits -- for a request
+            // that was already made.
+            for index in turns.indices where turns[index].role == .assistant {
+                guard let reply = turns[(index + 1)...].first(where: { $0.role == .user }) else { continue }
+                if turns[index].offer != nil {
+                    turns[index].chosenModel = settledChoice(reply.text)
+                }
+                for question in turns[index].questions {
+                    turns[index].answered[question.key] = "Answered"
+                }
+            }
+            return turns
         } catch {
             return []
         }
     }
 
+
+    /// The reply to a model offer, said as the choice it was. "Use Kling 2.1."
+    /// becomes "Kling 2.1"; "You choose." becomes "Auto".
+    private func settledChoice(_ reply: String) -> String {
+        var said = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        if said.hasPrefix("You choose") { return "Auto" }
+        if said.hasPrefix("Use ") { said.removeFirst(4) }
+        if said.hasSuffix(".") { said.removeLast() }
+        return said.isEmpty ? "Chosen" : said
+    }
 
     /// What the stream can say. One case per server event, so a line we do not
     /// understand is a gap rather than a silently wrong branch.
@@ -57,9 +82,39 @@ extension AppSession {
         case delta(String)
         case thread(UUID)
         case questions([ChatQuestion])
-        case models(ModelOffer)
+        /// The models that can do it, with the request they were offered for.
+        case models(ModelOffer, request: String?, references: [String])
         case chose(ModelChoice)
+        /// Long work handed to the worker. The card follows it from here.
+        case run(UUID, kind: String)
         case failed(String)
+    }
+
+    /// What a button asked for, sent as data rather than as a sentence.
+    ///
+    /// A tap on "PDF" knows exactly what it means. Sending it as the words
+    /// "export it as a PDF" and hoping the router reads them back the same way
+    /// works until it does not, and then the tap does something else.
+    enum ChatAction {
+        case export(artifact: UUID, format: String)
+        case generate(capability: String, prompt: String, model: String?, references: [String])
+        case animate(artifact: UUID)
+
+        var payload: [String: Any] {
+            switch self {
+            case .export(let artifact, let format):
+                return ["type": "export", "artifactId": artifact.uuidString, "format": format]
+            case .generate(let capability, let prompt, let model, let references):
+                var out: [String: Any] = [
+                    "type": "generate", "capability": capability,
+                    "prompt": prompt, "references": references,
+                ]
+                if let model { out["model"] = model }
+                return out
+            case .animate(let artifact):
+                return ["type": "animate", "artifactId": artifact.uuidString]
+            }
+        }
     }
 
     /// Sends the conversation and calls `onEvent` as each piece arrives.
@@ -69,6 +124,8 @@ extension AppSession {
     func streamReply(
         for turns: [ChatMessage],
         in thread: UUID? = nil,
+        action: ChatAction? = nil,
+        attachments: [String] = [],
         onEvent: (ChatEvent) -> Void
     ) async throws {
         let token = try await client.auth.session.accessToken
@@ -91,6 +148,8 @@ extension AppSession {
 
         var body: [String: Any] = ["messages": payload]
         if let thread { body["threadId"] = thread.uuidString }
+        if let action { body["action"] = action.payload }
+        if !attachments.isEmpty { body["attachments"] = attachments }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -121,13 +180,22 @@ extension AppSession {
                 // questions frame is: re-encoding a parsed `Any` back to JSON
                 // to decode it again is two conversions that can each lose a
                 // type, and this payload has doubles and optionals in it.
-                struct Offer: Decodable { let choices: ModelOffer }
+                struct Offer: Decodable {
+                    let choices: ModelOffer
+                    let request: String?
+                    let references: [String]?
+                }
                 struct Chose: Decodable { let choice: ModelChoice? }
                 if kind == "models", let frame = try? JSONDecoder().decode(Offer.self, from: data) {
-                    onEvent(.models(frame.choices))
+                    onEvent(.models(frame.choices, request: frame.request, references: frame.references ?? []))
                 } else if let frame = try? JSONDecoder().decode(Chose.self, from: data), let choice = frame.choice {
                     onEvent(.chose(choice))
                 }
+                continue
+            }
+
+            if kind == "run", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
+                onEvent(.run(uuid, kind: event["kind"] as? String ?? "run"))
                 continue
             }
 
@@ -189,12 +257,31 @@ private struct StoredMessage: Decodable {
         let kind: String?
         let questions: [ChatQuestion]?
         let choices: ModelOffer?
+        let request: String?
+        let references: [String]?
+        let runId: UUID?
+        let runKind: String?
+        let artifactId: UUID?
+        let paths: [String]?
+
+        private enum CodingKeys: String, CodingKey {
+            case kind, questions, choices, request, references, paths
+            case runId = "run_id"
+            case runKind = "run_kind"
+            case artifactId = "artifact_id"
+        }
     }
 
     var asTurn: ChatMessage {
         var turn = ChatMessage(role: role == "user" ? .user : .assistant, text: text)
         turn.questions = renderHint?.questions ?? []
         turn.offer = renderHint?.choices
+        turn.offerRequest = renderHint?.request
+        turn.offerReferences = renderHint?.references ?? []
+        turn.runId = renderHint?.runId
+        turn.runKind = renderHint?.runKind
+        turn.artifactId = renderHint?.artifactId
+        turn.attachments = renderHint?.paths ?? []
         return turn
     }
 }

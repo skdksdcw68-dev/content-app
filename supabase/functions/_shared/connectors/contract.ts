@@ -174,6 +174,15 @@ export interface SubmitRequest {
   /** Everything else the chosen model accepts, already validated against its
    *  `metadata` by the caller. */
   options?: Record<string, unknown>;
+  /** What discovery recorded about the chosen model -- durations, aspect
+   *  ratios, which roles its reference inputs take. Read by the adapter so it
+   *  can shape a request without a second catalogue call. */
+  metadata?: Record<string, unknown>;
+  /** Pictures or clips the result should be made from or look like. Either a
+   *  URL we can hand over (a signed link to our own storage), or the handle of
+   *  something this provider already made -- animating an image it generated
+   *  should not mean downloading it and uploading it back. */
+  references?: Array<{ url?: string; providerRef?: string; kind: "image" | "video" }>;
   /** Where the provider may call back, when it supports that. Always an
    *  optimisation: no adapter may treat a callback as the completion path,
    *  because an unsigned callback that never arrives is a job lost forever. */
@@ -186,6 +195,14 @@ export interface Submitted {
   /** Where to poll, when the provider gives a URL rather than an id. */
   statusUrl?: string;
   state: "queued" | "running" | "done" | "failed";
+  /** What was asked for, so a poll knows whether it is waiting for an image or
+   *  a video. A poster frame accepted as a finished video is the bug in
+   *  `_shared/media.ts`; this is what stops the same one for images. */
+  capability?: Capability;
+  /** Present when the provider answered with the result immediately. */
+  outputUrl?: string;
+  /** What the provider said it charged, in its own unit, when it said. */
+  charged?: Cost;
 }
 
 export interface Polled {
@@ -213,6 +230,11 @@ export interface Adapter {
   submit(auth: Authorization, request: SubmitRequest): Promise<Submitted>;
 
   poll(auth: Authorization, submitted: Submitted): Promise<Polled>;
+
+  /** What one request would cost, asked of the provider without submitting
+   *  anything. Optional: most providers publish no such call, and an adapter
+   *  that cannot ask must not answer -- a guessed price is worse than none. */
+  quote?(auth: Authorization, request: SubmitRequest): Promise<Cost | null>;
 
   /** Turn one HTTP failure into shared words. The only place a provider's own
    *  error vocabulary is allowed to be understood. */

@@ -130,6 +130,151 @@ struct ModelOffer: Equatable, Decodable {
     let auto: ModelChoice?
 }
 
+/// Something the agent made: a report, a file, an image, a video.
+///
+/// An object rather than text in a message, so it can be opened, exported,
+/// animated and referred to later as "that report". Read-only from here -- the
+/// agent writes these and the app shows them, because a result the app could
+/// write is a result it could forge.
+struct Artifact: Identifiable, Equatable, Decodable {
+    struct Finding: Equatable, Decodable {
+        let question: String
+        let answer: String
+    }
+
+    struct Packed: Equatable, Decodable {
+        let path: String
+        let size: Int
+    }
+
+    /// What each kind carries. Every field optional and read leniently: one
+    /// kind's shape must never stop another kind's card from drawing.
+    struct Body: Equatable, Decodable {
+        var summary: String?
+        var findings: [Finding]?
+        var filename: String?
+        var format: String?
+        var manifest: [Packed]?
+        var prompt: String?
+        var modelLabel: String?
+        var seconds: Double?
+        var width: Int?
+        var height: Int?
+        var sourceTitle: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case summary, findings, filename, format, manifest, prompt, seconds, width, height
+            case modelLabel = "model_label"
+            case sourceTitle = "source_title"
+        }
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            summary = try? c.decodeIfPresent(String.self, forKey: .summary)
+            findings = try? c.decodeIfPresent([Finding].self, forKey: .findings)
+            filename = try? c.decodeIfPresent(String.self, forKey: .filename)
+            format = try? c.decodeIfPresent(String.self, forKey: .format)
+            manifest = try? c.decodeIfPresent([Packed].self, forKey: .manifest)
+            prompt = try? c.decodeIfPresent(String.self, forKey: .prompt)
+            modelLabel = try? c.decodeIfPresent(String.self, forKey: .modelLabel)
+            seconds = try? c.decodeIfPresent(Double.self, forKey: .seconds)
+            width = try? c.decodeIfPresent(Int.self, forKey: .width)
+            height = try? c.decodeIfPresent(Int.self, forKey: .height)
+            sourceTitle = try? c.decodeIfPresent(String.self, forKey: .sourceTitle)
+        }
+    }
+
+    /// What the provider said it charged, in its own unit. Absent far more
+    /// often than present, and shown only when present.
+    struct Charged: Equatable, Decodable {
+        let unit: String?
+        let amount: Double?
+    }
+
+    let id: UUID
+    let kind: String
+    let title: String
+    let status: String
+    let version: Int
+    let parentId: UUID?
+    let storagePath: String?
+    let mime: String?
+    let byteSize: Int?
+    let body: Body
+    let provider: String?
+    let model: String?
+    let actualCost: Charged?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, title, status, version, mime, body, provider, model
+        case parentId = "parent_id"
+        case storagePath = "storage_path"
+        case byteSize = "byte_size"
+        case actualCost = "actual_cost"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        kind = try c.decode(String.self, forKey: .kind)
+        title = (try? c.decode(String.self, forKey: .title)) ?? ""
+        status = (try? c.decode(String.self, forKey: .status)) ?? "ready"
+        version = (try? c.decode(Int.self, forKey: .version)) ?? 1
+        parentId = try? c.decodeIfPresent(UUID.self, forKey: .parentId)
+        storagePath = try? c.decodeIfPresent(String.self, forKey: .storagePath)
+        mime = try? c.decodeIfPresent(String.self, forKey: .mime)
+        byteSize = try? c.decodeIfPresent(Int.self, forKey: .byteSize)
+        body = (try? c.decode(Body.self, forKey: .body)) ?? Body()
+        provider = try? c.decodeIfPresent(String.self, forKey: .provider)
+        model = try? c.decodeIfPresent(String.self, forKey: .model)
+        actualCost = try? c.decodeIfPresent(Charged.self, forKey: .actualCost)
+    }
+
+    /// "84 KB", "3.2 MB". Nil when the size is not known yet.
+    var sizeLabel: String? {
+        byteSize.map { ByteCountFormatter.string(fromByteCount: Int64($0), countStyle: .file) }
+    }
+}
+
+/// One thing that happened on a long run, as the worker recorded it.
+///
+/// Replayed from `run_events` by sequence number, so a card that was off
+/// screen -- or an app that was closed -- catches up by asking for what came
+/// after the last one it drew.
+struct RunEvent: Decodable, Equatable {
+    struct Payload: Decodable, Equatable {
+        var step: String?
+        var detail: String?
+        var done: Int?
+        var of: Int?
+        var status: String?
+        var error: String?
+        var artifactId: UUID?
+
+        private enum CodingKeys: String, CodingKey { case step, detail, done, of, status, error, result }
+        private enum ResultKeys: String, CodingKey { case artifactId = "artifact_id" }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            step = try? c.decodeIfPresent(String.self, forKey: .step)
+            detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+            done = try? c.decodeIfPresent(Int.self, forKey: .done)
+            of = try? c.decodeIfPresent(Int.self, forKey: .of)
+            status = try? c.decodeIfPresent(String.self, forKey: .status)
+            error = try? c.decodeIfPresent(String.self, forKey: .error)
+            if let result = try? c.nestedContainer(keyedBy: ResultKeys.self, forKey: .result) {
+                artifactId = try? result.decodeIfPresent(UUID.self, forKey: .artifactId)
+            }
+        }
+    }
+
+    let seq: Int
+    let type: String
+    let payload: Payload
+}
+
 /// One turn in the conversation.
 ///
 /// The user's turn is a tinted capsule pushed right; the agent's is typography
@@ -159,6 +304,18 @@ struct ChatMessage: Identifiable, Equatable {
     /// sitting there inviting the same tap again.
     var answered: [String: String] = [:]
     var failed = false
+    /// The request an offer of models was made for, so choosing one starts
+    /// exactly that job instead of the router guessing what "Use Kling" means.
+    var offerRequest: String? = nil
+    var offerReferences: [String] = []
+    /// Long work handed to the worker on this turn. The card follows it live
+    /// and becomes the result when it lands.
+    var runId: UUID? = nil
+    var runKind: String? = nil
+    /// Something the agent made, drawn from the object rather than from prose.
+    var artifactId: UUID? = nil
+    /// Pictures the person attached, as paths in their own uploads folder.
+    var attachments: [String] = []
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)

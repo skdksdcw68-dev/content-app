@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UIKit
 
@@ -40,6 +41,19 @@ struct ChatView: View {
     @State private var work: Task<Void, Never>?
     /// The conversation being written to, once the server has said which.
     @State private var thread: UUID?
+    /// Pictures waiting to go with the next message.
+    @State private var pending: [PendingAttachment] = []
+    @State private var photoItems: [PhotosPickerItem] = []
+    @State private var showsPhotoPicker = false
+    /// Set when "Attach a photo" is picked, and acted on once the plus sheet
+    /// has finished closing -- a picker presented during the dismissal is
+    /// dropped, and the button then looks broken.
+    @State private var pickAfterDismiss = false
+    /// Runs whose ending this conversation has already pulled in, so each is
+    /// pulled in once.
+    @State private var finishedRuns: Set<UUID> = []
+    /// A run ended while a reply was streaming; reload once it is done.
+    @State private var reloadWhenIdle = false
 
     /// Where streamed tokens wait between draws.
     ///
@@ -67,12 +81,14 @@ struct ChatView: View {
         var isWorking: Bool
         var reset: Int
         var focus: Int
+        var attachments: [PendingAttachment]
     }
 
     private var composerInputs: ComposerInputs {
         ComposerInputs(
             text: draft, showsOptions: showsOptions,
-            isWorking: isWorking, reset: composerReset, focus: composerFocus
+            isWorking: isWorking, reset: composerReset, focus: composerFocus,
+            attachments: pending
         )
     }
 
@@ -90,6 +106,15 @@ struct ChatView: View {
                             },
                             onChooseModel: { choice in
                                 choose(choice, in: turn.id)
+                            },
+                            onExport: { artifact, format in
+                                export(artifact, as: format)
+                            },
+                            onAnimate: { artifact in
+                                animate(artifact)
+                            },
+                            onRunFinished: { run in
+                                runFinished(run)
                             }
                         )
                         .id(turn.id)
@@ -137,7 +162,11 @@ struct ChatView: View {
                         isWorking: isWorking,
                         resetToken: composerReset,
                         focusToken: composerFocus,
-                        onSend: send,
+                        attachments: pending,
+                        onRemoveAttachment: { id in
+                            pending.removeAll { $0.id == id }
+                        },
+                        onSend: { send() },
                         onStop: stop
                     )
                 }
@@ -177,12 +206,20 @@ struct ChatView: View {
                 .accessibilityLabel("More options")
             }
         }
-        .sheet(isPresented: $showsOptions) {
+        .sheet(isPresented: $showsOptions, onDismiss: {
+            if pickAfterDismiss {
+                pickAfterDismiss = false
+                showsPhotoPicker = true
+            }
+        }) {
             ChatOptionsSheet { action in
                 showsOptions = false
                 switch action {
                 case .planMonth:
                     planning = true
+
+                case .attachPhoto:
+                    pickAfterDismiss = true
 
                 case .ask(let text):
                     draft = text
@@ -226,16 +263,83 @@ struct ChatView: View {
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
         }
+        .photosPicker(
+            isPresented: $showsPhotoPicker,
+            selection: $photoItems,
+            maxSelectionCount: 4,
+            matching: .images
+        )
+        .onChange(of: photoItems) { _, items in attach(items) }
+    }
+
+    // MARK: - Attaching
+
+    /// Uploads each picked picture as soon as it is picked, so it is there by
+    /// the time somebody has finished typing what to do with it.
+    private func attach(_ items: [PhotosPickerItem]) {
+        guard !items.isEmpty else { return }
+        photoItems = []
+
+        for item in items.prefix(max(0, 4 - pending.count)) {
+            Task {
+                guard let data = try? await item.loadTransferable(type: Data.self),
+                      let image = UIImage(data: data),
+                      let jpeg = Self.shrunk(image) else { return }
+
+                let entry = PendingAttachment(
+                    preview: image.preparingThumbnail(of: CGSize(width: 168, height: 168)) ?? image
+                )
+                pending.append(entry)
+
+                let path = await session.uploadAttachment(jpeg)
+                guard let index = pending.firstIndex(where: { $0.id == entry.id }) else { return }
+                if let path {
+                    pending[index].path = path
+                } else {
+                    // Said rather than left spinning: a thumbnail that never
+                    // finishes looks like it is still coming.
+                    pending.remove(at: index)
+                    say("That picture didn't upload. Try it again.")
+                }
+            }
+        }
+        composerFocus += 1
+    }
+
+    /// At most 1600 pixels on the long side, as JPEG. A phone photo is twelve
+    /// megapixels; the models that read it want a fraction of that, and every
+    /// byte goes up on somebody's data plan.
+    private static func shrunk(_ image: UIImage) -> Data? {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > 0 else { return nil }
+        let scale = min(1, 1600 / longest)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return resized.jpegData(compressionQuality: 0.8)
     }
 
     // MARK: - Asking
 
-    private func send() {
+    /// Sends what is in the composer -- with `action` when a button said
+    /// exactly what it wants, so the router does not have to read it back.
+    private func send(action: AppSession.ChatAction? = nil) {
         let asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !asked.isEmpty, !isWorking else { return }
+        // Nothing still uploading goes missing: the send button waits for
+        // every picture, and a button-driven action carries none.
+        guard action != nil || pending.allSatisfy({ $0.path != nil }) else { return }
+
+        let attached = action == nil ? pending.compactMap { $0.path } : []
+        if action == nil { pending = [] }
 
         dismissKeyboard()
-        turns.append(.user(asked))
+        var mine = ChatMessage.user(asked)
+        mine.attachments = attached
+        turns.append(mine)
         draft = ""
         composerReset += 1
 
@@ -247,12 +351,18 @@ struct ChatView: View {
             defer {
                 isWorking = false
                 work = nil
+                if reloadWhenIdle {
+                    reloadWhenIdle = false
+                    Task { await reload() }
+                }
             }
 
             var broke = false
 
             do {
-                try await session.streamReply(for: turns, in: thread) { event in
+                try await session.streamReply(
+                    for: turns, in: thread, action: action, attachments: attached
+                ) { event in
                     guard turns.indices.contains(replyIndex) else { return }
                     switch event {
                     case .step(let step):
@@ -267,9 +377,16 @@ struct ChatView: View {
                     case .delta(let text):
                         stream.pending += text
                         scheduleFlush(into: replyIndex)
-                    case .models(let offer):
+                    case .models(let offer, let request, let references):
+                        turns[replyIndex].offerRequest = request
+                        turns[replyIndex].offerReferences = references
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].offer = offer
+                        }
+                    case .run(let id, let kind):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].runId = id
+                            turns[replyIndex].runKind = kind
                         }
                     case .chose(let choice):
                         turns[replyIndex].chosenModel = choice.label
@@ -348,26 +465,70 @@ struct ChatView: View {
         }.joined(separator: " ")
 
         draft = said
-        send()
+        send(action: nil)
     }
 
-    /// A model was picked, or Auto was accepted.
+    /// A model was picked, or Auto was accepted -- and the job starts.
     ///
-    /// Sent back as an ordinary turn for the same reason a tapped answer is:
-    /// the transcript should read like the conversation that happened, and
-    /// "Use Sora 2" is what somebody would have typed.
+    /// The transcript still reads like the conversation ("Use Sora 2."), but
+    /// the request travels as data: the prompt the offer was made for, the
+    /// model's own id, and any pictures attached to the original ask. Before
+    /// this, the words went back through the router, which read "Use Sora 2"
+    /// as a new request to make something and offered the models again.
     ///
     /// The card settles into the choice rather than disappearing, so reopening
     /// the thread still shows what was decided.
     private func choose(_ choice: ModelChoice?, in turnID: ChatMessage.ID) {
         guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
-        guard turns[index].chosenModel == nil else { return }
+        guard turns[index].chosenModel == nil, !isWorking, let offer = turns[index].offer else { return }
 
-        let label = choice?.label ?? turns[index].offer?.auto?.label ?? "the best available"
+        let label = choice?.label ?? offer.auto?.label ?? "the best available"
         turns[index].chosenModel = label
 
+        // The request as the server recorded it; the turn before the offer for
+        // offers made before the server started recording it.
+        let request = turns[index].offerRequest
+            ?? turns[..<index].last(where: { $0.role == .user })?.text
+            ?? ""
+
         draft = choice.map { "Use \($0.label)." } ?? "You choose."
-        send()
+        send(action: .generate(
+            capability: offer.capability,
+            prompt: request,
+            model: choice?.externalId ?? offer.auto?.externalId,
+            references: turns[index].offerReferences
+        ))
+    }
+
+    /// A report as a file, from the card's Export menu.
+    private func export(_ artifact: Artifact, as format: String) {
+        draft = "Export as \(format == "docx" ? "Word" : format.uppercased())"
+        send(action: .export(artifact: artifact.id, format: format))
+    }
+
+    /// An image made into a video, from the card's Animate button.
+    private func animate(_ artifact: Artifact) {
+        draft = "Animate this image"
+        send(action: .animate(artifact: artifact.id))
+    }
+
+    /// A run this conversation was watching has ended. The worker wrote the
+    /// result into the thread on the server, so the thread is read back rather
+    /// than the result being guessed at here.
+    private func runFinished(_ run: UUID) {
+        guard finishedRuns.insert(run).inserted else { return }
+        if isWorking {
+            reloadWhenIdle = true
+        } else {
+            Task { await reload() }
+        }
+    }
+
+    private func reload() async {
+        guard let thread else { return }
+        let fresh = await session.messages(in: thread)
+        guard !fresh.isEmpty else { return }
+        withAnimation(.easeOut(duration: 0.2)) { turns = fresh }
     }
 
     /// Puts a line in the conversation from the app rather than the agent.

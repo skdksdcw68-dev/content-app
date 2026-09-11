@@ -29,6 +29,7 @@ import {
   type Adapter,
   type Authorization,
   type Capability,
+  type Cost,
   type Discovery,
   type ModelDescriptor,
   type Polled,
@@ -371,54 +372,95 @@ export function mcpAdapter(slug: string): Adapter {
     async submit(auth: Authorization, request: SubmitRequest): Promise<Submitted> {
       const session = new McpSession(auth.endpoint, auth.secret);
       await session.open();
+      const tools = await session.tools();
 
-      // The tool comes from what discovery recorded, not from a constant here.
-      const tool = typeof request.options?.tool === "string"
-        ? request.options.tool as string
-        : request.model;
+      const tool = toolFor(tools, request, slug);
+      if (!tool) throw new McpError(404, `no tool for ${request.capability}`);
 
-      const result = await session.call("tools/call", {
-        name: tool,
-        arguments: {
-          prompt: request.prompt,
-          // `model` only when discovery found a real catalogue; otherwise the
-          // provider is choosing and passing its own tool name back as a model
-          // would be nonsense.
-          ...(request.model !== tool ? { model: request.model } : {}),
-          ...(request.options ?? {}),
-        },
-      });
+      const medias = await importReferences(session, tools, request);
+      const args = argumentsFor(tool, request, medias, { spend: true });
+
+      const result = checked(await session.call("tools/call", { name: tool.name, arguments: args }));
 
       // MCP tool calls are synchronous at the protocol level, but a generation
-      // is not -- the tool returns a handle. Where a provider returns nothing
-      // pollable, the content itself is the result and the job is already done.
+      // is not -- the tool returns a handle. A tool that answered with the
+      // finished file instead is done now, and saying "running" would make the
+      // worker poll for something it already has.
       const handle = jobHandle(result);
+      const immediate = mediaUrl(result, request.capability);
 
-      return handle
-        ? { ref: handle, state: "running" }
-        : { ref: crypto.randomUUID(), state: "done", statusUrl: undefined };
+      if (handle) return { ref: handle, state: "running", capability: request.capability };
+      if (immediate) {
+        return { ref: crypto.randomUUID(), state: "done", capability: request.capability, outputUrl: immediate };
+      }
+      throw new McpError(422, "the tool answered with neither a job nor a result");
     },
 
     async poll(auth: Authorization, submitted: Submitted): Promise<Polled> {
-      if (submitted.state === "done") return { state: "done" };
+      if (submitted.state === "done") {
+        return submitted.outputUrl
+          ? { state: "done", outputUrl: submitted.outputUrl }
+          : { state: "failed", verdict: badOutput("finished without a file") };
+      }
 
       const session = new McpSession(auth.endpoint, auth.secret);
       await session.open();
+      const tools = await session.tools();
+
+      // The status tool is found, not named: whichever reports status and takes
+      // one required id. Its argument name is read off its schema -- Higgsfield
+      // calls it `jobId`, and the previous version of this sent `job_id`, which
+      // would have failed every poll of every job.
+      const status = tools.find((t) => /status/i.test(t.name) && requiredKeys(t).length >= 1);
+      if (!status) {
+        return { state: "failed", verdict: badOutput("the provider offers no way to check a job") };
+      }
+      const idKey = requiredKeys(status)[0];
+      const args: Record<string, unknown> = { [idKey]: submitted.ref };
+      // Where the server offers to wait a little before answering, let it: an
+      // image is usually done inside that window, so the first poll finishes
+      // the job instead of the third.
+      if (hasProperty(status, "sync")) args.sync = true;
 
       try {
-        const result = await session.call("tools/call", {
-          name: "job_status",
-          arguments: { job_id: submitted.ref },
-        });
-        const url = mediaUrl(result);
-        if (url) return { state: "done", outputUrl: url };
-        return { state: "running" };
+        const result = checked(await session.call("tools/call", { name: status.name, arguments: args }));
+        const state = jobState(result);
+
+        if (state === "refused") {
+          return { state: "failed", verdict: { ...badOutput("the provider refused the prompt"), code: "refused" } };
+        }
+        if (state === "failed") {
+          return { state: "failed", verdict: this.classify(422, { detail: textOf(result).slice(0, 300) }) };
+        }
+
+        const url = mediaUrl(result, submitted.capability);
+        if (url) return { state: "done", outputUrl: url, outputMime: mimeFor(url, submitted.capability) };
+        if (state === "done") {
+          return { state: "failed", verdict: badOutput("finished without a file we can use") };
+        }
+        return { state: state === "queued" ? "queued" : "running" };
       } catch (error) {
         if (error instanceof McpError) {
           return { state: "failed", verdict: this.classify(error.status, { detail: error.message }) };
         }
         throw error;
       }
+    },
+
+    async quote(auth: Authorization, request: SubmitRequest): Promise<Cost | null> {
+      const session = new McpSession(auth.endpoint, auth.secret);
+      await session.open();
+      const tools = await session.tools();
+
+      const tool = toolFor(tools, request, slug);
+      // A provider whose tool has no dry-run flag cannot be asked the price
+      // without being asked to do the work. Null, not a guess.
+      if (!tool || !hasProperty(tool, "get_cost")) return null;
+
+      const args = argumentsFor(tool, request, [], { spend: false });
+      const result = checked(await session.call("tools/call", { name: tool.name, arguments: args }));
+      const credits = numberNamed(result, ["credits", "cost", "price", "total_cost", "credit_cost"]);
+      return credits === null ? null : { unit: "credits", amount: credits, quoted: true, basis: "for this request" };
     },
 
     classify(status: number, body: unknown): Verdict {
@@ -469,19 +511,314 @@ function kindFor(capability: Capability): string {
   return "video";
 }
 
-/** A job id, wherever the tool put it. */
-function jobHandle(payload: unknown): string | null {
-  const text = JSON.stringify(payload ?? {});
-  const match = text.match(/"(?:job_id|jobId|id|request_id)"\s*:\s*"([^"]{8,})"/);
-  return match ? match[1] : null;
+// ------------------------------------------------------------------ requests
+
+/** The tool that does this capability: the one discovery recorded for the
+ *  model, else the one the table or the name-reading picks. */
+function toolFor(tools: McpTool[], request: SubmitRequest, slug: string): McpTool | null {
+  const recorded = request.metadata?.tool;
+  if (typeof recorded === "string") {
+    const hit = tools.find((t) => t.name === recorded);
+    if (hit) return hit;
+  }
+  const map = TOOL_CAPABILITIES[slug] ?? {};
+  return tools.find((t) =>
+    (map[t.name] ?? inferCapability(t.name, t.description)) === request.capability &&
+    !/(batch|multi)/i.test(t.name)
+  ) ?? null;
 }
 
-/** A finished media URL, wherever the tool put it. Images and thumbnails are
- *  rejected here rather than downstream -- see `_shared/media.ts` for what a
- *  poster frame stored as a video would have cost. */
-function mediaUrl(payload: unknown): string | null {
-  const text = JSON.stringify(payload ?? {});
-  const urls = [...text.matchAll(/"(https?:\/\/[^"]+)"/g)].map((m) => m[1]);
-  const video = urls.find((u) => /\.(mp4|mov|webm|m4v)(\?|$)/i.test(u));
-  return video ?? null;
+type Schema = Record<string, unknown>;
+
+/** Where a tool's real arguments live. Some servers take them flat, and some
+ *  -- Higgsfield among them -- take one `params` object holding everything.
+ *  Read off the schema the server published rather than assumed either way. */
+function argumentShape(tool: McpTool): { wrapped: boolean; props: Record<string, Schema> } {
+  const props = ((tool.inputSchema ?? {}).properties ?? {}) as Record<string, Schema>;
+  const params = props.params;
+  if (params) {
+    const variants = (params.anyOf ?? params.oneOf ?? [params]) as Schema[];
+    const object = variants.find((v) => v.type === "object" || v.properties) ?? {};
+    return { wrapped: true, props: (object.properties ?? {}) as Record<string, Schema> };
+  }
+  return { wrapped: false, props };
+}
+
+function hasProperty(tool: McpTool, key: string): boolean {
+  return key in argumentShape(tool).props;
+}
+
+function requiredKeys(tool: McpTool): string[] {
+  const required = (tool.inputSchema ?? {}).required;
+  return Array.isArray(required) ? required.map(String) : [];
+}
+
+/**
+ * One request, shaped to exactly what the tool says it takes.
+ *
+ * Only keys the schema names are sent. A request padded with fields the tool
+ * never declared is one a strict server rejects and a lax one silently ignores
+ * -- and either way the person gets something other than what they asked for.
+ */
+function argumentsFor(
+  tool: McpTool,
+  request: SubmitRequest,
+  medias: Array<{ value: string; role: string }>,
+  { spend }: { spend: boolean },
+): Record<string, unknown> {
+  const { wrapped, props } = argumentShape(tool);
+  const args: Record<string, unknown> = {};
+
+  // `model` only when discovery found a real catalogue; when the tool itself
+  // was recorded as the model, the provider is choosing.
+  if ("model" in props && request.model !== tool.name) args.model = request.model;
+  if ("prompt" in props) args.prompt = request.prompt;
+
+  for (const [key, value] of Object.entries(request.options ?? {})) {
+    if (key in props && value !== undefined && value !== null) args[key] = value;
+  }
+
+  if (medias.length > 0 && "medias" in props) args.medias = medias;
+  if ("count" in props) args.count = 1;
+
+  if (!spend && "get_cost" in props) args.get_cost = true;
+  // Paid from credits, which is what the person agreed to when they chose the
+  // model. A free-trial allowance is spent only when somebody explicitly says
+  // so -- and leaving this unset makes Higgsfield answer with a question
+  // instead of a job, which a worker with nobody to ask would read as failure.
+  if (spend && "use_unlim" in props) args.use_unlim = false;
+
+  return wrapped ? { params: args } : args;
+}
+
+/** Hands each reference to the provider and returns what its tool wants in
+ *  `medias`. Something the provider already made goes by its own handle; a file
+ *  of ours goes by a short-lived signed link through its import tool. */
+async function importReferences(
+  session: McpSession,
+  tools: McpTool[],
+  request: SubmitRequest,
+): Promise<Array<{ value: string; role: string }>> {
+  const out: Array<{ value: string; role: string }> = [];
+
+  for (const reference of request.references ?? []) {
+    const role = roleFor(request.metadata, reference.kind, out.length);
+
+    if (reference.providerRef) {
+      out.push({ value: reference.providerRef, role });
+      continue;
+    }
+    if (!reference.url) continue;
+
+    const importer = tools.find((t) => /import/i.test(t.name) && hasProperty(t, "url"));
+    if (!importer) throw new McpError(422, "this provider cannot take a reference by link");
+
+    const args: Record<string, unknown> = { url: reference.url };
+    if (hasProperty(importer, "type")) args.type = reference.kind;
+
+    const result = checked(await session.call("tools/call", { name: importer.name, arguments: args }));
+    const id = firstUuid(result, ["media_id", "mediaId", "id"]);
+    if (!id) throw new McpError(422, "the reference did not import");
+    out.push({ value: id, role });
+  }
+
+  return out;
+}
+
+/** Which role a reference plays for this model. Read from the catalogue entry
+ *  discovery stored, because the names differ per model -- a start frame on one
+ *  is an "image" on another. The kind itself is the last resort; the server
+ *  coerces it when there is only one sensible reading. */
+function roleFor(metadata: Record<string, unknown> | undefined, kind: "image" | "video", index: number): string {
+  const roles = new Set<string>();
+  const walk = (value: unknown, key?: string) => {
+    if (Array.isArray(value)) {
+      if (key === "roles") {
+        for (const item of value) {
+          if (typeof item === "string") roles.add(item);
+          else if (item && typeof item === "object") {
+            const named = (item as { role?: unknown; name?: unknown }).role ??
+              (item as { name?: unknown }).name;
+            if (typeof named === "string") roles.add(named);
+          }
+        }
+      } else value.forEach((item) => walk(item));
+    } else if (value && typeof value === "object") {
+      for (const [k, v] of Object.entries(value)) walk(v, k);
+    }
+  };
+  walk(metadata ?? {});
+
+  const list = [...roles];
+  const preferred = kind === "image"
+    ? [/start|first/i, /^image$/i, /image/i, /reference|ref/i]
+    : [/driving|source/i, /video/i];
+  for (const pattern of preferred) {
+    const hit = list.find((role) => pattern.test(role));
+    if (hit) return hit;
+  }
+  return list[index] ?? kind;
+}
+
+// ------------------------------------------------------------------ answers
+
+/** A tool that reported failure inside a successful RPC. MCP carries tool
+ *  errors as `isError` content rather than as JSON-RPC errors, so without this
+ *  an empty balance would look like a job with no id. */
+function checked(result: Record<string, unknown>): Record<string, unknown> {
+  if (result.isError !== true) return result;
+  const text = textOf(result);
+  const status = /credit|balance|insufficient|top.?up|upgrade/i.test(text)
+    ? 403
+    : /unauthori[sz]ed|expired|sign.?in|token/i.test(text)
+    ? 401
+    : 422;
+  throw new McpError(status, text.slice(0, 300));
+}
+
+/** Every structured thing in a tool result: `structuredContent`, and any text
+ *  block that is JSON. Providers put the useful part in either. */
+function objectsIn(result: unknown): unknown[] {
+  const found: unknown[] = [];
+  const r = result as { structuredContent?: unknown; content?: Array<{ type: string; text?: string }> };
+  if (r?.structuredContent) found.push(r.structuredContent);
+  for (const part of r?.content ?? []) {
+    if (part.type !== "text" || !part.text) continue;
+    try {
+      found.push(JSON.parse(part.text));
+    } catch {
+      // Prose. Still searched as text by the callers that need it.
+    }
+  }
+  found.push(result);
+  return found;
+}
+
+function textOf(result: unknown): string {
+  const r = result as { structuredContent?: unknown; content?: Array<{ type: string; text?: string }> };
+  const parts = (r?.content ?? []).filter((p) => p.type === "text" && p.text).map((p) => p.text as string);
+  if (r?.structuredContent) parts.push(JSON.stringify(r.structuredContent));
+  return parts.join("\n");
+}
+
+/** Every (key, value) pair anywhere in a result, depth first. */
+function* entries(value: unknown, key = ""): Generator<[string, unknown]> {
+  if (Array.isArray(value)) {
+    for (const item of value) yield* entries(item, key);
+  } else if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value)) {
+      yield [k, v];
+      yield* entries(v, k);
+    }
+  }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The first UUID under one of `keys`, tried in order -- so `job_id` wins over
+ *  a bare `id` that might belong to the model or the workspace. */
+function firstUuid(result: unknown, keys: string[]): string | null {
+  const objects = objectsIn(result);
+  for (const wanted of keys) {
+    for (const object of objects) {
+      for (const [k, v] of entries(object)) {
+        if (k !== wanted) continue;
+        if (typeof v === "string" && UUID.test(v)) return v;
+        if (Array.isArray(v)) {
+          const hit = v.find((x) => typeof x === "string" && UUID.test(x));
+          if (hit) return hit as string;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** A job id, wherever the tool put it. UUIDs only: Higgsfield's status tool
+ *  refuses anything else, and a model name matched as an id would be polled
+ *  forever. */
+function jobHandle(result: unknown): string | null {
+  return firstUuid(result, ["job_id", "jobId", "job_ids", "jobIds", "generation_id", "request_id", "id"]);
+}
+
+type JobState = "queued" | "running" | "done" | "failed" | "refused";
+
+function jobState(result: unknown): JobState {
+  for (const object of objectsIn(result)) {
+    for (const [k, v] of entries(object)) {
+      if ((k !== "status" && k !== "state") || typeof v !== "string") continue;
+      const s = v.toLowerCase();
+      if (/nsfw|refus|moderat|block/.test(s)) return "refused";
+      if (/fail|error|cancel/.test(s)) return "failed";
+      if (/complet|succe|done|finish|ready/.test(s)) return "done";
+      if (/queue|pending|wait|created/.test(s)) return "queued";
+      return "running";
+    }
+  }
+  return "running";
+}
+
+const EXTENSIONS = {
+  video: /\.(mp4|mov|webm|m4v)(\?|$)/i,
+  image: /\.(png|jpe?g|webp)(\?|$)/i,
+  audio: /\.(mp3|wav|m4a|aac|ogg)(\?|$)/i,
+};
+
+/** A finished file's URL, of the kind that was asked for. Thumbnails and
+ *  posters are passed over -- see `_shared/media.ts` for what a poster frame
+ *  stored as a video would have cost. */
+function mediaUrl(result: unknown, capability: Capability | undefined): string | null {
+  const kind = capability === "image_generation"
+    ? "image"
+    : capability === "audio_generation" || capability === "voice_generation"
+    ? "audio"
+    : "video";
+
+  const urls = [...textOf(result).matchAll(/https?:\/\/[^\s"'<>\\)]+/g)].map((m) => m[0]);
+  for (const object of objectsIn(result)) {
+    for (const [, v] of entries(object)) if (typeof v === "string" && /^https?:\/\//.test(v)) urls.push(v);
+  }
+  const usable = urls.filter((u) => !/thumb|poster|preview|cover|avatar/i.test(u));
+
+  const byExtension = usable.find((u) => EXTENSIONS[kind].test(u));
+  if (byExtension) return byExtension;
+
+  // No extension to go on. A URL under a key naming the kind is the next best
+  // evidence -- `video_url`, `image_url`, `result_url`.
+  for (const object of objectsIn(result)) {
+    for (const [k, v] of entries(object)) {
+      if (typeof v !== "string" || !/^https?:\/\//.test(v)) continue;
+      if (/thumb|poster|preview|cover/i.test(k)) continue;
+      if (new RegExp(`${kind}|result|output|^url$`, "i").test(k)) return v;
+    }
+  }
+  return null;
+}
+
+function mimeFor(url: string, capability: Capability | undefined): string {
+  const ext = url.split("?")[0].split(".").pop()?.toLowerCase() ?? "";
+  const known: Record<string, string> = {
+    mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm", m4v: "video/mp4",
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp",
+    mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4",
+  };
+  if (known[ext]) return known[ext];
+  return capability === "image_generation" ? "image/png" : "video/mp4";
+}
+
+/** The first number under one of `names`, or in prose as "N credits". */
+function numberNamed(result: unknown, names: string[]): number | null {
+  for (const object of objectsIn(result)) {
+    for (const [k, v] of entries(object)) {
+      if (!names.includes(k)) continue;
+      const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  const prose = textOf(result).match(/(\d+(?:\.\d+)?)\s*credits?/i);
+  return prose ? Number(prose[1]) : null;
+}
+
+function badOutput(detail: string): Verdict {
+  return { code: "bad_output", retryable: false, tryAnotherModel: true, tryAnotherProvider: true, detail };
 }

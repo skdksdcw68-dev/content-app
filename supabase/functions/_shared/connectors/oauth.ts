@@ -214,6 +214,39 @@ export async function exchange(
   return await response.json() as Tokens;
 }
 
+/** Trades a refresh token for a new access token.
+ *
+ *  Higgsfield's access tokens last a day. Without this every signed-in
+ *  connection would fail the morning after it was made, and the person would be
+ *  asked to sign in again for no reason they could see. */
+export async function refreshTokens(
+  metadata: ServerMetadata,
+  args: { refreshToken: string; clientId: string; clientSecret?: string; resource?: string },
+): Promise<Tokens> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: args.refreshToken,
+    client_id: args.clientId,
+  });
+  if (args.clientSecret) body.set("client_secret", args.clientSecret);
+  if (args.resource) body.set("resource", args.resource);
+
+  const response = await fetch(metadata.token_endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  if (!response.ok) {
+    // Carries the status so the caller can tell a revoked grant (400/401,
+    // reconnect) from the auth server having a bad minute (5xx, retry).
+    const error = new Error(`token refresh ${response.status}`) as Error & { status: number };
+    error.status = response.status;
+    throw error;
+  }
+  return await response.json() as Tokens;
+}
+
 /** Seals the tokens against the connection they belong to.
  *
  *  Same AAD discipline as platform tokens in 0002: ciphertext moved into

@@ -64,6 +64,19 @@ struct HomeView: View {
             && !session.health.contains(where: \.isBlocked)
     }
 
+    private var autopilot: AutopilotState? {
+        AutopilotState.resolve(
+            isOn: session.settings?.isOn == true,
+            hasAccount: !session.connections.isEmpty,
+            hasGenerator: session.hasWorkingGenerator,
+            hasPlan: session.plan != nil,
+            blocked: session.health.first(where: { $0.isBlocked }),
+            needsApproval: needsYou.count,
+            preparing: inFlight.count,
+            nextUp: nextUp?.scheduledFor
+        )
+    }
+
     private var brandTimeZone: TimeZone {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
     }
@@ -142,6 +155,13 @@ struct HomeView: View {
                 // looking at it.
                 if !failed.isEmpty {
                     FailedCard(posts: failed) { approving = $0 }
+                        .padding(.bottom, 10)
+                }
+
+                // Where Autopilot actually stands -- one state, not a switch
+                // position. See AutopilotState for why "on" was not enough.
+                if let autopilot {
+                    AutopilotCard(state: autopilot, timezone: brandTimeZone)
                         .padding(.bottom, 10)
                 }
 

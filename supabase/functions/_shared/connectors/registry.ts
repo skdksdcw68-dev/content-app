@@ -13,6 +13,7 @@
 
 import type { Adapter } from "./contract.ts";
 import { higgsfieldRest } from "./higgsfield-rest.ts";
+import { mcpAdapter } from "./mcp.ts";
 
 /**
  * Keyed by `providers.slug` and `connections.auth_kind` together.
@@ -24,6 +25,10 @@ import { higgsfieldRest } from "./higgsfield-rest.ts";
  */
 const ADAPTERS: Record<string, Adapter> = {
   "higgsfield:api_key": higgsfieldRest,
+  // Signing in is now the default way to connect Higgsfield, and it was
+  // missing from here: a signed-in account could be discovered but not asked
+  // to make anything, because the ladder found no adapter for its door.
+  "higgsfield:mcp_oauth": mcpAdapter("higgsfield"),
 };
 
 export function adapterFor(providerSlug: string, authKind: string): Adapter {

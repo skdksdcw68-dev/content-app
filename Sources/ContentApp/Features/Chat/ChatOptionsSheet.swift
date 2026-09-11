@@ -14,6 +14,7 @@ struct ChatOptionsSheet: View {
     enum Action {
         case planMonth
         case ask(String)
+        case attachPhoto
         case connect(String)
         case reconnect(ProviderConnection)
         case refresh(ProviderConnection)
@@ -26,11 +27,26 @@ struct ChatOptionsSheet: View {
         NavigationStack {
             List {
                 Section("Create") {
+                    // Both end in a space: they want the rest typed -- what
+                    // the video is of -- rather than sending a request with
+                    // nothing in it to make.
                     Row(
                         symbol: "video",
                         title: "Make a video",
-                        detail: makeDetail
-                    ) { onPick(.ask("Make me a video")) }
+                        detail: makeDetail(for: "video_generation")
+                    ) { onPick(.ask("Make a video of ")) }
+
+                    Row(
+                        symbol: "photo",
+                        title: "Make an image",
+                        detail: makeDetail(for: "image_generation")
+                    ) { onPick(.ask("Make an image of ")) }
+
+                    Row(
+                        symbol: "paperclip",
+                        title: "Attach a photo",
+                        detail: "Use it as a reference, or ask about it"
+                    ) { onPick(.attachPhoto) }
 
                     Row(
                         symbol: "calendar",
@@ -102,20 +118,21 @@ struct ChatOptionsSheet: View {
         // Opens at a compact height with the conversation still visible above
         // it, and pulls up to full when there is more to scroll. The sheet had
         // no detents at all before, so it always opened full-screen.
-        .presentationDetents([.height(460), .large])
+        .presentationDetents([.height(540), .large])
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(24)
     }
 
-    /// Says what making a video would actually use, so somebody is not offered
-    /// a button that cannot do anything.
-    private var makeDetail: String {
+    /// Says what making one would actually use, so somebody is not offered a
+    /// button that cannot do anything. Counts providers rather than models:
+    /// the model count spans every capability a connection has, and "40
+    /// models" under "Make an image" would be a number about video.
+    private func makeDetail(for capability: String) -> String {
         let makers = session.connectedProviders.filter {
-            $0.isHealthy && $0.capabilities.contains("video_generation")
+            $0.isHealthy && $0.capabilities.contains(capability)
         }
-        guard !makers.isEmpty else { return "Connect a generator first" }
-        let models = makers.reduce(0) { $0 + $1.modelCount }
-        return "\(models) model\(models == 1 ? "" : "s") available"
+        guard let first = makers.first else { return "Connect a generator first" }
+        return makers.count == 1 ? "With \(first.providerName)" : "With \(makers.count) providers"
     }
 }
 

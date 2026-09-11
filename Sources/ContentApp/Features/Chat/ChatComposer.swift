@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UIKit
 
 /// The chat input, in ChatGPT's shape and with ChatGPT's motion.
 ///
@@ -28,6 +29,11 @@ struct ChatComposer: View {
     /// this side of the UIKit hosting boundary, so it is asked for rather than
     /// set from outside.
     let focusToken: Int
+    /// Pictures waiting to go with the next message. Drawn from the local
+    /// image, not fetched: this view is hosted by UIKit outside the SwiftUI
+    /// environment, and a thumbnail should not wait on a network round trip.
+    var attachments: [PendingAttachment] = []
+    var onRemoveAttachment: (UUID) -> Void = { _ in }
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -37,7 +43,11 @@ struct ChatComposer: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var canSend: Bool { hasRequest && !isWorking }
+    /// Not while a picture is still uploading: sending then would send the
+    /// message without it, and the person would think it had been seen.
+    private var canSend: Bool {
+        hasRequest && !isWorking && attachments.allSatisfy { $0.path != nil }
+    }
 
     /// Wide as soon as the field is focused, not only once there is text.
     /// Measured off ChatGPT: it widens *during* the keyboard's rise, so the two
@@ -56,21 +66,27 @@ struct ChatComposer: View {
     }
 
     private var capsule: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            plusButton
+        VStack(alignment: .leading, spacing: 8) {
+            if !attachments.isEmpty {
+                pendingStrip
+            }
 
-            TextField("Ask Autocast", text: $text, axis: .vertical)
-                .font(.system(size: 16))
-                .lineSpacing(3)
-                // One line at rest, growing to six, then scrolling inside
-                // itself. The buttons stay on the bottom edge while it grows.
-                .lineLimit(1...6)
-                .focused($isFocused)
-                .padding(.horizontal, 4)
-                .padding(.vertical, 7)
-                .id(resetToken)
+            HStack(alignment: .bottom, spacing: 6) {
+                plusButton
 
-            actionButton
+                TextField(attachments.isEmpty ? "Ask Autocast" : "Say what to do with it", text: $text, axis: .vertical)
+                    .font(.system(size: 16))
+                    .lineSpacing(3)
+                    // One line at rest, growing to six, then scrolling inside
+                    // itself. The buttons stay on the bottom edge while it grows.
+                    .lineLimit(1...6)
+                    .focused($isFocused)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 7)
+                    .id(resetToken)
+
+                actionButton
+            }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
@@ -94,6 +110,39 @@ struct ChatComposer: View {
         // taller. Keyed to the text because that is the only thing that changes
         // the line count; on an ordinary keystroke nothing moves.
         .animation(.easeOut(duration: 0.18), value: text)
+    }
+
+    private var pendingStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(attachments) { attachment in
+                    Image(uiImage: attachment.preview)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 56, height: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay {
+                            if attachment.path == nil {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(.black.opacity(0.35))
+                                    .overlay { ProgressView().tint(.white) }
+                            }
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            Button { onRemoveAttachment(attachment.id) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .symbolRenderingMode(.palette)
+                                    .foregroundStyle(.white, .black.opacity(0.6))
+                                    .font(.system(size: 18))
+                            }
+                            .offset(x: 5, y: -5)
+                            .accessibilityLabel("Remove picture")
+                        }
+                }
+            }
+            .padding(.top, 6)
+            .padding(.horizontal, 6)
+        }
     }
 
     private var plusButton: some View {
@@ -139,6 +188,20 @@ struct ChatComposer: View {
         .animation(.easeOut(duration: 0.15), value: canSend)
         .animation(.easeOut(duration: 0.15), value: isWorking)
         .accessibilityLabel(isWorking ? "Stop" : "Send")
+    }
+}
+
+/// A picture on its way into the conversation.
+///
+/// `path` is nil while it uploads and the storage path once it has landed --
+/// which is what the send button waits for.
+struct PendingAttachment: Identifiable, Equatable {
+    let id = UUID()
+    let preview: UIImage
+    var path: String?
+
+    static func == (lhs: PendingAttachment, rhs: PendingAttachment) -> Bool {
+        lhs.id == rhs.id && lhs.path == rhs.path
     }
 }
 

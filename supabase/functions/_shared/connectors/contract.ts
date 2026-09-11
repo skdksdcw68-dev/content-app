@@ -130,9 +130,11 @@ export interface Constraints {
   /** Anything a person should know before choosing: "no audio", "1 request at
    *  a time", "vertical only". */
   notes?: string[];
+  /** A quality tier the model offers instead of, or as well as, resolution. */
+  qualities?: string[];
   /** What the model uses when nothing is said -- the settings a picker should
    *  start on, so the first price shown is the price of what would happen. */
-  defaults?: { resolution?: string; duration?: number };
+  defaults?: { resolution?: string; duration?: number; quality?: string };
 }
 
 /** One model a connection turned out to offer. Shape matches what

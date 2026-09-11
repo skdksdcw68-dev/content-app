@@ -77,6 +77,7 @@ extension AppSession {
             struct Settings: Encodable, Sendable {
                 let resolution: String?
                 let duration: Int?
+                let quality: String?
             }
         }
         struct Response: Decodable { let cost: ModelCost }
@@ -87,7 +88,11 @@ extension AppSession {
                     capability: capability,
                     model: model,
                     prompt: prompt,
-                    settings: .init(resolution: settings.resolution, duration: settings.duration.map { Int($0.rounded()) })
+                    settings: .init(
+                        resolution: settings.resolution,
+                        duration: settings.duration.map { Int($0.rounded()) },
+                        quality: settings.quality
+                    )
                 ))
             )
             return response.cost

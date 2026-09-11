@@ -27,6 +27,7 @@ struct GenerationCard: View {
     @State private var selectedID: String?
     @State private var resolution: String?
     @State private var duration: Double?
+    @State private var quality: String?
     @State private var price: ModelCost?
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
@@ -47,7 +48,11 @@ struct GenerationCard: View {
                 models
 
                 if let options = selected?.constraints.resolutions, options.count > 1 {
-                    ChoiceChips(title: "Quality", options: options, label: qualityLabel, selection: $resolution)
+                    ChoiceChips(title: "Resolution", options: options, label: resolutionLabel, selection: $resolution)
+                }
+
+                if let options = selected?.constraints.qualities, options.count > 1 {
+                    ChoiceChips(title: "Quality", options: options, label: { $0.capitalized }, selection: $quality)
                 }
 
                 if isVideo, let options = selected?.constraints.durations, options.count > 1 {
@@ -75,6 +80,7 @@ struct GenerationCard: View {
             }
             .onChange(of: resolution) { _, _ in reprice() }
             .onChange(of: duration) { _, _ in reprice() }
+            .onChange(of: quality) { _, _ in reprice() }
         }
     }
 
@@ -102,7 +108,7 @@ struct GenerationCard: View {
     private var generateButton: some View {
         Button {
             guard let selected else { return }
-            onGenerate(selected, GenerationSettings(resolution: resolution, duration: duration), price ?? selected.cost)
+            onGenerate(selected, current, price ?? selected.cost)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
@@ -159,6 +165,16 @@ struct GenerationCard: View {
             duration = selected.constraints.defaults?.duration ?? durations.first
         }
         if !isVideo { duration = nil }
+
+        let qualities = selected.constraints.qualities ?? []
+        quality = match(keeping ? quality : nil, in: qualities)
+            ?? match(selected.constraints.defaults?.quality, in: qualities)
+            ?? qualities.first
+    }
+
+    /// Everything set on the card, as it would be sent.
+    private var current: GenerationSettings {
+        GenerationSettings(resolution: resolution, duration: duration, quality: quality)
     }
 
     private func match(_ wanted: String?, in options: [String]) -> String? {
@@ -172,7 +188,7 @@ struct GenerationCard: View {
         guard let selected else { return }
         pricingTask?.cancel()
         pricing = true
-        let settings = GenerationSettings(resolution: resolution, duration: duration)
+        let settings = current
         pricingTask = Task {
             try? await Task.sleep(for: .milliseconds(350))
             guard !Task.isCancelled else { return }
@@ -188,9 +204,12 @@ struct GenerationCard: View {
         }
     }
 
-    private func qualityLabel(_ value: String) -> String {
-        // "1k" reads as a typo; "1K" reads as a resolution.
-        value.hasSuffix("k") ? value.uppercased() : value
+    private func resolutionLabel(_ value: String) -> String {
+        // "1k" reads as a typo; "1K" reads as a resolution. And a bare "768"
+        // is a height in pixels, which people know as "768p".
+        if value.hasSuffix("k") { return value.uppercased() }
+        if !value.isEmpty, value.allSatisfy(\.isNumber) { return "\(value)p" }
+        return value
     }
 }
 

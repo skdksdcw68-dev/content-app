@@ -459,14 +459,20 @@ function constraintsFrom(raw: Record<string, unknown>): Constraints {
 
   const resolutionParam = param("resolution");
   const resolutions = strings(raw.resolutions ?? choices(resolutionParam));
+  // Some models express detail as a quality tier instead of a resolution --
+  // Seedream's basic/high, GPT Image's low/medium/high.
+  const qualityParam = param("quality");
+  const qualities = strings(choices(qualityParam));
 
   return {
     aspectRatios: strings(raw.aspect_ratios ?? raw.aspectRatios ?? choices(param("aspect_ratio"))),
     durations,
     resolutions,
+    qualities,
     defaults: {
       resolution: typeof resolutionParam?.default === "string" ? resolutionParam.default : resolutions?.[0],
       duration: typeof durationParam?.default === "number" ? durationParam.default : durations?.[0],
+      quality: typeof qualityParam?.default === "string" ? qualityParam.default : qualities?.[0],
     },
   };
 }

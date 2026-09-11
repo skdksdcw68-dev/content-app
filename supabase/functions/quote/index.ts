@@ -50,7 +50,7 @@ Deno.serve(async (request) => {
     // Only the settings a card can change, and only simple values.
     const settings = Object.fromEntries(
       Object.entries(body.settings ?? {}).filter(([k, v]) =>
-        ["resolution", "duration", "aspect_ratio"].includes(k) && (typeof v === "string" || typeof v === "number")
+        ["resolution", "duration", "aspect_ratio", "quality"].includes(k) && (typeof v === "string" || typeof v === "number")
       ),
     );
 

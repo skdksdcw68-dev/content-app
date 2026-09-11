@@ -559,6 +559,7 @@ struct ChatView: View {
         if let resolution = settings.resolution {
             parts.append(resolution.hasSuffix("k") ? resolution.uppercased() : resolution)
         }
+        if let quality = settings.quality { parts.append(quality.capitalized) }
         if let duration = settings.duration { parts.append("\(Int(duration.rounded()))s") }
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {

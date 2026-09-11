@@ -676,7 +676,7 @@ Deno.serve(async (request) => {
                 ...(same ? offer!.settings : {}),
                 ...Object.fromEntries(
                   Object.entries(action.settings ?? {}).filter(([k, v]) =>
-                    ["resolution", "duration", "aspect_ratio"].includes(k) &&
+                    ["resolution", "duration", "aspect_ratio", "quality"].includes(k) &&
                     (typeof v === "string" || typeof v === "number")
                   ),
                 ),

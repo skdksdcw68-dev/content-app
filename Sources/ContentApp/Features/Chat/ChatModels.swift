@@ -105,23 +105,27 @@ struct ModelConstraints: Equatable, Decodable {
     struct Defaults: Equatable, Decodable {
         var resolution: String?
         var duration: Double?
+        var quality: String?
     }
 
     var durations: [Double]?
     var resolutions: [String]?
+    /// A quality tier some models offer instead of a resolution.
+    var qualities: [String]?
     var aspectRatios: [String]?
     var typicalSeconds: Int?
     var notes: [String]?
     var defaults: Defaults?
 
     private enum CodingKeys: String, CodingKey {
-        case durations, resolutions, aspectRatios, typicalSeconds, notes, defaults
+        case durations, resolutions, qualities, aspectRatios, typicalSeconds, notes, defaults
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         durations = try? c.decodeIfPresent([Double].self, forKey: .durations)
         resolutions = try? c.decodeIfPresent([String].self, forKey: .resolutions)
+        qualities = try? c.decodeIfPresent([String].self, forKey: .qualities)
         aspectRatios = try? c.decodeIfPresent([String].self, forKey: .aspectRatios)
         typicalSeconds = try? c.decodeIfPresent(Int.self, forKey: .typicalSeconds)
         notes = try? c.decodeIfPresent([String].self, forKey: .notes)
@@ -174,11 +178,13 @@ struct ModelOffer: Equatable, Decodable {
 struct GenerationSettings: Equatable {
     var resolution: String?
     var duration: Double?
+    var quality: String?
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]
         if let resolution { out["resolution"] = resolution }
         if let duration { out["duration"] = Int(duration.rounded()) }
+        if let quality { out["quality"] = quality }
         return out
     }
 }

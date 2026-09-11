@@ -222,6 +222,13 @@ function inferCapability(name: string, description = ""): Capability | null {
   if (/(status|list|show|explore|search|get|describe|cancel|balance|cost|wait)/.test(bare)) {
     return null;
   }
+  // Never, whatever its description says: anything that publishes, posts to a
+  // platform, deploys, buys, or runs code. A tool reached by reading its name
+  // must not be one whose side effect is outside "make a file" -- Higgsfield's
+  // own server has `tiktok_publish` and `confirm_billing_purchase`.
+  if (/(publish|post|tiktok|instagram|youtube|deploy|purchase|billing|trial|contest|delete|secret|sandbox|exec|website)/.test(bare)) {
+    return null;
+  }
   if (/(batch|multi|variant)/.test(bare)) return null;
 
   const makes = /(generate|create|make|render|produce|synthesi|compose)/.test(text);
@@ -293,16 +300,11 @@ export function mcpAdapter(slug: string): Adapter {
       const tools = await session.tools();
 
       const map = TOOL_CAPABILITIES[slug] ?? {};
+      // Table first, then read the name -- in two passes, so the table's
+      // choice wins regardless of the order the server listed its tools in.
+      // See `primaryTools`.
       const found = new Map<Capability, string>();
-      for (const tool of tools) {
-        // Table first, then read the name. The table is how a provider with
-        // unconventional names is handled; the reading is how a server nobody
-        // has met yet still works.
-        const capability = map[tool.name] ?? inferCapability(tool.name, tool.description);
-        // First tool wins for a capability: the batch variants come after the
-        // single ones and are the same thing at a different arity.
-        if (capability && !found.has(capability)) found.set(capability, tool.name);
-      }
+      for (const [capability, tool] of primaryTools(tools, slug)) found.set(capability, tool.name);
 
       const models: ModelDescriptor[] = [];
       const catalogue = MODEL_CATALOGUE[slug];
@@ -407,11 +409,14 @@ export function mcpAdapter(slug: string): Adapter {
       await session.open();
       const tools = await session.tools();
 
-      // The status tool is found, not named: whichever reports status and takes
-      // one required id. Its argument name is read off its schema -- Higgsfield
-      // calls it `jobId`, and the previous version of this sent `job_id`, which
-      // would have failed every poll of every job.
-      const status = tools.find((t) => /status/i.test(t.name) && requiredKeys(t).length >= 1);
+      // The status tool is found, not named -- and found narrowly. Higgsfield
+      // alone has seven tools with "status" in the name, one of them
+      // `tiktok_publish_status`; "the first one that says status" could have
+      // meant polling a publish. Only a tool about JOBS qualifies, and nothing
+      // else is used as a fallback. Its argument name is read off its schema:
+      // Higgsfield calls it `jobId`, and the previous version sent `job_id`,
+      // which would have failed every poll of every job.
+      const status = findJobStatusTool(tools);
       if (!status) {
         return { state: "failed", verdict: badOutput("the provider offers no way to check a job") };
       }
@@ -521,11 +526,45 @@ function toolFor(tools: McpTool[], request: SubmitRequest, slug: string): McpToo
     const hit = tools.find((t) => t.name === recorded);
     if (hit) return hit;
   }
+  return primaryTools(tools, slug).get(request.capability) ?? null;
+}
+
+/**
+ * One tool per capability: the table's choice first, the name-reading second.
+ *
+ * Two passes, because list order is the server's and means nothing. In one
+ * pass, whichever tool came first claimed the slot -- and `upscale_image` or
+ * `generate_3d` ("from an image") listed before `generate_image` would have
+ * become the image generator, so "make me a picture" upscaled nothing.
+ */
+function primaryTools(tools: McpTool[], slug: string): Map<Capability, McpTool> {
   const map = TOOL_CAPABILITIES[slug] ?? {};
-  return tools.find((t) =>
-    (map[t.name] ?? inferCapability(t.name, t.description)) === request.capability &&
-    !/(batch|multi)/i.test(t.name)
-  ) ?? null;
+  const single = tools.filter((t) => !/(batch|multi|variant)/i.test(t.name));
+  const found = new Map<Capability, McpTool>();
+
+  for (const tool of single) {
+    const capability = map[tool.name];
+    if (capability && !found.has(capability)) found.set(capability, tool);
+  }
+  for (const tool of single) {
+    if (map[tool.name]) continue;
+    const capability = inferCapability(tool.name, tool.description);
+    if (capability && !found.has(capability)) found.set(capability, tool);
+  }
+  return found;
+}
+
+/** The tool that reports on a generation job, and only that. */
+function findJobStatusTool(tools: McpTool[]): McpTool | null {
+  const candidates = tools.filter((t) =>
+    /status/i.test(t.name) &&
+    requiredKeys(t).length >= 1 &&
+    // Never anything about publishing, posting or an outside platform.
+    !/(publish|post|tiktok|instagram|youtube|website|deploy)/i.test(t.name)
+  );
+  return candidates.find((t) => /^jobs?_?status$/i.test(t.name)) ??
+    candidates.find((t) => /job/i.test(t.name) && requiredKeys(t).some((k) => /job/i.test(k))) ??
+    null;
 }
 
 type Schema = Record<string, unknown>;
@@ -610,7 +649,11 @@ async function importReferences(
     }
     if (!reference.url) continue;
 
-    const importer = tools.find((t) => /import/i.test(t.name) && hasProperty(t, "url"));
+    // The media importer specifically -- a 3D scene builder also "imports",
+    // and a reference handed to the wrong importer is a reference lost.
+    const importers = tools.filter((t) => /import/i.test(t.name) && hasProperty(t, "url"));
+    const importer = importers.find((t) => /media/i.test(t.name)) ??
+      importers.find((t) => /url/i.test(t.name) && !/(scene|3d|website)/i.test(t.name));
     if (!importer) throw new McpError(422, "this provider cannot take a reference by link");
 
     const args: Record<string, unknown> = { url: reference.url };
@@ -774,25 +817,37 @@ function mediaUrl(result: unknown, capability: Capability | undefined): string |
     ? "audio"
     : "video";
 
-  const urls = [...textOf(result).matchAll(/https?:\/\/[^\s"'<>\\)]+/g)].map((m) => m[0]);
-  for (const object of objectsIn(result)) {
-    for (const [, v] of entries(object)) if (typeof v === "string" && /^https?:\/\//.test(v)) urls.push(v);
-  }
-  const usable = urls.filter((u) => !/thumb|poster|preview|cover|avatar/i.test(u));
-
-  const byExtension = usable.find((u) => EXTENSIONS[kind].test(u));
-  if (byExtension) return byExtension;
-
-  // No extension to go on. A URL under a key naming the kind is the next best
-  // evidence -- `video_url`, `image_url`, `result_url`.
+  // Every URL with the field it was found under. The field matters as much as
+  // the URL: a preview is usually named by its key (`preview_url`), not by
+  // anything in the link itself.
+  const structured: Array<{ key: string; url: string }> = [];
   for (const object of objectsIn(result)) {
     for (const [k, v] of entries(object)) {
-      if (typeof v !== "string" || !/^https?:\/\//.test(v)) continue;
-      if (/thumb|poster|preview|cover/i.test(k)) continue;
-      if (new RegExp(`${kind}|result|output|^url$`, "i").test(k)) return v;
+      if (typeof v === "string" && /^https?:\/\//.test(v)) structured.push({ key: k, url: v });
     }
   }
-  return null;
+  // Links in prose only when there is nothing structured -- prose has no keys,
+  // so it cannot tell a preview from the file.
+  const pool = structured.length > 0
+    ? structured
+    : [...textOf(result).matchAll(/https?:\/\/[^\s"'<>\\)]+/g)].map((m) => ({ key: "", url: m[0] }));
+
+  const decoy = /thumb|poster|preview|cover|avatar/i;
+  const usable = pool.filter((c) => !decoy.test(c.key) && !decoy.test(c.url));
+
+  const byExtension = usable.find((c) => EXTENSIONS[kind].test(c.url));
+  if (byExtension) return byExtension.url;
+
+  // No extension to go on. A URL under a key naming the kind is the next best
+  // evidence -- `video_url`, `image_url`, `result_url` -- provided its
+  // extension does not say it is something else. An image under a generic
+  // `url` key is not a finished video.
+  const otherKinds = Object.entries(EXTENSIONS).filter(([k]) => k !== kind).map(([, re]) => re);
+  const byKey = usable.find((c) =>
+    !otherKinds.some((re) => re.test(c.url)) &&
+    new RegExp(`${kind}|result|output|^url$`, "i").test(c.key)
+  );
+  return byKey?.url ?? null;
 }
 
 function mimeFor(url: string, capability: Capability | undefined): string {
@@ -822,3 +877,17 @@ function numberNamed(result: unknown, names: string[]): number | null {
 function badOutput(detail: string): Verdict {
   return { code: "bad_output", retryable: false, tryAnotherModel: true, tryAnotherProvider: true, detail };
 }
+
+/** The pure parts, for the offline test against Higgsfield's real tool list.
+ *  Nothing calls this at runtime. */
+export const __test = {
+  primaryTools,
+  findJobStatusTool,
+  argumentsFor,
+  jobHandle,
+  jobState,
+  mediaUrl,
+  numberNamed,
+  roleFor,
+  inferCapability,
+};

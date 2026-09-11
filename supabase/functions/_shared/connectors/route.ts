@@ -25,7 +25,7 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.1
 import { adapterFor } from "./registry.ts";
 import { openConnection } from "./tokens.ts";
 import { suits } from "./suits.ts";
-import type { Capability, Cost, Submitted, SubmitRequest, Verdict } from "./contract.ts";
+import type { Balance, Capability, Cost, Submitted, SubmitRequest, Verdict } from "./contract.ts";
 
 /** One candidate: a model, on a connection, reachable by an adapter. */
 interface Candidate {
@@ -159,6 +159,19 @@ export async function quoteFor(
     );
   } catch {
     // A quote that fails is a quote nobody has, not a reason to stop.
+    return null;
+  }
+}
+
+/** What a connection has left to spend, or null when its provider will not
+ *  say or cannot be reached. Read-only against the provider. */
+export async function balanceFor(admin: SupabaseClient, connectionId: string): Promise<Balance | null> {
+  try {
+    const opened = await openConnection(admin, connectionId);
+    const adapter = adapterFor(opened.providerSlug, opened.authKind);
+    if (!adapter.balance) return null;
+    return await adapter.balance({ connectionId, secret: opened.secret, endpoint: opened.endpoint });
+  } catch {
     return null;
   }
 }

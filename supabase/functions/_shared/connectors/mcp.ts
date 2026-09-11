@@ -28,6 +28,7 @@
 import {
   type Adapter,
   type Authorization,
+  type Balance,
   type Capability,
   type Cost,
   type Discovery,
@@ -524,6 +525,36 @@ export function mcpAdapter(slug: string): Adapter {
       const result = checked(await session.call("tools/call", { name: tool.name, arguments: args }));
       const credits = numberNamed(result, ["credits_exact", "credits", "credit_cost", "total_cost", "price", "cost"]);
       return credits === null ? null : { unit: "credits", amount: credits, quoted: true, basis: "for this request" };
+    },
+
+    async balance(auth: Authorization): Promise<Balance | null> {
+      const session = new McpSession(auth.endpoint, auth.secret);
+      await session.open();
+      const tools = await session.tools();
+
+      // The account-balance tool: named for balance or credits, taking no
+      // required arguments, and nothing that buys, cancels or lists history.
+      // Higgsfield's is `balance` -> {credits: 26.02, subscription_plan_type}.
+      const tool = tools.find((t) =>
+        /^(balance|get_?balance|credits|get_?credits|account_?balance)$/i.test(t.name) && requiredKeys(t).length === 0
+      ) ?? tools.find((t) =>
+        /balance|credit/i.test(t.name) &&
+        !/(purchase|buy|confirm|cancel|trial|transaction|history|cost)/i.test(t.name) &&
+        requiredKeys(t).length === 0
+      );
+      if (!tool) return null;
+
+      const result = checked(await session.call("tools/call", { name: tool.name, arguments: {} }));
+      const amount = numberNamed(result, ["credits", "balance", "available_credits", "available"]);
+      if (amount === null) return null;
+
+      let plan: string | undefined;
+      for (const object of objectsIn(result)) {
+        for (const [k, v] of entries(object)) {
+          if (/plan/i.test(k) && typeof v === "string") plan = v;
+        }
+      }
+      return { amount, unit: "credits", plan };
     },
 
     classify(status: number, body: unknown): Verdict {

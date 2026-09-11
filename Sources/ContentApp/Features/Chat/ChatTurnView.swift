@@ -23,13 +23,13 @@ struct ChatTurnView: View {
         case .user:
             VStack(alignment: .trailing, spacing: 6) {
                 if !turn.attachments.isEmpty {
-                    AttachmentStrip(paths: turn.attachments)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    // Their pictures sit on their side, above what they said.
+                    AttachmentStrip(paths: turn.attachments, trailing: true)
                 }
                 HStack {
                     Spacer(minLength: 44)
                     Text(turn.text)
-                        .font(.subheadline)
+                        .font(.body)
                         .foregroundStyle(Theme.accent)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
@@ -44,9 +44,9 @@ struct ChatTurnView: View {
         case .assistant:
             VStack(alignment: .leading, spacing: 12) {
                 if turn.isPending && turn.text.isEmpty {
-                    // The trail once there is one. Before the first step the
-                    // app genuinely has nothing to report, and inventing a line
-                    // to fill the gap is the thing this replaced.
+                    // A dot while it thinks; a line only while it is doing
+                    // real work -- making, pricing, researching. Nothing is
+                    // announced for an ordinary answer.
                     if turn.steps.isEmpty {
                         ThinkingIndicator()
                     } else {
@@ -54,19 +54,17 @@ struct ChatTurnView: View {
                     }
                 } else if turn.failed {
                     Label(turn.text, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
+                        .font(.subheadline)
                         .foregroundStyle(.red)
                 } else {
-                    // What it did, above what it concluded, folded away. More
-                    // than one step means there was a path worth being able to
-                    // check; a single step is not a story.
-                    if turn.steps.count > 1 && !turn.isPending {
-                        TaskTrailSummary(steps: turn.steps)
-                    }
-
+                    // The steps are gone once the answer lands. They were
+                    // there to show it was working; afterwards only the answer
+                    // matters, and a folded "3 steps" above every reply was
+                    // the agent narrating itself.
                     if !turn.text.isEmpty {
                         Text(turn.text)
-                            .font(.subheadline)
+                            .font(.body)
+                            .lineSpacing(2)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -366,7 +364,7 @@ struct TaskTrail: View {
                         .frame(width: 14, height: 14)
 
                     Text(step.detail)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(step.isDone ? .secondary : .primary)
                         .fixedSize(horizontal: false, vertical: true)
                         .multilineTextAlignment(.leading)
@@ -411,71 +409,28 @@ private struct PulsingDot: View {
     }
 }
 
-/// The same trail after the answer has landed, folded to one line.
+/// One breathing blue dot while the reply is on its way.
 ///
-/// Kept rather than thrown away: an answer that took three reads and one that
-/// took none look identical once the work is gone, and only one of them
-/// deserves to be trusted. Folded, because the answer is what the person came
-/// for and the receipt should not outrank it.
-struct TaskTrailSummary: View {
-    let steps: [TaskStep]
-
-    @State private var isExpanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Button {
-                withAnimation(.snappy(duration: 0.22)) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "list.bullet.indent")
-                        .font(.caption2)
-                    Text(TaskStep.summary(of: steps))
-                        .font(.caption.weight(.semibold))
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                }
-                .foregroundStyle(.secondary)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(isExpanded ? "Hide what it did" : "Show what it did")
-
-            if isExpanded {
-                TaskTrail(steps: steps)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-    }
-}
-
-/// "Thinking", with the three dots that say it has not stalled.
+/// It used to say "Thinking" with three dots after it, on every message --
+/// a word for something that takes a second, repeated until it read as the
+/// app talking about itself. A dot says the same thing without saying it.
 struct ThinkingIndicator: View {
-    var label = "Thinking"
-
-    @State private var phase = 0
-
-    private let timer = Timer.publish(every: 0.35, on: .main, in: .common).autoconnect()
+    @State private var isUp = false
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 3) {
-                ForEach(0..<3, id: \.self) { index in
-                    Circle()
-                        .fill(Color.secondary)
-                        .frame(width: 4, height: 4)
-                        .opacity(phase == index ? 1 : 0.3)
+        Circle()
+            .fill(Color.blue)
+            .frame(width: 12, height: 12)
+            .scaleEffect(isUp ? 1 : 0.7)
+            .opacity(isUp ? 1 : 0.5)
+            // A fixed box, so the line below does not shift as it breathes.
+            .frame(width: 16, height: 16)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
+                    isUp = true
                 }
             }
-        }
-        .onReceive(timer) { _ in
-            phase = (phase + 1) % 3
-        }
-        .accessibilityLabel(label)
+            .padding(.vertical, 4)
+            .accessibilityLabel("Working on it")
     }
 }

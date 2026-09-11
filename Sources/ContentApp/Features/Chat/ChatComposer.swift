@@ -90,21 +90,12 @@ struct ChatComposer: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .background {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.regularMaterial)
-                .overlay {
-                    // Neutral in every state. A border that turns accent-
-                    // coloured when there is text is a custom-app tell; the
-                    // real thing only brightens a touch on focus.
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .strokeBorder(
-                            Color(uiColor: .separator).opacity(isFocused ? 0.7 : 0.45),
-                            lineWidth: 0.5
-                        )
-                }
-        }
-        .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
+        // The system's own Liquid Glass, interactive: it catches the light and
+        // gives under a touch the same way the tab bar and toolbar buttons do.
+        // A material with a hairline border was a drawing of a native control;
+        // this is the control's material itself, so it moves like the rest of
+        // iOS 26 without any animation of ours.
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
         .animation(.easeOut(duration: 0.15), value: isFocused)
         // A new line grows the capsule smoothly instead of snapping it a line
         // taller. Keyed to the text because that is the only thing that changes

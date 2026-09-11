@@ -67,6 +67,9 @@ export interface Routed {
   model: string | null;
   /** Settings the person asked for, in their own units. */
   settings: { resolution?: string; aspect_ratio?: string; duration?: number };
+  /** They are asking about credits, balance, cost, topping up or their plan --
+   *  the one time the account is worth checking before answering. */
+  aboutCredits: boolean;
 }
 
 /** One thing to ask, with the taps that answer it. */
@@ -175,7 +178,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain","days":number|null,' +
     '"media":"image|video"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
-    '"subject":string|null,"model":string|null,' +
+    '"subject":string|null,"model":string|null,"about_credits":boolean,' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null}}',
     "",
     "You also get the recent conversation. USE IT. 'try again', 'that', 'make it a photo instead',",
@@ -204,6 +207,9 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "model: a generation model they named, exactly as written ('nano banana pro2', 'soul 2', 'kling'), else null.",
     "settings: only what they asked for. resolution like '1k','2k','4k','720p','1080p'; aspect_ratio like",
     "  '9:16','16:9','1:1','4:5'; duration in seconds. null for anything not asked.",
+    "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
+    "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
+    "  question is chat, not make.",
   ].join("\n");
 
   try {
@@ -248,6 +254,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
         ...(text(s.aspect_ratio) ? { aspect_ratio: text(s.aspect_ratio)! } : {}),
         ...(typeof s.duration === "number" && s.duration > 0 ? { duration: Math.round(s.duration) } : {}),
       },
+      aboutCredits: parsed?.about_credits === true,
     };
   } catch {
     return fallback(message);
@@ -257,6 +264,6 @@ export async function route(message: string, apiKey: string, context = ""): Prom
 function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
-    subject: null, model: null, settings: {},
+    subject: null, model: null, settings: {}, aboutCredits: false,
   };
 }

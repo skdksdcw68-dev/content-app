@@ -12,7 +12,7 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import type { Capability, Constraints, Cost } from "./contract.ts";
+import type { Balance, Capability, Constraints, Cost } from "./contract.ts";
 import { candidatesFor, quoteFor } from "./route.ts";
 import { suits } from "./suits.ts";
 
@@ -30,6 +30,9 @@ export interface Choice {
    *  the recommendation is arguable rather than magic. */
   reason?: string;
   recommended: boolean;
+  /** False when its price is more than the account has. Absent when either
+   *  is unknown. */
+  affordable?: boolean;
 }
 
 export interface Choices {
@@ -69,6 +72,10 @@ export interface Intent {
    *  person typed could mean. Always asked when there is more than one: the
    *  person named a model, so the choice is theirs, not Auto's. */
   only?: string[];
+  /** What the account has left. A model that costs more is marked on its
+   *  row and never taken by Auto -- the first animation failed "out of
+   *  credits" with 26 left, because the first model on the list cost 75. */
+  balance?: Balance | null;
 }
 
 /**
@@ -143,8 +150,10 @@ export function settlesOn<T extends { label: string }>(matches: T[], typed: stri
 /** How many rows a picker shows. A catalogue can list forty models; a person
  *  choosing between forty is not choosing. The rest stay reachable by Auto. */
 const SHOWN = 8;
-/** How many of those are priced. Each is a round trip to the provider. */
-const QUOTED = 5;
+/** How many of those are priced -- all of them. Pricing only the first five
+ *  hid the cheap models further down, and Auto picked an 18-credit video when
+ *  cheaper ones were on screen unpriced. Each is a parallel round trip. */
+const QUOTED = 8;
 
 export async function choicesFor(
   admin: SupabaseClient,
@@ -219,7 +228,25 @@ export async function choicesFor(
     }));
   }
 
-  const auto = pick(options, intent);
+  // Against what they have. Said on the row, in their unit, so the picker
+  // answers "can I afford this" before they tap rather than after it fails.
+  const balance = intent.balance;
+  if (balance) {
+    for (const option of options) {
+      if (option.cost.amount === null || option.cost.unit !== balance.unit) continue;
+      if (option.cost.amount > balance.amount) {
+        option.affordable = false;
+        const note = `Needs ${trim(option.cost.amount)} ${balance.unit} — you have ${trim(balance.amount)}`;
+        option.constraints = { ...option.constraints, notes: [note, ...(option.constraints.notes ?? [])] };
+      } else {
+        option.affordable = true;
+      }
+    }
+  }
+
+  const auto = pick(options.filter((o) => o.affordable !== false).length > 0
+    ? options.filter((o) => o.affordable !== false)
+    : options, intent);
   if (auto) {
     const chosen = options.find((option) => option.modelId === auto.modelId);
     if (chosen) {
@@ -392,6 +419,11 @@ function constraintsFrom(raw: Record<string, unknown>): Constraints {
     durations: numbers(raw.durations ?? params.duration?.enum ?? params.duration?.values),
     resolutions: strings(raw.resolutions ?? params.resolution?.enum ?? params.resolution?.values),
   };
+}
+
+/** 26.02 -> "26.02", 18 -> "18", 0.1234 -> "0.12". */
+function trim(n: number): string {
+  return String(Number(n.toFixed(2)));
 }
 
 function within<T>(ms: number, work: Promise<T>): Promise<T | null> {

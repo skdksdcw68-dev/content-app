@@ -26,7 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { missingForPlan, MODELS, route } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
-import { candidatesFor } from "../_shared/connectors/route.ts";
+import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -37,11 +37,12 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 
-/** Conversation runs on the middle tier. The router above it is cheaper and
- *  the strategy work below it is dearer -- see `MODELS` in _shared/route.ts for
- *  what each tier is for and why one model everywhere is how you bankrupt a
- *  product that answers "hi" at strategy prices. */
-const MODEL = MODELS.chat;
+/** The reply itself runs on the top tier. It used to run on the middle one,
+ *  and the result was called "boring, 0% understanding" by the person it was
+ *  for -- the conversation IS the product, so this is where quality is spent.
+ *  The router and the classification around it stay cheaper; see `MODELS` in
+ *  _shared/route.ts. */
+const MODEL = MODELS.deep;
 
 /** How much conversation goes back to the model. Past this the cost grows for
  *  context nobody refers to; a chat that has run longer keeps its most recent
@@ -341,6 +342,7 @@ Deno.serve(async (request) => {
           request: string;
           references: string[];
           settings: Record<string, unknown>;
+          sourceArtifactId: string | null;
         } | null> => {
           if (!threadId) return null;
           const { data } = await admin
@@ -358,6 +360,7 @@ Deno.serve(async (request) => {
             request: String(hint.request ?? ""),
             references: Array.isArray(hint.references) ? (hint.references as string[]) : [],
             settings: (hint.settings as Record<string, unknown>) ?? {},
+            sourceArtifactId: typeof hint.source_artifact_id === "string" ? hint.source_artifact_id : null,
           };
         };
 
@@ -367,6 +370,278 @@ Deno.serve(async (request) => {
           const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
           const rows = (data ?? []) as Array<{ id: string; kind: string; title: string }>;
           return rows.find((row) => ["research", "plan", "campaign"].includes(row.kind)) ?? null;
+        };
+
+        /** Why a job ended, in the words a person would use. */
+        const REASON: Record<string, string> = {
+          no_credits: "not enough credits for that model",
+          needs_reconnect: "the connection needed signing in again",
+          bad_key: "the connection was refused",
+          no_models: "no connected model could do it",
+          refused: "the provider refused the prompt",
+          rate_limited: "the provider was busy",
+          provider_down: "the provider was down",
+          bad_output: "the result wasn't usable",
+          timeout: "it took too long",
+        };
+
+        /**
+         * What is true about their account right now, for the reply to use.
+         *
+         * The reason "so do I have to top up?" got "I don't handle payments":
+         * the reply had the brand's facts and nothing else. It did not know a
+         * video had failed a minute earlier, what it had cost, or what they
+         * had left. Now it does -- and the balance is fetched only when they
+         * are asking about money, which is the one time it is worth a call.
+         */
+        const describeState = async (checkCredits: boolean): Promise<string> => {
+          const none = Promise.resolve({ data: [] as unknown[] });
+          const [connsRead, runsRead, madeRead, offerRead] = await Promise.all([
+            asUser.rpc("my_connections"),
+            threadId
+              ? admin.from("agent_runs").select("kind, status, error, input, result, created_at")
+                .eq("thread_id", threadId).eq("user_id", auth.user!.id)
+                .order("created_at", { ascending: false }).limit(4)
+              : none,
+            threadId ? asUser.rpc("thread_artifacts", { p_thread: threadId }) : none,
+            threadId
+              ? admin.from("messages").select("render_hint")
+                .eq("thread_id", threadId).eq("render_hint->>kind", "models")
+                .order("seq", { ascending: false }).limit(1)
+              : none,
+          ]);
+
+          const lines: string[] = [];
+          const conns = (connsRead.data ?? []) as Array<{
+            id: string; provider_name: string; auth_kind: string | null; status: string;
+            capabilities: string[]; model_count: number;
+          }>;
+          if (conns.length === 0) {
+            lines.push("Connected: nothing yet. They can connect Higgsfield from + then Connections.");
+          }
+          for (const c of conns) {
+            const kinds = (c.capabilities ?? []).map((k) => k.replace("_generation", "")).join(", ");
+            lines.push(
+              `Connected: ${c.provider_name} (${c.auth_kind === "api_key" ? "pasted key" : "signed in"}, ${c.status}), ` +
+                `${c.model_count} models${kinds ? ` for ${kinds}` : ""}.`,
+            );
+          }
+
+          const runs = (runsRead.data ?? []) as Array<{
+            kind: string; status: string; error: string | null;
+            input: Record<string, unknown>; result: Record<string, unknown> | null;
+          }>;
+          if (runs.length > 0) {
+            lines.push("Recent work in this conversation, newest first:");
+            for (const r of runs) {
+              const i = r.input ?? {};
+              const what = r.kind === "generate"
+                ? (i.capability === "image_generation" ? "image" : i.source_artifact_id ? "animation (video)" : "video")
+                : r.kind;
+              const label = i.model_label ?? (Array.isArray(r.result?.attempts) ? String((r.result!.attempts as string[])[0] ?? "").split(":")[0] : "");
+              const quoted = i.quoted_cost as { amount?: number; unit?: string } | null;
+              const outcome = r.status === "succeeded"
+                ? "made"
+                : r.status === "failed"
+                ? `failed: ${REASON[r.error ?? ""] ?? r.error ?? "unknown"}`
+                : "still running";
+              lines.push(
+                `- ${what}${label ? ` with ${label}` : ""}${quoted?.amount != null ? ` (quoted ${trim(quoted.amount)} ${quoted.unit})` : ""}` +
+                  `${i.prompt ? ` of "${String(i.prompt).slice(0, 80)}"` : i.topic ? ` on "${String(i.topic).slice(0, 80)}"` : ""}: ${outcome}`,
+              );
+            }
+          }
+
+          const made = (madeRead.data ?? []) as Array<{ kind: string; title: string }>;
+          if (made.length > 0) {
+            lines.push(`Made in this conversation: ${made.slice(0, 6).map((a) => `${a.kind} "${a.title.slice(0, 50)}"`).join("; ")}.`);
+          }
+
+          const hint = ((offerRead.data ?? []) as Array<{ render_hint: Record<string, unknown> }>)[0]?.render_hint;
+          const options = ((hint?.choices as { options?: Array<{ label: string; cost: { amount: number | null; unit: string } }> })?.options ?? [])
+            .filter((o) => o.cost?.amount != null);
+          if (options.length > 0) {
+            lines.push(`Prices seen for "${String(hint?.request ?? "").slice(0, 60)}": ${
+              options.slice(0, 8).map((o) => `${o.label} ${trim(o.cost.amount!)} ${o.cost.unit}`).join(", ")
+            }.`);
+          }
+
+          if (checkCredits) lines.push(await balanceLine());
+
+          return `STATE:\n${lines.join("\n")}`;
+        };
+
+        /** The balance, as one line of STATE. Only when they asked about money. */
+        const balanceLine = async (): Promise<string> => {
+          const { data } = await asUser.rpc("my_connections");
+          const door = ((data ?? []) as Array<{ id: string; provider_name: string; auth_kind: string | null; status: string }>)
+            .find((c) => c.auth_kind !== "api_key" && c.status === "active");
+          if (!door) return "Balance: nothing connected that has one.";
+          send({ t: "step", kind: "reading", detail: `Checking your ${door.provider_name} credits` });
+          const balance = await balanceFor(admin, door.id);
+          return balance
+            ? `Balance on ${door.provider_name}: ${trim(balance.amount)} ${balance.unit}${balance.plan ? ` (${balance.plan} plan)` : ""}.`
+            : `Balance: ${door.provider_name} didn't say just now.`;
+        };
+
+        const trim = (n: number) => String(Number(n.toFixed(2)));
+        const priced = (cost: { amount: number | null; unit: string }) =>
+          cost.amount === null ? "" : ` (${trim(cost.amount)} ${cost.unit})`;
+
+        /**
+         * Offer, or start, one image or video. The one place that decides, so
+         * "make me…", a typed model name and the Animate button all behave the
+         * same way -- Animate used to skip all of this and take the first video
+         * model on the list, which cost 75 credits against a balance of 26.
+         *
+         * The balance is read here and nowhere else in a normal turn: a price
+         * is about to be put in front of somebody, and "can I afford it" is the
+         * question that price raises.
+         */
+        const produce = async (job: {
+          capability: "image_generation" | "video_generation";
+          prompt: string;
+          settings: Record<string, unknown>;
+          references: string[];
+          sourceArtifactId?: string | null;
+          only?: string[];
+          settled?: boolean;
+          unmatched?: boolean;
+          named?: string | null;
+          brandId: string | null;
+          intro?: string;
+        }) => {
+          const noun = job.capability === "image_generation" ? "image" : "video";
+          const aspect = String(job.settings.aspect_ratio ?? "9:16");
+          const withPicture = job.references.length > 0 || Boolean(job.sourceArtifactId);
+
+          const pool = await candidatesFor(admin, auth.user!.id, job.capability);
+          const door = pool.find((c) => c.authKind !== "api_key") ?? pool[0];
+          if (pool.length > 0) {
+            send({ t: "step", kind: "reading", detail: `Checking prices for ${job.prompt}` });
+          }
+          const balance = door ? await balanceFor(admin, door.connectionId) : null;
+
+          const intentFor = {
+            aspectRatio: aspect,
+            seconds: typeof job.settings.duration === "number" ? job.settings.duration : (noun === "video" ? 5 : undefined),
+            // Asked of the provider with this very prompt and these settings,
+            // so the price on each row is what this job costs.
+            quote: { prompt: job.prompt, options: { aspect_ratio: aspect, ...job.settings } },
+            withPicture,
+            only: job.only,
+            balance,
+          };
+          let choices = await choicesFor(admin, auth.user!.id, job.capability, intentFor);
+
+          // Nothing found, but something is signed in: ask it again before
+          // saying no. The first real sign-in lost its model list to a failed
+          // write, and chat then said nothing could make an image.
+          if (choices.options.length === 0) {
+            const { data: signedIn } = await asUser
+              .from("connections")
+              .select("id, auth_kind")
+              .eq("status", "active")
+              .is("revoked_at", null);
+            const doors = ((signedIn ?? []) as Array<{ id: string; auth_kind: string | null }>)
+              .filter((row) => row.auth_kind !== "api_key");
+            if (doors.length > 0) {
+              send({ t: "step", kind: "reading", detail: "Asking Higgsfield what it can make" });
+              for (const row of doors) {
+                try {
+                  await rediscover(admin, row.id);
+                } catch (thrown) {
+                  console.error("rediscover", thrown instanceof Error ? thrown.message : thrown);
+                }
+              }
+              choices = await choicesFor(admin, auth.user!.id, job.capability, intentFor);
+            }
+          }
+
+          if (choices.options.length === 0) {
+            speak(
+              `Nothing you've connected can make ${noun === "image" ? "images" : "video"} yet. `,
+              "Connect a generator from the plus menu and I'll start straight away.",
+            );
+            await remember();
+            return finish();
+          }
+
+          const credits = balance ? `${trim(balance.amount)} ${balance.unit}` : null;
+          const affordable = choices.options.filter((o) => o.affordable !== false);
+          const runInput = (model: string | null, cost: unknown) => ({
+            capability: job.capability,
+            prompt: job.prompt,
+            model,
+            settings: job.settings,
+            quoted_cost: cost,
+            references: job.references.map((path) => ({ path, kind: "image" })),
+            ...(job.sourceArtifactId ? { source_artifact_id: job.sourceArtifactId } : {}),
+          });
+
+          // Exactly the one they named -- so naming it was the choice, and it
+          // starts with its price said. Unless it costs more than they have:
+          // then that is said instead, and nothing is spent.
+          if (job.only && job.settled && choices.options.length === 1) {
+            const chosen = choices.options[0];
+            if (chosen.affordable === false && credits) {
+              speak(
+                `${chosen.label} needs ${trim(chosen.cost.amount ?? 0)} ${chosen.cost.unit} and you have ${credits}. `,
+                "Top up on Higgsfield, or name a cheaper model and I'll use that.",
+              );
+              await remember();
+              return finish();
+            }
+            speak(
+              `Making ${job.prompt} with ${chosen.label}${priced(chosen.cost)}`,
+              job.settings.resolution ? ` at ${job.settings.resolution}` : "",
+              ".",
+            );
+            send({ t: "chose", choice: chosen });
+            return await startRun("generate", runInput(chosen.externalId, chosen.cost.amount !== null ? chosen.cost : null), job.brandId);
+          }
+
+          if (choices.worthAsking || affordable.length === 0) {
+            const money = affordable.length === 0 && credits
+              ? ` None of these fit your ${credits} right now — topping up on Higgsfield would unlock them.`
+              : credits
+              ? ` You have ${credits}.`
+              : "";
+            speak(
+              job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
+              job.only
+                ? `More than one model matches "${job.named}" — which one did you mean?`
+                : `${job.intro ?? `Here's what can make ${job.prompt}.`} Pick one, or let me choose.`,
+              money,
+            );
+            // The request travels with the offer -- the SUBJECT, not the
+            // sentence -- so a tap starts exactly this job, and a typed "use
+            // Kling" afterwards still knows what to make and from what.
+            send({ t: "models", capability: job.capability, choices, request: job.prompt, references: job.references });
+            await remember({
+              kind: "models",
+              choices,
+              request: job.prompt,
+              references: job.references,
+              settings: job.settings,
+              source_artifact_id: job.sourceArtifactId ?? null,
+            });
+            return finish();
+          }
+
+          // Not worth asking, so it is not asked -- the choice and its price
+          // are still said, so what was used and what it cost is never hidden.
+          const auto = choices.auto;
+          speak(
+            `Making ${job.prompt} with ${auto?.label ?? "the one model you have"}${auto ? priced(auto.cost) : ""}. `,
+            auto?.reason ? `${auto.reason} ` : "",
+          );
+          send({ t: "chose", choice: auto });
+          return await startRun(
+            "generate",
+            runInput(auto?.externalId ?? null, auto?.cost.amount !== null ? auto?.cost : null),
+            job.brandId,
+          );
         };
 
         try {
@@ -397,14 +672,22 @@ Deno.serve(async (request) => {
               // Settings asked for before the tap -- "2k" -- live on the offer
               // the tap answers, not on the button.
               const offer = await lastOffer();
-              const settings = offer && offer.request === action.prompt ? offer.settings : {};
-              speak(capability === "image_generation" ? "Making the image." : "Making the video.");
+              const same = offer !== null && offer.request === action.prompt;
+              const settings = same ? offer!.settings : {};
+              // An Animate offer's source travels on the offer, not the button.
+              const source = same ? offer!.sourceArtifactId : null;
+              speak(
+                source
+                  ? "Animating it."
+                  : `Making ${action.prompt}.`,
+              );
               return await startRun("generate", {
                 capability,
                 prompt: action.prompt,
                 model: action.model ?? null,
                 settings,
                 references,
+                ...(source ? { source_artifact_id: source } : {}),
               }, null);
             }
 
@@ -463,67 +746,27 @@ Deno.serve(async (request) => {
                 return finish();
               }
               const prompt = action.prompt?.trim() ||
-                `Bring this image to life with subtle, natural motion. ${String(source.body?.prompt ?? "")}`.trim();
-              speak("Animating it.");
-              return await startRun("generate", {
+                `${String(source.body?.prompt ?? "this image")}, brought to life with subtle, natural motion`.trim();
+              // Through the same picker as anything else made: priced, checked
+              // against the balance, only models that take a starting picture.
+              return await produce({
                 capability: "video_generation",
                 prompt,
-                source_artifact_id: source.id,
-                // Same provider first, so the image can be handed back by its
-                // own handle rather than re-uploaded.
-                model: null,
-              }, null);
+                settings: {},
+                references: [],
+                sourceArtifactId: source.id,
+                brandId: null,
+                intro: "Here's what can animate it.",
+              });
             }
           }
 
-          // Read under RLS, as the user. Each step is announced only after the
-          // read it describes has returned, so the trail can never claim work
-          // that did not happen.
-          const { data: brand } = await asUser
-            .from("brands")
-            .select("id, name, niche, audience")
-            .limit(1)
-            .maybeSingle();
-
-          send({
-            t: "step",
-            kind: "reading",
-            detail: brand ? `Read what you've told me about ${brand.name}` : "Looked for your brand",
-          });
-
-          const { data: facts } = brand
-            ? await asUser
-              .from("brand_memory")
-              .select("fact")
-              .eq("brand_id", brand.id)
-              .limit(40)
-            : { data: [] };
-
-          const known = (facts ?? [])
-            .map((row: { fact: string }) => row.fact)
-            .filter(Boolean);
-
-          if (known.length > 0) {
-            send({ t: "step", kind: "reading", detail: `Checked ${known.length} things I know are true` });
-          }
-
-          const { data: recent } = await asUser
-            .from("posts")
-            .select("hook")
-            .order("created_at", { ascending: false })
-            .limit(15);
-
-          const previous = (recent ?? [])
-            .map((row: { hook: string }) => row.hook)
-            .filter(Boolean);
-
-          if (previous.length > 0) {
-            send({ t: "step", kind: "reading", detail: `Looked at your last ${previous.length} openings` });
-          }
-
-          // What are they actually asking for -- read WITH the conversation.
-          // One line alone is how "Try again please" became a request to plan
-          // a week, and "Use nano banana pro2" a request for a video.
+          // Read under RLS, as the user -- silently. These are database reads
+          // measured in milliseconds, and announcing them on every message
+          // ("Read what you've told me about…", "Looked at your last 15
+          // openings") made the agent look like it was checking up on
+          // somebody before answering "hi". Steps are for work a person would
+          // want to watch: making something, pricing it, researching.
           const pending = await lastOffer();
           const context = [
             ...history.slice(0, -1).slice(-6).map((turn) =>
@@ -533,9 +776,25 @@ Deno.serve(async (request) => {
               ? [`(Autocast then offered ${pending.capability === "image_generation" ? "image" : "video"} models for: "${pending.request}")`]
               : []),
           ].join("\n");
-          const routed = await route(asked, OPENAI_KEY, context);
 
-          send({ t: "step", kind: "reading", detail: routed.reading });
+          // What are they asking for -- read WITH the conversation, in
+          // parallel with the reads it does not depend on.
+          // The account state is read alongside, not after: it is only needed
+          // for a plain reply, but waiting for the router before starting it
+          // put seconds in front of the first word.
+          const [routed, brandRead, recentRead, baseState] = await Promise.all([
+            route(asked, OPENAI_KEY, context),
+            asUser.from("brands").select("id, name, niche, audience").limit(1).maybeSingle(),
+            asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
+            describeState(false),
+          ]);
+          const brand = brandRead.data as { id: string; name: string; niche: string; audience: string } | null;
+
+          const { data: facts } = brand
+            ? await asUser.from("brand_memory").select("fact").eq("brand_id", brand.id).limit(40)
+            : { data: [] };
+          const known = ((facts ?? []) as Array<{ fact: string }>).map((row) => row.fact).filter(Boolean);
+          const previous = ((recentRead.data ?? []) as Array<{ hook: string }>).map((row) => row.hook).filter(Boolean);
 
           // The gate. A month of content is the single most expensive thing
           // this product does, and the worst version of it is a month built
@@ -664,123 +923,20 @@ Deno.serve(async (request) => {
                 unmatched = true;
               }
             }
-            const noun = capability === "image_generation" ? "image" : "video";
-            const aspect = settings.aspect_ratio ?? "9:16";
-
-            const intentFor = {
-              aspectRatio: aspect,
-              seconds: settings.duration ?? (noun === "video" ? 5 : undefined),
-              // Asked of the provider with this very prompt and these settings,
-              // so the price on each row is what this job costs.
-              quote: { prompt, options: { aspect_ratio: aspect, ...settings } },
-              withPicture: references.length > 0,
-              only,
-            };
-            let choices = await choicesFor(admin, auth.user.id, capability, intentFor);
-
-            // Nothing found, but something is signed in: ask it again before
-            // saying no. The contract promised discovery would re-run "whenever
-            // a capability lookup finds nothing", and the first real sign-in
-            // is why -- it connected, lost its model list to a failed write,
-            // and chat then told Abel he had nothing that could make an image.
-            if (choices.options.length === 0) {
-              const { data: signedIn } = await asUser
-                .from("connections")
-                .select("id, auth_kind")
-                .eq("status", "active")
-                .is("revoked_at", null);
-              const doors = ((signedIn ?? []) as Array<{ id: string; auth_kind: string | null }>)
-                .filter((row) => row.auth_kind !== "api_key");
-
-              if (doors.length > 0) {
-                send({ t: "step", kind: "reading", detail: "Asking your provider what it can make" });
-                for (const door of doors) {
-                  try {
-                    await rediscover(admin, door.id);
-                  } catch (thrown) {
-                    console.error("rediscover", thrown instanceof Error ? thrown.message : thrown);
-                  }
-                }
-                choices = await choicesFor(admin, auth.user.id, capability, intentFor);
-              }
-            }
-
-            if (choices.options.length === 0) {
-              speak(
-                `Nothing you have connected can make ${noun === "image" ? "images" : "video"} yet. `,
-                "Connect a generator from the plus menu and I can start straight away.",
-              );
-              await remember();
-              return finish();
-            }
-
-            send({
-              t: "step",
-              kind: "reading",
-              detail: only
-                ? `Found ${choices.options.length === 1 ? choices.options[0].label : `${choices.options.length} models called that`}`
-                : `Found ${choices.options.length} ${noun} model${choices.options.length === 1 ? "" : "s"} you can use`,
-            });
-
-            const priced = (cost: { amount: number | null; unit: string }) =>
-              cost.amount === null ? "" : ` (${Number(cost.amount.toFixed(2))} ${cost.unit})`;
-
-            // Exactly the one they named -- every word they typed, in one
-            // model's name -- so naming it was the choice and it starts, with
-            // its price said. A looser match is asked about instead: a tap is
-            // cheaper than credits spent on a guess.
-            if (only && settled && choices.options.length === 1) {
-              const chosen = choices.options[0];
-              speak(
-                `Using ${chosen.label}${priced(chosen.cost)}`,
-                settings.resolution ? ` at ${settings.resolution}` : "",
-                ` for ${prompt}.`,
-              );
-              send({ t: "chose", choice: chosen });
-              return await startRun("generate", {
-                capability,
-                prompt,
-                model: chosen.externalId,
-                settings,
-                quoted_cost: chosen.cost.amount !== null ? chosen.cost : null,
-                references: references.map((path) => ({ path, kind: "image" })),
-              }, brand?.id ?? null);
-            }
-
-            if (choices.worthAsking) {
-              speak(
-                unmatched ? `I couldn't find "${routed.model}" among your models. ` : "",
-                only
-                  ? `More than one model matches "${routed.model}" — which one?`
-                  : `I can make ${prompt}. These ${choices.options.length} can do it — pick one, or let me choose.`,
-              );
-              // The request travels with the offer -- the SUBJECT, not the
-              // sentence -- so a tap on a model starts exactly this job, and a
-              // typed "use Kling" afterwards still knows what to make.
-              send({ t: "models", capability, choices, request: prompt, references });
-              await remember({ kind: "models", choices, request: prompt, references, settings });
-              return finish();
-            }
-
-            // Not worth asking, so it is not asked -- and now it actually
-            // starts, rather than saying "Starting now" and doing nothing. The
-            // choice and its price are still reported: somebody should always
-            // be able to see what was used and what it cost.
-            const auto = choices.auto;
-            speak(
-              `I'll use ${auto?.label ?? "the one model you have"}`,
-              auto ? `${priced(auto.cost)}. ` : ". ",
-              auto?.reason ? `${auto.reason} ` : "",
-            );
-            send({ t: "chose", choice: auto });
-            return await startRun("generate", {
+            return await produce({
               capability,
               prompt,
-              model: auto?.externalId ?? null,
               settings,
-              quoted_cost: auto?.cost.amount !== null ? auto?.cost : null,
-              references: references.map((path) => ({ path, kind: "image" })),
-            }, brand?.id ?? null);
+              references,
+              // Answering an offer that was for animating something keeps
+              // animating that thing.
+              sourceArtifactId: pending?.sourceArtifactId ?? null,
+              only,
+              settled,
+              unmatched,
+              named: routed.model,
+              brandId: brand?.id ?? null,
+            });
           }
 
           if (routed.intent === "plan" && brand) {
@@ -845,88 +1001,118 @@ Deno.serve(async (request) => {
             }
           }
 
-          send({ t: "step", kind: "writing", detail: "Writing" });
-
-          // Tagged sections rather than a flat list of sentences, and a banned
-          // list of actual phrasings rather than a principle.
+          // The voice. Written after Abel called the old one "boring, 0%
+          // understanding" -- fairly: its own worked example answered "how's it
+          // going" with "Fine. What do you want to work on?", and it answered
+          // "so do I have to top up?" with "I don't handle payments" while
+          // knowing the last job had just failed for want of credits.
           //
-          // Both are borrowed technique. A small model follows "never write
-          // this exact shape of sentence" and reasons badly about "only assert
-          // what you know" -- which is how the planner came to announce
-          // features Remi does not have. The good/bad pairs are there for the
-          // same reason: showing the refusal is worth more than describing it,
-          // because the failure is not that the model wants to lie, it is that
-          // it does not know what a refusal is supposed to sound like.
+          // The conversational technique is borrowed from Anthropic's Fable
+          // system prompt (warm and direct, answer before asking, at most one
+          // question, minimal formatting in casual chat, no filler, after doing
+          // something say the result) -- rewritten for this product rather than
+          // pasted, since most of that prompt is tooling that does not exist
+          // here. The honesty rules are this product's own and stay: see
+          // planner-invents-facts. Examples use a fictional brand, Kettle, so
+          // nothing in them can be quoted back as a fact about the real one.
           const system = `<autocast>
-You are Autocast, the content agent for one social account. You plan, write and
-schedule short-form video for the person you are talking to. You are talking to
-the owner of the account, not to their audience.
+You are Autocast, the content partner inside the Autocast app. You help one
+person grow their social account: you talk ideas through, write hooks and
+captions, research, plan campaigns, and make images and videos with the
+generator they connected. You are talking to the owner of the account.
 
-<facts>
-Everything you may treat as true about this account is in the FACTS block of the
-next message. Nothing else is known. An empty FACTS block means you know only
-the account line, and you should say so rather than filling the gap.
-</facts>
+<how_you_talk>
+Warm, sharp and direct -- like a friend who happens to be very good at content.
+Treat them as a capable adult.
+Answer what they actually asked, first, in plain words. For simple things one to
+three sentences is right; offer to go further when it would help.
+Match their energy. A casual message gets a casual reply with no headings, no
+bullet points and no bold -- just talk. Use a short list only when the answer
+really is several separate things.
+Every sentence adds something. No openers like "Great question", "Absolutely",
+"I'd be happy to"; never "honestly", "genuinely" or "straightforward"; no hype
+words ("unlock", "game-changer", "supercharge").
+When a request is ambiguous, take the most sensible reading and act on it. Ask at
+most one short question, and only when the answer would change what you do.
+When something went wrong, say what happened and what to do about it, with the
+real numbers from STATE -- never a vague brush-off.
+Do not narrate your own process ("I checked your account", "let me look"). Just
+answer.
+</how_you_talk>
 
-<forbidden_claims>
-You NEVER state as fact anything not in FACTS. In particular:
+<this_app>
+Tell people how to do things here, concretely, when it helps:
+- Make an image or a video: just ask ("make an image of...", "a 5 second video
+  of..."). They'll see models with real prices from their own account, and can
+  tap one or let you choose. Naming a model ("with nano banana 2") uses it.
+- Animate an image: the Animate button under any image you made.
+- Research: "research ..." runs in the background for a few minutes and comes
+  back as a report they can read and export.
+- Export: "export that as PDF / Word / ZIP", or the Export button on a report or
+  campaign.
+- Campaigns: "plan a two-week launch campaign for ...". You ask two or three
+  questions with buttons, show a strategy card, and write the posts once they
+  approve it.
+- Attach a photo: the + button, then Attach a photo; ask about it or use it as a
+  reference.
+- Autopilot: the card on Home. It makes each day's video ahead of time; nothing
+  is posted until they approve it.
+- Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
+Generation is paid for with credits on THEIR generator account (Higgsfield), not
+by Autocast. Topping up happens on higgsfield.ai.
+</this_app>
 
-Never announce work that was done:
-- "This week I added..." / "We shipped..." / "I fixed..." / "Now with..."
-- "...just launched" / "...has been improved" / "...is now simpler"
-- Any sentence whose subject is a change to the product.
+<state>
+The STATE block in the next message is the live truth about their account: what
+is connected, what you recently made or tried to make in this conversation and
+how it ended, prices you have seen, and their credit balance when it was
+checked. Use it. If they ask whether they need to top up, answer from it with
+the actual numbers, and suggest the cheaper option that would work.
+</state>
 
-Never invent a person or their words:
-- "One user told me..." / "A customer said..." / "People keep asking..."
-- Any quote, testimonial, review or DM.
-
-Never invent a measurement:
-- A number of users, downloads, reviews, ratings, or revenue.
-- A price, a date, a percentage, a milestone, a streak.
-- "thousands of" / "hundreds of" / "most people" as a claim about this account.
-
-If what you are asked for needs one of these, name the fact you are missing and
-ask for it. That is the correct answer, not a fallback.
-</forbidden_claims>
-
-<voice>
-Talk like somebody who knows the account. Short sentences. No hype, no
-exclamation marks, no "unlock", "game-changer", "supercharge", and never the
-word easy. Under 120 words unless more is asked for. A list only when the answer
-really is a list.
-</voice>
-
-<what_you_cannot_do>
-You cannot publish, approve, or attach media, and you must never imply you have.
-Everything that reaches TikTok goes through the approval sheet, which is a
-person tapping a button. Say "I can draft that" and never "I posted that".
-</what_you_cannot_do>
+<honesty>
+Everything you may treat as true about their brand is in FACTS. Nothing else is
+known about it, and you never fill the gap:
+- Never announce product changes ("this week we added...", "now with...").
+- Never invent a person or their words: no testimonials, reviews, "a customer
+  said", "people keep asking".
+- Never invent a number about the account: users, sales, ratings, dates, streaks.
+If what they asked for needs one of these, say which fact you need.
+You cannot publish or approve anything, and never imply you did. Everything that
+reaches TikTok goes through the approval sheet, which is them tapping a button.
+</honesty>
 
 <examples>
-These examples are about a DIFFERENT account, called Kettle, which sells loose
-leaf tea. Nothing in them is a fact about the account you are working on. They
-show you the shape of a good answer and nothing else — never repeat their
-wording, their claims, or their product details in a real reply.
+These are about a DIFFERENT, fictional account called Kettle, which sells loose
+leaf tea. Nothing in them is true of the real account. They show the shape of a
+good answer only.
 
 <example>
-<facts>none recorded</facts>
-<user>Write me a post about what's new in Kettle this week.</user>
-<good_response>I don't have anything recorded about what changed this week, and I'm not going to invent a feature — that's the one mistake that's expensive to post. Tell me what actually shipped and I'll write it. Or if nothing shipped, I can write about something Kettle already does.</good_response>
-<bad_response>Here's one: "This week I added a subscription pause button — a small change that makes a big difference."</bad_response>
+<user>how's it going</user>
+<good>Good! Ready when you are. Want to make something for Kettle today, or talk
+through ideas for the week?</good>
+<bad>Fine. What do you want to work on?</bad>
+</example>
+
+<example>
+<state>Higgsfield connected. Last video: Cinema Studio Video 3.0, quoted 75
+credits, failed: not enough credits. Balance: 26.02 credits. Prices seen:
+Cinema Studio Video 18 credits, Soul 2.0 image 0.12 credits.</state>
+<user>so do I have to top up or what?</user>
+<good>Not necessarily. That video model needed 75 credits and you have 26, so it
+couldn't run -- but Cinema Studio Video is 18 and would fit. Want me to animate
+it with that instead? Topping up on higgsfield.ai only matters if you want the
+bigger models.</good>
+<bad>I don't handle payments or credits. You'd need to check with your provider.</bad>
 </example>
 
 <example>
 <facts>Kettle sells loose leaf tea. Every order is packed the morning it ships.</facts>
 <user>Give me a hook about people loving it.</user>
-<good_response>I don't have anything from customers I can quote, so I'd rather use something I know is true: "Packed the morning it ships." That's a real difference and it argues for itself.</good_response>
-<bad_response>"One customer told me Kettle is the best tea they've ever had."</bad_response>
-</example>
-
-<example>
-<facts>Kettle sells loose leaf tea.</facts>
-<user>how's it going</user>
-<good_response>Fine. What do you want to work on?</good_response>
-<bad_response>Going great! Kettle's been picking up steam lately and I've got some exciting ideas for growing your audience!</bad_response>
+<good>I don't have anything from customers I can quote, so I'd use something true
+instead: "Packed the morning it ships." It's a real difference and it argues for
+itself.</good>
+<bad>"One customer told me Kettle is the best tea they've ever had."</bad>
 </example>
 </examples>
 </autocast>`;
@@ -942,6 +1128,8 @@ wording, their claims, or their product details in a real reply.
           const avoid = previous.length > 0
             ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
             : "";
+
+          const stateBlock = routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState;
 
           // Attached pictures go to the model as image data on the last turn,
           // so "write a caption for this" is about this picture. Sent as bytes
@@ -959,7 +1147,7 @@ wording, their claims, or their product details in a real reply.
             pictures.push({ type: "image_url", image_url: { url: `data:${file.type};base64,${btoa(binary)}` } });
           }
           if (pictures.length > 0) {
-            send({ t: "step", kind: "reading", detail: `Looked at ${pictures.length === 1 ? "your picture" : `${pictures.length} pictures`}` });
+            send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }
 
           const turns = history.map((turn, index) =>
@@ -979,7 +1167,7 @@ wording, their claims, or their product details in a real reply.
               stream: true,
               messages: [
                 { role: "system", content: system },
-                { role: "system", content: [brief, factBlock, avoid].filter(Boolean).join("\n\n") },
+                { role: "system", content: [brief, factBlock, stateBlock, avoid].filter(Boolean).join("\n\n") },
                 ...turns,
               ],
             }),

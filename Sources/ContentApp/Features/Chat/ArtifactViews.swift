@@ -40,35 +40,45 @@ struct RunCard: View {
         }
     }
 
+    /// Whether the first read has come back. Until it has, nothing is drawn --
+    /// a reopened conversation would otherwise flash "working" over every job
+    /// that finished days ago, before learning it had.
+    @State private var loaded = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let outcome {
-                Label(
-                    outcome == .succeeded ? finishedLine : "Stopped",
-                    systemImage: outcome == .succeeded ? "checkmark.circle.fill" : "xmark.circle.fill"
-                )
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(outcome == .succeeded ? Theme.accent : .secondary)
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                    Spacer(minLength: 0)
-                    Text("Keeps going if you leave")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let progress, progress.of > 0 {
-                    ProgressView(value: Double(progress.done), total: Double(progress.of))
-                        .tint(Theme.accent)
-                }
-
-                if !steps.isEmpty {
-                    TaskTrail(steps: steps)
-                }
+        // Only while the work is happening. When it ends the result arrives as
+        // its own turn, so the card simply goes -- a "Made" tick left behind
+        // above every result was the agent narrating itself.
+        ZStack(alignment: .topLeading) {
+            Color.clear.frame(height: 0)
+            if loaded && outcome == nil {
+                working
+                    .transition(.opacity)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(.easeOut(duration: 0.2), value: outcome == nil)
+        .task(id: runId) { await follow() }
+    }
+
+    private var working: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(steps.last?.detail ?? title)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+
+            if let progress, progress.of > 0 {
+                ProgressView(value: Double(progress.done), total: Double(progress.of))
+                    .tint(Theme.accent)
+            }
+
+            Text("Keeps going if you leave the app")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,16 +87,6 @@ struct RunCard: View {
                 .fill(Theme.surface)
         }
         .animation(.easeOut(duration: 0.2), value: steps.count)
-        .task(id: runId) { await follow() }
-    }
-
-    private var finishedLine: String {
-        switch kind {
-        case "research": "Research finished"
-        case "export":   "File ready"
-        case "generate": "Made"
-        default:         "Finished"
-        }
     }
 
     /// Reads events after the last one drawn, until the run ends or the card
@@ -103,6 +103,7 @@ struct RunCard: View {
                 lastSeq = max(lastSeq, event.seq)
                 absorb(event)
             }
+            loaded = true
             if outcome != nil {
                 if sawRunning { onFinished() }
                 return
@@ -574,6 +575,9 @@ private struct ImageCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
             }
             .buttonStyle(.plain)
+            // On the agent's side, like its words. A fitted image narrower
+            // than the column was centred by its frame.
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
                 Button { onAnimate(artifact) } label: {
@@ -621,6 +625,7 @@ private struct VideoCard: View {
             .aspectRatio(aspect, contentMode: .fit)
             .frame(maxHeight: 420)
             .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
                 Button {
@@ -670,9 +675,26 @@ private struct VideoCard: View {
 /// The pictures somebody attached, small, above what they said.
 struct AttachmentStrip: View {
     let paths: [String]
+    /// On the person's own turn, the pictures sit on their side of the page.
+    /// A horizontal scroll view always starts its content at the leading edge,
+    /// which is why they used to appear on the agent's side.
+    var trailing = false
     var onRemove: ((String) -> Void)? = nil
 
     var body: some View {
+        if trailing {
+            HStack(spacing: 8) {
+                Spacer(minLength: 44)
+                ForEach(paths, id: \.self) { path in
+                    AttachmentThumb(path: path)
+                }
+            }
+        } else {
+            scrolling
+        }
+    }
+
+    private var scrolling: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 ForEach(paths, id: \.self) { path in

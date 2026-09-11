@@ -108,6 +108,14 @@ export interface Cost {
   quoted: boolean;
 }
 
+/** An account's spendable balance, in the provider's own unit. */
+export interface Balance {
+  amount: number;
+  unit: string;
+  /** The plan the account is on, as the provider names it ("pro"). */
+  plan?: string;
+}
+
 /** What a model can actually be asked for. Every field optional: a provider
  *  that does not say is different from one that says "any", and the picker
  *  shows the difference rather than inventing a range. */
@@ -235,6 +243,11 @@ export interface Adapter {
    *  anything. Optional: most providers publish no such call, and an adapter
    *  that cannot ask must not answer -- a guessed price is worse than none. */
   quote?(auth: Authorization, request: SubmitRequest): Promise<Cost | null>;
+
+  /** What the account has left to spend, when the provider will say. Read
+   *  only when it matters -- somebody asked, or a price is being compared
+   *  against it -- never as a ritual before every answer. */
+  balance?(auth: Authorization): Promise<Balance | null>;
 
   /** Turn one HTTP failure into shared words. The only place a provider's own
    *  error vocabulary is allowed to be understood. */

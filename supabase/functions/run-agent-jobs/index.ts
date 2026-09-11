@@ -538,7 +538,15 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
       });
     } catch (thrown) {
       if (thrown instanceof NothingCanDoThis) {
-        await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: thrown.code });
+        // What was tried is kept on the run, so the chat can say "that model
+        // needed more than you have" instead of "your provider is out of
+        // credits" to somebody with twenty-six of them.
+        await admin.rpc("finish_agent_run", {
+          p_run: run.id,
+          p_status: "failed",
+          p_error: thrown.code,
+          p_result: { attempts: thrown.attempts },
+        });
         await tell(admin, run, refusal(thrown.code, what));
         return `failed ${thrown.code}`;
       }
@@ -563,7 +571,8 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
     await admin.rpc("advance_agent_run", {
       p_run: run.id,
       p_step: "waiting",
-      p_detail: `${routed.modelLabel} is making it`,
+      // Said about THEIR thing, not about the machinery.
+      p_detail: `Making ${String(run.input.prompt ?? `the ${what}`).slice(0, 60)} with ${routed.modelLabel}`,
       p_after: what === "image" ? "10 seconds" : "30 seconds",
     });
     return "waiting";
@@ -765,7 +774,10 @@ async function saveGenerated(
 function refusal(code: string, what: string): string {
   switch (code) {
     case "no_credits":
-      return `Your provider is out of credits, so the ${what} wasn't made. Top up there and ask me again — nothing was charged here.`;
+      // Not "you are out of credits": the first time this fired, the account
+      // had 26 and the model wanted 75. The balance may be fine for a
+      // cheaper model, and saying so is the useful half.
+      return `That model needs more credits than your Higgsfield balance has, so the ${what} wasn't made and nothing was charged. Ask again and I'll show which models fit.`;
     case "needs_reconnect":
     case "bad_key":
       return `Your provider connection needs signing in again before I can make the ${what}. It's under the plus menu, in Connections.`;

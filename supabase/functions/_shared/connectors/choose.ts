@@ -139,17 +139,26 @@ export function matchModels<T extends { label: string; externalId: string }>(poo
  * name contains every word they typed. Anything looser is a question -- and a
  * question costs a tap, where a wrong guess costs credits.
  */
-export function settlesOn<T extends { label: string }>(matches: T[], typed: string): T | null {
+export function settlesOn<T extends { label: string; externalId?: string }>(matches: T[], typed: string): T | null {
   const tokens = (text: string) =>
     text.toLowerCase().replace(/([a-z])(\d)/g, "$1 $2").replace(/(\d)([a-z])/g, "$1 $2")
       .split(/[^a-z0-9]+/).filter((t) => t && !NOISE.has(t));
   const wanted = new Set(tokens(typed));
+  const same = (text: string) => {
+    const shown = new Set(tokens(text));
+    return [...wanted].every((t) => shown.has(t)) && shown.size === wanted.size;
+  };
   const covers = (m: T) => [...wanted].every((t) => new Set(tokens(m.label)).has(t));
-  const exact = matches.filter((m) => {
-    const shown = new Set(tokens(m.label));
-    return covers(m) && shown.size === wanted.size;
-  });
+  const exact = matches.filter((m) => same(m.label));
   if (exact.length === 1) return exact[0];
+  // Two models the provider gave the same name -- Higgsfield calls both
+  // nano_banana_pro and nano_banana_2_shots "Nano Banana Pro". The one whose
+  // id is also what they typed is the one they meant; the card still shows
+  // its price before anything is spent.
+  if (exact.length > 1) {
+    const byId = exact.filter((m) => m.externalId && same(m.externalId));
+    if (byId.length === 1) return byId[0];
+  }
   const covering = matches.filter(covers);
   return covering.length === 1 && matches.length === 1 ? covering[0] : null;
 }

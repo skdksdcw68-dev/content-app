@@ -24,7 +24,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { missingForPlan, MODELS, route } from "../_shared/route.ts";
+import { leftToUs, missingForPlan, MODELS, route, vagueSubject } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
@@ -378,6 +378,7 @@ Deno.serve(async (request) => {
           capability: string;
           model: string | null;
           settings: Record<string, unknown>;
+          references: string[];
         } | null> => {
           if (!threadId) return null;
           const { data } = await admin
@@ -393,6 +394,7 @@ Deno.serve(async (request) => {
             capability: String(hint.capability ?? "image_generation"),
             model: typeof hint.model === "string" ? hint.model : null,
             settings: (hint.settings as Record<string, unknown>) ?? {},
+            references: Array.isArray(hint.references) ? (hint.references as string[]) : [],
           };
         };
 
@@ -898,10 +900,23 @@ Deno.serve(async (request) => {
             // the instruction sentence -- "use nano banana pro with 2k" sent as
             // a prompt came back as a drawing of a handheld console labelled
             // NANO BANANA PRO 2K.
-            const subject = routed.subject?.trim() || (continuing ? asked.trim() : "");
-            const prompt = subject || pending?.request || animating;
+            // The reply itself counts only when it carries nothing else: "use
+            // nano banana pro at 2k" answering the question is a model, not a
+            // subject. A bare kind ("an image") is never one -- that went out
+            // as the whole prompt and came back as a street nobody asked for.
+            const answered = continuing && !routed.model && Object.keys(routed.settings).length === 0 &&
+                !vagueSubject(asked)
+              ? asked.trim()
+              : "";
+            const offeredFor = pending?.request && !vagueSubject(pending.request) ? pending.request : "";
+            const subject = routed.subject?.trim() || answered;
+            let prompt = subject || offeredFor || animating;
+            // Asked what, and told "surprise me": theirs to leave to us.
+            if (!prompt && continuing && leftToUs(asked)) prompt = "a striking, beautifully composed scene";
             const settings = { ...(awaiting?.settings ?? {}), ...(pending?.settings ?? {}), ...routed.settings };
-            const references = attachments.length > 0 ? attachments : (pending?.references ?? []);
+            const references = attachments.length > 0
+              ? attachments
+              : (pending?.references ?? awaiting?.references ?? []);
 
             // Which kind: a model they named settles it, then what they said,
             // then what they were already making, then video.
@@ -922,6 +937,7 @@ Deno.serve(async (request) => {
             let only: string[] | undefined;
             let unmatched = false;
             let settled = false;
+            let namedLabel: string | null = null;
             if (namedModel) {
               const pools = await Promise.all(
                 (["image_generation", "video_generation"] as const).map(async (cap) =>
@@ -957,6 +973,7 @@ Deno.serve(async (request) => {
                 // guess: one model, and the kind either certain or said.
                 settled = exact !== null && (kinds.size === 1 || said !== null || offered !== null);
                 only = settled && exact ? [exact.externalId] : same.map((m) => m.externalId);
+                namedLabel = settled && exact ? exact.label : null;
               } else {
                 unmatched = true;
               }
@@ -966,8 +983,12 @@ Deno.serve(async (request) => {
             // One question, and the model and settings wait with it.
             if (!prompt && !sourceArtifactId) {
               const noun = capability === "image_generation" ? "image" : "video";
-              speak(`Sure — what should the ${noun} be of?`);
-              await remember({ kind: "awaiting_subject", capability, model: namedModel, settings });
+              const chosen = [
+                namedLabel ?? namedModel,
+                typeof settings.resolution === "string" ? settings.resolution.toUpperCase() : null,
+              ].filter(Boolean).join(" at ");
+              speak(chosen ? `Sure — ${chosen}. What should the ${noun} be of?` : `Sure — what should the ${noun} be of?`);
+              await remember({ kind: "awaiting_subject", capability, model: namedModel, settings, references });
               return finish();
             }
 

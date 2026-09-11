@@ -200,10 +200,12 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "reading: one short sentence, in your own words, of what they are asking for.",
     "subject: for make only. WHAT to make, as a short generation prompt in plain words -- the scene or",
     "  the thing. Never instructions to you, never model names, never settings. Take it from earlier in",
-    "  the conversation when the last message only changes how. Examples:",
+    "  the conversation when the last message only changes how. null when they have not said what yet --",
+    "  a bare kind ('an image', 'a video', 'a picture') is NOT a subject. Examples:",
     "  'No i said generate an image of tea with a cup' -> 'a cup of tea'.",
     "  'Use nano banana pro with 2k' after asking for a cup of tea -> 'a cup of tea'.",
     "  'I want a photo not a video' after asking for a cup of tea -> 'a cup of tea'.",
+    "  'Lets generate an image bro' with nothing earlier -> null.",
     "model: a generation model they named, exactly as written ('nano banana pro2', 'soul 2', 'kling'), else null.",
     "settings: only what they asked for. resolution like '1k','2k','4k','720p','1080p'; aspect_ratio like",
     "  '9:16','16:9','1:1','4:5'; duration in seconds. null for anything not asked.",
@@ -247,7 +249,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
       reading: typeof parsed?.reading === "string" ? parsed.reading : message.slice(0, 80),
       media: parsed?.media === "image" || parsed?.media === "video" ? parsed.media : null,
       format: ["docx", "pdf", "zip"].includes(parsed?.format) ? parsed.format : null,
-      subject: text(parsed?.subject)?.slice(0, 600) ?? null,
+      subject: vagueSubject(text(parsed?.subject)) ? null : text(parsed?.subject)!.slice(0, 600),
       model: text(parsed?.model)?.slice(0, 60) ?? null,
       settings: {
         ...(text(s.resolution) ? { resolution: text(s.resolution)!.toLowerCase() } : {}),
@@ -259,6 +261,33 @@ export async function route(message: string, apiKey: string, context = ""): Prom
   } catch {
     return fallback(message);
   }
+}
+
+/**
+ * Words that name a KIND of thing, not a thing. "Lets generate an image bro"
+ * came back with the subject "an image", which went to Nano Banana Pro as the
+ * whole prompt -- and a rainy Paris street came back that nobody asked for.
+ * Checked here as well as in the prompt, because the prompt is a request.
+ */
+const KIND_WORDS = new Set([
+  "a", "an", "the", "some", "one", "any", "another", "new", "me", "my", "us", "for", "of", "to",
+  "it", "this", "that", "please", "pls", "bro", "bruh", "man", "just", "quick", "short", "again",
+  "cool", "nice", "good", "great", "random", "anything", "something", "stuff", "ai", "content",
+  "image", "images", "picture", "pictures", "pic", "pics", "photo", "photos", "video", "videos",
+  "clip", "clips", "reel", "reels", "visual", "visuals", "post", "thumbnail", "poster",
+  "generate", "make", "create", "lets", "let", "s", "do", "can", "you", "i", "want", "need",
+]);
+
+export function vagueSubject(subject: string | null | undefined): boolean {
+  if (!subject) return true;
+  const words = subject.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  return words.every((word) => KIND_WORDS.has(word));
+}
+
+/** "surprise me", "you pick", "anything" -- what to make, left to Autocast. */
+export function leftToUs(message: string): boolean {
+  return /\b(surprise me|you (choose|pick|decide)|up to you|your (choice|call)|anything|whatever|random)\b/i
+    .test(message);
 }
 
 function fallback(message: string): Routed {

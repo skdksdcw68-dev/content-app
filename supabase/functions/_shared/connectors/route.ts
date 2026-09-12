@@ -218,12 +218,19 @@ export async function routeSubmit(
     );
   }
 
-  const ordered = args.preferModel
-    ? [
-      ...all.filter((c) => c.externalId === args.preferModel),
-      ...all.filter((c) => c.externalId !== args.preferModel),
-    ]
-    : all;
+  // Cheapest that fits the balance, first.
+  //
+  // Every unattended post failed for a month on one line in the log:
+  // `["Cinema Studio Video 3.0: no_credits"]`. The ladder took the provider's
+  // own running order, which leads with its most expensive model, asked for a
+  // job worth more than the account had, and stopped. There were 41 video
+  // models on that connection and 18 credits in it -- several would have run.
+  //
+  // So the same thing the picker does in chat: ask what a handful actually
+  // cost for THIS job, drop the ones the balance cannot cover, and try the
+  // rest cheapest first. A dozen quotes is one round trip against a job that
+  // runs once a day.
+  const ordered = await byPrice(admin, all, args);
 
   const attempts: string[] = [];
   let lastCode = "no_models";
@@ -264,10 +271,15 @@ export async function routeSubmit(
       attempts.push(`${candidate.label}: ${verdict.code}`);
       lastCode = verdict.code;
 
-      // Told by the adapter, not guessed here. `no_credits` and `bad_key` are
-      // facts about the account, so every other model on it would answer the
-      // same way; `no_models` is about this model alone.
-      if (!verdict.tryAnotherModel) blockedConnections.add(candidate.connectionId);
+      // Told by the adapter, not guessed here. `bad_key` is a fact about the
+      // account, so every other model on it would answer the same way.
+      //
+      // `no_credits` is NOT: it means this model costs more than is left, and
+      // a cheaper one on the same connection may well run. Treating it as an
+      // account fact is what made one refusal end the day, every day.
+      if (!verdict.tryAnotherModel && verdict.code !== "no_credits") {
+        blockedConnections.add(candidate.connectionId);
+      }
 
       // A connection that needs reconnecting is worth saying so about, once,
       // where the person will see it.
@@ -284,10 +296,69 @@ export async function routeSubmit(
   }
 
   throw new NothingCanDoThis(
-    `None of your connected providers could make ${readable(args.capability)}.`,
+    lastCode === "no_credits"
+      // Said as what it is. "None of your providers could make video" sent
+      // somebody looking for a broken connection when the truth was that the
+      // models tried cost more than the credits left.
+      ? `Every model that could make ${readable(args.capability)} costs more than the credits left on your account.`
+      : `None of your connected providers could make ${readable(args.capability)}.`,
     lastCode,
     attempts,
   );
+}
+
+/**
+ * The order to try models in: what they asked for first, then cheapest.
+ *
+ * Only the front of the list is priced -- a quote is a request to the provider
+ * and a catalogue can hold forty models. Anything that cannot be priced keeps
+ * its place behind what can, because an unknown price is not a cheap one.
+ */
+async function byPrice(
+  admin: SupabaseClient,
+  all: Candidate[],
+  args: { capability: Capability; prompt: string; options?: Record<string, unknown>; preferModel?: string },
+): Promise<Candidate[]> {
+  const named = args.preferModel ? all.filter((c) => c.externalId === args.preferModel) : [];
+  const rest = all.filter((c) => c.externalId !== args.preferModel);
+
+  /** How many get a price. Enough to find something affordable, few enough
+   *  that an unattended job is not thirty requests before it starts. */
+  const PRICED = 12;
+  const front = rest.slice(0, PRICED);
+  const back = rest.slice(PRICED);
+
+  const balance = front.length > 0 ? await balanceFor(admin, front[0].connectionId) : null;
+
+  const priced = await Promise.all(front.map(async (candidate) => {
+    const cost = await quoteFor(admin, {
+      connectionId: candidate.connectionId,
+      capability: args.capability,
+      model: candidate.externalId,
+      prompt: args.prompt,
+      options: args.options,
+      metadata: candidate.metadata,
+    }).catch(() => null);
+    return { candidate, amount: cost?.unit === balance?.unit ? cost?.amount ?? null : cost?.amount ?? null };
+  }));
+
+  // What the balance cannot cover goes last rather than being dropped: the
+  // balance may be stale, and a job that might run beats one that cannot.
+  const affordable = priced.filter((p) =>
+    p.amount !== null && (balance === null || p.amount <= balance.amount)
+  ).sort((a, b) => (a.amount ?? 0) - (b.amount ?? 0));
+  const tooDear = priced.filter((p) =>
+    p.amount !== null && balance !== null && p.amount > balance.amount
+  ).sort((a, b) => (a.amount ?? 0) - (b.amount ?? 0));
+  const unpriced = priced.filter((p) => p.amount === null);
+
+  return [
+    ...named,
+    ...affordable.map((p) => p.candidate),
+    ...unpriced.map((p) => p.candidate),
+    ...back,
+    ...tooDear.map((p) => p.candidate),
+  ];
 }
 
 /**

@@ -471,6 +471,15 @@ Deno.serve(async (request) => {
           return [];
         };
 
+        /** Everything made in this conversation that is a file: the pictures,
+         *  the videos, the music, and any document already exported. */
+        const madeHere = async (): Promise<Array<{ id: string; kind: string }>> => {
+          if (!threadId) return [];
+          const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
+          return ((data ?? []) as Array<{ id: string; kind: string }>)
+            .filter((row) => ["image", "video", "audio", "document", "package"].includes(row.kind));
+        };
+
         /** Artefacts in this conversation, newest first -- what "it" means. */
         const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
           if (!threadId) return null;
@@ -949,8 +958,22 @@ Deno.serve(async (request) => {
 
           if (routed.intent === "export") {
             const source = await latestExportable();
+            const made = await madeHere();
+
+            // "Export everything" means everything: the pictures, the videos,
+            // the music and the documents from this conversation in one ZIP.
+            // Asked for by name, or the only thing that makes sense when
+            // nothing here is a document.
+            const wantsAll = /\b(everything|all of (it|them)|all the|whole (chat|conversation)|both)\b/i.test(asked);
+            if (made.length > 0 && (wantsAll || !source)) {
+              speak(
+                `Packing up everything from this chat — ${made.length} file${made.length === 1 ? "" : "s"}.`,
+              );
+              return await startRun("export", { thread_id: threadId, format: "zip", everything: true }, null);
+            }
+
             if (!source) {
-              speak("There's nothing in this conversation to export yet. Ask me to research something or plan a month, and I can turn it into a file.");
+              speak("There's nothing in this conversation to export yet. Ask me to research something, plan a month, or make something, and I can turn it into a file.");
               await remember();
               return finish();
             }

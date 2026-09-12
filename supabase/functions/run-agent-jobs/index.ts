@@ -289,7 +289,133 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
  * The source is never modified. The file is a new artefact whose parent is the
  * source, so "the PDF of the research" is a walk up one column.
  */
+/**
+ * Everything made in one conversation, in one ZIP.
+ *
+ * "Export everything" used to mean one report in three formats. It should
+ * mean what it says: the pictures, the videos, the music and the documents,
+ * with a plain index saying what each one was asked for, which model made it
+ * and what it cost.
+ *
+ * Stored rather than compressed -- a PNG or an MP4 does not get smaller, and
+ * this runs inside an edge function's memory. Capped for the same reason, with
+ * whatever did not fit named in the index rather than silently missing.
+ */
+const ZIP_BUDGET = 40 * 1024 * 1024;
+
+async function exportEverything(admin: Admin, run: Run): Promise<string> {
+  const { data: rows } = await admin
+    .from("artifacts")
+    .select("id, kind, title, body, storage_path, mime, byte_size, model, actual_cost, estimated_cost, created_at")
+    .eq("user_id", run.user_id)
+    .eq("thread_id", run.thread_id)
+    .not("storage_path", "is", null)
+    .order("created_at", { ascending: true });
+
+  const made = (rows ?? []) as Array<{
+    id: string;
+    kind: string;
+    title: string;
+    body: Record<string, unknown>;
+    storage_path: string;
+    mime: string | null;
+    byte_size: number | null;
+    model: string | null;
+    actual_cost: { unit?: string; amount?: number } | null;
+    estimated_cost: { unit?: string; amount?: number } | null;
+    created_at: string;
+  }>;
+
+  if (made.length === 0) {
+    await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: "nothing to export" });
+    await tell(admin, run, "There's nothing with a file in it in this conversation yet.");
+    return "failed";
+  }
+
+  const files: Array<{ path: string; bytes: Uint8Array }> = [];
+  const lines: string[] = [];
+  let used = 0;
+  let index = 0;
+
+  for (const item of made) {
+    index += 1;
+    const ext = (item.storage_path.split(".").pop() ?? "bin").slice(0, 5);
+    const name = `${String(index).padStart(2, "0")}-${slug(item.body.prompt as string ?? item.title) || item.kind}.${ext}`;
+    const price = item.actual_cost ?? item.estimated_cost;
+    const said = [
+      name,
+      item.body.prompt ? `  asked for: ${String(item.body.prompt).slice(0, 200)}` : null,
+      item.model ? `  made with: ${item.model}` : null,
+      price?.amount !== undefined && price?.unit ? `  cost: ${price.amount} ${price.unit}` : null,
+      `  made: ${item.created_at.slice(0, 16).replace("T", " ")}`,
+    ].filter(Boolean) as string[];
+
+    const size = item.byte_size ?? 0;
+    if (used + size > ZIP_BUDGET && files.length > 0) {
+      lines.push(...said, "  NOT INCLUDED — the package was already full", "");
+      continue;
+    }
+
+    const { data: blob, error } = await admin.storage.from("artifacts").download(item.storage_path);
+    if (error || !blob) {
+      lines.push(...said, "  NOT INCLUDED — the file could not be read", "");
+      continue;
+    }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    used += bytes.byteLength;
+    files.push({ path: name, bytes });
+    lines.push(...said, "");
+  }
+
+  const packed = buildZip(`Everything from this chat`, [
+    ...files,
+    { path: "index.txt", bytes: new TextEncoder().encode(lines.join("\n")) },
+  ], { store: true });
+
+  const filename = `autocast-${new Date().toISOString().slice(0, 10)}.zip`;
+  const { data: madeId } = await admin.rpc("create_artifact", {
+    p_user: run.user_id,
+    p_kind: "package",
+    p_title: filename,
+    p_body: { format: "zip", filename, source_title: "This conversation", manifest: packed.manifest },
+    p_thread: run.thread_id,
+    p_run: run.id,
+    p_status: "pending",
+  });
+  const artifactId = madeId as string;
+
+  const path = `${run.user_id}/${artifactId}/${filename}`;
+  const { error: uploadError } = await admin.storage
+    .from("artifacts")
+    .upload(path, packed.bytes, { contentType: "application/zip", upsert: true });
+  if (uploadError) throw new Error(`upload: ${uploadError.message}`);
+
+  await admin.rpc("attach_artifact_file", {
+    p_artifact: artifactId,
+    p_path: path,
+    p_mime: "application/zip",
+    p_size: packed.bytes.byteLength,
+  });
+  await admin.rpc("finish_agent_run", {
+    p_run: run.id,
+    p_status: "succeeded",
+    p_result: { artifact_id: artifactId },
+  });
+
+  const left = made.length - files.length;
+  await tell(
+    admin,
+    run,
+    `Here's everything from this chat — ${files.length} file${files.length === 1 ? "" : "s"}${
+      left > 0 ? `, and ${left} that didn't fit (they're listed inside)` : ""
+    }.`,
+    { kind: "artifact", artifact_id: artifactId },
+  );
+  return "done";
+}
+
 async function exportStep(admin: Admin, run: Run): Promise<string> {
+  if (run.input.everything === true) return await exportEverything(admin, run);
   const sourceId = String(run.input.artifact_id ?? "");
   const format = String(run.input.format ?? "pdf") as "docx" | "pdf" | "zip";
 

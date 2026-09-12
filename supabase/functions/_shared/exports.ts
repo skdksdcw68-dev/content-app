@@ -195,13 +195,22 @@ export interface PackageFile {
 
 /** A package with a manifest listing what is inside and how big each part is,
  *  so the card can show the contents before anybody opens it. */
-export function buildZip(name: string, files: PackageFile[]): {
+export function buildZip(
+  name: string,
+  files: PackageFile[],
+  /** `store` packs without compressing. Pictures, video and audio are already
+   *  compressed, and squeezing them again costs the CPU an edge function has
+   *  least of for bytes it will not save. */
+  options: { store?: boolean } = {},
+): {
   bytes: Uint8Array;
   manifest: Array<{ path: string; size: number }>;
 } {
   const manifest = files.map((f) => ({ path: f.path, size: f.bytes.byteLength }));
-  const entries: Record<string, Uint8Array> = {};
-  for (const file of files) entries[file.path] = file.bytes;
+  const entries: Record<string, Uint8Array | [Uint8Array, { level: 0 }]> = {};
+  for (const file of files) {
+    entries[file.path] = options.store ? [file.bytes, { level: 0 }] : file.bytes;
+  }
   entries["MANIFEST.txt"] = strToU8(
     `${name}\n\n` + manifest.map((m) => `${m.path}  (${m.size} bytes)`).join("\n") + "\n",
   );

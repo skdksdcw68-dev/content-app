@@ -233,14 +233,14 @@ struct GenerationCard: View {
         // Each of the model's own questions starts on its default, or on the
         // first answer it accepts -- never empty, or Generate would send a job
         // the model refuses.
-        var asked: [String: String] = [:]
+        var answers: [String: String] = [:]
         for ask in selected.constraints.choices ?? [] {
             let kept = keeping ? extras[ask.name] : nil
-            asked[ask.name] = ask.options.first { $0 == kept }
+            answers[ask.name] = ask.options.first { $0 == kept }
                 ?? ask.options.first { $0 == ask.preset }
                 ?? ask.options.first
         }
-        extras = asked
+        extras = answers
 
         let qualities = selected.constraints.qualities ?? []
         quality = match(keeping ? quality : nil, in: qualities)

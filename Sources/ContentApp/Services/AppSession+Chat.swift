@@ -20,10 +20,19 @@ import Supabase
 /// never leaves the main actor. Same shape at the call site, no `Sendable`.
 extension AppSession {
 
-    /// Saved conversations, newest activity first.
+    /// Saved conversations for the app being looked at, newest activity first.
+    ///
+    /// Conversations belong to the brand they are about: the list under one app
+    /// should not show where last week's ad for another one was made. Threads
+    /// from before brands were carried still appear, because hiding somebody's
+    /// history to introduce a feature is not a trade worth making.
     func threads() async -> [ChatThread] {
+        struct Params: Encodable { let p_limit: Int; let p_brand: String? }
         do {
-            return try await client.rpc("my_threads").execute().value
+            return try await client
+                .rpc("my_threads", params: Params(p_limit: 30, p_brand: brand?.id.uuidString))
+                .execute()
+                .value
         } catch {
             return []
         }
@@ -171,6 +180,9 @@ extension AppSession {
         // payload above; the attachments say what it was.
 
         var body: [String: Any] = ["messages": payload]
+        // Which app this is about. Without it the agent reads the oldest brand
+        // and talks about the wrong product.
+        if let brandID = brand?.id { body["brandId"] = brandID.uuidString }
         if let thread { body["threadId"] = thread.uuidString }
         if let action { body["action"] = action.payload }
         if !attachments.isEmpty { body["attachments"] = attachments }

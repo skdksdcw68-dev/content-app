@@ -12,6 +12,9 @@ struct HomeView: View {
     @State private var upgrading = false
     /// What was made today, read once when the page appears.
     @State private var today: AppSession.DayTally?
+    /// Naming another app to market.
+    @State private var addingBrand = false
+    @State private var newBrand = ""
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -230,6 +233,22 @@ struct HomeView: View {
             await session.refreshHealth()
             today = await session.todayTally()
         }
+        // Named here, and nothing else asked: what it is for, who it is for
+        // and how it should sound are the agent's questions, not a form's.
+        .alert("Add an app", isPresented: $addingBrand) {
+            TextField("What is it called?", text: $newBrand)
+            Button("Cancel", role: .cancel) { newBrand = "" }
+            Button("Add") {
+                let name = newBrand
+                newBrand = ""
+                Task {
+                    await session.addBrand(named: name)
+                    today = await session.todayTally()
+                }
+            }
+        } message: {
+            Text("Its own plan, its own accounts, its own schedule.")
+        }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(isPresented: $upgrading) { UpgradeSheet() }
     }
@@ -249,6 +268,8 @@ private extension HomeView {
     /// sentence, and nothing when nothing is.
     var greeting: some View {
         VStack(alignment: .leading, spacing: 3) {
+            BrandSwitcher(adding: $addingBrand)
+
             Text(timeOfDay)
                 .font(.title.bold())
                 .foregroundStyle(Color.primary)
@@ -688,6 +709,47 @@ private struct NothingYetCard: View {
 /// words open the offer and the picture opens your account, because a single
 /// control that does two things does whichever one you did not want half the
 /// time. The capsule around them is what makes it read as one object anyway.
+/// Which app this page is about.
+///
+/// The whole point is that Autocast runs the marketing for all of them, so the
+/// name of the one on screen is the first thing above the greeting -- and
+/// switching is a tap, because posting one app's video under another's name is
+/// the worst mistake this product can make.
+private struct BrandSwitcher: View {
+    @Binding var adding: Bool
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        Menu {
+            ForEach(session.brands) { brand in
+                Button {
+                    Task { await session.switchBrand(to: brand.id) }
+                } label: {
+                    if brand.id == session.brand?.id {
+                        Label(brand.name, systemImage: "checkmark")
+                    } else {
+                        Text(brand.name)
+                    }
+                }
+            }
+            Divider()
+            Button { adding = true } label: {
+                Label("Add an app", systemImage: "plus")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(session.brand?.name ?? "My brand")
+                    .font(.subheadline.weight(.semibold))
+                Image(systemName: "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Switch app")
+    }
+}
+
 private struct AccountPill: View {
     let connection: PlatformConnection?
     let upgrade: () -> Void

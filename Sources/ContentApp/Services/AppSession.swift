@@ -20,6 +20,8 @@ final class AppSession {
     private(set) var state: State = .starting
     private(set) var userID: UUID?
     private(set) var brand: Brand?
+    /// Every app this person is marketing. The chosen one is `brand`.
+    private(set) var brands: [Brand] = []
     private(set) var connections: [PlatformConnection] = []
     private(set) var isConnecting = false
     /// Any longer-running action the person started: uploading, approving,
@@ -131,22 +133,31 @@ final class AppSession {
         }
     }
 
-    /// One brand for now. The schema supports several and the UI will, but
-    /// shipping a brand switcher before there is a second brand is furniture.
+    /// Every app this person markets, and which one is being looked at.
+    ///
+    /// One brand was never the shape of this: the point is that it runs the
+    /// marketing for ALL of them, and each needs its own plan, memory,
+    /// accounts and schedule. The schema was built that way from the start --
+    /// brand_id is on memory, settings, pillars, threads, runs, connections,
+    /// plans and posts -- so this is the app catching up.
+    ///
+    /// The chosen one is remembered between launches: reopening on the wrong
+    /// brand is how the wrong thing gets posted.
     private func loadBrand(for userID: UUID) async throws {
-        // Ordered, because `limit(1)` without one asks Postgres for "any row"
-        // and it is entitled to answer differently on different days. Anyone
-        // who ends up with two brands would then see one of them at random.
+        // Ordered, because an unordered read asks Postgres for "any row" and
+        // it is entitled to answer differently on different days.
         let existing: [Brand] = try await client
             .from("brands")
             .select()
             .order("created_at", ascending: true)
-            .limit(1)
             .execute()
             .value
 
-        if let first = existing.first {
-            brand = first
+        if !existing.isEmpty {
+            brands = existing
+            let remembered = UserDefaults.standard.string(forKey: Self.chosenBrandKey)
+                .flatMap(UUID.init(uuidString:))
+            brand = existing.first { $0.id == remembered } ?? existing.first
             return
         }
 
@@ -164,6 +175,52 @@ final class AppSession {
             .value
 
         brand = created.first
+        brands = created
+    }
+
+    /// Which brand everything else is about, between launches.
+    private static let chosenBrandKey = "autocast.brand"
+
+    /// Look at another one. Everything brand-shaped is read again: leaving one
+    /// app's posts on screen under another app's name is worse than a moment
+    /// of emptiness.
+    func switchBrand(to id: UUID) async {
+        guard let next = brands.first(where: { $0.id == id }), next.id != brand?.id else { return }
+        brand = next
+        UserDefaults.standard.set(id.uuidString, forKey: Self.chosenBrandKey)
+        posts = []
+        plan = nil
+        planPosts = []
+        connections = []
+        await refreshConnections()
+        await refreshPosts()
+        await refreshPlan()
+        await refreshSettings()
+        await refreshHealth()
+    }
+
+    /// Another app to market. Named now; what it is for the agent asks once,
+    /// in its own words, when it is the one being looked at.
+    @discardableResult
+    func addBrand(named name: String) async -> Brand? {
+        guard let userID else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        do {
+            let created: [Brand] = try await client
+                .from("brands")
+                .insert(NewBrand(userId: userID, name: trimmed, timezone: TimeZone.current.identifier))
+                .select()
+                .execute()
+                .value
+            guard let made = created.first else { return nil }
+            brands.append(made)
+            await switchBrand(to: made.id)
+            return made
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
     }
 
     func refreshConnections() async {

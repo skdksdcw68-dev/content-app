@@ -185,6 +185,11 @@ Deno.serve(async (request) => {
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
     const asked = mine;
 
+    // Which app this conversation is about. Several are the point -- he runs
+    // marketing for all of them -- so the one on screen travels with every
+    // message rather than the server guessing at the oldest.
+    const brandWanted = typeof body.brandId === "string" && body.brandId.length === 36 ? body.brandId : null;
+
     // The conversation is kept server-side, not in the view. A chat that dies
     // when the app is swiped away is not a command centre -- and the agent is
     // going to need to work while the phone is closed, which it cannot do
@@ -888,8 +893,11 @@ Deno.serve(async (request) => {
                 return await startRun("export", { artifact_id: source.id, format }, null);
               }
 
-              const { data: brandRow } = await asUser
-                .from("brands").select("id, name, niche, audience").limit(1).maybeSingle();
+              // The app on screen, or the oldest when the app did not say.
+              const brandQuery = asUser.from("brands").select("id, name, niche, audience");
+              const { data: brandRow } = await (brandWanted
+                ? brandQuery.eq("id", brandWanted).maybeSingle()
+                : brandQuery.order("created_at", { ascending: true }).limit(1).maybeSingle());
               if (!brandRow) {
                 speak("Set up your brand first, under You, and I can plan for it.");
                 await remember();
@@ -965,7 +973,10 @@ Deno.serve(async (request) => {
           // put seconds in front of the first word.
           const [routed, brandRead, recentRead, baseState] = await Promise.all([
             route(asked, OPENAI_KEY, context),
-            asUser.from("brands").select("id, name, niche, audience").limit(1).maybeSingle(),
+            brandWanted
+              ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
+              : asUser.from("brands").select("id, name, niche, audience")
+                .order("created_at", { ascending: true }).limit(1).maybeSingle(),
             asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
             describeState(false),
           ]);

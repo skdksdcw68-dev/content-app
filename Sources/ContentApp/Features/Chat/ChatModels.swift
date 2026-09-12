@@ -425,6 +425,12 @@ struct ChatMessage: Identifiable, Equatable {
     var runKind: String? = nil
     /// Something the agent made, drawn from the object rather than from prose.
     var artifactId: UUID? = nil
+    /// What it is and what shape it is, known before the artefact itself has
+    /// been read -- so its card holds the right space instead of growing from
+    /// a placeholder under a thumb that is already scrolling.
+    var artifactKind: String? = nil
+    var artifactWidth: Int? = nil
+    var artifactHeight: Int? = nil
     /// Pictures the person attached, as paths in their own uploads folder.
     var attachments: [String] = []
     /// What is worth saying next, as taps. One ending in a space is an

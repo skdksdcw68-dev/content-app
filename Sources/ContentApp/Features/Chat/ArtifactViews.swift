@@ -168,6 +168,9 @@ struct RunCard: View {
 /// the actual thing -- not a sentence saying it is done.
 struct ArtifactCard: View {
     let artifactId: UUID
+    /// What the turn already knows it is: kind, and the picture's own shape.
+    /// Used only to hold the right space while it loads.
+    var expect: (kind: String?, width: Int?, height: Int?) = (nil, nil, nil)
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
     var onApprove: (Artifact) -> Void = { _ in }
@@ -175,6 +178,12 @@ struct ArtifactCard: View {
     @Environment(AppSession.self) private var session
     @State private var artifact: Artifact?
     @State private var missing = false
+
+    /// The frame the result will take, when the turn already knows what it is.
+    private var placeholderSize: CGSize? {
+        guard let kind = expect.kind, kind == "image" || kind == "video" else { return nil }
+        return mediaSize(width: expect.width, height: expect.height)
+    }
 
     var body: some View {
         // Read from memory first: the list recycles rows that leave the
@@ -203,10 +212,14 @@ struct ArtifactCard: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
+                // The space the result will take, held from what the turn
+                // already said it is.
+                let waiting = placeholderSize
+                RoundedRectangle(cornerRadius: waiting == nil ? Theme.cornerRadius : 14, style: .continuous)
                     .fill(Theme.surface)
-                    .frame(height: 72)
+                    .frame(width: waiting?.width, height: waiting?.height ?? 72)
                     .overlay { ProgressView().controlSize(.small) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .task(id: artifactId) {

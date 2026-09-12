@@ -939,9 +939,16 @@ async function saveGenerated(
     p_status: "succeeded",
     p_result: { artifact_id: artifactId },
   });
+  // The shape travels with the message, so the card can hold the right space
+  // before the picture arrives. Without it the row was 72 points tall, then
+  // suddenly the height of a photo, and the conversation jumped under a
+  // thumb that was already scrolling.
   await tell(admin, run, `Here's your ${what}, made with ${run.input.model_label ?? "your provider"}.`, {
     kind: "artifact",
     artifact_id: artifactId,
+    artifact_kind: what,
+    width: extra.width ?? null,
+    height: extra.height ?? null,
   });
   return "done";
 }

@@ -303,9 +303,15 @@ private struct StoredMessage: Decodable {
         let paths: [String]?
         let days: Int?
         let options: [String]?
+        /// What the artefact is and what shape it is, so its card holds the
+        /// right space before the file itself has been read.
+        let artifactKind: String?
+        let width: Int?
+        let height: Int?
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days, options
+            case kind, questions, choices, request, references, paths, days, options, width, height
+            case artifactKind = "artifact_kind"
             case runId = "run_id"
             case runKind = "run_kind"
             case artifactId = "artifact_id"
@@ -323,6 +329,9 @@ private struct StoredMessage: Decodable {
         turn.runId = renderHint?.runId
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId
+        turn.artifactKind = renderHint?.artifactKind
+        turn.artifactWidth = renderHint?.width
+        turn.artifactHeight = renderHint?.height
         turn.attachments = renderHint?.paths ?? []
         if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
         return turn

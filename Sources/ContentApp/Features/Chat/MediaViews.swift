@@ -12,16 +12,23 @@ import UIKit
 /// Computed, not left to layout. An image told only "fit, at most 380 tall"
 /// took the full column width and centred the picture inside it -- which is why
 /// results sat in the middle of the chat however the card was aligned.
-private func mediaSize(width: Int?, height: Int?) -> CGSize {
+/// A result in a conversation is a thumbnail, not a poster. 250x400 filled most
+/// of the page for one picture -- "tooo big" -- and a tall one pushed the reply
+/// that made it off the screen. Tap opens it properly.
+func mediaSize(width: Int?, height: Int?) -> CGSize {
     let aspect: CGFloat = {
         if let width, let height, width > 0, height > 0 { return CGFloat(width) / CGFloat(height) }
         return 9.0 / 16.0
     }()
-    let maxWidth: CGFloat = 250, maxHeight: CGFloat = 400
+    let maxWidth: CGFloat = 200, maxHeight: CGFloat = 260
     var size = CGSize(width: maxWidth, height: maxWidth / aspect)
     if size.height > maxHeight { size = CGSize(width: maxHeight * aspect, height: maxHeight) }
     return size
 }
+
+/// The corner every result shares. Smaller than the cards around it, because a
+/// picture with a 20-point radius reads as a sticker.
+private let mediaCorner: CGFloat = 14
 
 /// The line under a result: which model, what setting, what it cost.
 private func mediaCaption(_ artifact: Artifact) -> String {
@@ -76,14 +83,15 @@ struct ImageCard: View {
                     }
                 }
                 .frame(width: size.width, height: size.height)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
             }
             .buttonStyle(PressButtonStyle())
             .disabled(shown == nil)
             .accessibilityLabel("Open the image")
+            .contextMenu { MediaMenu(artifact: artifact, onAnimate: onAnimate) }
 
-            MediaActions(artifact: artifact, onAnimate: onAnimate)
+            MediaFooting(artifact: artifact, onAnimate: onAnimate)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
@@ -137,9 +145,10 @@ struct VideoCard: View {
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
             .onTapGesture { if shownFile != nil { viewing = true } }
+            .contextMenu { MediaMenu(artifact: artifact, onAnimate: nil) }
             .overlay(alignment: .bottomLeading) {
                 if let seconds = artifact.body.seconds {
                     Text(clock(seconds))
@@ -170,7 +179,7 @@ struct VideoCard: View {
                 .accessibilityLabel(muted ? "Turn sound on" : "Mute")
             }
 
-            MediaActions(artifact: artifact, onAnimate: nil)
+            MediaFooting(artifact: artifact, onAnimate: nil)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
@@ -253,7 +262,7 @@ struct AudioCard: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.surface)
             }
 
-            MediaActions(artifact: artifact, onAnimate: nil)
+            MediaFooting(artifact: artifact, onAnimate: nil)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
@@ -312,83 +321,68 @@ struct AudioCard: View {
 
 // MARK: - What can be done with it
 
-/// Under a result: Animate in words, because it is the thing this app adds,
-/// then the quiet icons every chat app has -- share, save -- and what it was
-/// made with.
-private struct MediaActions: View {
+/// Under a result: one quiet line saying what made it, and Animate as a word.
+///
+/// The row of buttons that used to sit here -- a blue pill, then a glass one,
+/// then grey icons -- was the thing he disliked most about results. Everything
+/// they did is still here: long-press the picture, or open it.
+private struct MediaFooting: View {
+    let artifact: Artifact
+    let onAnimate: ((Artifact) -> Void)?
+
+    private var caption: String { mediaCaption(artifact) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if !caption.isEmpty {
+                Text(caption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            if let onAnimate {
+                Button("Animate") { onAnimate(artifact) }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 2)
+    }
+}
+
+/// Everything that can be done with a result, where iOS puts it: a long press.
+///
+/// Shown from the card and from the viewer, so the two never drift apart.
+private struct MediaMenu: View {
     let artifact: Artifact
     let onAnimate: ((Artifact) -> Void)?
 
     @Environment(AppSession.self) private var session
     @State private var file: URL?
-    @State private var saving = false
-    @State private var outcome: AppSession.SaveOutcome?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 2) {
-                if let onAnimate {
-                    Button { onAnimate(artifact) } label: {
-                        Label("Animate", systemImage: "sparkles")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.primary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-                    .padding(.trailing, 8)
+        Group {
+            if let onAnimate {
+                Button { onAnimate(artifact) } label: {
+                    Label("Animate", systemImage: "sparkles")
                 }
-
-                if let file {
-                    ShareLink(item: file) { icon("square.and.arrow.up") }
-                        .accessibilityLabel("Share")
-                } else {
-                    icon("square.and.arrow.up").opacity(0.35)
-                }
-
-                Button(action: save) {
-                    icon(outcome == .saved ? "checkmark" : "arrow.down.to.line")
-                }
-                .buttonStyle(.plain)
-                .disabled(saving)
-                .accessibilityLabel("Save to Photos")
             }
-
-            let caption = outcome == .notAllowed
-                ? "Turn on Photos access for Autocast in Settings to save."
-                : outcome == .failed ? "That didn't save. Try again." : mediaCaption(artifact)
-            if !caption.isEmpty {
-                Text(caption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 2)
+            if let file {
+                ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
+            }
+            Button { Task { _ = await session.saveToPhotos(artifact) } } label: {
+                Label("Save to Photos", systemImage: "arrow.down.to.line")
+            }
+            if let prompt = artifact.body.prompt, !prompt.isEmpty {
+                Button { UIPasteboard.general.string = prompt } label: {
+                    Label("Copy prompt", systemImage: "doc.on.doc")
+                }
             }
         }
-        .sensoryFeedback(.success, trigger: outcome == .saved)
         .task(id: artifact.id) {
             file = session.cachedCopy(of: artifact)
             if file == nil { file = await session.localCopy(of: artifact) }
-        }
-    }
-
-    private func icon(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 16, weight: .medium))
-            .foregroundStyle(.secondary)
-            .contentTransition(.symbolEffect(.replace))
-            .frame(width: 38, height: 38)
-            .contentShape(Rectangle())
-    }
-
-    private func save() {
-        saving = true
-        Task {
-            let result = await session.saveToPhotos(artifact)
-            withAnimation { outcome = result }
-            saving = false
-            try? await Task.sleep(for: .seconds(2.5))
-            withAnimation { outcome = nil }
         }
     }
 }
@@ -468,6 +462,9 @@ struct MediaViewer: View {
             Image(uiImage: shown)
                 .resizable()
                 .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 88)
                 .scaleEffect(zoom)
                 .gesture(
                     MagnifyGesture()
@@ -529,49 +526,44 @@ struct MediaViewer: View {
             if let file {
                 ShareLink(item: file) {
                     Text("Share")
-                        .font(.body.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.black)
-                        .padding(.horizontal, 20)
-                        .frame(height: 46)
+                        .padding(.horizontal, 18)
+                        .frame(height: 40)
                         .background(.white, in: Capsule())
                 }
                 .buttonStyle(PressButtonStyle())
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
+        .padding(.horizontal, 14)
+        .padding(.top, 6)
     }
 
     @ViewBuilder
     private var bottomBar: some View {
         if let onAnimate, !isVideo {
-            VStack(spacing: 8) {
-                Button {
-                    dismiss()
-                    onAnimate(artifact)
-                } label: {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 22, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(width: 60, height: 60)
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
-
-                Text("Animate")
-                    .font(.subheadline)
+            Button {
+                dismiss()
+                onAnimate(artifact)
+            } label: {
+                Label("Animate", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .contentShape(Capsule())
             }
-            .padding(.bottom, 16)
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .capsule)
+            .padding(.bottom, 20)
         }
     }
 
     private func circle(_ symbol: String) -> some View {
         Image(systemName: symbol)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.white)
-            .frame(width: 46, height: 46)
+            .frame(width: 40, height: 40)
             .contentShape(Circle())
             .glassEffect(.regular.interactive(), in: .circle)
     }

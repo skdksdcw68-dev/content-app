@@ -101,6 +101,7 @@ struct ChatTurnView: View {
                     if let artifactId = turn.artifactId {
                         ArtifactCard(
                             artifactId: artifactId,
+                            expect: (turn.artifactKind, turn.artifactWidth, turn.artifactHeight),
                             onExport: onExport,
                             onAnimate: onAnimate,
                             onApprove: onApprove

@@ -55,7 +55,7 @@ export interface Routed {
   reading: string;
   /** For `make`: what kind of thing. Null when the request does not say, and
    *  then it is video, because that is what this product posts. */
-  media: "image" | "video" | null;
+  media: "image" | "video" | "audio" | null;
   /** For `export`: which file. Null when not named. */
   format: "docx" | "pdf" | "zip" | null;
   /** For `make`: WHAT to make, as a generation prompt -- the scene or the
@@ -177,7 +177,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
   const system = [
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain","days":number|null,' +
-    '"media":"image|video"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
+    '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"subject":string|null,"model":string|null,"about_credits":boolean,' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null}}',
     "",
@@ -195,6 +195,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "",
     "days: only when a stretch is implied. 'a month' is 30, 'next week' is 7.",
     "media: for make only. 'image' for a picture, photo, thumbnail, poster; 'video' for a clip, reel, video;",
+    "  'audio' for music, a song, a beat, a soundtrack, a sound effect, a voiceover or narration.",
     "  if they named an image model (Nano Banana, Soul, GPT Image, Seedream, Flux...) it is image. null if unsaid.",
     "format: for export only. 'docx' for Word or a document, 'pdf' for PDF, 'zip' for everything or a package.",
     "reading: one short sentence, in your own words, of what they are asking for.",
@@ -206,6 +207,9 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "  'Use nano banana pro with 2k' after asking for a cup of tea -> 'a cup of tea'.",
     "  'I want a photo not a video' after asking for a cup of tea -> 'a cup of tea'.",
     "  'Lets generate an image bro' with nothing earlier -> null.",
+    "  Animating a picture they sent or made: subject is what should HAPPEN in it -- the motion --",
+    "  or null when they did not say. Never a phrase pointing back at the picture.",
+    "  'animate this photo' -> null. 'animate it, make the clouds drift' -> 'the clouds drift'.",
     "model: a generation model they named, exactly as written ('nano banana pro2', 'soul 2', 'kling'), else null.",
     "settings: only what they asked for. resolution like '1k','2k','4k','720p','1080p'; aspect_ratio like",
     "  '9:16','16:9','1:1','4:5'; duration in seconds. null for anything not asked.",
@@ -247,7 +251,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
         ? Math.min(Math.round(parsed.days), 30)
         : null,
       reading: typeof parsed?.reading === "string" ? parsed.reading : message.slice(0, 80),
-      media: parsed?.media === "image" || parsed?.media === "video" ? parsed.media : null,
+      media: ["image", "video", "audio"].includes(parsed?.media) ? parsed.media : null,
       format: ["docx", "pdf", "zip"].includes(parsed?.format) ? parsed.format : null,
       subject: vagueSubject(text(parsed?.subject)) ? null : text(parsed?.subject)!.slice(0, 600),
       model: text(parsed?.model)?.slice(0, 60) ?? null,
@@ -276,6 +280,9 @@ const KIND_WORDS = new Set([
   "image", "images", "picture", "pictures", "pic", "pics", "photo", "photos", "video", "videos",
   "clip", "clips", "reel", "reels", "visual", "visuals", "post", "thumbnail", "poster",
   "generate", "make", "create", "lets", "let", "s", "do", "can", "you", "i", "want", "need",
+  // The router sometimes describes the asker instead of the thing: "the photo
+  // they want to animate" is not a subject.
+  "they", "them", "wants", "wanted", "asked", "asks", "user", "person", "here", "sent",
 ]);
 
 export function vagueSubject(subject: string | null | undefined): boolean {

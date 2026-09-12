@@ -49,7 +49,8 @@ struct GenerationCard: View {
         options.first { $0.externalId == selectedID }
     }
 
-    private var isVideo: Bool { offer.capability == "video_generation" }
+    /// A picture has no length; a video and a piece of music both do.
+    private var hasLength: Bool { offer.capability != "image_generation" }
 
     var body: some View {
         if let settled {
@@ -68,7 +69,7 @@ struct GenerationCard: View {
                     ChoiceChips(title: "Quality", options: options, label: { $0.capitalized }, selection: $quality)
                 }
 
-                if isVideo, let options = selected?.constraints.durations, options.count > 1 {
+                if hasLength, let options = selected?.constraints.durations, options.count > 1 {
                     ChoiceChips(
                         title: "Length",
                         options: options,
@@ -208,7 +209,7 @@ struct GenerationCard: View {
         } else {
             duration = selected.constraints.defaults?.duration ?? durations.first
         }
-        if !isVideo { duration = nil }
+        if !hasLength { duration = nil }
 
         let qualities = selected.constraints.qualities ?? []
         quality = match(keeping ? quality : nil, in: qualities)

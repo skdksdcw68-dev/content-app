@@ -512,9 +512,22 @@ const POLLS_ALLOWED = 40;
  * Nothing here names a provider. The ladder in `_shared/connectors/route.ts`
  * does the choosing, and a refusal comes back as a code with customer words.
  */
+/** What a job leaves behind: one word, used for the artefact's kind, the file's
+ *  extension and the way the agent talks about it. */
+type Made = "image" | "video" | "audio";
+
+/** A capability, as a thing somebody ends up with. Anything that is not a
+ *  picture or a sound is treated as video, which is what the ladder was
+ *  written around. */
+function madeBy(capability: string): Made {
+  if (capability === "image_generation") return "image";
+  if (capability === "audio_generation" || capability === "voice_generation") return "audio";
+  return "video";
+}
+
 async function generateStep(admin: Admin, run: Run): Promise<string> {
   const capability = String(run.input.capability ?? "video_generation") as Capability;
-  const what = capability === "image_generation" ? "image" : "video";
+  const what = madeBy(capability);
 
   if (run.step === "queued" || run.step === "submitting") {
     const references = await referencesFor(admin, run);
@@ -527,7 +540,9 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
         prompt: String(run.input.prompt ?? ""),
         options: {
           aspect_ratio: run.input.aspect_ratio ?? "9:16",
-          ...(what === "video" && run.input.duration ? { duration: run.input.duration } : {}),
+          // Length matters to a video and to a piece of music; a picture has
+          // none. Sonilo and Mirelo will not run without one.
+          ...(what !== "image" && run.input.duration ? { duration: run.input.duration } : {}),
           // What the person asked for -- "2k", "16:9", "10 seconds". The
           // adapter sends each only if the tool or the chosen model declares
           // it, spelled the way the model spells it.
@@ -573,7 +588,7 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
       p_step: "waiting",
       // Said about THEIR thing, not about the machinery.
       p_detail: `Making ${String(run.input.prompt ?? `the ${what}`).slice(0, 60)} with ${routed.modelLabel}`,
-      p_after: what === "image" ? "10 seconds" : "30 seconds",
+      p_after: what === "image" ? "10 seconds" : what === "audio" ? "20 seconds" : "30 seconds",
     });
     return "waiting";
   }
@@ -683,17 +698,28 @@ async function saveGenerated(
   run: Run,
   url: string,
   declaredMime: string | undefined,
-  what: "image" | "video",
+  what: Made,
 ): Promise<string> {
   const response = await fetch(url);
   if (!response.ok) throw new Error(`download ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
-  const mime = declaredMime ?? response.headers.get("content-type") ?? (what === "image" ? "image/png" : "video/mp4");
+  const mime = declaredMime ?? response.headers.get("content-type") ??
+    (what === "image" ? "image/png" : what === "audio" ? "audio/mpeg" : "video/mp4");
 
   // A video is checked for being a video. A poster frame stored under an .mp4
   // name is the failure `_shared/media.ts` was written after.
   const extra: Record<string, unknown> = {};
-  if (what === "video") {
+  if (what === "audio") {
+    // Nothing to measure in the bytes, and nothing that reads as a picture or
+    // a video should arrive here: what it says it is, plus a plausible size.
+    if (/^(image|video)\//.test(mime) || bytes.byteLength < 1024) {
+      await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: "bad_output" });
+      await tell(admin, run, refusal("bad_output", what));
+      return "failed bad_output";
+    }
+    const asked = Number((run.input.settings as Record<string, unknown> | undefined)?.duration ?? run.input.duration);
+    if (Number.isFinite(asked) && asked > 0) extra.seconds = asked;
+  } else if (what === "video") {
     const checked = inspect(bytes, mime);
     if (!checked.ok) {
       await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: "bad_output" });
@@ -718,7 +744,23 @@ async function saveGenerated(
   const settings = (run.input.settings ?? {}) as Record<string, unknown>;
   if (settings.resolution) extra.resolution = settings.resolution;
 
-  const ext = mime.includes("jpeg") ? "jpg" : mime.includes("webp") ? "webp" : mime.includes("png") ? "png" : what === "video" ? "mp4" : "png";
+  const ext = mime.includes("jpeg")
+    ? "jpg"
+    : mime.includes("webp")
+    ? "webp"
+    : mime.includes("png")
+    ? "png"
+    : mime.includes("mpeg") || mime.includes("mp3")
+    ? "mp3"
+    : mime.includes("wav")
+    ? "wav"
+    : mime.includes("aac") || mime.includes("m4a") || mime.includes("mp4a")
+    ? "m4a"
+    : what === "video"
+    ? "mp4"
+    : what === "audio"
+    ? "mp3"
+    : "png";
   const prompt = String(run.input.prompt ?? "");
   const submitted = run.input.submitted as Submitted;
 
@@ -786,12 +828,12 @@ function refusal(code: string, what: string): string {
       // Not "you are out of credits": the first time this fired, the account
       // had 26 and the model wanted 75. The balance may be fine for a
       // cheaper model, and saying so is the useful half.
-      return `That model needs more credits than your Higgsfield balance has, so the ${what} wasn't made and nothing was charged. Ask again and I'll show which models fit.`;
+      return `That model needs more credits than your balance has, so the ${what} wasn't made and nothing was charged. Ask again and I'll show which models fit.`;
     case "needs_reconnect":
     case "bad_key":
       return `Your provider connection needs signing in again before I can make the ${what}. It's under the plus menu, in Connections.`;
     case "no_models":
-      return `Nothing you've connected can make ${what === "image" ? "images" : "video"} right now.`;
+      return `Nothing you've connected can make ${what === "image" ? "images" : what === "audio" ? "audio" : "video"} right now.`;
     case "refused":
       return `The provider refused that prompt, so no ${what} was made. Try describing it differently.`;
     case "rate_limited":

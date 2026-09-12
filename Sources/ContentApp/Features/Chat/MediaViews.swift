@@ -189,6 +189,125 @@ struct VideoCard: View {
     }
 }
 
+// MARK: - Audio
+
+/// Music or a voice line, as a player rather than a file to open.
+///
+/// The same shape as everything else made here: the actual thing, on the
+/// agent's side, with what it was made with underneath. Plays the phone's
+/// copy, so replaying it costs nothing.
+struct AudioCard: View {
+    let artifact: Artifact
+
+    @Environment(AppSession.self) private var session
+    @State private var file: URL?
+    @State private var player: AVPlayer?
+    @State private var playing = false
+    @State private var progress: Double = 0
+    @State private var watcher: Any?
+
+    private var length: Double? { artifact.body.seconds }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Button(action: toggle) {
+                    Image(systemName: playing ? "pause.fill" : "play.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Theme.onAccent)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(Theme.accent))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .buttonStyle(PressButtonStyle())
+                .disabled(file == nil && session.cachedCopy(of: artifact) == nil)
+                .accessibilityLabel(playing ? "Pause" : "Play")
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(artifact.body.prompt ?? artifact.title)
+                        .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    // A plain line filling as it plays: a waveform we did not
+                    // measure would be decoration pretending to be data.
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.primary.opacity(0.10))
+                            Capsule().fill(Theme.accent)
+                                .frame(width: max(0, min(1, progress)) * proxy.size.width)
+                        }
+                    }
+                    .frame(height: 4)
+                }
+
+                if let length {
+                    Text(clock(length))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .frame(width: 280)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.surface)
+            }
+
+            MediaActions(artifact: artifact, onAnimate: nil)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task(id: artifact.id) {
+            if file == nil { file = session.cachedCopy(of: artifact) ?? await session.localCopy(of: artifact) }
+        }
+        .onDisappear { stop() }
+    }
+
+    private func toggle() {
+        if playing {
+            player?.pause()
+            playing = false
+            return
+        }
+        guard let url = file ?? session.cachedCopy(of: artifact) else { return }
+        PlaybackAudio.sound(true)
+        let engine = player ?? AVPlayer(url: url)
+        player = engine
+        if watcher == nil {
+            watcher = engine.addPeriodicTimeObserver(
+                forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main
+            ) { time in
+                // Hopping back to the main actor: the observer's queue is main,
+                // but the compiler cannot know that.
+                let seconds = time.seconds
+                Task { @MainActor in advance(to: seconds) }
+            }
+        }
+        engine.play()
+        playing = true
+    }
+
+    private func advance(to seconds: Double) {
+        let total = player?.currentItem?.duration.seconds
+        let whole = (total?.isFinite == true ? total : length) ?? 0
+        guard whole > 0 else { return }
+        progress = seconds / whole
+        if seconds >= whole - 0.05 {
+            player?.seek(to: .zero)
+            player?.pause()
+            playing = false
+            progress = 0
+        }
+    }
+
+    private func stop() {
+        player?.pause()
+        playing = false
+        if let watcher { player?.removeTimeObserver(watcher) }
+        watcher = nil
+        PlaybackAudio.sound(false)
+    }
+}
+
 // MARK: - What can be done with it
 
 /// Under a result: Animate in words, because it is the thing this app adds,

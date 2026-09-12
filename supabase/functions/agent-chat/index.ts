@@ -27,6 +27,7 @@ import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { leftToUs, missingForPlan, MODELS, route, vagueSubject } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
+import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -66,7 +67,7 @@ type Action =
   | { type: "export"; artifactId: string; format: "docx" | "pdf" | "zip" }
   | {
     type: "generate";
-    capability: "image_generation" | "video_generation";
+    capability: Capability;
     prompt: string;
     /** The `externalId` of a picked model. Absent means Auto. */
     model?: string;
@@ -96,6 +97,38 @@ interface Body {
 /** One server-sent line. Kept to a single shape so the client parses one thing. */
 function sse(event: Record<string, unknown>): string {
   return `data: ${JSON.stringify(event)}\n\n`;
+}
+
+/**
+ * A subject that only points back at the picture, and so says nothing about
+ * what should happen in the video.
+ *
+ * "animate this photo" came back from the router as the subject "a photo to
+ * animate". Sent as the prompt, that is what the model would have drawn. Take
+ * the asking-for-motion words out and see whether anything of substance is
+ * left -- "the clouds drift" survives, "a photo to animate" does not.
+ */
+function pointsAtIt(subject: string): boolean {
+  return vagueSubject(
+    subject.replace(/\b(animate[sd]?|animating|animation|move[sd]?|moving|motion|bring|brought|life|alive)\b/gi, " "),
+  );
+}
+
+/** What a capability leaves behind, in one word, and how to say more than one
+ *  of them. Everything the agent says about making something goes through
+ *  here, so a new kind of model is a line rather than a branch per sentence. */
+function nounFor(capability: string): string {
+  if (capability === "image_generation") return "image";
+  if (capability === "audio_generation") return "track";
+  if (capability === "voice_generation") return "voice clip";
+  return "video";
+}
+
+function nounsFor(capability: string): string {
+  if (capability === "image_generation") return "images";
+  if (capability === "audio_generation") return "music or sound";
+  if (capability === "voice_generation") return "voice";
+  return "video";
 }
 
 /** A provider's slug as a person writes it: "higgsfield" -> "Higgsfield",
@@ -510,7 +543,9 @@ Deno.serve(async (request) => {
             for (const r of runs) {
               const i = r.input ?? {};
               const what = r.kind === "generate"
-                ? (i.capability === "image_generation" ? "image" : i.source_artifact_id ? "animation (video)" : "video")
+                ? (i.capability === "video_generation" && i.source_artifact_id
+                  ? "animation (video)"
+                  : nounFor(String(i.capability)))
                 : r.kind;
               const label = i.model_label ?? (Array.isArray(r.result?.attempts) ? String((r.result!.attempts as string[])[0] ?? "").split(":")[0] : "");
               const quoted = i.quoted_cost as { amount?: number; unit?: string } | null;
@@ -573,7 +608,7 @@ Deno.serve(async (request) => {
          * question that price raises.
          */
         const produce = async (job: {
-          capability: "image_generation" | "video_generation";
+          capability: Capability;
           prompt: string;
           settings: Record<string, unknown>;
           references: string[];
@@ -585,7 +620,7 @@ Deno.serve(async (request) => {
           brandId: string | null;
           intro?: string;
         }) => {
-          const noun = job.capability === "image_generation" ? "image" : "video";
+          const noun = nounFor(job.capability);
           const aspect = String(job.settings.aspect_ratio ?? "9:16");
           const withPicture = job.references.length > 0 || Boolean(job.sourceArtifactId);
 
@@ -598,7 +633,13 @@ Deno.serve(async (request) => {
 
           const intentFor = {
             aspectRatio: aspect,
-            seconds: typeof job.settings.duration === "number" ? job.settings.duration : (noun === "video" ? 5 : undefined),
+            seconds: typeof job.settings.duration === "number"
+              ? job.settings.duration
+              : noun === "video"
+              ? 5
+              : noun === "track"
+              ? 15
+              : undefined,
             // Asked of the provider with this very prompt and these settings,
             // so the price on each row is what this job costs.
             quote: { prompt: job.prompt, options: { aspect_ratio: aspect, ...job.settings } },
@@ -637,7 +678,7 @@ Deno.serve(async (request) => {
 
           if (choices.options.length === 0) {
             speak(
-              `Nothing you've connected can make ${noun === "image" ? "images" : "video"} yet. `,
+              `Nothing you've connected can make ${nounsFor(job.capability)} yet. `,
               "Connect a generator from the plus menu and I'll start straight away.",
             );
             await remember();
@@ -727,7 +768,11 @@ Deno.serve(async (request) => {
             }
 
             if (action.type === "generate") {
-              const capability = action.capability === "image_generation" ? "image_generation" : "video_generation";
+              // Whatever kind the card was for -- pictures, video, music.
+              const capability = (["image_generation", "audio_generation", "voice_generation"]
+                  .includes(action.capability)
+                ? action.capability
+                : "video_generation") as Capability;
               const references = (action.references ?? [])
                 .filter((path) => path.startsWith(`${auth.user!.id}/uploads/`) && !path.includes(".."))
                 .map((path) => ({ path, kind: "image" }));
@@ -849,7 +894,7 @@ Deno.serve(async (request) => {
               `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 300)}`
             ),
             ...(pending
-              ? [`(Autocast then offered ${pending.capability === "image_generation" ? "image" : "video"} models for: "${pending.request}")`]
+              ? [`(Autocast then offered ${nounFor(pending.capability)} models for: "${pending.request}")`]
               : []),
           ].join("\n");
 
@@ -983,6 +1028,14 @@ Deno.serve(async (request) => {
             const offeredFor = pending?.request && !vagueSubject(pending.request) ? pending.request : "";
             const subject = routed.subject?.trim() || answered;
             let prompt = subject || offeredFor || animating;
+            // Animating: the prompt is the MOTION, never a phrase pointing back
+            // at the picture. "animate this photo" came back from the router as
+            // the subject "the photo they want to animate", which would have
+            // gone to Kling as the whole prompt.
+            if (animating) {
+              const motion = subject && !pointsAtIt(subject) ? subject : "";
+              prompt = motion ? `${motion}, ${animating}` : animating;
+            }
             // Asked what, and told "surprise me": theirs to leave to us.
             if (!prompt && continuing && leftToUs(asked)) prompt = "a striking, beautifully composed scene";
             const settings = { ...(awaiting?.settings ?? {}), ...(pending?.settings ?? {}), ...routed.settings };
@@ -992,16 +1045,19 @@ Deno.serve(async (request) => {
 
             // Which kind: a model they named settles it, then what they said,
             // then what they were already making, then video.
+            const KINDS = ["image_generation", "video_generation", "audio_generation"] as const;
             const earlier = awaiting?.capability ?? pending?.capability;
-            let capability: "image_generation" | "video_generation" = animating
+            const saidKind: Capability | null = animating
               ? "video_generation"
               : routed.media === "image"
               ? "image_generation"
+              : routed.media === "audio"
+              ? "audio_generation"
               : routed.media === "video"
               ? "video_generation"
-              : earlier === "image_generation" || earlier === "video_generation"
-              ? earlier
-              : "video_generation";
+              : null;
+            let capability: Capability = saidKind ??
+              (KINDS.includes(earlier as typeof KINDS[number]) ? earlier as Capability : "video_generation");
 
             // A name is looked up across EVERYTHING they have, not the eight
             // on screen -- "nano banana pro" was not in the first eight image
@@ -1012,8 +1068,8 @@ Deno.serve(async (request) => {
             let namedLabel: string | null = null;
             if (namedModel) {
               const pools = await Promise.all(
-                (["image_generation", "video_generation"] as const).map(async (cap) =>
-                  (await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap }))
+                KINDS.map(async (cap) =>
+                  (await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap as Capability }))
                 ),
               );
               const matches = matchModels(pools.flat(), namedModel);
@@ -1023,15 +1079,9 @@ Deno.serve(async (request) => {
                 // said, then from what they were already making, then from
                 // where most of the matches are.
                 const kinds = new Set(matches.map((m) => m.capability));
-                const said = animating
-                  ? "video_generation"
-                  : routed.media === "image"
-                  ? "image_generation"
-                  : routed.media === "video"
-                  ? "video_generation"
-                  : null;
-                const offered = earlier && kinds.has(earlier as typeof capability)
-                  ? earlier as typeof capability
+                const said = saidKind;
+                const offered = earlier && kinds.has(earlier as Capability)
+                  ? earlier as Capability
                   : null;
                 capability = said && kinds.has(said)
                   ? said
@@ -1054,7 +1104,7 @@ Deno.serve(async (request) => {
             // Nothing to make yet: a model or a setting, but not the thing.
             // One question, and the model and settings wait with it.
             if (!prompt && !sourceArtifactId) {
-              const noun = capability === "image_generation" ? "image" : "video";
+              const noun = nounFor(capability);
               const chosen = [
                 namedLabel ?? namedModel,
                 typeof settings.resolution === "string" ? settings.resolution.toUpperCase() : null,

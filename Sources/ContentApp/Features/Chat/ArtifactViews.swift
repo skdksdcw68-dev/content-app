@@ -193,6 +193,8 @@ struct ArtifactCard: View {
                     ImageCard(artifact: artifact, onAnimate: onAnimate)
                 case "video":
                     VideoCard(artifact: artifact)
+                case "audio":
+                    AudioCard(artifact: artifact)
                 default:
                     FileCard(artifact: artifact)
                 }

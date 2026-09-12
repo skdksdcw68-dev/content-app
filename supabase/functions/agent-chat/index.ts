@@ -471,6 +471,52 @@ Deno.serve(async (request) => {
           return [];
         };
 
+        /**
+         * A reference, resolved and owner-checked.
+         *
+         * Two kinds travel through the chat: a picture they uploaded, as its
+         * path, and something made here, as `artifact:<id>`. The second is
+         * what "put that music on the video" is made of, and it is resolved
+         * here rather than trusted from the client -- an id is not permission.
+         */
+        const resolveReferences = async (refs: string[]): Promise<Array<{ path: string; kind: string }>> => {
+          const out: Array<{ path: string; kind: string }> = [];
+          const ids: string[] = [];
+          for (const ref of refs.slice(0, 4)) {
+            if (ref.startsWith("artifact:")) {
+              ids.push(ref.slice("artifact:".length));
+            } else if (ref.startsWith(`${auth.user!.id}/uploads/`) && !ref.includes("..")) {
+              // Uploads are always JPEG: the app converts before it sends.
+              out.push({ path: ref, kind: "image" });
+            }
+          }
+          if (ids.length > 0) {
+            const { data } = await admin
+              .from("artifacts")
+              .select("id, kind, storage_path")
+              .eq("user_id", auth.user!.id)
+              .in("id", ids);
+            const rows = (data ?? []) as Array<{ id: string; kind: string; storage_path: string | null }>;
+            // In the order they were offered: the first picture is the first
+            // frame, the video comes before the track.
+            for (const id of ids) {
+              const row = rows.find((r) => r.id === id);
+              if (row?.storage_path) out.push({ path: row.storage_path, kind: row.kind });
+            }
+          }
+          return out;
+        };
+
+        /** What a request brings with it, as `suits` needs to hear it. */
+        const bringsOf = async (refs: string[], source?: string | null) => {
+          const resolved = await resolveReferences(source ? [...refs, `artifact:${source}`] : refs);
+          return {
+            image: resolved.some((r) => r.kind === "image"),
+            video: resolved.some((r) => r.kind === "video"),
+            audio: resolved.some((r) => r.kind === "audio"),
+          };
+        };
+
         /** Everything made in this conversation that is a file: the pictures,
          *  the videos, the music, and any document already exported. */
         const madeHere = async (): Promise<Array<{ id: string; kind: string }>> => {
@@ -631,7 +677,10 @@ Deno.serve(async (request) => {
         }) => {
           const noun = nounFor(job.capability);
           const aspect = String(job.settings.aspect_ratio ?? "9:16");
-          const withPicture = job.references.length > 0 || Boolean(job.sourceArtifactId);
+          // What comes with it decides who can even attempt it: a picture to
+          // start from, a video to work on, a track to follow.
+          const brings = await bringsOf(job.references, job.sourceArtifactId);
+          const withPicture = brings.image;
 
           const pool = await candidatesFor(admin, auth.user!.id, job.capability);
           const door = pool.find((c) => c.authKind !== "api_key") ?? pool[0];
@@ -653,6 +702,7 @@ Deno.serve(async (request) => {
             // so the price on each row is what this job costs.
             quote: { prompt: job.prompt, options: { aspect_ratio: aspect, ...job.settings } },
             withPicture,
+            brings,
             only: job.only,
             balance,
           };
@@ -782,9 +832,7 @@ Deno.serve(async (request) => {
                   .includes(action.capability)
                 ? action.capability
                 : "video_generation") as Capability;
-              const references = (action.references ?? [])
-                .filter((path) => path.startsWith(`${auth.user!.id}/uploads/`) && !path.includes(".."))
-                .map((path) => ({ path, kind: "image" }));
+              const references = await resolveReferences(action.references ?? []);
               // Settings asked for before the tap -- "2k" -- live on the offer
               // the tap answers, not on the button.
               const offer = await lastOffer();
@@ -1011,6 +1059,31 @@ Deno.serve(async (request) => {
           // An answer to "what should it be of?" continues that request, even
           // though "a cup of tea" on its own reads as chat.
           const continuing = awaiting !== null && (routed.intent === "make" || routed.intent === "chat");
+
+          // "Put that music on the video." Two things already made here, handed
+          // to a model that takes both. Said plainly, because it is not a merge:
+          // nothing in this app can mux a track onto a file, so the video is
+          // MADE AGAIN guided by the sound -- which costs what it costs, and so
+          // ends in a card like everything else.
+          const soundOnVideo = /\b(music|audio|sound(track)?|song|track|voice ?over)\b/i.test(asked) &&
+            /\b(video|clip|reel|footage|it|this|that)\b/i.test(asked) &&
+            /\b(add|put|over|onto|on|with|to|combine|merge|mix)\b/i.test(asked);
+          if (soundOnVideo && threadId && !pending) {
+            const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
+            const rows = (data ?? []) as Array<{ id: string; kind: string; body: Record<string, unknown> }>;
+            const video = rows.find((row) => row.kind === "video");
+            const sound = rows.find((row) => row.kind === "audio");
+            if (video && sound) {
+              return await produce({
+                capability: "video_generation",
+                prompt: String(video.body?.prompt ?? "the same scene"),
+                settings: routed.settings,
+                references: [`artifact:${video.id}`, `artifact:${sound.id}`],
+                intro: "Nothing here can just lay a track over a file — a model has to make the video again, following the sound. These can:",
+                brandId: brand?.id ?? null,
+              });
+            }
+          }
 
           if (routed.intent === "make" || routed.model || continuing) {
             const namedModel = routed.model ?? awaiting?.model ?? null;

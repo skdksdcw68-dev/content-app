@@ -200,8 +200,14 @@ export async function routeSubmit(
   // The ladder only climbs models that can do this request -- a background
   // remover is not a fallback for "make an image". Unfiltered if the filter
   // would empty it, for the same reason as in `choicesFor`.
-  const withPicture = (args.references?.length ?? 0) > 0;
-  const able = everything.filter((c) => suits(c.metadata, withPicture, args.capability));
+  // What came with the request decides who can even attempt it: a picture to
+  // start from, a video to work on, a track to follow.
+  const brings = {
+    image: args.references?.some((r) => r.kind === "image") ?? false,
+    video: args.references?.some((r) => r.kind === "video") ?? false,
+    audio: args.references?.some((r) => r.kind === "audio") ?? false,
+  };
+  const able = everything.filter((c) => suits(c.metadata, brings, args.capability));
   const all = able.length > 0 ? able : everything;
 
   if (all.length === 0) {

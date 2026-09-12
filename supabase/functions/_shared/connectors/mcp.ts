@@ -799,7 +799,11 @@ async function importReferences(
  *  discovery stored, because the names differ per model -- a start frame on one
  *  is an "image" on another. The kind itself is the last resort; the server
  *  coerces it when there is only one sensible reading. */
-function roleFor(metadata: Record<string, unknown> | undefined, kind: "image" | "video", index: number): string {
+function roleFor(
+  metadata: Record<string, unknown> | undefined,
+  kind: "image" | "video" | "audio",
+  index: number,
+): string {
   const roles = new Set<string>();
   const walk = (value: unknown, key?: string) => {
     if (Array.isArray(value)) {
@@ -824,11 +828,15 @@ function roleFor(metadata: Record<string, unknown> | undefined, kind: "image" | 
   // 3.0, Seedance and MiniMax all take `start_image` and `end_image`. The
   // second picture takes the ending role when the model has one; when it has
   // none it falls back to being another reference.
-  const preferred = kind === "image"
+  const preferred = kind === "audio"
+    // A sound handed to a video model is the thing it should follow: the
+    // track to move to, or the voice to lip-sync.
+    ? [/^input_audio$/i, /audio/i]
+    : kind === "image"
     ? index === 0
       ? [/start|first/i, /^image$/i, /image/i, /reference|ref/i]
       : [/end|last|final/i, /reference|ref/i, /^image$/i, /image/i]
-    : [/driving|source/i, /video/i];
+    : [/^input_video$/i, /driving|source/i, /video/i];
   for (const pattern of preferred) {
     const hit = list.find((role) => pattern.test(role));
     if (hit) return hit;

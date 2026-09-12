@@ -79,6 +79,9 @@ export interface Intent {
   /** A picture comes with the request -- attached, or the image being
    *  animated. Decides which models can do it at all; see `suits`. */
   withPicture?: boolean;
+  /** Everything that comes with it, when it is more than a picture: a video to
+   *  work on, a track to follow. */
+  brings?: { image?: boolean; video?: boolean; audio?: boolean };
   /** Offer only these (external ids, in this order) -- the models a name the
    *  person typed could mean. Always asked when there is more than one: the
    *  person named a model, so the choice is theirs, not Auto's. */
@@ -274,7 +277,7 @@ export async function choicesFor(
   // Only what can do this request. If the filter would leave nothing, the
   // metadata is more likely incomplete than every model unable -- so the full
   // list stands rather than a false "nothing can make this".
-  const able = everything.filter((c) => suits(c.metadata, intent.withPicture === true, capability));
+  const able = everything.filter((c) => suits(c.metadata, intent.brings ?? intent.withPicture === true, capability));
   let candidates = able.length > 0 ? able : everything;
   if (intent.only && intent.only.length > 0) {
     const order = intent.only;

@@ -778,14 +778,17 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
 async function referencesFor(
   admin: Admin,
   run: Run,
-): Promise<Array<{ url?: string; providerRef?: string; kind: "image" | "video" }>> {
-  const out: Array<{ url?: string; providerRef?: string; kind: "image" | "video" }> = [];
+): Promise<Array<{ url?: string; providerRef?: string; kind: "image" | "video" | "audio" }>> {
+  const out: Array<{ url?: string; providerRef?: string; kind: "image" | "video" | "audio" }> = [];
 
   const paths = (run.input.references ?? []) as Array<{ path: string; kind?: string }>;
   for (const reference of paths) {
     if (!reference.path?.startsWith(`${run.user_id}/`) || reference.path.includes("..")) continue;
     const { data } = await admin.storage.from("artifacts").createSignedUrl(reference.path, 3600);
-    if (data?.signedUrl) out.push({ url: data.signedUrl, kind: reference.kind === "video" ? "video" : "image" });
+    // A track counts: a model that follows one needs to be handed it as audio,
+    // not as a picture it cannot read.
+    const kind = reference.kind === "video" ? "video" : reference.kind === "audio" ? "audio" : "image";
+    if (data?.signedUrl) out.push({ url: data.signedUrl, kind });
   }
 
   // Animating something already made. By the provider's own handle when it was

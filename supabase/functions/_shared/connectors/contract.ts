@@ -200,7 +200,7 @@ export interface SubmitRequest {
    *  URL we can hand over (a signed link to our own storage), or the handle of
    *  something this provider already made -- animating an image it generated
    *  should not mean downloading it and uploading it back. */
-  references?: Array<{ url?: string; providerRef?: string; kind: "image" | "video" }>;
+  references?: Array<{ url?: string; providerRef?: string; kind: "image" | "video" | "audio" }>;
   /** Where the provider may call back, when it supports that. Always an
    *  optimisation: no adapter may treat a callback as the completion path,
    *  because an unsigned callback that never arrives is a job lost forever. */

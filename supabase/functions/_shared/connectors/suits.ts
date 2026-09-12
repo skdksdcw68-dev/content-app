@@ -114,12 +114,29 @@ function startsFromPicture(metadata: Record<string, unknown>): boolean {
   return rolesOf(metadata).some((role) => /^(image|start_image|first_frame|start_frame)$/i.test(role));
 }
 
-export function suits(metadata: Record<string, unknown>, withPicture: boolean, capability?: string): boolean {
+/** What comes with the request: a picture, a video, a piece of audio, or
+ *  nothing at all. `true` means a picture, which is what it used to mean. */
+export type Brings = boolean | { image?: boolean; video?: boolean; audio?: boolean };
+
+/** Whether a model takes something of this kind at all. */
+function takes(metadata: Record<string, unknown>, pattern: RegExp): boolean {
+  return rolesOf(metadata).some((role) => pattern.test(role));
+}
+
+export function suits(metadata: Record<string, unknown>, brings: Brings, capability?: string): boolean {
   if (needsSomethingWeLack(metadata)) return false;
 
-  if (withPicture) {
+  const has = brings === true ? { image: true } : brings === false ? {} : brings;
+
+  // Something made here handed back in: a video to work from, a track to move
+  // to. Both have to be accepted, or the job fails after it is paid for.
+  if (has.video && !takes(metadata, /video/i)) return false;
+  if (has.audio && !takes(metadata, /audio/i)) return false;
+
+  if (has.image) {
     return capability === "video_generation" ? startsFromPicture(metadata) : takesPicture(metadata);
   }
+  if (has.video || has.audio) return true;
 
   // From words alone.
   if (metadata.text_only === true) return true;

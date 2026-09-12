@@ -22,6 +22,10 @@ import UIKit
 struct ChatView: View {
     /// A saved conversation to reopen. Nil starts a new one.
     var threadId: UUID? = nil
+    /// A request made somewhere else -- typed into Create -- sent as the first
+    /// turn of a new conversation, so starting a job and talking about it are
+    /// the same place rather than two.
+    var opening: String? = nil
 
     @Environment(AppSession.self) private var session
 
@@ -303,6 +307,13 @@ struct ChatView: View {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
             turns = await session.messages(in: threadId)
+        }
+        .task {
+            // Asked for on the way in. Sent as though it had been typed, so the
+            // transcript reads the way the conversation went.
+            guard let opening, threadId == nil, turns.isEmpty, draft.isEmpty else { return }
+            draft = opening
+            send()
         }
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way

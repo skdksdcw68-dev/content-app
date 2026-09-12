@@ -10,6 +10,8 @@ struct HomeView: View {
     @Environment(AppSession.self) private var session
     @State private var approving: PendingPost?
     @State private var upgrading = false
+    /// What was made today, read once when the page appears.
+    @State private var today: AppSession.DayTally?
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -220,11 +222,13 @@ struct HomeView: View {
                 )
             }
         }
+        .task { today = await session.todayTally() }
         .refreshable {
             await session.refreshConnections()
             await session.refreshPosts()
             await session.refreshPlan()
             await session.refreshHealth()
+            today = await session.todayTally()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(isPresented: $upgrading) { UpgradeSheet() }
@@ -253,8 +257,27 @@ private extension HomeView {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
+
+            // What it did today, as a sentence rather than a row of figures --
+            // three numbers in boxes was rejected once already, and on a quiet
+            // day they are three zeroes taking up the top of the screen. Absent
+            // entirely until there is something true to say.
+            if let today = todaysWork {
+                Text(today)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Today: two pictures and a report." Nil on a day nothing happened.
+    var todaysWork: String? {
+        guard let tally = today, !tally.isEmpty else { return nil }
+        var parts: [String] = []
+        if tally.made > 0 { parts.append(tally.made == 1 ? "1 made" : "\(tally.made) made") }
+        if tally.written > 0 { parts.append(tally.written == 1 ? "1 written up" : "\(tally.written) written up") }
+        return "Today: \(parts.joined(separator: ", "))."
     }
 
     var timeOfDay: String {

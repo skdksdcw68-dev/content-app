@@ -27,6 +27,43 @@ extension AppSession {
         }
     }
 
+    /// What Autocast did today, counted from what it actually wrote down.
+    ///
+    /// Counts, not a performance figure: nothing here is an estimate, an
+    /// average or an opinion, and when the day is empty it says nothing at all
+    /// rather than printing three zeroes.
+    struct DayTally: Equatable {
+        /// Pictures, videos and music made today.
+        var made = 0
+        /// Research, campaigns and files written today.
+        var written = 0
+        var isEmpty: Bool { made == 0 && written == 0 }
+    }
+
+    func todayTally() async -> DayTally {
+        struct Row: Decodable { let kind: String }
+        let midnight = Calendar.current.startOfDay(for: .now)
+        do {
+            let rows: [Row] = try await client
+                .from("artifacts")
+                .select("kind")
+                .gte("created_at", value: ISO8601DateFormatter().string(from: midnight))
+                .execute()
+                .value
+            var tally = DayTally()
+            for row in rows {
+                if ["image", "video", "audio"].contains(row.kind) {
+                    tally.made += 1
+                } else {
+                    tally.written += 1
+                }
+            }
+            return tally
+        } catch {
+            return DayTally()
+        }
+    }
+
     /// What happened on a run after the last event already drawn.
     func runEvents(_ run: UUID, after seq: Int) async -> [RunEvent] {
         struct Params: Encodable {

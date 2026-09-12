@@ -18,10 +18,19 @@ struct CreateView: View {
     @State private var pendingVideo: (data: Data, filename: String)?
     @State private var namingVideo = false
     @State private var pickingVideo = false
+    /// What to make, in their words, and whether it has been sent.
+    @State private var asked = ""
+    @State private var starting = false
 
     var body: some View {
         ScrollView {
             VStack(spacing: 14) {
+                // Say it, and it starts. Create is for beginning one thing --
+                // "make three ad concepts", "a product video" -- and the
+                // conversation it opens is where the rest of it happens. The
+                // two buttons below are the jobs that are not a sentence.
+                AskBox(text: $asked) { starting = true }
+
                 CreateAction(
                     symbol: "calendar.badge.plus",
                     title: "Plan a month",
@@ -61,6 +70,9 @@ struct CreateView: View {
         .sheet(isPresented: $namingVideo) { captionSheet }
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
+        }
+        .navigationDestination(isPresented: $starting) {
+            ChatView(opening: asked.trimmingCharacters(in: .whitespacesAndNewlines))
         }
     }
 
@@ -123,6 +135,80 @@ struct CreateView: View {
 }
 
 // MARK: - Pieces
+
+/// Say what to make, and it starts.
+///
+/// Not a form and not a second chat: one line, a few examples worth stealing,
+/// and a button that opens the conversation where the work happens. Everything
+/// it can actually do comes from what is connected, so nothing here promises a
+/// kind of job -- the examples are examples.
+private struct AskBox: View {
+    @Binding var text: String
+    let onStart: () -> Void
+
+    @FocusState private var typing: Bool
+
+    private static let examples = [
+        "A product video for this week",
+        "Three ad concepts",
+        "Five images using my product as a reference",
+        "Turn this idea into a campaign",
+    ]
+
+    private var ready: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("What should I make?")
+                .font(.headline)
+
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("A video about…", text: $text, axis: .vertical)
+                    .lineLimit(1...4)
+                    .font(.body)
+                    .focused($typing)
+                    .submitLabel(.go)
+                    .onSubmit { if ready { onStart() } }
+
+                Button(action: onStart) {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(ready ? Theme.onAccent : Color.secondary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(ready ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.08))))
+                }
+                .buttonStyle(PressButtonStyle())
+                .disabled(!ready)
+                .accessibilityLabel("Start")
+            }
+
+            if !ready {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Self.examples, id: \.self) { example in
+                            Button { text = example } label: {
+                                Text(example)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                            }
+                            .buttonStyle(PressButtonStyle())
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+                .scrollClipDisabled()
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
+        }
+    }
+}
 
 private struct CreateAction: View {
     let symbol: String

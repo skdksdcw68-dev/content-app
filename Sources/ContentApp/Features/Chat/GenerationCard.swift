@@ -32,6 +32,10 @@ struct GenerationCard: View {
     @State private var resolution: String?
     @State private var duration: Double?
     @State private var quality: String?
+    /// What the chosen model asks for by name: a voice, an engine. Keyed by
+    /// the provider's own parameter name, so nothing about them is written
+    /// down here.
+    @State private var extras: [String: String] = [:]
     @State private var price: ModelCost?
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
@@ -69,6 +73,20 @@ struct GenerationCard: View {
                     ChoiceChips(title: "Quality", options: options, label: { $0.capitalized }, selection: $quality)
                 }
 
+                // Whatever else this model will not run without -- Inworld's
+                // thirteen voices, an engine to use. Read from its own entry.
+                ForEach(selected?.constraints.choices ?? []) { ask in
+                    ChoiceChips(
+                        title: ask.label,
+                        options: ask.options,
+                        label: { $0 },
+                        selection: Binding(
+                            get: { extras[ask.name] },
+                            set: { extras[ask.name] = $0 }
+                        )
+                    )
+                }
+
                 if hasLength, let options = selected?.constraints.durations, options.count > 1 {
                     ChoiceChips(
                         title: "Length",
@@ -95,6 +113,7 @@ struct GenerationCard: View {
             .onChange(of: resolution) { _, _ in reprice() }
             .onChange(of: duration) { _, _ in reprice() }
             .onChange(of: quality) { _, _ in reprice() }
+            .onChange(of: extras) { _, _ in reprice() }
             .sheet(isPresented: $browsing) {
                 ModelBrowser(
                     capability: offer.capability,
@@ -211,6 +230,18 @@ struct GenerationCard: View {
         }
         if !hasLength { duration = nil }
 
+        // Each of the model's own questions starts on its default, or on the
+        // first answer it accepts -- never empty, or Generate would send a job
+        // the model refuses.
+        var asked: [String: String] = [:]
+        for ask in selected.constraints.choices ?? [] {
+            let kept = keeping ? extras[ask.name] : nil
+            asked[ask.name] = ask.options.first { $0 == kept }
+                ?? ask.options.first { $0 == ask.preset }
+                ?? ask.options.first
+        }
+        extras = asked
+
         let qualities = selected.constraints.qualities ?? []
         quality = match(keeping ? quality : nil, in: qualities)
             ?? match(selected.constraints.defaults?.quality, in: qualities)
@@ -219,7 +250,7 @@ struct GenerationCard: View {
 
     /// Everything set on the card, as it would be sent.
     private var current: GenerationSettings {
-        GenerationSettings(resolution: resolution, duration: duration, quality: quality)
+        GenerationSettings(resolution: resolution, duration: duration, quality: quality, extras: extras)
     }
 
     private func match(_ wanted: String?, in options: [String]) -> String? {
@@ -331,20 +362,26 @@ private struct ChoiceChips<Value: Hashable>: View {
             Text(title)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                ForEach(options, id: \.self) { option in
-                    let isOn = option == selection
-                    Button { selection = option } label: {
-                        Text(label(option))
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .foregroundStyle(isOn ? Theme.onAccent : Color.primary)
-                            .background(Capsule().fill(isOn ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.07))))
+            // Scrolls, because a model can offer thirteen voices and a phone is
+            // 390 points wide. Two or three read exactly as they did.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(options, id: \.self) { option in
+                        let isOn = option == selection
+                        Button { selection = option } label: {
+                            Text(label(option))
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 7)
+                                .foregroundStyle(isOn ? Theme.onAccent : Color.primary)
+                                .background(Capsule().fill(isOn ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.07))))
+                        }
+                        .buttonStyle(PressButtonStyle())
                     }
-                    .buttonStyle(PressButtonStyle())
                 }
+                .padding(.vertical, 1)
             }
+            .scrollClipDisabled()
         }
     }
 }

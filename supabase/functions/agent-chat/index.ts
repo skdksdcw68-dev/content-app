@@ -794,8 +794,11 @@ Deno.serve(async (request) => {
               const settings = {
                 ...(same ? offer!.settings : {}),
                 ...Object.fromEntries(
+                  // Anything the card carried, including what the chosen model
+                  // asked for by name -- a voice, an engine. The adapter sends
+                  // only what the model declares and drops the rest.
                   Object.entries(action.settings ?? {}).filter(([k, v]) =>
-                    ["resolution", "duration", "aspect_ratio", "quality"].includes(k) &&
+                    /^[a-z][a-z0-9_]{0,39}$/.test(k) &&
                     (typeof v === "string" || typeof v === "number")
                   ),
                 ),

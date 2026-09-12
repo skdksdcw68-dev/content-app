@@ -61,7 +61,11 @@ Deno.serve(async (request) => {
     // Only the settings a card can change, and only simple values.
     const settings = Object.fromEntries(
       Object.entries(body.settings ?? {}).filter(([k, v]) =>
-        ["resolution", "duration", "aspect_ratio", "quality"].includes(k) && (typeof v === "string" || typeof v === "number")
+        // Any setting a card can carry -- resolution, length, and whatever
+        // else the chosen model asks for by name, such as a voice. Safe to be
+        // open here: the adapter sends only the parameters the model itself
+        // declares, and drops the rest.
+        /^[a-z][a-z0-9_]{0,39}$/.test(k) && (typeof v === "string" || typeof v === "number")
       ),
     );
 

@@ -124,6 +124,11 @@ export interface Constraints {
   resolutions?: string[];
   aspectRatios?: string[];
   formats?: string[];
+  /** Anything else the model will not run without and lists the answers to --
+   *  a voice, an engine, a language. Rendered as its own row on the card, so
+   *  a provider that adds a knob tomorrow gets asked about it without anybody
+   *  naming it here. */
+  choices?: Array<{ name: string; label: string; options: string[]; preset?: string }>;
   /** Roughly how long generation takes, in seconds, when the provider says.
    *  Shown as an estimate and never as a promise. */
   typicalSeconds?: number;

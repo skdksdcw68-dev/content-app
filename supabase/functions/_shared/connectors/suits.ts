@@ -29,7 +29,14 @@
  */
 
 type Media = { roles?: unknown; required?: unknown };
-type Parameter = { name?: unknown; required?: unknown; default?: unknown };
+type Parameter = {
+  name?: unknown;
+  required?: unknown;
+  default?: unknown;
+  options?: unknown;
+  enum?: unknown;
+  values?: unknown;
+};
 
 /** What a request from this app supplies, so a model needing any of these is
  *  not ruled out for needing it. */
@@ -56,13 +63,39 @@ export function takesPicture(metadata: Record<string, unknown>): boolean {
   return rolesOf(metadata).some((role) => /^(image|start_image|image_references?|reference)$/i.test(role));
 }
 
-/** A setting the model will not run without, that nothing here provides. */
+/**
+ * A setting the model will not run without, that nothing here provides.
+ *
+ * A required setting whose options the catalogue LISTS is not missing -- it is
+ * a question, and the card asks it. That is the difference between Inworld's
+ * text to speech, which names its thirteen voices, and one that wants a voice
+ * id it never mentions: the first is offered with a Voice row, the second
+ * would fail after somebody chose it.
+ */
 function needsSomethingWeLack(metadata: Record<string, unknown>): boolean {
   return list<Parameter>(metadata.parameters).some((p) =>
     (p.required === "required" || p.required === true) &&
     p.default === undefined &&
-    !SUPPLIED.has(String(p.name ?? ""))
+    !SUPPLIED.has(String(p.name ?? "")) &&
+    optionsOf(p).length === 0
   );
+}
+
+/** The values a parameter says it accepts, however the catalogue spells it. */
+export function optionsOf(parameter: Parameter): string[] {
+  const raw = parameter.options ?? parameter.enum ?? parameter.values;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((value) =>
+      typeof value === "string"
+        ? value
+        : typeof value === "number"
+        ? String(value)
+        : typeof (value as { value?: unknown })?.value === "string"
+        ? String((value as { value: string }).value)
+        : ""
+    )
+    .filter((value) => value.length > 0);
 }
 
 function isEditor(metadata: Record<string, unknown>): boolean {

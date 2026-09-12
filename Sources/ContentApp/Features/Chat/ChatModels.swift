@@ -108,8 +108,19 @@ struct ModelConstraints: Equatable, Decodable {
         var quality: String?
     }
 
+    /// A setting the model will not run without, with the answers it accepts.
+    struct Ask: Equatable, Decodable, Identifiable {
+        var id: String { name }
+        let name: String
+        let label: String
+        let options: [String]
+        let preset: String?
+    }
+
     var durations: [Double]?
     var resolutions: [String]?
+    /// What else it must be told: a voice, an engine, a language.
+    var choices: [Ask]?
     /// A quality tier some models offer instead of a resolution.
     var qualities: [String]?
     var aspectRatios: [String]?
@@ -118,12 +129,13 @@ struct ModelConstraints: Equatable, Decodable {
     var defaults: Defaults?
 
     private enum CodingKeys: String, CodingKey {
-        case durations, resolutions, qualities, aspectRatios, typicalSeconds, notes, defaults
+        case durations, resolutions, qualities, aspectRatios, typicalSeconds, notes, defaults, choices
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         durations = try? c.decodeIfPresent([Double].self, forKey: .durations)
+        choices = try? c.decodeIfPresent([Ask].self, forKey: .choices)
         resolutions = try? c.decodeIfPresent([String].self, forKey: .resolutions)
         qualities = try? c.decodeIfPresent([String].self, forKey: .qualities)
         aspectRatios = try? c.decodeIfPresent([String].self, forKey: .aspectRatios)
@@ -193,12 +205,17 @@ struct GenerationSettings: Equatable {
     var resolution: String?
     var duration: Double?
     var quality: String?
+    /// Anything else the chosen model asks for by name and lists the answers
+    /// to -- a voice, an engine, a language. Nothing here is written down in
+    /// the app: the rows come from the model's own catalogue entry.
+    var extras: [String: String] = [:]
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]
         if let resolution { out["resolution"] = resolution }
         if let duration { out["duration"] = Int(duration.rounded()) }
         if let quality { out["quality"] = quality }
+        for (key, value) in extras { out[key] = value }
         return out
     }
 }

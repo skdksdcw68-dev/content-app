@@ -677,6 +677,8 @@ struct ChatView: View {
         }
         if let quality = settings.quality { parts.append(quality.capitalized) }
         if let duration = settings.duration { parts.append("\(Int(duration.rounded()))s") }
+        // Whatever else the model asked for -- the voice it will speak in.
+        parts.append(contentsOf: settings.extras.values.sorted())
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {
             turns[index].chosenModel = "\(summary) · \(price.label)"

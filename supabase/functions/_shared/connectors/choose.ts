@@ -655,11 +655,30 @@ function constraintsFrom(raw: Record<string, unknown>): Constraints {
   const qualityParam = param("quality");
   const qualities = strings(choices(qualityParam));
 
+  // Anything else it will not run without and lists the answers to: a voice,
+  // an engine, a language. Asked as its own row rather than written down here,
+  // so a knob added tomorrow gets asked about on its own.
+  const OWN_ROW = new Set(["resolution", "quality", "duration", "aspect_ratio", "prompt", "model", "medias", "count"]);
+  const asks = listed
+    .filter((p) => (p.required === "required" || p.required === true) && !OWN_ROW.has(String(p.name ?? "")))
+    .map((p) => {
+      const name = String(p.name ?? "");
+      const options = strings(choices(p)) ?? [];
+      return {
+        name,
+        label: name.replace(/[_-]+/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+        options,
+        preset: typeof p.default === "string" ? p.default : undefined,
+      };
+    })
+    .filter((ask) => ask.name && ask.options.length > 1);
+
   return {
     aspectRatios: strings(raw.aspect_ratios ?? raw.aspectRatios ?? choices(param("aspect_ratio"))),
     durations,
     resolutions,
     qualities,
+    choices: asks.length > 0 ? asks : undefined,
     defaults: {
       resolution: typeof resolutionParam?.default === "string" ? resolutionParam.default : resolutions?.[0],
       duration: typeof durationParam?.default === "number" ? durationParam.default : durations?.[0],

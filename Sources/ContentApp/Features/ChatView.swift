@@ -153,6 +153,13 @@ struct ChatView: View {
                                 },
                                 onRunFinished: { run in
                                     runFinished(run)
+                                },
+                                onSuggest: { suggestion in
+                                    // One ending in a space wants the rest
+                                    // typed -- "Edit it: " -- so the field is
+                                    // focused instead of the turn being sent.
+                                    draft = suggestion
+                                    if suggestion.hasSuffix(" ") { composerFocus += 1 } else { send() }
                                 }
                             )
                             .id(turn.id)
@@ -449,7 +456,10 @@ struct ChatView: View {
     /// exactly what it wants, so the router does not have to read it back.
     private func send(action: AppSession.ChatAction? = nil) {
         let asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !asked.isEmpty, !isWorking else { return }
+        // A photo on its own is a message: it says "here, do something with
+        // this", and the agent answers with what it could do.
+        let photosOnly = asked.isEmpty && action == nil && !pending.isEmpty
+        guard !asked.isEmpty || photosOnly, !isWorking else { return }
         // Nothing still uploading goes missing: the send button waits for
         // every picture, and a button-driven action carries none.
         guard action != nil || pending.allSatisfy({ $0.path != nil }) else { return }
@@ -526,6 +536,10 @@ struct ChatView: View {
                     case .artifact(let id):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].artifactId = id
+                        }
+                    case .suggestions(let options):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].suggestions = options
                         }
                     case .failed(let message):
                         turns[replyIndex].isPending = false

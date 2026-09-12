@@ -88,6 +88,10 @@ verify_jwt = true
 [functions.quote]
 verify_jwt = true
 
+# The whole catalogue, for the browser behind the Generate card.
+[functions.models]
+verify_jwt = true
+
 [functions.propose-plan]
 verify_jwt = true
 

@@ -820,8 +820,14 @@ function roleFor(metadata: Record<string, unknown> | undefined, kind: "image" | 
   walk(metadata ?? {});
 
   const list = [...roles];
+  // Two pictures for a video mean where it starts and where it ends -- Kling
+  // 3.0, Seedance and MiniMax all take `start_image` and `end_image`. The
+  // second picture takes the ending role when the model has one; when it has
+  // none it falls back to being another reference.
   const preferred = kind === "image"
-    ? [/start|first/i, /^image$/i, /image/i, /reference|ref/i]
+    ? index === 0
+      ? [/start|first/i, /^image$/i, /image/i, /reference|ref/i]
+      : [/end|last|final/i, /reference|ref/i, /^image$/i, /image/i]
     : [/driving|source/i, /video/i];
   for (const pattern of preferred) {
     const hit = list.find((role) => pattern.test(role));

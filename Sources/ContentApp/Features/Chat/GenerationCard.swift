@@ -25,6 +25,10 @@ struct GenerationCard: View {
 
     @Environment(AppSession.self) private var session
     @State private var selectedID: String?
+    /// A model chosen from the full list, which the offer's eight rows do not
+    /// contain. It joins them at the top rather than replacing the card.
+    @State private var picked: ModelChoice?
+    @State private var browsing = false
     @State private var resolution: String?
     @State private var duration: Double?
     @State private var quality: String?
@@ -32,8 +36,17 @@ struct GenerationCard: View {
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
 
+    /// The rows on the card: what was offered, plus anything chosen from the
+    /// full list.
+    private var options: [ModelChoice] {
+        guard let picked, !offer.options.contains(where: { $0.externalId == picked.externalId }) else {
+            return offer.options
+        }
+        return [picked] + offer.options
+    }
+
     private var selected: ModelChoice? {
-        offer.options.first { $0.externalId == selectedID }
+        options.first { $0.externalId == selectedID }
     }
 
     private var isVideo: Bool { offer.capability == "video_generation" }
@@ -81,6 +94,18 @@ struct GenerationCard: View {
             .onChange(of: resolution) { _, _ in reprice() }
             .onChange(of: duration) { _, _ in reprice() }
             .onChange(of: quality) { _, _ in reprice() }
+            .sheet(isPresented: $browsing) {
+                ModelBrowser(
+                    capability: offer.capability,
+                    request: request ?? "",
+                    settings: current,
+                    withPicture: offer.withPicture ?? false,
+                    selected: selectedID
+                ) { choice in
+                    picked = choice
+                    selectedID = choice.externalId
+                }
+            }
         }
     }
 
@@ -88,7 +113,7 @@ struct GenerationCard: View {
 
     private var models: some View {
         VStack(spacing: 6) {
-            ForEach(offer.options) { option in
+            ForEach(options) { option in
                 let usable = option.affordable != false
                 Button {
                     if usable { selectedID = option.externalId }
@@ -102,6 +127,25 @@ struct GenerationCard: View {
                 .buttonStyle(PressButtonStyle())
                 .disabled(!usable)
             }
+
+            // Eight rows is a shortlist. The rest are one tap away, grouped by
+            // family, searchable and priced as they are looked at.
+            Button { browsing = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "square.grid.2x2")
+                    Text(offer.total.map { "All \($0) models" } ?? "All models")
+                        .fontWeight(.semibold)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline)
+                .foregroundStyle(Theme.accent)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressButtonStyle())
         }
     }
 

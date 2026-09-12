@@ -146,8 +146,16 @@ struct ModelChoice: Identifiable, Equatable, Decodable {
     let recommended: Bool
     /// False when it costs more than the account has.
     let affordable: Bool?
-    /// "Cheapest", "Popular".
+    /// "Recommended", "Cheapest", "Popular".
     let badges: [String]?
+    /// What people call the group it belongs to -- "Kling", "Nano Banana".
+    /// Five Klings listed flat is a wall; five under "Kling" is a choice.
+    let family: String?
+    /// The provider's own line about what it is for.
+    let about: String?
+    /// False when it cannot do this request -- an upscaler with nothing to
+    /// upscale. Listed in the browser, and said, rather than hidden.
+    let suitable: Bool?
 }
 
 /// What the person already asked for in words -- "2k", "5 seconds" -- so the
@@ -172,6 +180,12 @@ struct ModelOffer: Equatable, Decodable {
     /// The model the card starts on: one they named, or Auto's pick.
     let preselect: String?
     let settings: OfferSettings?
+    /// How many models of this kind they have in total. The card shows eight;
+    /// this is what the browser behind it opens.
+    let total: Int?
+    /// Whether a picture comes with this request, so the full list marks what
+    /// can work from one.
+    let withPicture: Bool?
 }
 
 /// What was set on the Generate card, sent with the job.
@@ -413,6 +427,9 @@ struct ChatMessage: Identifiable, Equatable {
     var artifactId: UUID? = nil
     /// Pictures the person attached, as paths in their own uploads folder.
     var attachments: [String] = []
+    /// What is worth saying next, as taps. One ending in a space is an
+    /// invitation to finish the sentence rather than a message to send.
+    var suggestions: [String] = []
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)

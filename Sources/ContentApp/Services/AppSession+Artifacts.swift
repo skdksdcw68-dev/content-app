@@ -141,9 +141,21 @@ extension AppSession {
     /// The provider's own price for one image or video with exactly these
     /// settings -- its dry run, which submits nothing. Nil when it will not say.
     func quote(capability: String, model: String, prompt: String, settings: GenerationSettings) async -> ModelCost? {
+        await quote(capability: capability, models: [model], prompt: prompt, settings: settings)[model]
+    }
+
+    /// The same question for several models at once -- what a family costs,
+    /// asked when somebody opens it. Pricing a whole catalogue to draw a list
+    /// would spend a provider request per row scrolled past.
+    func quote(
+        capability: String,
+        models: [String],
+        prompt: String,
+        settings: GenerationSettings
+    ) async -> [String: ModelCost] {
         struct Request: Encodable, Sendable {
             let capability: String
-            let model: String
+            let models: [String]
             let prompt: String
             let settings: Settings
             struct Settings: Encodable, Sendable {
@@ -152,13 +164,14 @@ extension AppSession {
                 let quality: String?
             }
         }
-        struct Response: Decodable { let cost: ModelCost }
+        struct Response: Decodable { let costs: [String: ModelCost]? }
+        guard !models.isEmpty else { return [:] }
         do {
             let response: Response = try await client.functions.invoke(
                 "quote",
                 options: FunctionInvokeOptions(body: Request(
                     capability: capability,
-                    model: model,
+                    models: models,
                     prompt: prompt,
                     settings: .init(
                         resolution: settings.resolution,
@@ -167,9 +180,29 @@ extension AppSession {
                     )
                 ))
             )
-            return response.cost
+            return (response.costs ?? [:]).filter { $0.value.amount != nil }
         } catch {
-            return nil
+            return [:]
+        }
+    }
+
+    /// Every model of one kind on this person's connections, grouped by family
+    /// -- what "All 34 models" opens. Unpriced: the browser prices a family
+    /// when it is opened.
+    func models(capability: String, withPicture: Bool) async -> [ModelChoice] {
+        struct Request: Encodable, Sendable {
+            let capability: String
+            let withPicture: Bool
+        }
+        struct Response: Decodable { let options: [ModelChoice] }
+        do {
+            let response: Response = try await client.functions.invoke(
+                "models",
+                options: FunctionInvokeOptions(body: Request(capability: capability, withPicture: withPicture))
+            )
+            return response.options
+        } catch {
+            return []
         }
     }
 

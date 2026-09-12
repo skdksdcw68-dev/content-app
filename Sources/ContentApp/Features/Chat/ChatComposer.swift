@@ -43,10 +43,12 @@ struct ChatComposer: View {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Not while a picture is still uploading: sending then would send the
-    /// message without it, and the person would think it had been seen.
+    /// A picture on its own is a message -- "here, do something with this" --
+    /// so it sends with nothing typed. Never while one is still uploading:
+    /// sending then would send the message without it, and the person would
+    /// think it had been seen.
     private var canSend: Bool {
-        hasRequest && !isWorking && attachments.allSatisfy { $0.path != nil }
+        (hasRequest || !attachments.isEmpty) && !isWorking && attachments.allSatisfy { $0.path != nil }
     }
 
     /// Wide as soon as the field is focused, not only once there is text.

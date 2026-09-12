@@ -98,6 +98,17 @@ function sse(event: Record<string, unknown>): string {
   return `data: ${JSON.stringify(event)}\n\n`;
 }
 
+/** A provider's slug as a person writes it: "higgsfield" -> "Higgsfield",
+ *  "open_router" -> "Open Router". Said this way so no provider's name is
+ *  written into the words the agent speaks. */
+function pretty(slug?: string | null): string {
+  return (slug ?? "")
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return preflight();
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
@@ -119,14 +130,6 @@ Deno.serve(async (request) => {
       .filter((turn) => typeof turn?.content === "string" && turn.content.trim())
       .slice(-TURNS_KEPT);
 
-    if (history.length === 0) throw new PublicError("Say something first.");
-    if (history[history.length - 1].role !== "user") {
-      throw new PublicError("The last message has to be yours.");
-    }
-
-    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-    const asked = history[history.length - 1].content;
-
     // Only paths inside the caller's own uploads folder. Anything else is
     // dropped rather than refused: a stale path from a previous session is not
     // worth failing the turn over, and a crafted one gets nothing.
@@ -137,6 +140,17 @@ Deno.serve(async (request) => {
         !path.includes("..")
       )
       .slice(0, 4);
+
+    // A photo on its own is a message -- "here, do something with this" -- so
+    // an empty turn carrying one is allowed, and only an empty turn carrying
+    // nothing is refused.
+    const mine = history.length > 0 && history[history.length - 1].role === "user"
+      ? history[history.length - 1].content
+      : "";
+    if (!mine && attachments.length === 0) throw new PublicError("Say something first.");
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+    const asked = mine;
 
     // The conversation is kept server-side, not in the view. A chat that dies
     // when the app is swiped away is not a command centre -- and the agent is
@@ -149,7 +163,7 @@ Deno.serve(async (request) => {
     let threadId = body.threadId ?? null;
     if (!threadId) {
       const { data: opened, error: openError } = await asUser
-        .rpc("open_thread", { p_brand: body.brandId ?? null, p_title: asked });
+        .rpc("open_thread", { p_brand: body.brandId ?? null, p_title: asked || "A photo" });
       if (openError) console.error("open_thread", openError);
       threadId = (opened as string | null) ?? null;
     }
@@ -398,6 +412,32 @@ Deno.serve(async (request) => {
           };
         };
 
+        /**
+         * Pictures they sent themselves, in the last couple of turns.
+         *
+         * Attachments travel with the turn they were sent on, so "animate it"
+         * one message later arrives with none -- and the photo they are
+         * plainly talking about would be replaced by an older picture the
+         * agent had made.
+         */
+        const recentAttachments = async (): Promise<string[]> => {
+          if (!threadId) return [];
+          const { data } = await admin
+            .from("messages")
+            .select("render_hint")
+            .eq("thread_id", threadId)
+            .eq("role", "user")
+            .order("seq", { ascending: false })
+            .limit(3);
+          for (const row of (data ?? []) as Array<{ render_hint: Record<string, unknown> | null }>) {
+            const hint = row.render_hint;
+            if (hint?.kind !== "attachments") continue;
+            const paths = hint.paths;
+            if (Array.isArray(paths) && paths.length > 0) return paths.map(String);
+          }
+          return [];
+        };
+
         /** Artefacts in this conversation, newest first -- what "it" means. */
         const latestExportable = async (): Promise<{ id: string; kind: string; title: string } | null> => {
           if (!threadId) return null;
@@ -574,13 +614,16 @@ Deno.serve(async (request) => {
           if (choices.options.length === 0) {
             const { data: signedIn } = await asUser
               .from("connections")
-              .select("id, auth_kind")
+              .select("id, auth_kind, provider_slug")
               .eq("status", "active")
               .is("revoked_at", null);
-            const doors = ((signedIn ?? []) as Array<{ id: string; auth_kind: string | null }>)
+            const doors = ((signedIn ?? []) as Array<{ id: string; auth_kind: string | null; provider_slug?: string }>)
               .filter((row) => row.auth_kind !== "api_key");
             if (doors.length > 0) {
-              send({ t: "step", kind: "reading", detail: "Asking Higgsfield what it can make" });
+              // Named from the connection, never written in: a second provider
+              // must not be announced as the first one.
+              const who = pretty(doors[0].provider_slug) || "your generator";
+              send({ t: "step", kind: "reading", detail: `Asking ${who} what it can make` });
               for (const row of doors) {
                 try {
                   await rediscover(admin, row.id);
@@ -612,10 +655,12 @@ Deno.serve(async (request) => {
           const preselect = job.only && job.settled
             ? choices.options[0]?.externalId
             : choices.auto?.externalId ?? affordable[0]?.externalId;
-          const offer = { ...choices, preselect, settings: job.settings };
+          // `total` is every model they have of this kind, so the card can
+          // offer the rest: eight rows is a shortlist, not the catalogue.
+          const offer = { ...choices, preselect, settings: job.settings, total: pool.length, withPicture };
 
           const money = affordable.length === 0 && credits
-            ? ` None of these fit your ${credits} right now — topping up on Higgsfield would unlock them.`
+            ? ` None of these fit your ${credits} right now — topping up on ${pretty(door?.providerSlug) || "your provider"} would unlock them.`
             : credits
             ? ` You have ${credits}.`
             : "";
@@ -644,6 +689,24 @@ Deno.serve(async (request) => {
         };
 
         try {
+          // A photo and nothing else. The picture is the message, so the reply
+          // is what can be done with it -- as taps, since "animate it" is a
+          // thing to offer rather than a thing to have to word.
+          if (!asked.trim() && attachments.length > 0 && !body.action) {
+            const many = attachments.length > 1;
+            speak(
+              many
+                ? `Got the ${attachments.length} photos. I can animate from the first to the last, or work from them.`
+                : "Got the photo. Want it animated, or changed?",
+            );
+            const options = many
+              ? ["Animate from the first to the last", "Edit them: "]
+              : ["Animate it", "Edit it: "];
+            send({ t: "suggestions", options });
+            await remember({ kind: "suggestions", options });
+            return finish();
+          }
+
           // A button said exactly what it wants. No router, no brand reading,
           // no trail about looking at openings -- none of that is what a tap on
           // "PDF" asked for.
@@ -881,11 +944,20 @@ Deno.serve(async (request) => {
           if (routed.intent === "make" || routed.model || continuing) {
             const namedModel = routed.model ?? awaiting?.model ?? null;
 
+            // A picture they sent themselves, in this turn or the one just
+            // before it -- "animate it" a message after uploading is still
+            // about that photo.
+            const theirs = attachments.length > 0 ? attachments : await recentAttachments();
+            const wantsMotion = /\banimat|bring (it|this|that)? ?to life|make (it|this|that) move/i.test(asked);
+
             // Typed "animate this" means the last picture made here, the same
-            // as the Animate button under it.
+            // as the Animate button under it -- unless they brought their own,
+            // which is the picture they mean.
             let sourceArtifactId = pending?.sourceArtifactId ?? null;
             let animating = "";
-            if (!sourceArtifactId && /\banimat|bring (it|this|that)? ?to life|make (it|this|that) move/i.test(asked) && threadId) {
+            if (theirs.length > 0 && wantsMotion && !pending?.sourceArtifactId) {
+              animating = "brought to life with subtle, natural motion";
+            } else if (!sourceArtifactId && wantsMotion && threadId) {
               const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
               const image = ((data ?? []) as Array<{ id: string; kind: string; body: Record<string, unknown> }>)
                 .find((row) => row.kind === "image");
@@ -916,7 +988,7 @@ Deno.serve(async (request) => {
             const settings = { ...(awaiting?.settings ?? {}), ...(pending?.settings ?? {}), ...routed.settings };
             const references = attachments.length > 0
               ? attachments
-              : (pending?.references ?? awaiting?.references ?? []);
+              : (pending?.references ?? awaiting?.references ?? (wantsMotion ? theirs : []));
 
             // Which kind: a model they named settles it, then what they said,
             // then what they were already making, then video.

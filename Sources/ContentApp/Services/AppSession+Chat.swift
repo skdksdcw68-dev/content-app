@@ -92,6 +92,9 @@ extension AppSession {
         case chose(ModelChoice)
         /// Long work handed to the worker. The card follows it from here.
         case run(UUID, kind: String)
+        /// Things worth saying next, as taps. A suggestion ending in a space is
+        /// an invitation to finish the sentence rather than a message to send.
+        case suggestions([String])
         case failed(String)
     }
 
@@ -164,6 +167,8 @@ extension AppSession {
         let payload = turns
             .filter { !$0.isPending && !$0.failed && !$0.text.isEmpty }
             .map { ["role": $0.role == .user ? "user" : "assistant", "content": $0.text] }
+        // A turn that is only a photo carries no text, so it is not in the
+        // payload above; the attachments say what it was.
 
         var body: [String: Any] = ["messages": payload]
         if let thread { body["threadId"] = thread.uuidString }
@@ -230,6 +235,11 @@ extension AppSession {
                 continue
             }
 
+            if kind == "suggestions", let options = event["options"] as? [String] {
+                onEvent(.suggestions(options))
+                continue
+            }
+
             if kind == "artifact", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
                 onEvent(.artifact(uuid))
                 continue
@@ -292,9 +302,10 @@ private struct StoredMessage: Decodable {
         let artifactId: UUID?
         let paths: [String]?
         let days: Int?
+        let options: [String]?
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days
+            case kind, questions, choices, request, references, paths, days, options
             case runId = "run_id"
             case runKind = "run_kind"
             case artifactId = "artifact_id"
@@ -313,6 +324,7 @@ private struct StoredMessage: Decodable {
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId
         turn.attachments = renderHint?.paths ?? []
+        if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
         return turn
     }
 }

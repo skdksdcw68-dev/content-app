@@ -35,6 +35,15 @@ export interface Choice {
   affordable?: boolean;
   /** Short tags for the row: "Cheapest", "Popular". */
   badges?: string[];
+  /** The name people use for the group it belongs to -- "Kling", "Nano
+   *  Banana", "Soul". Five Klings listed flat is a wall; five Klings under
+   *  "Kling" is a choice. */
+  family?: string;
+  /** The provider's own one-line description, kept whole for the browser. */
+  about?: string;
+  /** False when it cannot do the request as asked -- an upscaler with nothing
+   *  to upscale. Shown, and said, rather than hidden. */
+  suitable?: boolean;
 }
 
 export interface Choices {
@@ -163,8 +172,92 @@ export function settlesOn<T extends { label: string; externalId?: string }>(matc
   return covering.length === 1 && matches.length === 1 ? covering[0] : null;
 }
 
+/**
+ * What "you choose" means when nobody named anything.
+ *
+ * Names, not ids, and matched against what the person actually has: a
+ * preference the catalogue does not contain falls through to the scoring
+ * below, and connecting a different provider entirely still works. Abel's
+ * call, after using them: Nano Banana Pro for pictures (its own default is
+ * 2K), Kling 3.0 for video. Ordered, best first.
+ *
+ * This is a default, never a decision -- it arrives selected on a card with
+ * its price, and nothing is spent until Generate.
+ */
+const PREFERRED: Record<string, string[]> = {
+  image_generation: ["nano banana pro", "nano banana", "seedream pro", "gpt image"],
+  video_generation: ["kling 3.0", "kling", "veo", "seedance"],
+};
+
+/** The model a preference names, if they have it and it can do the job. */
+function preferredIn<T extends { label: string; externalId: string }>(
+  pool: T[],
+  capability: string,
+): T | null {
+  for (const name of PREFERRED[capability] ?? []) {
+    const found = settlesOn(matchModels(pool, name), name) ?? matchModels(pool, name)[0];
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Models grouped the way people talk about them.
+ *
+ * Higgsfield lists five Klings, five Nano Bananas and three Veos; the name of
+ * the group is simply what its members' names have in common, so nothing has
+ * to be written down here and a family nobody has heard of yet groups itself.
+ */
+export function familiesOf(
+  models: Array<{ externalId: string; label: string; provider?: string; providerSlug?: string }>,
+): Map<string, string> {
+  const groups = new Map<string, Array<{ id: string; words: string[] }>>();
+  for (const model of models) {
+    const words = withoutHost(model.label, model.providerSlug ?? model.provider ?? "")
+      .split(/\s+/).filter(Boolean);
+    const key = (words[0] ?? model.label).toLowerCase().replace(/[^a-z0-9]/g, "");
+    const members = groups.get(key) ?? [];
+    members.push({ id: model.externalId, words });
+    groups.set(key, members);
+  }
+
+  const out = new Map<string, string>();
+  for (const [key, members] of groups) {
+    const first = members[0].words;
+    let shared = first.length;
+    for (const member of members) {
+      let i = 0;
+      while (i < shared && i < member.words.length && member.words[i].toLowerCase() === first[i].toLowerCase()) i++;
+      shared = i;
+    }
+    const name = shared > 0
+      ? first.slice(0, shared).join(" ")
+      : key.charAt(0).toUpperCase() + key.slice(1);
+    for (const member of members) out.set(member.id, name);
+  }
+  return out;
+}
+
+/**
+ * "Higgsfield Soul 2.0" is a Soul.
+ *
+ * Only the platform they connected through is dropped, never the model's own
+ * maker: taking the maker off turned "Kling 3.0 Turbo" into a family called
+ * "3.0", which then swallowed "Wan 3.0". A leading word is also kept when what
+ * follows starts with a number, since "3.0 Turbo" is not a name.
+ */
+function withoutHost(label: string, slug: string): string {
+  const words = label.trim().split(/\s+/);
+  if (words.length < 2 || !slug) return label.trim();
+  const host = slug.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const first = words[0].toLowerCase().replace(/[^a-z0-9]/g, "");
+  return first === host && /^[A-Za-z]/.test(words[1]) ? words.slice(1).join(" ") : label.trim();
+}
+
 /** How many rows a picker shows. A catalogue can list forty models; a person
- *  choosing between forty is not choosing. The rest stay reachable by Auto. */
+ *  choosing between forty is not choosing. Every one of them is still reachable
+ *  -- the card opens the full list, grouped by family -- and Auto knows them
+ *  all. */
 const SHOWN = 8;
 /** How many of those are priced -- all of them. Pricing only the first five
  *  hid the cheap models further down, and Auto picked an 18-credit video when
@@ -194,7 +287,15 @@ export async function choicesFor(
     // nothing, in which case what they named is what they get to see.
     const suitable = named(candidates);
     candidates = suitable.length > 0 ? suitable : named(everything);
+  } else {
+    // The one we would pick goes in the shown rows even when the provider
+    // lists it fortieth. Before this, Nano Banana Pro was in the catalogue,
+    // suited the job and simply never appeared -- "its not showing the best".
+    const first = preferredIn(candidates, capability);
+    if (first) candidates = [first, ...candidates.filter((c) => c.externalId !== first.externalId)];
   }
+
+  const families = familiesOf(candidates);
 
   const options: Choice[] = candidates.slice(0, SHOWN).map((candidate) => {
     const metadata = candidate.metadata as {
@@ -213,6 +314,10 @@ export async function choicesFor(
       // whatever the provider's catalogue returned at discovery.
       constraints: metadata.constraints ?? constraintsFrom(candidate.metadata),
       recommended: false,
+      family: families.get(candidate.externalId),
+      about: typeof candidate.metadata?.description === "string"
+        ? String(candidate.metadata.description)
+        : undefined,
     };
   });
 
@@ -289,8 +394,15 @@ export async function choicesFor(
     if (chosen) {
       chosen.recommended = true;
       chosen.reason = auto.reason;
+      chosen.badges = ["Recommended", ...(chosen.badges ?? [])];
     }
   }
+
+  // What we would take leads the list. Cheapest-first is the right order among
+  // equals, but on its own it buried the model actually worth using -- which
+  // read as a picker that did not know what was good. Stable, so everything
+  // else keeps its cheapest-first order.
+  options.sort((a, b) => Number(b.recommended) - Number(a.recommended));
 
   return {
     capability,
@@ -300,6 +412,66 @@ export async function choicesFor(
     worthAsking: intent.only && options.length > 1 ? true : shouldAsk(options),
     auto: auto ?? null,
   };
+}
+
+/**
+ * Everything they have for one capability, grouped by family and unpriced.
+ *
+ * This is what "all 34 models" opens. Prices are not asked for here on
+ * purpose: quoting thirty-four models to draw a list spends thirty-four
+ * provider requests on a scroll, so a row is priced when it is tapped and the
+ * families somebody actually opens can be priced together.
+ *
+ * Models that cannot do the request still come back, marked -- somebody
+ * looking for the background remover should find it, and be told it needs a
+ * picture rather than have it hidden.
+ */
+export async function catalogueFor(
+  admin: SupabaseClient,
+  userId: string,
+  capability: Capability,
+  withPicture = false,
+): Promise<Choice[]> {
+  const everything = await candidatesFor(admin, userId, capability);
+  const families = familiesOf(everything);
+
+  const options = everything.map((candidate) => {
+    const metadata = candidate.metadata as { cost?: Cost; constraints?: Constraints };
+    return {
+      modelId: candidate.modelId,
+      connectionId: candidate.connectionId,
+      provider: candidate.providerSlug,
+      label: candidate.label,
+      externalId: candidate.externalId,
+      capability,
+      cost: metadata.cost ?? UNKNOWN_COST,
+      constraints: metadata.constraints ?? constraintsFrom(candidate.metadata),
+      recommended: false,
+      family: families.get(candidate.externalId),
+      about: typeof candidate.metadata?.description === "string"
+        ? String(candidate.metadata.description)
+        : undefined,
+      suitable: suits(candidate.metadata, withPicture, capability),
+    } satisfies Choice;
+  });
+
+  // Two rows reading "Nano Banana Pro" are not a choice; the id says which.
+  const counts = new Map<string, number>();
+  for (const option of options) counts.set(option.label, (counts.get(option.label) ?? 0) + 1);
+  for (const option of options) {
+    if ((counts.get(option.label) ?? 0) > 1) option.label = `${option.label} · ${option.externalId}`;
+  }
+
+  const best = preferredIn(options.filter((o) => o.suitable), capability);
+  if (best) {
+    const chosen = options.find((o) => o.externalId === best.externalId);
+    if (chosen) {
+      chosen.recommended = true;
+      chosen.badges = ["Recommended"];
+    }
+  }
+
+  return options;
 }
 
 /**
@@ -369,6 +541,16 @@ function pick(options: Choice[], intent: Intent): (Choice & { reason: string }) 
   // how a product stops feeling like it is listening.
   const named = field.find((option) => option.externalId === intent.preferModel);
   if (named) return { ...named, reason: "You picked this one before." };
+
+  // Nobody named one and nobody set a standing preference: take the model
+  // worth defaulting to, if they have it. See PREFERRED.
+  if (!intent.prefer) {
+    const wanted = preferredIn(field, field[0]?.capability ?? "");
+    if (wanted) {
+      const price = wanted.cost.amount !== null ? ` — ${trim(wanted.cost.amount)} ${wanted.cost.unit}` : "";
+      return { ...wanted, reason: `Best quality for the price${price}.` };
+    }
+  }
 
   const prefer = intent.prefer ?? "cheap";
 

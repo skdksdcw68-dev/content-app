@@ -18,6 +18,8 @@ struct ChatTurnView: View {
     var onApprove: (Artifact) -> Void = { _ in }
     /// A run this turn started has ended while it was being watched.
     var onRunFinished: (UUID) -> Void = { _ in }
+    /// A suggested next thing, tapped.
+    var onSuggest: (String) -> Void = { _ in }
 
     var body: some View {
         switch turn.role {
@@ -27,18 +29,22 @@ struct ChatTurnView: View {
                     // Their pictures sit on their side, above what they said.
                     AttachmentStrip(paths: turn.attachments, trailing: true)
                 }
-                HStack {
-                    Spacer(minLength: 44)
-                    Text(turn.text)
-                        .font(.body)
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Theme.accent.opacity(0.10))
-                        }
-                        .textSelection(.enabled)
+                // A photo sent on its own has no words; an empty capsule under
+                // it would read as a message that failed to send.
+                if !turn.text.isEmpty {
+                    HStack {
+                        Spacer(minLength: 44)
+                        Text(turn.text)
+                            .font(.body)
+                            .foregroundStyle(Theme.accent)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Theme.accent.opacity(0.10))
+                            }
+                            .textSelection(.enabled)
+                    }
                 }
             }
 
@@ -99,6 +105,25 @@ struct ChatTurnView: View {
                             onAnimate: onAnimate,
                             onApprove: onApprove
                         )
+                    }
+
+                    // What to say next, as taps -- the answer to a photo
+                    // arriving with no words.
+                    if !turn.suggestions.isEmpty {
+                        HStack(spacing: 8) {
+                            ForEach(turn.suggestions, id: \.self) { suggestion in
+                                Button { onSuggest(suggestion) } label: {
+                                    Text(suggestion.trimmingCharacters(in: .whitespaces))
+                                        .font(.subheadline.weight(.medium))
+                                        .foregroundStyle(Theme.accent)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 9)
+                                        .background(Capsule().fill(Theme.accent.opacity(0.10)))
+                                }
+                                .buttonStyle(PressButtonStyle())
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }

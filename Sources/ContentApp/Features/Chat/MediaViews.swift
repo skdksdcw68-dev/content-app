@@ -257,7 +257,9 @@ struct AudioCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
-            if file == nil { file = session.cachedCopy(of: artifact) ?? await session.localCopy(of: artifact) }
+            guard file == nil else { return }
+            file = session.cachedCopy(of: artifact)
+            if file == nil { file = await session.localCopy(of: artifact) }
         }
         .onDisappear { stop() }
     }

@@ -1065,6 +1065,133 @@ Deno.serve(async (request) => {
             return await startRun("export", { artifact_id: source.id, format: routed.format }, null);
           }
 
+          // How the account is doing, answered from the SAME objects the
+          // Analytics screen reads: analytics_report, autopilot_report, and
+          // what the learning job found and recommends. Chat never makes its
+          // own summary of performance -- a second source of numbers is a
+          // second set of numbers, and one of them would be wrong.
+          if (routed.intent === "insights" && brand) {
+            send({ t: "step", kind: "reading", detail: "Reading your analytics" });
+
+            const isoDay = (daysAgo: number) => new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 10);
+            const span = /\b(this|last|past) month\b|\b30 days\b/i.test(asked) ? 30 : /\b(this|last|past) week\b|\b7 days\b/i.test(asked) ? 7 : 28;
+            const from = isoDay(span - 1);
+            const to = isoDay(0);
+
+            const [reportRead, autopilotRead, insightRead, recRead] = await Promise.all([
+              asUser.rpc("analytics_report", { p_brand: brand.id, p_from: from, p_to: to }),
+              asUser.rpc("autopilot_report", { p_brand: brand.id, p_from: from, p_to: to }),
+              asUser.from("insights")
+                .select("statement, evidence, sample_size, confidence, lift, period_start, period_end, platforms, content_types")
+                .eq("brand_id", brand.id).eq("status", "active"),
+              asUser.from("recommendations")
+                .select("title, because, confidence, status")
+                .eq("brand_id", brand.id).in("status", ["open", "applied", "planned"]),
+            ]);
+
+            // deno-lint-ignore no-explicit-any
+            const report = reportRead.data as Record<string, any> | null;
+            // deno-lint-ignore no-explicit-any
+            const bucketOf = (b: any) => ({
+              start: b.start,
+              complete: b.videos > 0 && b.unknown === 0,
+              views: b.unknown === 0 ? b.views : null,
+              likes: b.unknown === 0 ? b.likes : null,
+              comments: b.unknown === 0 ? b.comments : null,
+              shares: b.unknown === 0 ? b.shares : null,
+            });
+            const data = {
+              asked_about_days: span,
+              range: report?.range ?? null,
+              status: report?.status ?? "unknown",
+              history_starts: report?.history_starts ?? null,
+              availability: report?.availability ?? {},
+              totals: report?.totals ?? null,
+              // deno-lint-ignore no-explicit-any
+              trend: (report?.series ?? []).filter((b: any) => b.period === "current").map(bucketOf),
+              videos_with_numbers: report?.videos ?? 0,
+              median_views: report?.median_views ?? null,
+              top_scope: report?.top_scope ?? null,
+              // deno-lint-ignore no-explicit-any
+              top: (report?.top ?? []).slice(0, 12).map((v: any) => ({
+                title: v.hook || v.title || v.description || "Untitled",
+                posted_at: v.posted_at, views: v.views, likes: v.likes, comments: v.comments, shares: v.shares,
+                engagement_rate: v.engagement_rate, times_median_views: v.relative,
+                format: v.format, theme: v.pillar, duration_s: v.duration_s, made_with_autocast: v.from_autocast,
+              })),
+              best_time: report?.best_time
+                ? {
+                  videos: report.best_time.videos, minimum: report.best_time.minimum,
+                  best_hours: report.best_time.best_hours, best_day: report.best_time.best_day,
+                }
+                : null,
+              breakdowns: report?.breakdowns ?? [],
+              learned: insightRead.data ?? [],
+              recommendations: recRead.data ?? [],
+              autopilot: autopilotRead.data ?? null,
+            };
+
+            const rules = `You are Autocast, answering a question about how this account's content is performing.
+Answer ONLY from DATA. Every number you say must appear in DATA or be simple arithmetic on it.
+
+- totals.current is the last ${span} days, totals.previous the ${span} days before. A total with unknown > 0 is incomplete: say Autocast's history only starts at history_starts, and do not compare it.
+- availability says what the platform gives. Reach, saves, watch time, retention, profile visits, link clicks and conversions marked "unavailable" are not shared by TikTok with apps -- say that, never estimate them.
+- WHY questions: give a reason only when an item in learned supports it, and say its sample size and confidence. With nothing in learned, say plainly there is not enough data to know why yet and describe what the numbers do show. Never blame the algorithm, trends, timing or luck without a finding.
+- WHAT TO POST NEXT: use recommendations and learned. If both are empty, say Autocast needs more public posts before it can recommend reliably, and name the one or two top posts worth building on if top has any.
+- Variations: suggest remaking posts whose times_median_views is 2 or more, naming them.
+- Best time: only when best_hours or best_day exists, with its confidence (best_hours.slot is the start of a 3-hour block in the brand's timezone; best_day.slot is 1=Monday). Otherwise say it needs at least best_time.minimum videos and has best_time.videos.
+- Autopilot: use autopilot. cost_cents null means the provider did not report a cost, not that it was free.
+- If they want a plan built from this, say you can: they only need to ask for the plan.
+- Short, plain sentences. No headings. No tables unless asked.`;
+
+            const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: MODELS.chat,
+                stream: true,
+                messages: [
+                  { role: "system", content: rules },
+                  { role: "system", content: `DATA:\n${JSON.stringify(data)}` },
+                  ...history.slice(-6),
+                ],
+              }),
+            });
+
+            if (!upstream.ok || !upstream.body) {
+              console.error("insights openai", upstream.status, (await upstream.text().catch(() => "")).slice(0, 300));
+              send({ t: "error", message: "The writer could not be reached just now." });
+              controller.close();
+              return;
+            }
+
+            const reader = upstream.body.getReader();
+            const decoder = new TextDecoder();
+            let buffered = "";
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffered += decoder.decode(value, { stream: true });
+              const frames = buffered.split("\n\n");
+              buffered = frames.pop() ?? "";
+              for (const frame of frames) {
+                const line = frame.split("\n").find((part) => part.startsWith("data: "));
+                if (!line) continue;
+                const payload = line.slice(6).trim();
+                if (payload === "[DONE]") continue;
+                try {
+                  const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+                  if (typeof delta === "string" && delta.length > 0) speak(delta);
+                } catch {
+                  // One unreadable frame is one frame; the answer continues.
+                }
+              }
+            }
+
+            await remember();
+            return finish();
+          }
+
           // A named model means something is being made, even when the words
           // around it ("use nano banana pro2 with 2k resolution") read as chat.
           // An answer to "what should it be of?" continues that request, even

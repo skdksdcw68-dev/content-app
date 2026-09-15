@@ -48,6 +48,7 @@ const CENTS_PER_1K_OUT = 0.04;
 
 interface Body {
   brief?: string;
+  brand_id?: string;
   days?: number;
   posts_per_day?: number;
   starts_on?: string;
@@ -90,12 +91,17 @@ Deno.serve(async (request) => {
     const days = clamp(body.days ?? 30, 1, 60);
     const perDay = clamp(body.posts_per_day ?? 1, 1, 6);
 
-    // Read under RLS, so a caller cannot plan into somebody else's brand.
-    const { data: brand } = await asUser
+    // Read under RLS, so a caller cannot plan into somebody else's brand. The
+    // brand on screen when one is named: it used to take the first row, so a
+    // plan asked for from Drobe could be written for Remi.
+    const brandQuery = asUser
       .from("brands")
-      .select("id, name, niche, audience, timezone")
-      .limit(1)
-      .maybeSingle();
+      .select("id, name, niche, audience, timezone");
+    const { data: brand } = await (
+      typeof body.brand_id === "string" && body.brand_id.length === 36
+        ? brandQuery.eq("id", body.brand_id)
+        : brandQuery.order("created_at", { ascending: true })
+    ).limit(1).maybeSingle();
 
     if (!brand) throw new PublicError("Set up your brand first.", 400);
 
@@ -115,9 +121,25 @@ Deno.serve(async (request) => {
       .order("created_at", { ascending: false })
       .limit(20);
 
-    const memory = (memoryRows ?? [])
-      .map((row: { fact: string }) => (row.fact ?? "").trim())
-      .filter(Boolean);
+    // What the numbers showed, from the learning job: only findings with at
+    // least medium confidence, each already worded as a measurement with its
+    // sample size, so the planner leans on patterns rather than on one post.
+    const { data: measuredRows } = await asUser
+      .from("insights")
+      .select("statement, sample_size, confidence")
+      .eq("brand_id", brand.id)
+      .eq("status", "active")
+      .in("confidence", ["medium", "high"])
+      .order("sample_size", { ascending: false })
+      .limit(5);
+
+    const memory = [
+      ...(memoryRows ?? []).map((row: { fact: string }) => (row.fact ?? "").trim()),
+      ...(measuredRows ?? []).map((row: { statement: string; sample_size: number; confidence: string }) =>
+        `Measured on this account (${row.sample_size} posts, ${row.confidence} confidence): ${row.statement}`),
+    ].filter(Boolean)
+      // An applied recommendation is also in brand_memory; say each thing once.
+      .filter((fact, index, all) => all.indexOf(fact) === index);
 
     // Everything concrete the planner may say comes from one of these. Counted
     // here so the response can report it.

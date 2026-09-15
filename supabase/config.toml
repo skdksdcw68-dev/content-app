@@ -116,6 +116,9 @@ verify_jwt = true
 [functions.publish-post]
 verify_jwt = true
 
+[functions.analytics-export]
+verify_jwt = true
+
 # Off because the six-hour cron calls it too, with `x-cron-secret` and no
 # session. The phone's path still checks the session itself (auth.getUser).
 [functions.fetch-metrics]

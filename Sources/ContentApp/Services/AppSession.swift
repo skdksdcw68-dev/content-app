@@ -633,110 +633,7 @@ extension AppSession {
         }
     }
 
-    /// The saved readings, for the chart. Quietly nil on failure: an empty
-    /// chart already says "fills in as Autocast checks", and an alert on top
-    /// of that for a brand with no history yet would be noise.
-    func analytics(days: Int) async -> AnalyticsHistory? {
-        guard let brand else { return nil }
-        do {
-            let history: AnalyticsHistory = try await client
-                .rpc("analytics_for", params: AnalyticsParams(brand: "\(brand.id)", days: days))
-                .execute()
-                .value
-            return history
-        } catch {
-            return nil
-        }
-    }
-}
-
-private struct AnalyticsParams: Encodable, Sendable {
-    let brand: String
-    let days: Int
-
-    enum CodingKeys: String, CodingKey {
-        case brand = "p_brand"
-        case days = "p_days"
-    }
-}
-
-/// What `analytics_for` returns (0038): running totals by day for followers,
-/// views, likes, comments and shares; each video's latest numbers; and how the
-/// brand's own videos did by the hour and weekday they went out.
-struct AnalyticsHistory: Decodable, Sendable {
-    /// One hour (0-23) or ISO weekday (1 = Monday), with the average views of
-    /// the videos posted in it and how many videos that average is made of.
-    struct Slot: Decodable, Hashable, Sendable {
-        let slot: Int
-        let posts: Int
-        let avgViews: Int
-
-        enum CodingKeys: String, CodingKey {
-            case slot, posts
-            case avgViews = "avg_views"
-        }
-    }
-
-    struct Point: Decodable, Hashable, Sendable {
-        /// "2026-09-15". Kept as the string it arrives as and parsed on demand,
-        /// the same reason `ContentPlan.startsOn` is.
-        let day: String
-        let value: Int
-
-        var date: Date? { Self.dayFormat.date(from: day) }
-
-        private static let dayFormat: DateFormatter = {
-            let formatter = DateFormatter()
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = TimeZone(identifier: "UTC")
-            formatter.dateFormat = "yyyy-MM-dd"
-            return formatter
-        }()
-    }
-
-    struct Video: Decodable, Hashable, Sendable {
-        let id: String
-        let title: String
-        let views: Int
-        let likes: Int
-        let comments: Int
-        let shares: Int
-        let postedAt: String?
-
-        enum CodingKeys: String, CodingKey {
-            case id, title, views, likes, comments, shares
-            case postedAt = "posted_at"
-        }
-    }
-
-    let followers: [Point]
-    let views: [Point]
-    let likes: [Point]
-    let comments: [Point]
-    let shares: [Point]
-    let videos: [Video]
-    let bestHours: [Slot]
-    let bestDays: [Slot]
-
-    enum CodingKeys: String, CodingKey {
-        case followers, views, likes, comments, shares, videos
-        case bestHours = "best_hours"
-        case bestDays = "best_days"
-    }
-
-    /// Every key optional, so a server a migration behind still decodes.
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        followers = try c.decodeIfPresent([Point].self, forKey: .followers) ?? []
-        views = try c.decodeIfPresent([Point].self, forKey: .views) ?? []
-        likes = try c.decodeIfPresent([Point].self, forKey: .likes) ?? []
-        comments = try c.decodeIfPresent([Point].self, forKey: .comments) ?? []
-        shares = try c.decodeIfPresent([Point].self, forKey: .shares) ?? []
-        videos = try c.decodeIfPresent([Video].self, forKey: .videos) ?? []
-        bestHours = try c.decodeIfPresent([Slot].self, forKey: .bestHours) ?? []
-        bestDays = try c.decodeIfPresent([Slot].self, forKey: .bestDays) ?? []
-    }
+    // The report, the learning and the exports live in AppSession+Analytics.
 }
 
 // MARK: - The plan
@@ -800,7 +697,8 @@ extension AppSession {
                 options: FunctionInvokeOptions(body: PlanRequest(
                     brief: brief,
                     days: days,
-                    postsPerDay: postsPerDay
+                    postsPerDay: postsPerDay,
+                    brandId: brand?.id.uuidString
                 ))
             )
             await refreshPlan()
@@ -857,10 +755,14 @@ private struct PlanRequest: Encodable {
     let brief: String
     let days: Int
     let postsPerDay: Int
+    /// The brand on screen. Without it the planner took the first brand, so a
+    /// plan asked for from one app could be written for another.
+    let brandId: String?
 
     enum CodingKeys: String, CodingKey {
         case brief, days
         case postsPerDay = "posts_per_day"
+        case brandId = "brand_id"
     }
 }
 

@@ -43,9 +43,10 @@ export type Intent =
   | "make"        // produce one specific thing now
   | "research"    // find out about something, properly, in the background
   | "export"      // give me that as a file
-  | "explain";    // what do you know, what did you do, why
+  | "explain"     // what do you know, what did you do, why
+  | "insights";   // how is my content doing, why, what should I post next
 
-const INTENTS: Intent[] = ["chat", "plan", "revise", "make", "research", "export", "explain"];
+const INTENTS: Intent[] = ["chat", "plan", "revise", "make", "research", "export", "explain", "insights"];
 
 export interface Routed {
   intent: Intent;
@@ -176,7 +177,7 @@ export function missingForPlan(known: Knowledge, strategy: Record<string, unknow
 export async function route(message: string, apiKey: string, context = ""): Promise<Routed> {
   const system = [
     "Classify the LAST message from someone running a social media account. JSON only.",
-    '{"intent":"chat|plan|revise|make|research|export|explain","days":number|null,' +
+    '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"subject":string|null,"model":string|null,"about_credits":boolean,' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null}}',
@@ -191,6 +192,10 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "research — wants something looked into properly: a market, competitors, trends, an audience.",
     "export   — wants something from this conversation as a file: a document, a PDF, a zip.",
     "explain  — asking what you know, what you did, or why.",
+    "insights — asking how THEIR posts or account are performing: views, likes, followers, why a post did",
+    "  well or badly, why views are dropping, what changed this month, their top patterns, the best time",
+    "  to post, which posts to make variations of, what to post next based on results, whether Autopilot",
+    "  is working. Wanting a plan actually BUILT is plan, even when it says 'using what worked'.",
     "chat     — anything else, including greetings, questions about you, and writing captions or hooks.",
     "",
     "days: only when a stretch is implied. 'a month' is 30, 'next week' is 7.",

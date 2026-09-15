@@ -14,7 +14,7 @@ struct RootView: View {
     /// Named rather than positional, the way email-app does it. A selection
     /// binding is what lets anything outside the bar move between tabs -- an
     /// onboarding step finishing, a notification, a card on Home.
-    private enum AppTab: Hashable { case home, chat, library, you, create }
+    private enum AppTab: Hashable { case home, chat, analytics, you, create }
 
     @Environment(AppSession.self) private var session
     @State private var tab: AppTab = .home
@@ -87,13 +87,19 @@ struct RootView: View {
                 NavigationStack { ChatListView() }
             }
 
-            Tab("Library", systemImage: "square.grid.2x2.fill", value: AppTab.library) {
-                NavigationStack { LibraryView() }
+            // Analytics took Library's place (Abel, 15 Sep 2026). The full post
+            // list is still one tap away, at the bottom of Analytics.
+            Tab("Analytics", systemImage: "chart.bar.fill", value: AppTab.analytics) {
+                NavigationStack { AnalyticsView() }
             }
 
+            // The badge is where Home's warnings went. A native count on the
+            // tab, not a red box on the first screen -- and not nothing,
+            // because a failure nobody sees is how September happened.
             Tab("You", systemImage: "person.crop.circle.fill", value: AppTab.you) {
                 NavigationStack { ProfileView() }
             }
+            .badge(session.attentionCount)
 
             // The detached one, sitting in its own circle beside the bar.
             //
@@ -123,16 +129,26 @@ struct RootView: View {
     }
 }
 
+/// The mark, alone, fading in -- Remi's splash (`Onboarding/SplashView.swift`):
+/// scale from 0.92 as it appears over 0.55s. No spinner, no words.
 private struct StartingView: View {
+    @State private var shown = false
+
     var body: some View {
-        VStack(spacing: 14) {
-            ProgressView()
-            Text("Getting things ready")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        ZStack {
+            Color(uiColor: .systemBackground)
+                .ignoresSafeArea()
+
+            TowerMark()
+                .frame(width: 96, height: 96)
+                .opacity(shown ? 1 : 0)
+                .scaleEffect(shown ? 1 : 0.92)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.55)) { shown = true }
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Getting things ready")
     }
 }
 

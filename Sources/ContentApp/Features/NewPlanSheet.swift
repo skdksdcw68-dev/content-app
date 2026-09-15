@@ -121,7 +121,7 @@ struct NewPlanSheet: View {
                     } label: {
                         HStack {
                             if session.isPlanning {
-                                ProgressView().controlSize(.small)
+                                BreathingDot(size: 8)
                                 Text("Writing \(days * postsPerDay) posts…")
                             } else {
                                 Image(systemName: "calendar.badge.plus")
@@ -142,6 +142,20 @@ struct NewPlanSheet: View {
                     }
                 }
             }
+            // The wait, as Remi's building screen: the whole sheet, a ring and
+            // one sentence, instead of a small spinner in a form row nobody is
+            // looking at.
+            .overlay {
+                if session.isPlanning {
+                    BuildingLoader(
+                        title: "Writing \(days * postsPerDay) posts",
+                        detail: "It writes ten at a time so the last ones are as good as the first. This takes a few seconds."
+                    )
+                    .background(Color(uiColor: .systemBackground))
+                    .transition(.opacity)
+                }
+            }
+            .animation(.snappy(duration: 0.25), value: session.isPlanning)
             .navigationTitle("Plan a month")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -116,8 +116,10 @@ verify_jwt = true
 [functions.publish-post]
 verify_jwt = true
 
+# Off because the six-hour cron calls it too, with `x-cron-secret` and no
+# session. The phone's path still checks the session itself (auth.getUser).
 [functions.fetch-metrics]
-verify_jwt = true
+verify_jwt = false
 
 # Called by somebody else's server, or by the database itself. No Supabase
 # session exists, so each one carries its own proof instead.

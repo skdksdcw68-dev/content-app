@@ -35,7 +35,7 @@ struct LibraryView: View {
                 list
             }
         }
-        .navigationTitle("Library")
+        .navigationTitle("All posts")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PhotosPicker(selection: $pickerItem, matching: .videos) {
@@ -151,7 +151,7 @@ private struct PostRow: View {
             Spacer(minLength: 8)
 
             if post.isBusy {
-                ProgressView().controlSize(.small)
+                BreathingDot(size: 8)
             } else if post.needsYou {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))

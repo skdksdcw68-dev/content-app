@@ -289,46 +289,22 @@ struct TaskTrail: View {
 /// The one step still running. Deliberately not a spinner: a spinner says
 /// "waiting", and the line beside this already says what for.
 private struct PulsingDot: View {
-    @State private var isUp = false
-
     var body: some View {
-        Circle()
-            .fill(Theme.accent)
-            .frame(width: 11, height: 11)
-            .scaleEffect(isUp ? 1.1 : 0.8)
-            .opacity(isUp ? 1 : 0.55)
-            // A fixed box, so the row does not shift as it breathes.
-            .frame(width: 14, height: 14)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
-                    isUp = true
-                }
-            }
+        BreathingDot(size: 8)
     }
 }
 
-/// One breathing blue dot while the reply is on its way.
+/// One breathing dot while the reply is on its way.
 ///
 /// It used to say "Thinking" with three dots after it, on every message --
 /// a word for something that takes a second, repeated until it read as the
 /// app talking about itself. A dot says the same thing without saying it.
+///
+/// It was blue; it is Remi's black-and-white coach dot now, following "Remi
+/// colours for everything" (15 Sep 2026).
 struct ThinkingIndicator: View {
-    @State private var isUp = false
-
     var body: some View {
-        Circle()
-            .fill(Color.blue)
-            .frame(width: 12, height: 12)
-            .scaleEffect(isUp ? 1 : 0.7)
-            .opacity(isUp ? 1 : 0.5)
-            // A fixed box, so the line below does not shift as it breathes.
-            .frame(width: 16, height: 16)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
-                    isUp = true
-                }
-            }
+        BreathingDot(size: 10)
             .padding(.vertical, 4)
-            .accessibilityLabel("Working on it")
     }
 }

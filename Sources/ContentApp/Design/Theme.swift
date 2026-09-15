@@ -42,7 +42,8 @@ enum Theme {
     static let surface = Color(.secondarySystemGroupedBackground)
 
     /// Corner radius shared by every card, so surfaces read as one system.
-    static let cornerRadius: CGFloat = 16
+    /// Remi's control radius (`Style.card`).
+    static let cornerRadius: CGFloat = Style.card
 
     /// Cards that carry a picture are rounder than cards that carry text.
     static let mediaRadius: CGFloat = 20
@@ -153,7 +154,7 @@ struct ProportionBar: View {
         GeometryReader { proxy in
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Theme.softAccent)
+                    .fill(Color.track)
                 Capsule()
                     .fill(tint)
                     .frame(width: max(0, min(1, fraction)) * proxy.size.width)

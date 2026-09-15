@@ -102,9 +102,11 @@ enum AutopilotState: Equatable {
 
     var tint: Color {
         switch self {
-        case .blocked:                       .red
-        case .needsGenerator, .needsPlan:    .orange
-        case .waiting:                       .orange
+        // Orange at most. Red was the colour of the banner Abel asked to
+        // remove; a state worth reporting does not need to shout.
+        case .blocked:                       .orange
+        case .needsGenerator, .needsPlan:    .accentColor
+        case .waiting:                       .accentColor
         case .preparing, .running:           .green
         case .off, .finished:                .secondary
         }

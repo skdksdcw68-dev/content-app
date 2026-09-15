@@ -3,6 +3,7 @@ import SwiftUI
 /// Who this account is, and what it is allowed to post to.
 struct ProfileView: View {
     @Environment(AppSession.self) private var session
+    @State private var approving: PendingPost?
 
     /// Pasted keys that are not already shown as a connection.
     private var unbridgedGenerators: [Generator] {
@@ -13,6 +14,24 @@ struct ProfileView: View {
 
     var body: some View {
         List {
+            // Where Home's warnings went. First on this page, because the
+            // badge on the tab is what brought somebody here.
+            if !session.health.isEmpty || !session.failedRecently.isEmpty {
+                Section {
+                    ForEach(session.health) { finding in
+                        AttentionRow(finding: finding)
+                    }
+                    ForEach(session.failedRecently.prefix(5)) { post in
+                        Button { approving = post } label: {
+                            FailedPostRow(post: post)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } header: {
+                    Text("Needs attention")
+                }
+            }
+
             Section {
                 NavigationLink {
                     BrandView()
@@ -113,6 +132,14 @@ struct ProfileView: View {
                 ))
                 .disabled(session.settings == nil || !session.hasWorkingGenerator)
 
+                if let state = session.autopilotState {
+                    LabeledContent("Right now") {
+                        Text(state.title)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+
                 if let settings = session.settings, settings.isOn {
                     LabeledContent("Made") {
                         Text("\(settings.renderLeadHours)h before each post")
@@ -150,7 +177,65 @@ struct ProfileView: View {
             await session.refreshConnectedProviders()
             await session.refreshConnectable()
             await session.refreshSettings()
+            await session.refreshHealth()
+            await session.refreshPosts()
         }
+        .sheet(item: $approving) { ApprovalSheet(post: $0) }
+    }
+}
+
+// MARK: - Needs attention
+
+/// One finding from `autopilot_health`, with its one action when the fix lives
+/// on another screen. Generator and connection fixes are further down this
+/// same page, so those rows say what to do rather than link to where you are.
+private struct AttentionRow: View {
+    let finding: HealthFinding
+
+    var body: some View {
+        let row = Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(finding.title)
+                    .font(.subheadline.weight(.medium))
+                Text(finding.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: finding.isBlocked ? "exclamationmark.circle.fill" : "info.circle.fill")
+                .foregroundStyle(finding.isBlocked ? Color.orange : Color.secondary)
+        }
+        .padding(.vertical, 2)
+
+        if finding.route.flatMap(HealthRoute.init(rawValue:)) == .plan {
+            NavigationLink { PlanView() } label: { row }
+        } else {
+            row
+        }
+    }
+}
+
+private struct FailedPostRow: View {
+    let post: PendingPost
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(post.caption.isEmpty ? post.post.hook : post.caption)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                Text(post.failureReason ?? "It did not go out.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } icon: {
+            Image(systemName: "arrow.uturn.backward.circle.fill")
+                .foregroundStyle(Color.orange)
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 }
 

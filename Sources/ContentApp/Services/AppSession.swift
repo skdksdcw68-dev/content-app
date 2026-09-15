@@ -618,18 +618,87 @@ struct Metrics: Decodable, Sendable {
 }
 
 extension AppSession {
+    /// Today's numbers for the brand on screen. Also writes a reading into the
+    /// history (0037), so opening Analytics adds a point to its own chart.
     func metrics() async -> Metrics? {
         guard !connections.isEmpty else { return nil }
         do {
             return try await client.functions.invoke(
                 "fetch-metrics",
-                options: FunctionInvokeOptions(body: [String: String]())
+                options: FunctionInvokeOptions(body: ["brand_id": brand.map { "\($0.id)" } ?? ""])
             )
         } catch {
             lastError = readableMessage(error)
             return nil
         }
     }
+
+    /// The saved readings, for the chart. Quietly nil on failure: an empty
+    /// chart already says "fills in as Autocast checks", and an alert on top
+    /// of that for a brand with no history yet would be noise.
+    func analytics(days: Int) async -> AnalyticsHistory? {
+        guard let brand else { return nil }
+        do {
+            let history: AnalyticsHistory = try await client
+                .rpc("analytics_for", params: AnalyticsParams(brand: "\(brand.id)", days: days))
+                .execute()
+                .value
+            return history
+        } catch {
+            return nil
+        }
+    }
+}
+
+private struct AnalyticsParams: Encodable, Sendable {
+    let brand: String
+    let days: Int
+
+    enum CodingKeys: String, CodingKey {
+        case brand = "p_brand"
+        case days = "p_days"
+    }
+}
+
+/// What `analytics_for` returns: two series by day, and each video's latest
+/// numbers.
+struct AnalyticsHistory: Decodable, Sendable {
+    struct Point: Decodable, Hashable, Sendable {
+        /// "2026-09-15". Kept as the string it arrives as and parsed on demand,
+        /// the same reason `ContentPlan.startsOn` is.
+        let day: String
+        let value: Int
+
+        var date: Date? { Self.dayFormat.date(from: day) }
+
+        private static let dayFormat: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.calendar = Calendar(identifier: .gregorian)
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "UTC")
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter
+        }()
+    }
+
+    struct Video: Decodable, Hashable, Sendable {
+        let id: String
+        let title: String
+        let views: Int
+        let likes: Int
+        let comments: Int
+        let shares: Int
+        let postedAt: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id, title, views, likes, comments, shares
+            case postedAt = "posted_at"
+        }
+    }
+
+    let followers: [Point]
+    let views: [Point]
+    let videos: [Video]
 }
 
 // MARK: - The plan

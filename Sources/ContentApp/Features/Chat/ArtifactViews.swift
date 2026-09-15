@@ -66,7 +66,7 @@ struct RunCard: View {
     private var working: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+                BreathingDot(size: 8)
                 Text(steps.last?.detail ?? title)
                     .font(.subheadline.weight(.semibold))
                     .fixedSize(horizontal: false, vertical: true)
@@ -215,10 +215,12 @@ struct ArtifactCard: View {
                 // The space the result will take, held from what the turn
                 // already said it is.
                 let waiting = placeholderSize
-                RoundedRectangle(cornerRadius: waiting == nil ? Theme.cornerRadius : 14, style: .continuous)
+                let shape = RoundedRectangle(cornerRadius: waiting == nil ? Theme.cornerRadius : 14, style: .continuous)
+                shape
                     .fill(Theme.surface)
                     .frame(width: waiting?.width, height: waiting?.height ?? 72)
-                    .overlay { ProgressView().controlSize(.small) }
+                    .overlay { MakingSheen() }
+                    .clipShape(shape)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

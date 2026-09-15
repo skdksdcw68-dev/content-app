@@ -1,12 +1,16 @@
 import SwiftUI
 import PhotosUI
 
-/// Everything that starts something, in one place.
+/// Everything that starts something, laid out the way TikTok Studio's Create is.
 ///
-/// Reached from the detached "+" beside the tab bar. Until now the two ways to
-/// begin -- plan a month, add a video -- were buried one in Chat and one behind
-/// a toolbar button in Library, which is a strange place to hide the only two
-/// things this app is for.
+/// Abel sent Studio's Create as a reference and left the call to me (15 Sep
+/// 2026). Studio's shape: a row of big tiles, one black Upload button, and the
+/// drafts underneath. Autocast's tiles are its own jobs -- plan a month, make
+/// something with the AI, see every post -- and the sentence box stays, because
+/// "say what to make and it starts" is the thing Studio does not have.
+///
+/// Drafts are the posts waiting for approval: the things started here that
+/// have not gone anywhere yet.
 struct CreateView: View {
     @Environment(AppSession.self) private var session
 
@@ -21,61 +25,96 @@ struct CreateView: View {
     /// What to make, in their words, and whether it has been sent.
     @State private var asked = ""
     @State private var starting = false
+    @State private var chatting = false
+    @State private var browsing = false
+    @State private var approving: PendingPost?
+
+    private var drafts: [PendingPost] { session.posts.filter(\.needsYou) }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 14) {
-                // Say it, and it starts. Create is for beginning one thing --
-                // "make three ad concepts", "a product video" -- and the
-                // conversation it opens is where the rest of it happens. The
-                // two buttons below are the jobs that are not a sentence.
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    CreateTile(symbol: "calendar.badge.plus", title: "Plan a month") { planning = true }
+                    CreateTile(symbol: "sparkles", title: "Make with AI") { chatting = true }
+                    CreateTile(symbol: "square.grid.2x2.fill", title: "All posts") { browsing = true }
+                }
+                .entrance(0)
+
+                Button { pickingVideo = true } label: {
+                    PrimaryButtonLabel(title: "Upload", systemImage: "plus")
+                }
+                .primaryButtonStyle()
+                .disabled(session.connections.isEmpty || session.isWorking)
+                .padding(.top, 18)
+                .entrance(1)
+
                 AskBox(text: $asked) { starting = true }
+                    .padding(.top, 18)
+                    .entrance(2)
 
-                CreateAction(
-                    symbol: "calendar.badge.plus",
-                    title: "Plan a month",
-                    detail: "Thirty posts with a time against each one. You see all of it before anything is scheduled.",
-                    prominent: true
-                ) {
-                    planning = true
+                if !session.hasWorkingGenerator {
+                    ConnectGeneratorRow()
+                        .padding(.top, 12)
+                        .entrance(3)
                 }
 
-                CreateAction(
-                    symbol: "video.badge.plus",
-                    title: "Add a video",
-                    detail: "Something you already made. It waits for your approval before it goes anywhere."
-                ) {
-                    pickingVideo = true
+                HStack {
+                    Text("Drafts")
+                        .font(.title2.bold())
+                    Spacer()
                 }
+                .padding(.top, 28)
 
-                if session.hasWorkingGenerator {
-                    MadeForYouNote()
+                if drafts.isEmpty {
+                    DraftsEmpty()
+                        .padding(.top, 12)
                 } else {
-                    ConnectGeneratorNote()
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(drafts) { post in
+                            Button { approving = post } label: {
+                                DraftTile(post: post)
+                            }
+                            .buttonStyle(SoftPressStyle())
+                        }
+                    }
+                    .padding(.top, 12)
                 }
             }
-            .padding(.horizontal, 16)
+            .screenGutter()
             .padding(.top, 8)
-            .padding(.bottom, 24)
+            .padding(.bottom, 32)
         }
-        .background(Theme.canvas)
+        .background(Color.canvas.ignoresSafeArea())
         .navigationTitle("Create")
         .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await loadPicked() }
+        .refreshable { await session.refreshPosts() }
         .sheet(isPresented: $planning, onDismiss: {
             if proposed != nil { showingPlan = true }
         }) {
             NewPlanSheet(brief: "") { proposed = $0 }
         }
         .sheet(isPresented: $namingVideo) { captionSheet }
+        .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
         }
         .navigationDestination(isPresented: $starting) {
             ChatView(opening: asked.trimmingCharacters(in: .whitespacesAndNewlines))
         }
+        .navigationDestination(isPresented: $chatting) {
+            ChatView()
+        }
+        .navigationDestination(isPresented: $browsing) {
+            LibraryView()
+        }
     }
-
 
     private var captionSheet: some View {
         NavigationStack {
@@ -136,6 +175,34 @@ struct CreateView: View {
 
 // MARK: - Pieces
 
+/// One of Studio's big tiles: the symbol on a white card, the name under it.
+private struct CreateTile: View {
+    let symbol: String
+    let title: String
+    let act: () -> Void
+
+    var body: some View {
+        Button(action: act) {
+            VStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 76)
+                    .raisedCard(radius: Style.rowCard)
+
+                Text(title)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SoftPressStyle())
+    }
+}
+
 /// Say what to make, and it starts.
 ///
 /// Not a form and not a second chat: one line, a few examples worth stealing,
@@ -175,7 +242,7 @@ private struct AskBox: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(ready ? Theme.onAccent : Color.secondary)
                         .frame(width: 34, height: 34)
-                        .background(Circle().fill(ready ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.08))))
+                        .background(Circle().fill(ready ? Color.accentColor : Color.track))
                 }
                 .buttonStyle(PressButtonStyle())
                 .disabled(!ready)
@@ -192,7 +259,7 @@ private struct AskBox: View {
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
-                                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                                    .background(Capsule().fill(Color.track))
                             }
                             .buttonStyle(PressButtonStyle())
                         }
@@ -204,82 +271,97 @@ private struct AskBox: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
-        }
+        .raisedCard(radius: Style.rowCard)
     }
 }
 
-private struct CreateAction: View {
-    let symbol: String
-    let title: String
-    let detail: String
-    var prominent = false
-    let act: () -> Void
-
+/// Remi's coach card shape: an invitation, not a warning.
+private struct ConnectGeneratorRow: View {
     var body: some View {
-        Button(action: act) {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: symbol)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(prominent ? Theme.onAccent : Theme.accent)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        prominent ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.softAccent),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
+        NavigationLink { ProfileView() } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor, in: Circle())
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.headline)
-                        .foregroundStyle(Color.primary)
-
-                    Text(detail)
-                        .font(.caption)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Connect a generator")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("So Autocast can make the videos too")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer(minLength: 0)
+                Spacer(minLength: 8)
 
                 Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(.tertiaryLabel))
-                    .padding(.top, 4)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .padding(16)
+            .padding(14)
+            .frame(maxWidth: .infinity)
+            .raisedCard(radius: Style.rowCard)
+        }
+        .buttonStyle(SoftPressStyle())
+    }
+}
+
+/// One draft, as Studio shows one: a picture area, then a line under it.
+private struct DraftTile: View {
+    let post: PendingPost
+
+    private var title: String {
+        let text = post.caption.isEmpty ? post.post.hook : post.caption
+        return text.isEmpty ? "Untitled post" : text
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                Color.track
+                Image(systemName: "play.rectangle.fill")
+                    .font(.system(size: 30, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(height: 140)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                Text(post.state == .needsReapproval ? "Changed · review again" : "Waiting for you")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                Theme.surface,
-                in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .clipShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .raisedCard(radius: Style.rowCard)
+        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
     }
 }
 
-/// Says what happens without being asked, so "plan a month" is not mistaken for
-/// "and then I film thirty videos".
-private struct MadeForYouNote: View {
+private struct DraftsEmpty: View {
     var body: some View {
-        Card("It can make them too", systemImage: "wand.and.stars") {
-            Text("Every day in a plan has a line saying what the video shows. Press Make it on any of them, or turn on autopilot and it starts each one a day before its slot.")
-                .font(.caption)
+        VStack(spacing: 8) {
+            EmptyArt(name: "empty-posts", size: 96)
+            Text("No drafts")
+                .font(.headline)
+            Text("What you plan or make waits here for your approval before it posts.")
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-    }
-}
-
-private struct ConnectGeneratorNote: View {
-    var body: some View {
-        Card("Want it to film them as well?", systemImage: "wand.and.stars") {
-            Text("Add your generator key under You → Generators and it can make each video from the plan's own description.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        .padding(.vertical, 24)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .raisedCard()
     }
 }

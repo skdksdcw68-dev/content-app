@@ -1,6 +1,6 @@
 {
   "images" : [
-    { "filename" : "promo-make.png", "idiom" : "universal", "scale" : "1x" },
+    { "filename" : "hero-autopilot.jpg", "idiom" : "universal", "scale" : "1x" },
     { "idiom" : "universal", "scale" : "2x" },
     { "idiom" : "universal", "scale" : "3x" }
   ],

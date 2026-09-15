@@ -4,6 +4,7 @@ import SwiftUI
 struct ProfileView: View {
     @Environment(AppSession.self) private var session
     @State private var approving: PendingPost?
+    @State private var appearance = AppAppearance.current
 
     /// Pasted keys that are not already shown as a connection.
     private var unbridgedGenerators: [Generator] {
@@ -30,6 +31,22 @@ struct ProfileView: View {
                 } header: {
                     Text("Needs attention")
                 }
+            }
+
+            // Remi's theme picker, word for word (`AppearanceSettingsView`).
+            Section {
+                Picker("Theme", selection: $appearance) {
+                    ForEach(AppAppearance.allCases, id: \.self) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .onChange(of: appearance) { _, value in AppAppearance.current = value }
+            } header: {
+                Text("Theme")
+            } footer: {
+                Text("Light is Autocast's look. System follows your iPhone.")
             }
 
             Section {

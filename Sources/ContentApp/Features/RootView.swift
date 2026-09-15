@@ -18,6 +18,9 @@ struct RootView: View {
 
     @Environment(AppSession.self) private var session
     @State private var tab: AppTab = .home
+    /// Light unless the person chose otherwise (Remi's default). Read here, at
+    /// the root, so the choice reaches every screen -- sheets included -- at once.
+    @State private var appearance = AppAppearance.current
 
     var body: some View {
         @Bindable var session = session
@@ -43,6 +46,10 @@ struct RootView: View {
         }
         .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
+        .preferredColorScheme(appearance.colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .appearanceChanged)) { _ in
+            appearance = AppAppearance.current
+        }
         .alert(
             "That did not work",
             isPresented: Binding(

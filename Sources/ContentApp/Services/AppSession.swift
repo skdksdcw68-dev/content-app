@@ -660,9 +660,23 @@ private struct AnalyticsParams: Encodable, Sendable {
     }
 }
 
-/// What `analytics_for` returns: two series by day, and each video's latest
-/// numbers.
+/// What `analytics_for` returns (0038): running totals by day for followers,
+/// views, likes, comments and shares; each video's latest numbers; and how the
+/// brand's own videos did by the hour and weekday they went out.
 struct AnalyticsHistory: Decodable, Sendable {
+    /// One hour (0-23) or ISO weekday (1 = Monday), with the average views of
+    /// the videos posted in it and how many videos that average is made of.
+    struct Slot: Decodable, Hashable, Sendable {
+        let slot: Int
+        let posts: Int
+        let avgViews: Int
+
+        enum CodingKeys: String, CodingKey {
+            case slot, posts
+            case avgViews = "avg_views"
+        }
+    }
+
     struct Point: Decodable, Hashable, Sendable {
         /// "2026-09-15". Kept as the string it arrives as and parsed on demand,
         /// the same reason `ContentPlan.startsOn` is.
@@ -698,7 +712,31 @@ struct AnalyticsHistory: Decodable, Sendable {
 
     let followers: [Point]
     let views: [Point]
+    let likes: [Point]
+    let comments: [Point]
+    let shares: [Point]
     let videos: [Video]
+    let bestHours: [Slot]
+    let bestDays: [Slot]
+
+    enum CodingKeys: String, CodingKey {
+        case followers, views, likes, comments, shares, videos
+        case bestHours = "best_hours"
+        case bestDays = "best_days"
+    }
+
+    /// Every key optional, so a server a migration behind still decodes.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        followers = try c.decodeIfPresent([Point].self, forKey: .followers) ?? []
+        views = try c.decodeIfPresent([Point].self, forKey: .views) ?? []
+        likes = try c.decodeIfPresent([Point].self, forKey: .likes) ?? []
+        comments = try c.decodeIfPresent([Point].self, forKey: .comments) ?? []
+        shares = try c.decodeIfPresent([Point].self, forKey: .shares) ?? []
+        videos = try c.decodeIfPresent([Video].self, forKey: .videos) ?? []
+        bestHours = try c.decodeIfPresent([Slot].self, forKey: .bestHours) ?? []
+        bestDays = try c.decodeIfPresent([Slot].self, forKey: .bestDays) ?? []
+    }
 }
 
 // MARK: - The plan

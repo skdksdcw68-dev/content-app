@@ -29,7 +29,11 @@ enum Theme {
 
     /// The fill behind a chip or a selected surface. Grey now, for the same
     /// reason -- a tint, never a large fill, and never competing.
-    static let softAccent = Color("SoftAccent")
+    ///
+    /// Remi's chip and track grey (`tertiarySystemFill`) since 15 Sep 2026,
+    /// replacing the SoftAccent colorset -- a fixed #ECECEC / #2E2E2E that was
+    /// right in two appearances and nowhere else.
+    static let softAccent = Color.track
 
     /// The page, and what a card is made of.
     ///

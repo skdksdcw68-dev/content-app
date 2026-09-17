@@ -121,6 +121,13 @@ struct AnalyticsView: View {
         .navigationTitle("Analytics")
         .toolbar {
             if hasAccount {
+                // Your posts, as a profile grid -- top left, where Abel asked.
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { PostsLibraryView() } label: {
+                        Image(systemName: "square.grid.3x3")
+                    }
+                    .accessibilityLabel("Your posts")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     AnalyticsFilterMenu(
                         platforms: connectedPlatforms,
@@ -262,7 +269,7 @@ struct AnalyticsView: View {
     private func followers(_ report: AnalyticsReport) -> some View {
         FollowersCard(
             report: report,
-            total: live?.followers,
+            total: live?.followers ?? report.followersTotal,
             subtitle: followersSubtitle(report)
         )
         .entrance(0)
@@ -330,14 +337,14 @@ struct AnalyticsView: View {
     }
 
     private var allPostsLink: some View {
-        NavigationLink { LibraryView() } label: {
+        NavigationLink { PostsLibraryView() } label: {
             HStack(spacing: 12) {
-                Image(systemName: "square.grid.2x2.fill")
+                Image(systemName: "square.grid.3x3.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color(uiColor: .systemBackground))
                     .frame(width: 38, height: 38)
                     .background(Color.accentColor, in: Circle())
-                Text("All posts")
+                Text("Your posts")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                 Spacer(minLength: 8)

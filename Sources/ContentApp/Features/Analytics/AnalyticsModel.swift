@@ -80,6 +80,9 @@ struct MetricReading {
     let status: MetricStatus
     let current: Double?
     let previous: Double?
+    /// Set when the total could only be counted from Autocast's first reading,
+    /// not from the start of the range.
+    var since: Date? = nil
 
     /// +0.342 for +34.2%. Nil when there is nothing to compare with.
     var change: Double? {
@@ -152,14 +155,25 @@ extension AnalyticsReport {
         if metric == .followersGained && filtered {
             return MetricReading(metric: metric, status: .filtered, current: nil, previous: nil)
         }
-        guard let current = totals.current?.value(of: metric) else {
+        guard let totalsNow = totals.current, let current = totalsNow.value(of: metric) else {
             return MetricReading(metric: metric, status: .insufficient, current: nil, previous: nil)
+        }
+        let partial: Bool
+        let from: String?
+        if metric == .followersGained {
+            partial = (totalsNow.followersPartial ?? 0) > 0
+            from = totalsNow.followersCountedFrom
+        } else {
+            partial = (totalsNow.partialVideos ?? 0) > 0
+            from = totalsNow.countedFrom
         }
         return MetricReading(
             metric: metric,
             status: raw == "derived" ? .derived : .actual,
             current: current,
-            previous: totals.previous?.value(of: metric)
+            // A partial total is not the whole period, so it is not compared.
+            previous: partial ? nil : totals.previous?.value(of: metric),
+            since: partial ? from.flatMap(PostgresTimestamp.parse) : nil
         )
     }
 

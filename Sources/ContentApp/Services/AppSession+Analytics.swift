@@ -71,6 +71,12 @@ struct AnalyticsReport: Decodable, Sendable {
         let unknown: Int
         let accounts: Int
         let followersUnknown: Int
+        /// Videos counted from their first reading inside the period, because
+        /// Autocast was not reading yet when it started (0040).
+        let partialVideos: Int?
+        let countedFrom: String?
+        let followersPartial: Int?
+        let followersCountedFrom: String?
     }
 
     struct PeriodTotals: Decodable, Sendable {
@@ -190,6 +196,9 @@ struct AnalyticsReport: Decodable, Sendable {
     let platforms: [String]
     let availability: [String: String]
     let filtered: Bool
+    /// The latest follower count Autocast read, so the total never depends on
+    /// a live call succeeding.
+    let followersTotal: Int?
     let totals: PeriodTotals
     let series: [Bucket]
     let videos: Int
@@ -200,6 +209,36 @@ struct AnalyticsReport: Decodable, Sendable {
     let breakdowns: [Group]
     let filters: Filters
     let campaigns: [Campaign]
+}
+
+// MARK: - The library
+
+/// Every video on the brand's accounts, for the profile-style grid.
+struct PostsLibrary: Decodable, Sendable {
+    struct Account: Decodable, Sendable {
+        let followers: Int?
+        let likes: Int?
+        let videoCount: Int?
+    }
+
+    struct Video: Decodable, Sendable, Identifiable, Hashable {
+        var id: String { videoId }
+        let videoId: String
+        let platform: String
+        let title: String?
+        let coverUrl: String?
+        let shareUrl: String?
+        let postedAt: String?
+        let durationS: Int?
+        let views: Int
+        let likes: Int
+        let comments: Int
+        let shares: Int
+        let fromAutocast: Bool
+    }
+
+    let account: Account
+    let videos: [Video]
 }
 
 // MARK: - One post
@@ -401,6 +440,14 @@ extension AppSession {
             ))
             .execute()
         return try Self.analyticsDecoder.decode(AnalyticsReport.self, from: response.data)
+    }
+
+    func postsLibrary() async throws -> PostsLibrary {
+        guard let brand else { throw AnalyticsError.noBrand }
+        let response = try await client
+            .rpc("library_videos", params: ["p_brand": brand.id.uuidString])
+            .execute()
+        return try Self.analyticsDecoder.decode(PostsLibrary.self, from: response.data)
     }
 
     func postAnalytics(videoId: String) async throws -> PostAnalytics {

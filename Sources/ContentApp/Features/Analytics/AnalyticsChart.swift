@@ -46,9 +46,15 @@ struct KeyMetricsCard: View {
 
     private func caption(_ reading: MetricReading) -> String {
         switch reading.status {
-        case .filtered:     "Not with a content filter"
-        case .insufficient: "Not enough history yet"
-        default:            AnalyticsFormat.change(reading) ?? "No earlier period yet"
+        case .filtered:
+            return "Not with a content filter"
+        case .insufficient:
+            return "Not enough history yet"
+        default:
+            if let since = reading.since {
+                return "Since \(AnalyticsFormat.day(since)), when Autocast started reading"
+            }
+            return AnalyticsFormat.change(reading) ?? "No earlier period yet"
         }
     }
 
@@ -65,6 +71,12 @@ struct FollowersCard: View {
 
     private var net: MetricReading { report.reading(.followersGained) }
 
+    private var netCaption: String {
+        guard net.current != nil else { return "Not enough history yet" }
+        if let since = net.since { return "Since \(AnalyticsFormat.day(since))" }
+        return AnalyticsFormat.change(net) ?? "In this range"
+    }
+
     var body: some View {
         AnalyticsCard(
             title: "Key metrics",
@@ -80,8 +92,8 @@ struct FollowersCard: View {
                 KeyTile(
                     title: "Net followers",
                     value: net.current.map { value in (value > 0 ? "+" : "") + AnalyticsFormat.number(value) } ?? "—",
-                    caption: net.current == nil ? "Not enough history yet" : (AnalyticsFormat.change(net) ?? "In this range"),
-                    captionColor: net.current == nil ? .secondary : AnalyticsFormat.changeColor(net),
+                    caption: netCaption,
+                    captionColor: net.current == nil || net.since != nil ? .secondary : AnalyticsFormat.changeColor(net),
                     isSelected: true
                 )
             }

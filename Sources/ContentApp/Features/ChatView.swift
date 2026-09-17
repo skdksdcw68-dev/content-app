@@ -138,39 +138,7 @@ struct ChatView: View {
                 VStack(spacing: 0) {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(turns) { turn in
-                            ChatTurnView(
-                                turn: turn,
-                                onAnswer: { question, value in
-                                    answer(question, with: value, in: turn.id)
-                                },
-                                onGenerate: { choice, settings, price in
-                                    generate(choice, settings: settings, price: price, in: turn.id)
-                                },
-                                onExport: { artifact, format in
-                                    export(artifact, as: format)
-                                },
-                                onAnimate: { artifact in
-                                    animate(artifact)
-                                },
-                                onApprove: { artifact in
-                                    approve(artifact)
-                                },
-                                onRunFinished: { run in
-                                    runFinished(run)
-                                },
-                                onSuggest: { suggestion in
-                                    // One ending in a space wants the rest
-                                    // typed -- "Edit it: " -- so the field is
-                                    // focused instead of the turn being sent.
-                                    draft = suggestion
-                                    if suggestion.hasSuffix(" ") { composerFocus += 1 } else { send() }
-                                },
-                                onRate: { rating, reason in
-                                    rate(turn.id, rating: rating, reason: reason)
-                                },
-                                onRegenerate: canRegenerate(turn.id) ? { regenerate(turn.id) } : nil,
-                                showsActionsTip: turn.id == firstAnswerId
-                            )
+                            turnView(turn)
                             .id(turn.id)
                                 // Fade only. A new turn sliding up while the scroll
                                 // view is also animating to it, with the composer
@@ -464,6 +432,48 @@ struct ChatView: View {
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         return resized.jpegData(compressionQuality: 0.8)
+    }
+
+    /// One turn, with everything it can do wired up. Its own function because
+    /// the whole call inline in the list was too much for the type checker.
+    private func turnView(_ turn: ChatMessage) -> ChatTurnView {
+        let id = turn.id
+        var retry: (() -> Void)? = nil
+        if canRegenerate(id) {
+            retry = { regenerate(id) }
+        }
+        return ChatTurnView(
+            turn: turn,
+            onAnswer: { question, value in
+                answer(question, with: value, in: id)
+            },
+            onGenerate: { choice, settings, price in
+                generate(choice, settings: settings, price: price, in: id)
+            },
+            onExport: { artifact, format in
+                export(artifact, as: format)
+            },
+            onAnimate: { artifact in
+                animate(artifact)
+            },
+            onApprove: { artifact in
+                approve(artifact)
+            },
+            onRunFinished: { run in
+                runFinished(run)
+            },
+            onSuggest: { suggestion in
+                // One ending in a space wants the rest typed -- "Edit it: " --
+                // so the field is focused instead of the turn being sent.
+                draft = suggestion
+                if suggestion.hasSuffix(" ") { composerFocus += 1 } else { send() }
+            },
+            onRate: { rating, reason in
+                rate(id, rating: rating, reason: reason)
+            },
+            onRegenerate: retry,
+            showsActionsTip: id == firstAnswerId
+        )
     }
 
     // MARK: - Rating and retrying

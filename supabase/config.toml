@@ -175,3 +175,6 @@ verify_jwt = false
 # chain is verified back to Apple's root.
 [functions.apple-notifications-v2]
 verify_jwt = false
+
+[functions.import-plan]
+verify_jwt = true

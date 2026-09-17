@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Three decisions before a month gets written: what it is about, how long, and
 /// how often.
@@ -16,6 +17,12 @@ struct NewPlanSheet: View {
 
     @State private var days = 30
     @State private var postsPerDay = 1
+
+    @State private var showingFilePicker = false
+    @State private var pasted = ""
+    @State private var importing = false
+    @State private var showingImportError = false
+    @State private var importError = ""
 
     /// Called with the proposal once it exists, so the caller can push the
     /// preview. The sheet does not navigate; it reports.
@@ -41,6 +48,27 @@ struct NewPlanSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                // A plan already written somewhere else comes in as it is.
+                Section {
+                    Button {
+                        showingFilePicker = true
+                    } label: {
+                        Label("Import a file", systemImage: "doc.badge.plus")
+                    }
+                    NavigationLink {
+                        PastePlanView(text: $pasted) {
+                            Task { await importPlan(text: pasted) }
+                        }
+                    } label: {
+                        Label("Paste a plan", systemImage: "doc.on.clipboard")
+                    }
+                } header: {
+                    Text("Already have a plan?")
+                } footer: {
+                    Text("DOCX, PDF, ZIP or text — or paste one from ChatGPT. Your posts are kept as written and laid onto days for you to check.")
+                }
+                .disabled(session.isPlanning)
+
                 Section {
                     TextField(
                         "What this month is about",
@@ -50,7 +78,7 @@ struct NewPlanSheet: View {
                     .lineLimit(3...6)
                     .disabled(session.isPlanning)
                 } header: {
-                    Text("The brief")
+                    Text("Or let Autocast write one")
                 } footer: {
                     Text("Optional. Your account description and themes are used either way — this is for anything specific to these weeks, like a launch.")
                 }
@@ -148,8 +176,10 @@ struct NewPlanSheet: View {
             .overlay {
                 if session.isPlanning {
                     BuildingLoader(
-                        title: "Writing \(days * postsPerDay) posts",
-                        detail: "It writes ten at a time so the last ones are as good as the first. This takes a few seconds."
+                        title: importing ? "Reading your plan" : "Writing \(days * postsPerDay) posts",
+                        detail: importing
+                            ? "Finding every post in it and laying them onto days. Nothing is changed or added."
+                            : "It writes ten at a time so the last ones are as good as the first. This takes a few seconds."
                     )
                     .background(Color(uiColor: .systemBackground))
                     .transition(.opacity)
@@ -166,7 +196,41 @@ struct NewPlanSheet: View {
             }
             .interactiveDismissDisabled(session.isPlanning)
             .task { await session.refreshFacts() }
+            .fileImporter(
+                isPresented: $showingFilePicker,
+                allowedContentTypes: Self.importTypes
+            ) { result in
+                if case .success(let url) = result {
+                    Task { await importPlan(file: url) }
+                }
+            }
+            .alert("Couldn't import that", isPresented: $showingImportError) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(importError)
+            }
         }
+    }
+
+    static let importTypes: [UTType] = [
+        .pdf, .zip, .plainText, .text, .html, .commaSeparatedText, .rtf,
+        UTType(filenameExtension: "docx"),
+        UTType(filenameExtension: "md"),
+    ].compactMap { $0 }
+
+    private func importPlan(file: URL? = nil, text: String? = nil) async {
+        importing = true
+        defer { importing = false }
+        session.lastError = nil
+        guard let proposal = await session.importPlan(file: file, text: text) else {
+            // Shown here, over the sheet; the app-wide alert sits behind it.
+            importError = session.lastError ?? "Something went wrong. Try again."
+            session.lastError = nil
+            showingImportError = true
+            return
+        }
+        onProposed(proposal)
+        dismiss()
     }
 
     private func propose() async {
@@ -181,5 +245,82 @@ struct NewPlanSheet: View {
         // dismiss loses the push often enough to look like a dead button.
         onProposed(proposal)
         dismiss()
+    }
+}
+
+/// Paste a plan from anywhere -- ChatGPT, Notes, an email -- in one box, with
+/// the paste button and the import button inside it.
+private struct PastePlanView: View {
+    @Binding var text: String
+    let onImport: () -> Void
+
+    @Environment(AppSession.self) private var session
+    @FocusState private var focused: Bool
+
+    private var ready: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).count >= 30
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextField("Day 1 — Hook: …\nDay 2 — Hook: …", text: $text, axis: .vertical)
+                        .lineLimit(12...30)
+                        .focused($focused)
+
+                    HStack(spacing: 8) {
+                        PasteButton(payloadType: String.self) { strings in
+                            if let first = strings.first { text = first }
+                        }
+                        .buttonBorderShape(.capsule)
+                        .labelStyle(.titleAndIcon)
+                        .tint(Color.secondary)
+
+                        if !text.isEmpty {
+                            Button("Clear") { text = "" }
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 0)
+
+                        Button(action: onImport) {
+                            Label("Import", systemImage: "arrow.up")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(ready ? Theme.onAccent : Color.secondary)
+                                .padding(.horizontal, 14)
+                                .frame(height: 36)
+                                .background(Capsule().fill(ready ? Color.accentColor : Color.raised))
+                        }
+                        .buttonStyle(PressButtonStyle())
+                        .disabled(!ready || session.isPlanning)
+                    }
+                }
+                .padding(14)
+                .background(Color.track, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+                Text("Days, dates, times, hooks, captions and scripts are all picked up. Anything that isn't a post — goals, tips — is left out.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(Style.gutter)
+        }
+        .background(Color.canvas.ignoresSafeArea())
+        .overlay {
+            if session.isPlanning {
+                BuildingLoader(
+                    title: "Reading your plan",
+                    detail: "Finding every post in it and laying them onto days. Nothing is changed or added."
+                )
+                .background(Color(uiColor: .systemBackground))
+                .transition(.opacity)
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: session.isPlanning)
+        .navigationTitle("Paste a plan")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { focused = text.isEmpty }
     }
 }

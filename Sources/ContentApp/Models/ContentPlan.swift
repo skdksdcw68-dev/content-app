@@ -133,10 +133,15 @@ struct PlanProposal: Decodable, Sendable {
     let invented: Int?
     /// The themes producing that. Named so they can be fed or switched off.
     let unsupportedThemes: [String]?
+    /// Set when the plan came from the person's own file (`import-plan`):
+    /// how many posts the file had, of which `planned` got a day.
+    var imported: Bool? = nil
+    var found: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case title, days, planned, dropped, slots
         case invented
+        case imported, found
         case factsUsed = "facts_used"
         case unsupportedThemes = "unsupported_themes"
         case planId = "plan_id"
@@ -146,7 +151,8 @@ struct PlanProposal: Decodable, Sendable {
 
     /// Whether there is anything here the person should read before approving.
     var needsAttention: Bool {
-        (unsupportedThemes?.isEmpty == false)
+        imported == true
+            || (unsupportedThemes?.isEmpty == false)
             || (invented ?? 0) > 0
             || (factsUsed ?? 99) < 4
     }

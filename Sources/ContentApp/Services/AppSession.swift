@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Supabase
+import UniformTypeIdentifiers
 
 /// The app's one connection to the backend, and everything it knows.
 ///
@@ -709,6 +710,54 @@ extension AppSession {
         }
     }
 
+    /// A plan the person already has -- a DOCX, PDF, ZIP or text file, or text
+    /// pasted from ChatGPT -- read into a proposal. Only the posts in it are
+    /// kept; nothing is written for them. The file goes to their own uploads
+    /// folder first, which is the only place the server will read from.
+    @discardableResult
+    func importPlan(file: URL? = nil, text: String? = nil) async -> PlanProposal? {
+        guard !isPlanning, let userID else { return nil }
+        isPlanning = true
+        defer { isPlanning = false }
+
+        do {
+            var path: String?
+            var fileName: String?
+            if let file {
+                let scoped = file.startAccessingSecurityScopedResource()
+                defer { if scoped { file.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: file)
+                guard data.count <= 25 * 1024 * 1024 else {
+                    lastError = "That file is over 25 MB. Try a smaller one, or paste the plan."
+                    return nil
+                }
+                let ext = file.pathExtension.lowercased().isEmpty ? "txt" : file.pathExtension.lowercased()
+                let mime = UTType(filenameExtension: ext)?.preferredMIMEType ?? "application/octet-stream"
+                let key = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).\(ext)"
+                _ = try await client.storage
+                    .from("artifacts")
+                    .upload(key, data: data, options: FileOptions(contentType: mime))
+                path = key
+                fileName = file.lastPathComponent
+            }
+
+            let proposal: PlanProposal = try await client.functions.invoke(
+                "import-plan",
+                options: FunctionInvokeOptions(body: ImportRequest(
+                    brandId: brand?.id.uuidString,
+                    path: path,
+                    fileName: fileName,
+                    text: text
+                ))
+            )
+            await refreshPlan()
+            return proposal
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+
     /// The moment a person says yes. Every post in the plan gets a time, and
     /// the scheduler starts counting toward it.
     @discardableResult
@@ -748,6 +797,19 @@ extension AppSession {
             lastError = readableMessage(error)
             return false
         }
+    }
+}
+
+private struct ImportRequest: Encodable {
+    let brandId: String?
+    let path: String?
+    let fileName: String?
+    let text: String?
+
+    enum CodingKeys: String, CodingKey {
+        case path, text
+        case brandId = "brand_id"
+        case fileName = "file_name"
     }
 }
 

@@ -571,7 +571,20 @@ private struct WritingNotice: View {
     let notice: PlanProposal
 
     var body: some View {
-        Card("Worth knowing", systemImage: "exclamationmark.bubble") {
+        Card(notice.imported == true ? "From your file" : "Worth knowing",
+             systemImage: notice.imported == true ? "doc.text" : "exclamationmark.bubble") {
+            if notice.imported == true {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(importLine)
+                        .font(.subheadline.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Your words, as written — nothing was added. Times from the file are kept; the rest use your usual hours. Check them, then approve.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
             if let themes = notice.unsupportedThemes, !themes.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(themes.count == 1
@@ -609,5 +622,14 @@ private struct WritingNotice: View {
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 8)
+    }
+
+    private var importLine: String {
+        let found = notice.found ?? notice.planned
+        let days = "\(notice.days) day\(notice.days == 1 ? "" : "s")"
+        if notice.dropped > 0 {
+            return "\(notice.planned) of \(found) posts placed across \(days). \(notice.dropped) had no free slot."
+        }
+        return "\(notice.planned) post\(notice.planned == 1 ? "" : "s") placed across \(days)."
     }
 }

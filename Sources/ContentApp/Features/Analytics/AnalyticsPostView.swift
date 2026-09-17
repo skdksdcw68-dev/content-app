@@ -1,10 +1,11 @@
 import SwiftUI
 import Charts
 
-/// One video, laid out like Studio's "Video analysis": the cover and its
-/// numbers across the top, then tabs. What TikTok only gives Business accounts
-/// -- watch time, retention, traffic sources, who watched -- says so in its own
-/// card. Comparisons appear only against groups of three or more other videos.
+/// One video, laid out like Studio's "Video analysis" and filled with every
+/// number Autocast has: the video itself playing on the page, the counts
+/// across the top, then Overview (rates, growth, rings against the account's
+/// own videos, what stands out, what to make next), Viewers, Engagement and
+/// About. What only TikTok Business gives says so in its own card.
 struct AnalyticsPostView: View {
     let videoId: String
     let title: String
@@ -27,13 +28,22 @@ struct AnalyticsPostView: View {
     @State private var failed: String?
     @State private var ask: AnalyticsAsk?
     @State private var page: Page = .overview
+    @State private var playing = false
+    @State private var planDraft: PlanDraft?
+    @State private var proposed: PlanProposal?
+    @State private var showingPlan = false
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if let data {
                     header(data.video)
-                        .padding(.bottom, 12)
+                        .padding(.bottom, 14)
                 }
 
                 Section {
@@ -65,8 +75,17 @@ struct AnalyticsPostView: View {
         .navigationBarTitleDisplayMode(.inline)
         .pushedPage()
         .task { await load() }
+        .refreshable { await load() }
         .navigationDestination(item: $ask) { question in
             ChatView(opening: question.text)
+        }
+        .sheet(item: $planDraft, onDismiss: {
+            if proposed != nil { showingPlan = true }
+        }) { draft in
+            NewPlanSheet(brief: draft.brief) { proposed = $0 }
+        }
+        .navigationDestination(isPresented: $showingPlan) {
+            PlanView(notice: proposed)
         }
     }
 
@@ -75,7 +94,7 @@ struct AnalyticsPostView: View {
             data = try await session.postAnalytics(videoId: videoId)
             failed = nil
         } catch {
-            failed = "Couldn't load this video."
+            if data == nil { failed = "Couldn't load this video." }
         }
     }
 
@@ -83,16 +102,7 @@ struct AnalyticsPostView: View {
 
     private func header(_ video: PostAnalytics.Video) -> some View {
         VStack(spacing: 12) {
-            ZStack(alignment: .bottom) {
-                AnalyticsThumbnail(url: video.coverUrl, width: 116, height: 154)
-                if let seconds = video.durationS {
-                    Text(AnalyticsFormat.duration(seconds: Double(seconds)))
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.6), radius: 3)
-                        .padding(.bottom, 8)
-                }
-            }
+            player(video)
 
             if let posted = video.postedAt.flatMap(PostgresTimestamp.parse) {
                 Text("Posted on \(posted.formatted(date: .abbreviated, time: .shortened))")
@@ -101,14 +111,15 @@ struct AnalyticsPostView: View {
             }
 
             HStack(spacing: 0) {
-                stat("play.fill", video.views)
+                stat("play.fill", video.views, "Views")
                 separator
-                stat("heart.fill", video.likes)
+                stat("heart.fill", video.likes, "Likes")
                 separator
-                stat("ellipsis.bubble.fill", video.comments)
+                stat("ellipsis.bubble.fill", video.comments, "Comments")
                 separator
-                stat("arrowshape.turn.up.right.fill", video.shares)
+                stat("arrowshape.turn.up.right.fill", video.shares, "Shares")
             }
+            .frame(maxWidth: .infinity)
             .padding(.top, 4)
 
             Text(video.fromAutocast ? "Posted with Autocast" : "Posted outside Autocast")
@@ -123,47 +134,72 @@ struct AnalyticsPostView: View {
         .screenGutter()
     }
 
-    private func stat(_ symbol: String, _ value: Int) -> some View {
+    /// The cover until tapped, then TikTok's own player in the same frame.
+    @ViewBuilder
+    private func player(_ video: PostAnalytics.Video) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        ZStack {
+            if playing {
+                TikTokPlayer(videoId: video.videoId)
+            } else {
+                AnalyticsThumbnail(url: video.coverUrl, width: 170, height: 302)
+                LinearGradient(colors: [.clear, .black.opacity(0.35)], startPoint: .center, endPoint: .bottom)
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) { playing = true }
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 60, height: 60)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .buttonStyle(SoftPressStyle())
+                .accessibilityLabel("Play video")
+                if let seconds = video.durationS {
+                    Text(AnalyticsFormat.duration(seconds: Double(seconds)))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 10)
+                }
+            }
+        }
+        .frame(width: 170, height: 302)
+        .background(Color.black)
+        .clipShape(shape)
+        .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
+    }
+
+    private func stat(_ symbol: String, _ value: Int, _ label: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: symbol)
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text(value.formatted())
+                .frame(height: 24)
+            Text(AnalyticsFormat.number(Double(value)))
                 .font(.headline.monospacedDigit())
+                .contentTransition(.numericText())
         }
         .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(label)")
     }
 
     private var separator: some View {
         Rectangle()
             .fill(Color(uiColor: .separator))
-            .frame(width: 0.5, height: 30)
+            .frame(width: 0.5, height: 36)
     }
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
-    ]
-
-    // MARK: - Pages
+    // MARK: - Overview
 
     @ViewBuilder
     private func overview(_ data: PostAnalytics) -> some View {
-        AnalyticsCard(
-            title: "Key metrics",
-            subtitle: data.video.measuredAt.flatMap(PostgresTimestamp.parse).map { "As of \($0.formatted(date: .abbreviated, time: .shortened))" },
-            info: "Lifetime numbers for this video, as TikTok reported them at Autocast's last check."
-        ) {
-            LazyVGrid(columns: columns, spacing: 12) {
-                KeyTile(title: "Video views", value: AnalyticsFormat.number(Double(data.video.views)), isSelected: true)
-                KeyTile(
-                    title: "Engagement rate",
-                    value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "—",
-                    caption: "Likes, comments and shares per view"
-                )
-            }
-            growth(data)
-        }
+        keyMetrics(data)
+        growth(data)
+        rings(data)
+        standsOut(data)
+        nextStep(data)
         BusinessOnlyCard(
             title: "Watch time and retention",
             detail: "Total play time, average watch time, how many watched to the end, and the second people stopped watching."
@@ -173,6 +209,227 @@ struct AnalyticsPostView: View {
             detail: "For You, search, your profile, following and messages."
         )
     }
+
+    private func keyMetrics(_ data: PostAnalytics) -> some View {
+        let video = data.video
+        let context = data.context
+        let views = Double(video.views)
+        return AnalyticsCard(
+            title: "Key metrics",
+            subtitle: data.video.measuredAt.flatMap(PostgresTimestamp.parse).map { "As of \($0.formatted(date: .abbreviated, time: .shortened))" },
+            info: "Lifetime numbers for this video, as TikTok reported them at Autocast's last check. Rates are worked out from those numbers."
+        ) {
+            LazyVGrid(columns: columns, spacing: 12) {
+                KeyTile(
+                    title: "Video views",
+                    value: AnalyticsFormat.number(views),
+                    caption: context.map { "#\($0.rank) of your \($0.videos) videos" },
+                    isSelected: true
+                )
+                KeyTile(
+                    title: "Engagement rate",
+                    value: video.engagementRate.map(AnalyticsFormat.percent) ?? "—",
+                    caption: context?.medianEngagement.map { "Your usual: \(AnalyticsFormat.percent($0))" } ?? "Likes, comments and shares per view"
+                )
+                KeyTile(
+                    title: "Likes per 100 views",
+                    value: views > 0 ? (Double(video.likes) / views * 100).formatted(.number.precision(.fractionLength(1))) : "—"
+                )
+                KeyTile(
+                    title: "Comments per 1K views",
+                    value: views > 0 ? (Double(video.comments) / views * 1000).formatted(.number.precision(.fractionLength(1))) : "—"
+                )
+                KeyTile(
+                    title: "Share rate",
+                    value: views > 0 ? AnalyticsFormat.percent(Double(video.shares) / views) : "—",
+                    caption: "Shares per view"
+                )
+                KeyTile(
+                    title: "Views per hour",
+                    value: viewsPerHour(views, context?.hoursLive),
+                    caption: context?.hoursLive.map { "Live for \(PostInsights.liveFor($0))" }
+                )
+                KeyTile(
+                    title: "Share of your views",
+                    value: context?.shareOfViews.map(AnalyticsFormat.percent) ?? "—",
+                    caption: "Across all your videos"
+                )
+                KeyTile(
+                    title: "Length",
+                    value: video.durationS.map { "\($0)s" } ?? "—",
+                    caption: context?.medianDuration.map { "Your usual: \(Int($0.rounded()))s" }
+                )
+            }
+        }
+    }
+
+    private func viewsPerHour(_ views: Double, _ hours: Double?) -> String {
+        guard let hours, hours > 0 else { return "—" }
+        return AnalyticsFormat.number(views / hours)
+    }
+
+    @ViewBuilder
+    private func growth(_ data: PostAnalytics) -> some View {
+        let points = (data.readings ?? []).compactMap { reading in
+            PostgresTimestamp.parse(reading.at).map { (at: $0, views: reading.views) }
+        }
+        AnalyticsCard(
+            title: "Views over time",
+            subtitle: PostInsights.recentGrowth(data.readings ?? []).map { "+\($0.views) views in the last \(PostInsights.liveFor($0.hours))" },
+            info: "Running total at each hourly check. The steeper the line, the faster it's growing."
+        ) {
+            if points.count >= 2 {
+                Chart(points, id: \.at) { point in
+                    AreaMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .interpolationMethod(.monotone)
+                    LineMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                        .foregroundStyle(Color.accentColor)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                        .interpolationMethod(.monotone)
+                    PointMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                        .foregroundStyle(Color.accentColor)
+                        .symbolSize(18)
+                }
+                .chartYAxis {
+                    AxisMarks(position: .trailing) { _ in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                        AxisValueLabel()
+                    }
+                }
+                .frame(height: 190)
+            } else {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .font(.title3)
+                        .foregroundStyle(.tertiary)
+                    Text(points.first.map { "One reading so far, at \($0.at.formatted(date: .omitted, time: .shortened)). Autocast checks every hour, so the curve appears within the hour." }
+                         ?? "No readings yet. Autocast checks every hour.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    /// The "O" charts: this video against the account's own, at a glance.
+    @ViewBuilder
+    private func rings(_ data: PostAnalytics) -> some View {
+        let video = data.video
+        let context = data.context
+        let viewsRatio = PostInsights.ratio(Double(video.views), to: context?.medianViews)
+        let engagementRatio = video.engagementRate.flatMap { PostInsights.ratio($0, to: context?.medianEngagement) }
+        if viewsRatio != nil || engagementRatio != nil {
+            AnalyticsCard(
+                title: "Against your usual",
+                info: "A full ring is twice your other videos' median. Half a ring is exactly your usual."
+            ) {
+                HStack(spacing: 12) {
+                    if let viewsRatio {
+                        ringTile("Views", ratio: viewsRatio, usual: "Usual \(AnalyticsFormat.number(context?.medianViews ?? 0))")
+                    }
+                    if let engagementRatio {
+                        ringTile("Engagement", ratio: engagementRatio, usual: "Usual \(AnalyticsFormat.percent(context?.medianEngagement ?? 0))")
+                    }
+                }
+            }
+        }
+    }
+
+    private func ringTile(_ label: String, ratio: Double, usual: String) -> some View {
+        VStack(spacing: 10) {
+            ZStack {
+                ProgressRing(progress: min(1, ratio / 2), lineWidth: 10, color: ratio >= 1 ? .green : .orange)
+                Text(PostInsights.times(ratio))
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+            }
+            .frame(width: 104, height: 104)
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+            Text(usual)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color(uiColor: .separator), lineWidth: 0.5)
+        }
+    }
+
+    @ViewBuilder
+    private func standsOut(_ data: PostAnalytics) -> some View {
+        let items = PostInsights.observations(data)
+        if !items.isEmpty {
+            AnalyticsCard(
+                title: "What stands out",
+                subtitle: "Compared with your own videos. Observations, not proven causes.",
+                info: "Worked out from this video's numbers and your other videos'. Watch time and traffic sources would say more, and come with TikTok Business."
+            ) {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(items) { item in
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: item.symbol)
+                                .font(.title3)
+                                .foregroundStyle(item.tint)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.title)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(item.detail)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func nextStep(_ data: PostAnalytics) -> some View {
+        let step = PostInsights.nextStep(data, title: title)
+        return AnalyticsCard(title: "What to post next") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(step.title)
+                    .font(.headline)
+                Text(step.detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 10) {
+                Button {
+                    planDraft = PlanDraft(brief: step.brief)
+                } label: {
+                    PrimaryButtonLabel(title: "Plan it", systemImage: "calendar.badge.plus")
+                }
+                .primaryButtonStyle()
+
+                Button {
+                    ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did, and what should I post next?")
+                } label: {
+                    Text("Ask Autocast")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .background(Color.track, in: Capsule())
+                }
+                .buttonStyle(SoftPressStyle())
+            }
+        }
+    }
+
+    // MARK: - Viewers
 
     @ViewBuilder
     private var viewers: some View {
@@ -186,6 +443,8 @@ struct AnalyticsPostView: View {
         )
     }
 
+    // MARK: - Engagement
+
     @ViewBuilder
     private func engagement(_ data: PostAnalytics) -> some View {
         AnalyticsCard(title: "Engagement") {
@@ -196,73 +455,60 @@ struct AnalyticsPostView: View {
                 KeyTile(title: "Engagement rate", value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "—")
             }
         }
+        engagementMix(data.video)
         comparisons(data)
         BusinessOnlyCard(
-            title: "Likes across the video",
-            detail: "The moment in the video where most people liked it."
+            title: "Saves and likes across the video",
+            detail: "How many saved it, and the moment in the video where most people liked it."
         )
     }
 
+    /// The donut: what the engagement was made of.
     @ViewBuilder
-    private func about(_ data: PostAnalytics) -> some View {
-        contentCard(data)
-        Button {
-            ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did?")
-        } label: {
-            PrimaryButtonLabel(title: "Ask Autocast why", systemImage: "sparkles")
-        }
-        .primaryButtonStyle()
-
-        if let share = data.video.shareUrl, let link = URL(string: share) {
-            Link(destination: link) {
-                Text("Open on TikTok")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .background(Color.track, in: Capsule())
-            }
-        }
-    }
-
-    // MARK: - Pieces
-
-    @ViewBuilder
-    private func growth(_ data: PostAnalytics) -> some View {
-        let days = data.daily.compactMap { day in
-            AnalyticsDay.parse(day.day).map { (date: $0, views: day.views) }
-        }
-        if days.count >= 2 {
-            Chart(days, id: \.date) { day in
-                AreaMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0)],
-                            startPoint: .top,
-                            endPoint: .bottom
+    private func engagementMix(_ video: PostAnalytics.Video) -> some View {
+        let parts: [(name: String, value: Int, color: Color)] = [
+            ("Likes", video.likes, Color.accentColor),
+            ("Comments", video.comments, Color.accentColor.opacity(0.55)),
+            ("Shares", video.shares, Color.accentColor.opacity(0.25)),
+        ]
+        let total = parts.reduce(0) { $0 + $1.value }
+        if total > 0 {
+            AnalyticsCard(title: "What people did", info: "Of every like, comment and share, how much was each.") {
+                HStack(spacing: 20) {
+                    Chart(parts, id: \.name) { part in
+                        SectorMark(
+                            angle: .value("Count", part.value),
+                            innerRadius: .ratio(0.62),
+                            angularInset: 1.5
                         )
-                    )
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
-                    .foregroundStyle(Color.accentColor)
-                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                    .interpolationMethod(.monotone)
-            }
-            .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                    AxisValueLabel()
+                        .cornerRadius(3)
+                        .foregroundStyle(part.color)
+                    }
+                    .frame(width: 120, height: 120)
+                    .overlay {
+                        VStack(spacing: 0) {
+                            Text(AnalyticsFormat.number(Double(total)))
+                                .font(.headline.monospacedDigit())
+                            Text("actions")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(parts, id: \.name) { part in
+                            HStack(spacing: 8) {
+                                Circle().fill(part.color).frame(width: 9, height: 9)
+                                Text(part.name)
+                                    .font(.subheadline)
+                                Spacer(minLength: 6)
+                                Text(AnalyticsFormat.percent(Double(part.value) / Double(total)))
+                                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                            }
+                        }
+                    }
                 }
             }
-            .frame(height: 180)
-            Text("Running total on each day Autocast checked.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        } else {
-            Text(days.first.map { "One reading so far, on \(AnalyticsFormat.day($0.date)). The chart appears after the next check, within 6 hours." }
-                 ?? "No readings yet.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -300,12 +546,35 @@ struct AnalyticsPostView: View {
             }
             Spacer(minLength: 8)
             if let ratio {
-                Text("\(ratio.formatted(.number.precision(.fractionLength(1))))×")
+                Text(PostInsights.times(ratio))
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(ratio >= 1 ? Color.green : Color.red)
             }
         }
         .padding(.vertical, 10)
+    }
+
+    // MARK: - About
+
+    @ViewBuilder
+    private func about(_ data: PostAnalytics) -> some View {
+        contentCard(data)
+        Button {
+            ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did?")
+        } label: {
+            PrimaryButtonLabel(title: "Ask Autocast why", systemImage: "sparkles")
+        }
+        .primaryButtonStyle()
+
+        if let share = data.video.shareUrl, let link = URL(string: share) {
+            Link(destination: link) {
+                Text("Open on TikTok")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(Color.track, in: Capsule())
+            }
+        }
     }
 
     private func contentCard(_ data: PostAnalytics) -> some View {
@@ -324,6 +593,9 @@ struct AnalyticsPostView: View {
                     info("Why it was planned", post.rationale)
                 } else {
                     info("Caption", data.video.description ?? data.video.title)
+                    if let tags = data.context?.hashtags {
+                        info("Hashtags", "\(tags)")
+                    }
                     Text("Posted outside Autocast, so there is no hook, theme or media record, only what TikTok reports.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)

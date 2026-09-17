@@ -1150,6 +1150,34 @@ Deno.serve(async (request) => {
             // deno-lint-ignore no-explicit-any
             const library = libraryRead.data as Record<string, any> | null;
 
+            // The videos this question is about, in full: any whose title the
+            // question quotes, else the newest and the best. "When you ask it
+            // for details it doesn't know" was this -- it had one line per
+            // video and nothing else.
+            // deno-lint-ignore no-explicit-any
+            const allVideos = (library?.videos ?? []) as Array<Record<string, any>>;
+            const lowered = asked.toLowerCase();
+            const named = allVideos.filter((v) => {
+              const title = String(v.title ?? "").toLowerCase().replace(/#\S+/g, "").trim();
+              return title.length >= 6 && lowered.includes(title.slice(0, Math.min(24, title.length)));
+            });
+            const best = [...allVideos].sort((a, b) => (b.views ?? 0) - (a.views ?? 0))[0];
+            const focus = [...new Map(
+              (named.length > 0 ? named : [allVideos[0], best]).filter(Boolean).map((v) => [v.video_id, v]),
+            ).values()].slice(0, 3);
+            const detailReads = await Promise.all(
+              focus.map((v) => asUser.rpc("post_analytics", { p_brand: brand.id, p_video: v.video_id })),
+            );
+            // deno-lint-ignore no-explicit-any
+            const details = detailReads.map((r) => r.data as Record<string, any> | null).filter(Boolean).map((d) => ({
+              video: d!.video,
+              context: d!.context,
+              // The last day of hourly readings is enough to describe a curve.
+              readings: ((d!.readings ?? []) as unknown[]).slice(-24),
+              post: d!.post,
+              comparisons: d!.comparisons,
+            }));
+
             // deno-lint-ignore no-explicit-any
             const report = reportRead.data as Record<string, any> | null;
             // deno-lint-ignore no-explicit-any
@@ -1196,6 +1224,7 @@ Deno.serve(async (request) => {
               learned: insightRead.data ?? [],
               recommendations: recRead.data ?? [],
               autopilot: autopilotRead.data ?? null,
+              details,
             };
 
             const rules = `You are Autocast, a sharp, friendly creator coach, answering a question about how this account's content is performing.
@@ -1207,6 +1236,8 @@ How to answer:
 - Talk like a person: "your other two videos", not "sample size". No jargon, no hedging paragraphs.
 - "Last post" / "latest video" means the newest item in latest, not the top one.
 - When a cause can't be proven, still say what stands out against their own other videos (views vs their median, engagement vs the others, how new it is) -- as an observation, clearly not a proven reason.
+- details holds the videos this question is about, in depth: video (numbers, length, caption), context (rank among their videos, share of all their views, the other videos' medians for views / engagement / length / hashtags / caption length, the hour it went out, hours live, their best posting block if known), readings (hourly running totals -- use them for "how fast is it growing": views gained per hour, since posting), post (hook, format, theme, when it was Autocast's), comparisons. Use all of it; be specific.
+- Watch time, average watch time, retention / where people stopped, traffic sources (For You, search, profile), viewers, new vs returning, gender, age and location are NOT given to apps by TikTok without a TikTok Business connection, which this account does not have yet. When asked for any of them, say exactly that in one sentence, then give what you do know instead.
 
 - totals.current is the last ${span} days, totals.previous the ${span} days before. A total with unknown > 0 is incomplete: say Autocast's history only starts at history_starts, and do not compare it.
 - availability says what the platform gives. Reach, saves, watch time, retention, profile visits, link clicks and conversions marked "unavailable" are not shared by TikTok with apps -- say that, never estimate them.

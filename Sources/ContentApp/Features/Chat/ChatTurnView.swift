@@ -77,11 +77,9 @@ struct ChatTurnView: View {
                     // matters, and a folded "3 steps" above every reply was
                     // the agent narrating itself.
                     if !turn.text.isEmpty {
-                        Text(turn.text)
-                            .font(.body)
-                            .lineSpacing(2)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        // Real selection handles, so part of an answer can be
+                        // picked out and copied.
+                        SelectableText(text: turn.text)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 

@@ -303,9 +303,45 @@ struct PostAnalytics: Decodable, Sendable {
         let medianEngagement: Double?
     }
 
+    /// A running total, the last reading taken in one hour (0042).
+    struct Reading: Decodable, Sendable {
+        let at: String
+        let views: Int
+        let likes: Int
+        let comments: Int
+        let shares: Int
+    }
+
+    struct BestHour: Decodable, Sendable {
+        let slot: Int
+        let posts: Int
+        let lift: Double
+    }
+
+    /// How this video sits among the account's others (0042).
+    struct Context: Decodable, Sendable {
+        let videos: Int
+        let rank: Int
+        let others: Int
+        let shareOfViews: Double?
+        let medianViews: Double?
+        let medianEngagement: Double?
+        let medianDuration: Double?
+        let medianHashtags: Double?
+        let medianCaptionLength: Double?
+        let hashtags: Int?
+        let captionLength: Int?
+        let postedHour: Int?
+        let hoursLive: Double?
+        let timezone: String?
+        let bestHour: BestHour?
+    }
+
     let video: Video
     let availability: [String: String]
     let daily: [Day]
+    let readings: [Reading]?
+    let context: Context?
     let post: Post?
     let media: [Media]
     let comparisons: [Comparison]

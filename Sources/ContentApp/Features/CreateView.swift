@@ -236,45 +236,58 @@ private struct AskBox: View {
             Text("What should I make?")
                 .font(.headline)
 
-            HStack(alignment: .bottom, spacing: 10) {
+            // One box holds everything: the words, the examples to pick from
+            // and the send button (Abel, 17 Sep: the choices sat outside it).
+            VStack(alignment: .leading, spacing: 10) {
                 TextField("A video about…", text: $text, axis: .vertical)
-                    .lineLimit(1...4)
+                    .lineLimit(2...5)
                     .font(.body)
                     .focused($typing)
                     .submitLabel(.go)
                     .onSubmit { if ready { onStart() } }
 
-                Button(action: onStart) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(ready ? Theme.onAccent : Color.secondary)
-                        .frame(width: 34, height: 34)
-                        .background(Circle().fill(ready ? Color.accentColor : Color.track))
-                }
-                .buttonStyle(PressButtonStyle())
-                .disabled(!ready)
-                .accessibilityLabel("Start")
-            }
-
-            if !ready {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Self.examples, id: \.self) { example in
-                            Button { text = example } label: {
-                                Text(example)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 7)
-                                    .background(Capsule().fill(Color.track))
+                HStack(alignment: .center, spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Self.examples, id: \.self) { example in
+                                Button { text = example } label: {
+                                    Text(example)
+                                        .font(.footnote)
+                                        .foregroundStyle(.primary)
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 6)
+                                        .background(Capsule().fill(Color.raised))
+                                        .overlay(Capsule().strokeBorder(Color(uiColor: .separator), lineWidth: 0.5))
+                                }
+                                .buttonStyle(PressButtonStyle())
                             }
-                            .buttonStyle(PressButtonStyle())
                         }
+                        .padding(.vertical, 1)
                     }
-                    .padding(.vertical, 1)
+                    .opacity(ready ? 0 : 1)
+                    .allowsHitTesting(!ready)
+                    .mask(
+                        LinearGradient(stops: [.init(color: .black, location: 0.85), .init(color: .clear, location: 1)],
+                                       startPoint: .leading, endPoint: .trailing)
+                    )
+
+                    Button(action: onStart) {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(ready ? Theme.onAccent : Color.secondary)
+                            .frame(width: 34, height: 34)
+                            .background(Circle().fill(ready ? Color.accentColor : Color.raised))
+                    }
+                    .buttonStyle(PressButtonStyle())
+                    .disabled(!ready)
+                    .accessibilityLabel("Start")
                 }
-                .scrollClipDisabled()
             }
+            .padding(12)
+            .background(Color.track, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onTapGesture { typing = true }
+            .animation(.easeOut(duration: 0.15), value: ready)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -14,17 +14,24 @@ struct UnderlineTabs<Item: Hashable>: View {
 
     @Namespace private var underline
 
+    /// Spread edge to edge, each tab an equal share of the width (Abel, 17 Sep:
+    /// the row "isn't side to side"). A smaller type size is tried before the
+    /// row gives up and scrolls.
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 26) {
-                    ForEach(items, id: \.self) { item in
-                        tab(item)
+            ViewThatFits(in: .horizontal) {
+                spread(.body, padding: 6)
+                spread(.subheadline, padding: 3)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 26) {
+                        ForEach(items, id: \.self) { item in
+                            tab(item, font: .body)
+                        }
                     }
                 }
-                .padding(.top, 8)
+                .contentMargins(.horizontal, Style.gutter, for: .scrollContent)
             }
-            .contentMargins(.horizontal, Style.gutter, for: .scrollContent)
+            .padding(.top, 8)
 
             Divider()
         }
@@ -32,13 +39,26 @@ struct UnderlineTabs<Item: Hashable>: View {
         .sensoryFeedback(.selection, trigger: selection)
     }
 
-    private func tab(_ item: Item) -> some View {
+    private func spread(_ font: Font, padding: CGFloat) -> some View {
+        HStack(spacing: 0) {
+            ForEach(items, id: \.self) { item in
+                tab(item, font: font)
+                    .padding(.horizontal, padding)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(.horizontal, Style.gutter - 12)
+    }
+
+    private func tab(_ item: Item, font: Font) -> some View {
         let isOn = item == selection
         return Button {
             withAnimation(.snappy(duration: 0.25)) { selection = item }
         } label: {
             Text(title(item))
-                .font(.body.weight(isOn ? .semibold : .regular))
+                .font(font.weight(isOn ? .semibold : .regular))
+                .lineLimit(1)
+                .fixedSize()
                 .foregroundStyle(isOn ? Color.primary : Color.secondary)
                 .padding(.bottom, 12)
                 .overlay(alignment: .bottom) {

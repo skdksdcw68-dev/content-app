@@ -132,7 +132,7 @@ struct AnalyticsThumbnail: View {
     }
 }
 
-private struct RankedPostRow: View {
+struct RankedPostRow: View {
     let rank: Int
     let video: AnalyticsReport.Video
     let sort: TopPostSort

@@ -111,15 +111,14 @@ struct AnalyticsPostView: View {
             }
 
             HStack(spacing: 0) {
-                stat("play.fill", video.views, "Views")
-                separator
-                stat("heart.fill", video.likes, "Likes")
-                separator
-                stat("ellipsis.bubble.fill", video.comments, "Comments")
-                separator
-                stat("arrowshape.turn.up.right.fill", video.shares, "Shares")
+                stat("eye", video.views, "Views")
+                stat("heart", video.likes, "Likes")
+                stat("bubble.left", video.comments, "Comments")
+                stat("arrowshape.turn.up.right", video.shares, "Shares")
             }
+            .padding(.vertical, 14)
             .frame(maxWidth: .infinity)
+            .raisedCard(radius: 18)
             .padding(.top, 4)
 
             Text(video.fromAutocast ? "Posted with Autocast" : "Posted outside Autocast")
@@ -171,24 +170,22 @@ struct AnalyticsPostView: View {
     }
 
     private func stat(_ symbol: String, _ value: Int, _ label: String) -> some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             Image(systemName: symbol)
                 .font(.title3)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
                 .frame(height: 24)
             Text(AnalyticsFormat.number(Double(value)))
                 .font(.headline.monospacedDigit())
                 .contentTransition(.numericText())
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(value) \(label)")
-    }
-
-    private var separator: some View {
-        Rectangle()
-            .fill(Color(uiColor: .separator))
-            .frame(width: 0.5, height: 36)
     }
 
     // MARK: - Overview
@@ -326,44 +323,54 @@ struct AnalyticsPostView: View {
         let context = data.context
         let viewsRatio = PostInsights.ratio(Double(video.views), to: context?.medianViews)
         let engagementRatio = video.engagementRate.flatMap { PostInsights.ratio($0, to: context?.medianEngagement) }
-        if viewsRatio != nil || engagementRatio != nil {
+        let share = context?.shareOfViews
+        if viewsRatio != nil || engagementRatio != nil || share != nil {
             AnalyticsCard(
                 title: "Against your usual",
-                info: "A full ring is twice your other videos' median. Half a ring is exactly your usual."
+                info: "For views and engagement, a full ring is your other videos' median; past full, the ring turns green. Share is this video's part of all your views."
             ) {
-                HStack(spacing: 12) {
+                HStack(alignment: .top, spacing: 8) {
                     if let viewsRatio {
-                        ringTile("Views", ratio: viewsRatio, usual: "Usual \(AnalyticsFormat.number(context?.medianViews ?? 0))")
+                        ringTile("Views", progress: viewsRatio, text: PostInsights.times(viewsRatio),
+                                 usual: "Usual \(AnalyticsFormat.number(context?.medianViews ?? 0))",
+                                 good: viewsRatio >= 1)
                     }
                     if let engagementRatio {
-                        ringTile("Engagement", ratio: engagementRatio, usual: "Usual \(AnalyticsFormat.percent(context?.medianEngagement ?? 0))")
+                        ringTile("Engagement", progress: engagementRatio, text: PostInsights.times(engagementRatio),
+                                 usual: "Usual \(AnalyticsFormat.percent(context?.medianEngagement ?? 0))",
+                                 good: engagementRatio >= 1)
+                    }
+                    if let share {
+                        ringTile("Of all views", progress: share, text: AnalyticsFormat.percent(share),
+                                 usual: context.map { "\($0.videos) videos" } ?? "",
+                                 good: false)
                     }
                 }
             }
         }
     }
 
-    private func ringTile(_ label: String, ratio: Double, usual: String) -> some View {
-        VStack(spacing: 10) {
+    private func ringTile(_ label: String, progress: Double, text: String, usual: String, good: Bool) -> some View {
+        VStack(spacing: 8) {
             ZStack {
-                ProgressRing(progress: min(1, ratio / 2), lineWidth: 10, color: ratio >= 1 ? .green : .orange)
-                Text(PostInsights.times(ratio))
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                ProgressRing(progress: min(1, max(0, progress)), lineWidth: 9, color: good ? .green : .accentColor)
+                Text(text)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
                     .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 12)
             }
-            .frame(width: 104, height: 104)
+            .frame(width: 86, height: 86)
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
             Text(usual)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color(uiColor: .separator), lineWidth: 0.5)
-        }
     }
 
     @ViewBuilder
@@ -398,35 +405,47 @@ struct AnalyticsPostView: View {
 
     private func nextStep(_ data: PostAnalytics) -> some View {
         let step = PostInsights.nextStep(data, title: title)
-        return AnalyticsCard(title: "What to post next") {
-            VStack(alignment: .leading, spacing: 6) {
+        // Inverted, as in the mockup: the one card that asks for an action.
+        let ink = Color(uiColor: .systemBackground)
+        return VStack(alignment: .leading, spacing: 12) {
+            Label("What to post next", systemImage: "sparkles")
+                .font(.title3.bold())
+            VStack(alignment: .leading, spacing: 4) {
                 Text(step.title)
                     .font(.headline)
                 Text(step.detail)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .opacity(0.8)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 10) {
                 Button {
                     planDraft = PlanDraft(brief: step.brief)
                 } label: {
-                    PrimaryButtonLabel(title: "Plan it", systemImage: "calendar.badge.plus")
+                    Text("Plan it")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .background(ink, in: Capsule())
                 }
-                .primaryButtonStyle()
+                .buttonStyle(SoftPressStyle())
 
                 Button {
                     ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did, and what should I post next?")
                 } label: {
                     Text("Ask Autocast")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, minHeight: 50)
-                        .background(Color.track, in: Capsule())
+                        .foregroundStyle(ink)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .overlay(Capsule().strokeBorder(ink.opacity(0.35), lineWidth: 1))
                 }
                 .buttonStyle(SoftPressStyle())
             }
         }
+        .foregroundStyle(ink)
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     // MARK: - Viewers

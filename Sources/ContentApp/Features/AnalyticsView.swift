@@ -234,29 +234,36 @@ struct AnalyticsView: View {
                 detail: "TikTok shares numbers for public videos only. Once one is public, Autocast reads it within 6 hours."
             )
         }
+        ViewsHeroCard(report: report, range: AnalyticsFormat.range(query.from, query.to))
+            .entrance(0)
         KeyMetricsCard(
             report: report,
             metrics: [.views, .likes, .comments, .shares, .engagementRate, .followersGained],
             selected: $metric,
             subtitle: rangeLine(report)
         )
-        .entrance(0)
-        BusinessOnlyCard(
-            title: "Reach and watch time",
-            detail: "Unique viewers, profile views, saves, average watch time and how many watched to the end."
-        )
         .entrance(1)
-        BusinessOnlyCard(
-            title: "Traffic source",
-            detail: "Where your views came from: For You, search, your profile, following."
-        )
+        TopPostsPreview(report: report) {
+            withAnimation(.snappy(duration: 0.25)) { page = .content }
+        }
         .entrance(2)
+        LearningProgressCard(videos: report.videos)
+            .entrance(3)
+        BusinessOnlyCard(
+            title: "Reach, watch time and audience",
+            detail: "Unique viewers, profile views, average watch time, traffic sources, gender, age and location."
+        )
+        .entrance(4)
     }
 
     @ViewBuilder
     private func content(_ report: AnalyticsReport) -> some View {
-        TopPostsCard(report: report)
+        PostsGridCard(report: report)
             .entrance(0)
+        ViewsShareCard(report: report)
+            .entrance(1)
+        TopPostsCard(report: report)
+            .entrance(2)
         CampaignsSection(report: report, platform: platform)
             .padding(.top, 8)
         allPostsLink

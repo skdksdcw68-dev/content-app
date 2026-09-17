@@ -123,11 +123,11 @@ private struct HeroCard: View {
     var body: some View {
         NavigationLink {
             switch slide.destination {
-            case .create:    CreateView()
+            case .create:    CreateView().pushedPage()
             case .plan:      PlanView()
-            case .analytics: AnalyticsView()
+            case .analytics: AnalyticsView().pushedPage()
             case .brand:     BrandView()
-            case .profile:   ProfileView()
+            case .profile:   ProfileView().pushedPage()
             }
         } label: {
             ZStack(alignment: .bottomLeading) {

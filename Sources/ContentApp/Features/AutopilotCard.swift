@@ -206,7 +206,7 @@ struct AutopilotCard: View {
         _ title: String,
         @ViewBuilder destination: @escaping () -> Destination
     ) -> some View {
-        NavigationLink(destination: destination) {
+        NavigationLink { destination().pushedPage() } label: {
             HStack(spacing: 4) {
                 Text(title)
                 Image(systemName: "arrow.right")

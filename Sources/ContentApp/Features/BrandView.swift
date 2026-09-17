@@ -88,6 +88,7 @@ struct BrandView: View {
             }
         }
         .navigationTitle("Your brand")
+        .pushedPage()
         .navigationBarTitleDisplayMode(.inline)
         .task {
             guard !loaded else { return }

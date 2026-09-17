@@ -453,6 +453,8 @@ struct ChatMessage: Identifiable, Equatable {
     /// What is worth saying next, as taps. One ending in a space is an
     /// invitation to finish the sentence rather than a message to send.
     var suggestions: [String] = []
+    /// "up" or "down", once the person rated this answer.
+    var rating: String? = nil
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)

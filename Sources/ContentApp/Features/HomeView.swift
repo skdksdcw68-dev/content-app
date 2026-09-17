@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// Home: what Autocast is doing for you, laid out the way Remi lays out a day.
 ///
@@ -21,6 +22,11 @@ struct HomeView: View {
     /// Naming another app to market.
     @State private var addingBrand = false
     @State private var newBrand = ""
+    /// First-time help, one at a time.
+    @State private var tips = TipGroup(.ordered) {
+        CreateTip()
+        SwitchAppTip()
+    }
 
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
@@ -58,7 +64,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                HomeHeader(adding: $addingBrand)
+                HomeHeader(adding: $addingBrand, tip: tips.currentTip as? SwitchAppTip)
                     // Off the status bar: with the navigation bar hidden the
                     // name and picture would sit right under the clock.
                     .padding(.top, 18)
@@ -74,10 +80,11 @@ struct HomeView: View {
                 .padding(.top, 16)
                 .entrance(1)
 
-                NavigationLink { CreateView() } label: {
+                NavigationLink { CreateView().pushedPage() } label: {
                     PrimaryButtonLabel(title: "Create", systemImage: "plus")
                 }
                 .primaryButtonStyle()
+                .popoverTip(tips.currentTip as? CreateTip, arrowEdge: .top)
                 .padding(.top, 14)
                 .entrance(2)
 
@@ -97,7 +104,7 @@ struct HomeView: View {
                         }
                         .buttonStyle(SoftPressStyle())
                     } else {
-                        NavigationLink { CreateView() } label: {
+                        NavigationLink { CreateView().pushedPage() } label: {
                             EmptyStackCard(
                                 art: "empty-plan",
                                 symbol: "calendar",
@@ -269,6 +276,7 @@ private extension HomeView {
 /// where Remi keeps its streak.
 private struct HomeHeader: View {
     @Binding var adding: Bool
+    var tip: SwitchAppTip?
     @Environment(AppSession.self) private var session
 
     var body: some View {
@@ -284,8 +292,9 @@ private struct HomeHeader: View {
 
             HStack(spacing: 7) {
                 BrandMenu(adding: $adding)
+                    .popoverTip(tip, arrowEdge: .top)
 
-                NavigationLink { ProfileView() } label: {
+                NavigationLink { ProfileView().pushedPage() } label: {
                     AccountAvatar(url: session.connections.first?.avatarURL)
                 }
                 .buttonStyle(.plain)
@@ -389,7 +398,7 @@ private extension SectionHeader where Trailing == EmptyView {
 /// not a warning.
 private struct ConnectCard: View {
     var body: some View {
-        NavigationLink { ProfileView() } label: {
+        NavigationLink { ProfileView().pushedPage() } label: {
             HStack(spacing: 12) {
                 Image(systemName: "link")
                     .font(.system(size: 17, weight: .semibold))

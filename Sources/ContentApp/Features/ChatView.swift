@@ -164,7 +164,12 @@ struct ChatView: View {
                                     // focused instead of the turn being sent.
                                     draft = suggestion
                                     if suggestion.hasSuffix(" ") { composerFocus += 1 } else { send() }
-                                }
+                                },
+                                onRate: { rating, reason in
+                                    rate(turn.id, rating: rating, reason: reason)
+                                },
+                                onRegenerate: canRegenerate(turn.id) ? { regenerate(turn.id) } : nil,
+                                showsActionsTip: turn.id == firstAnswerId
                             )
                             .id(turn.id)
                                 // Fade only. A new turn sliding up while the scroll
@@ -459,6 +464,62 @@ struct ChatView: View {
             image.draw(in: CGRect(origin: .zero, size: size))
         }
         return resized.jpegData(compressionQuality: 0.8)
+    }
+
+    // MARK: - Rating and retrying
+
+    /// The first finished answer, which carries the one-time tip.
+    private var firstAnswerId: UUID? {
+        turns.first { $0.role == .assistant && !$0.isPending && !$0.failed && !$0.text.isEmpty }?.id
+    }
+
+    /// Only the latest answer, to a plain text question, while nothing is
+    /// running: re-asking an earlier one would rewrite the conversation, and a
+    /// question that came with pictures cannot be re-sent without them.
+    private func canRegenerate(_ id: UUID) -> Bool {
+        guard !isWorking,
+              let index = turns.firstIndex(where: { $0.id == id }),
+              index == turns.count - 1,
+              index > 0,
+              turns[index - 1].role == .user,
+              turns[index - 1].attachments.isEmpty,
+              !turns[index - 1].text.isEmpty
+        else { return false }
+        return true
+    }
+
+    private func rate(_ id: UUID, rating: String, reason: String?) {
+        guard let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        // Tapping the same thumb again takes it back, locally.
+        if turns[index].rating == rating && reason == nil {
+            turns[index].rating = nil
+            return
+        }
+        turns[index].rating = rating
+        let reply = turns[index].text
+        let asked = index > 0 && turns[index - 1].role == .user ? turns[index - 1].text : nil
+        let conversation = thread
+        Task {
+            await session.rateReply(thread: conversation, asked: asked, reply: reply, rating: rating, reason: reason)
+        }
+    }
+
+    /// Asks the same question again for a different answer.
+    private func regenerate(_ id: UUID) {
+        guard canRegenerate(id), let index = turns.firstIndex(where: { $0.id == id }) else { return }
+        let asked = turns[index - 1].text
+        if turns[index].rating == nil {
+            let reply = turns[index].text
+            let conversation = thread
+            Task {
+                await session.rateReply(thread: conversation, asked: asked, reply: reply, rating: "down", reason: "Asked for another answer")
+            }
+        }
+        withAnimation(.easeOut(duration: 0.18)) {
+            turns.removeSubrange((index - 1)...index)
+        }
+        draft = asked
+        send()
     }
 
     // MARK: - Asking

@@ -7,6 +7,10 @@ struct ContentAppApp: App {
     /// the first screen is the product rather than a login wall.
     @State private var session = AppSession()
 
+    init() {
+        AppTips.configure()
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

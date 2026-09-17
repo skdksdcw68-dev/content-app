@@ -36,6 +36,7 @@ struct LibraryView: View {
             }
         }
         .navigationTitle("All posts")
+        .pushedPage()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PhotosPicker(selection: $pickerItem, matching: .videos) {

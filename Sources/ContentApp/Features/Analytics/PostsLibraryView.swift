@@ -65,7 +65,7 @@ struct PostsLibraryView: View {
         .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .navigationTitle(connection.map { "@\($0.username)" } ?? "Your posts")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .pushedPage()
         .task { await load() }
         .refreshable {
             _ = await session.metrics()

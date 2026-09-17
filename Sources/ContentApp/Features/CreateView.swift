@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import PhotosUI
 
 /// Everything that starts something, laid out the way TikTok Studio's Create is.
@@ -27,6 +28,10 @@ struct CreateView: View {
     @State private var starting = false
     @State private var chatting = false
     @State private var browsing = false
+    @State private var tips = TipGroup(.ordered) {
+        PlanMonthTip()
+        UploadTip()
+    }
     @State private var approving: PendingPost?
 
     private var drafts: [PendingPost] { session.posts.filter(\.needsYou) }
@@ -41,6 +46,7 @@ struct CreateView: View {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {
                     CreateTile(symbol: "calendar.badge.plus", title: "Plan a month") { planning = true }
+                        .popoverTip(tips.currentTip as? PlanMonthTip, arrowEdge: .top)
                     CreateTile(symbol: "sparkles", title: "Make with AI") { chatting = true }
                     CreateTile(symbol: "square.grid.2x2.fill", title: "All posts") { browsing = true }
                 }
@@ -50,6 +56,7 @@ struct CreateView: View {
                     PrimaryButtonLabel(title: "Upload", systemImage: "plus")
                 }
                 .primaryButtonStyle()
+                .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
                 .disabled(session.connections.isEmpty || session.isWorking)
                 .padding(.top, 18)
                 .entrance(1)
@@ -278,7 +285,7 @@ private struct AskBox: View {
 /// Remi's coach card shape: an invitation, not a warning.
 private struct ConnectGeneratorRow: View {
     var body: some View {
-        NavigationLink { ProfileView() } label: {
+        NavigationLink { ProfileView().pushedPage() } label: {
             HStack(spacing: 12) {
                 Image(systemName: "wand.and.stars")
                     .font(.system(size: 17, weight: .semibold))

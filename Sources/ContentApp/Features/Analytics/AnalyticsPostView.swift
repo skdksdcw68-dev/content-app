@@ -63,7 +63,7 @@ struct AnalyticsPostView: View {
         .background(Color.canvas.ignoresSafeArea())
         .navigationTitle("Video analysis")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .pushedPage()
         .task { await load() }
         .navigationDestination(item: $ask) { question in
             ChatView(opening: question.text)

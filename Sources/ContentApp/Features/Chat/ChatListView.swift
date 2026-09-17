@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// One saved conversation, as the list needs it.
 struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
@@ -40,6 +41,7 @@ struct ChatListView: View {
     @Environment(AppSession.self) private var session
 
     @State private var threads: [ChatThread] = []
+    private let startTip = ChatStartTip()
 
     var body: some View {
         List {
@@ -60,6 +62,7 @@ struct ChatListView: View {
                     }
                     .padding(.vertical, 3)
                 }
+                .popoverTip(startTip, arrowEdge: .top)
             }
 
             if !threads.isEmpty {

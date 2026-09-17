@@ -61,6 +61,7 @@ struct CampaignAnalyticsView: View {
         }
         .background(Color.canvas.ignoresSafeArea())
         .navigationTitle("Campaign")
+        .pushedPage()
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .sheet(item: $planDraft, onDismiss: {

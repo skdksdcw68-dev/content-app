@@ -1,4 +1,6 @@
 import SwiftUI
+import TipKit
+import UIKit
 
 /// One turn. The user's is a tinted capsule pushed right; the agent's is
 /// typography on the page -- which is how every assistant on the platform
@@ -20,6 +22,12 @@ struct ChatTurnView: View {
     var onRunFinished: (UUID) -> Void = { _ in }
     /// A suggested next thing, tapped.
     var onSuggest: (String) -> Void = { _ in }
+    /// Like or dislike, with a reason for a dislike.
+    var onRate: (String, String?) -> Void = { _, _ in }
+    /// Ask again for a different answer. Nil when that is not possible here.
+    var onRegenerate: (() -> Void)? = nil
+    /// The first rated-able answer carries the one-time tip.
+    var showsActionsTip = false
 
     var body: some View {
         switch turn.role {
@@ -126,10 +134,105 @@ struct ChatTurnView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
+
+                    if !turn.text.isEmpty {
+                        ReplyActions(
+                            text: turn.text,
+                            rating: turn.rating,
+                            onRate: onRate,
+                            onRegenerate: onRegenerate,
+                            showsTip: showsActionsTip
+                        )
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Copy, like, dislike, try again, share -- the row under an answer, the way
+/// every assistant app has it. Quiet grey icons that only colour when used.
+private struct ReplyActions: View {
+    let text: String
+    let rating: String?
+    let onRate: (String, String?) -> Void
+    let onRegenerate: (() -> Void)?
+    let showsTip: Bool
+
+    @State private var copied = false
+    @State private var askingWhy = false
+    private let tip = ReplyActionsTip()
+
+    private static let reasons = [
+        "Not accurate",
+        "Made something up",
+        "Didn't do what I asked",
+        "Too long",
+        "Not helpful",
+    ]
+
+    var body: some View {
+        HStack(spacing: 20) {
+            Button {
+                UIPasteboard.general.string = text
+                withAnimation(.snappy(duration: 0.2)) { copied = true }
+                Task {
+                    try? await Task.sleep(for: .seconds(1.6))
+                    withAnimation(.snappy(duration: 0.2)) { copied = false }
+                }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel(copied ? "Copied" : "Copy")
+            .sensoryFeedback(.success, trigger: copied) { _, now in now }
+
+            Button {
+                onRate("up", nil)
+            } label: {
+                Image(systemName: rating == "up" ? "hand.thumbsup.fill" : "hand.thumbsup")
+                    .foregroundStyle(rating == "up" ? Color.primary : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel("Good answer")
+            .popoverTip(showsTip ? tip : nil, arrowEdge: .top)
+
+            Button {
+                askingWhy = true
+            } label: {
+                Image(systemName: rating == "down" ? "hand.thumbsdown.fill" : "hand.thumbsdown")
+                    .foregroundStyle(rating == "down" ? Color.primary : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .accessibilityLabel("Bad answer")
+            .confirmationDialog("What was wrong?", isPresented: $askingWhy, titleVisibility: .visible) {
+                ForEach(Self.reasons, id: \.self) { reason in
+                    Button(reason) { onRate("down", reason) }
+                }
+                Button("Just rate it") { onRate("down", nil) }
+                Button("Cancel", role: .cancel) {}
+            }
+
+            if let onRegenerate {
+                Button(action: onRegenerate) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityLabel("Try again")
+            }
+
+            ShareLink(item: text) {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .accessibilityLabel("Share")
+
+            Spacer(minLength: 0)
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.secondary)
+        .buttonStyle(PressButtonStyle())
+        .sensoryFeedback(.selection, trigger: rating)
+        .padding(.top, 2)
     }
 }
 

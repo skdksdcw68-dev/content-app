@@ -67,6 +67,7 @@ struct PlanView: View {
             }
         }
         .navigationTitle(plan?.isRunning == true ? "Your plan" : "Proposed plan")
+        .pushedPage()
         .navigationBarTitleDisplayMode(.inline)
         .refreshable {
             await session.refreshPlan()

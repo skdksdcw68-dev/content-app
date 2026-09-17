@@ -1,56 +1,107 @@
 import SwiftUI
 import UIKit
 
+// Remi's `pushedPage()` (remi/native/Sources/Remi/Views/PushedPage.swift),
+// brought across on 17 Sep 2026 after Abel: "doesn't hide the bottom navs right
+// after, like on the profile". The version here before this set
+// `setTabBarHidden` in `viewWillAppear`, which runs once the push has already
+// started -- so the bar sat there for a beat and then went, and screens pushed
+// without it (Profile, the plan, the library) kept the bar the whole time.
+
 extension View {
-    /// Hides the tab bar for this screen the way UIKit's
-    /// `hidesBottomBarWhenPushed` always did: the bar slides away with the
-    /// push and slides back with the pop, instead of vanishing in one frame.
+    /// A page pushed onto a tab's stack: the tab bar goes with it.
     ///
-    /// SwiftUI's own tab-bar hiding removes the bar with no animation at
-    /// all, which reads as a glitch rather than a transition.
-    /// On iOS 18 UIKit finally exposes `setTabBarHidden(_:animated:)`, and
-    /// SwiftUI's TabView is a UITabBarController underneath, so a hidden
-    /// helper controller can drive it from the pushed screen's appearance
-    /// callbacks. Anything older keeps the abrupt SwiftUI behaviour -- worse,
-    /// but never wrong.
+    /// Two mechanisms, together. SwiftUI's `toolbar(.hidden, for: .tabBar)` is
+    /// the one that cannot miss. UIKit's `hidesBottomBarWhenPushed`, set on the
+    /// page before the navigation controller sets the push up, is what makes
+    /// the bar slide away inside the same animation as the page and track a
+    /// swipe-back finger for finger. Both say the same thing.
+    ///
+    /// Only on screens that are pushed. A screen that is also a tab's root
+    /// (Create, You, Analytics) gets it where it is pushed, not in its body.
+    func pushedPage() -> some View {
+        modifier(PushedPage())
+    }
+
+    /// The older name, kept so existing call sites read the same.
     func hidesTabBar() -> some View {
-        modifier(TabBarHidden())
+        pushedPage()
     }
 }
 
-private struct TabBarHidden: ViewModifier {
-    @ViewBuilder
+private struct PushedPage: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(iOS 18.0, *) {
-            content.background(TabBarSlider())
-        } else {
-            content.toolbar(.hidden, for: .tabBar)
-        }
+        content
+            .toolbar(.hidden, for: .tabBar)
+            .background {
+                HidesBottomBarWhenPushed()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 }
 
-/// An invisible child view controller that rides along with the pushed
-/// screen. Child controllers receive their parent's appearance callbacks,
-/// which fire *during* the navigation transition -- exactly when the bar has
-/// to start moving for the slide to line up with the push.
-@available(iOS 18.0, *)
-private struct TabBarSlider: UIViewControllerRepresentable {
-    func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) {}
+/// Puts a marker controller into the page, which asks UIKit for the slide.
+private struct HidesBottomBarWhenPushed: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> BottomBarMarker {
+        BottomBarMarker()
+    }
 
-    final class Controller: UIViewController {
-        override func viewWillAppear(_ animated: Bool) {
-            super.viewWillAppear(animated)
-            tabBarController?.setTabBarHidden(true, animated: animated)
-        }
+    func updateUIViewController(_ marker: BottomBarMarker, context: Context) {
+        marker.claim(from: marker.parent)
+    }
+}
 
-        override func viewWillDisappear(_ animated: Bool) {
-            super.viewWillDisappear(animated)
-            // Popping back to a screen that wants the bar. When the *next*
-            // screen also hides it (detail pushed over detail), its own
-            // viewWillAppear runs within the same transition and re-hides;
-            // the two calls coalesce without a visible flicker.
-            tabBarController?.setTabBarHidden(false, animated: animated)
+/// A controller that draws nothing and exists to say one thing to UIKit.
+private final class BottomBarMarker: UIViewController {
+    private var marked = false
+
+    override func loadView() {
+        let empty = UIView(frame: .zero)
+        empty.isHidden = true
+        empty.isUserInteractionEnabled = false
+        view = empty
+    }
+
+    // The earliest moment there is a chain to walk: the flag has to be set
+    // before the navigation controller sets the push up, not after.
+    override func willMove(toParent parent: UIViewController?) {
+        super.willMove(toParent: parent)
+        claim(from: parent)
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        claim(from: parent)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        claim(from: parent)
+    }
+
+    func claim(from start: UIViewController?) {
+        guard !marked, let page = Self.enclosingPage(above: start) else { return }
+        marked = true
+        if !page.hidesBottomBarWhenPushed {
+            page.hidesBottomBarWhenPushed = true
         }
+    }
+
+    /// The outermost controller above the marker that is not a container:
+    /// the page UIKit pushes, and reads the flag from.
+    private static func enclosingPage(above start: UIViewController?) -> UIViewController? {
+        var found: UIViewController?
+        var step = start
+        while let candidate = step {
+            if candidate is UINavigationController
+                || candidate is UITabBarController
+                || candidate is UISplitViewController {
+                break
+            }
+            found = candidate
+            step = candidate.parent
+        }
+        return found
     }
 }

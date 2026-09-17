@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 /// Analytics, laid out the way TikTok Studio lays it out (Abel's screenshots,
 /// 17 Sep 2026) -- tabs that stay put while the page scrolls, the range pills
@@ -58,6 +59,12 @@ struct AnalyticsView: View {
     @State private var showingPlan = false
     @State private var ask: AnalyticsAsk?
     @State private var applied = 0
+    @State private var tips = TipGroup(.ordered) {
+        PostsLibraryTip()
+        RangeTip()
+        FilterTip()
+        ExportTip()
+    }
 
     private struct LoadKey: Equatable {
         let query: AnalyticsQuery
@@ -106,6 +113,7 @@ struct AnalyticsView: View {
                                 showingCustom = true
                             }
                             .padding(.horizontal, -Style.gutter)
+                            .popoverTip(tips.currentTip as? RangeTip, arrowEdge: .top)
                         }
                         pageBody
                     }
@@ -127,6 +135,7 @@ struct AnalyticsView: View {
                         Image(systemName: "square.grid.3x3")
                     }
                     .accessibilityLabel("Your posts")
+                    .popoverTip(tips.currentTip as? PostsLibraryTip, arrowEdge: .top)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     AnalyticsFilterMenu(
@@ -137,8 +146,12 @@ struct AnalyticsView: View {
                         pillarId: $pillarId,
                         planId: $planId
                     )
+                    .popoverTip(tips.currentTip as? FilterTip, arrowEdge: .top)
                 }
-                ToolbarItem(placement: .topBarTrailing) { exportMenu }
+                ToolbarItem(placement: .topBarTrailing) {
+                    exportMenu
+                        .popoverTip(tips.currentTip as? ExportTip, arrowEdge: .top)
+                }
             }
         }
         // Saved numbers first, which is instant; then a fresh reading from
@@ -369,7 +382,7 @@ struct AnalyticsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            NavigationLink { ProfileView() } label: {
+            NavigationLink { ProfileView().pushedPage() } label: {
                 PrimaryButtonLabel(title: "Connect TikTok")
             }
             .primaryButtonStyle()

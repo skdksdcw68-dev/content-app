@@ -196,6 +196,8 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     "  well or badly, why views are dropping, what changed this month, their top patterns, the best time",
     "  to post, which posts to make variations of, what to post next based on results, whether Autopilot",
     "  is working. Wanting a plan actually BUILT is plan, even when it says 'using what worked'.",
+    "  'my last post', 'my latest video', 'how is my tiktok doing', 'check the one called ...',",
+    "  'how many views did it get', 'which video did best' are all insights.",
     "chat     — anything else, including greetings, questions about you, and writing captions or hooks.",
     "",
     "days: only when a stretch is implied. 'a month' is 30, 'next week' is 7.",

@@ -640,6 +640,64 @@ Deno.serve(async (request) => {
           return `STATE:\n${lines.join("\n")}`;
         };
 
+        /**
+         * Their TikTok and their work, as lines of STATE.
+         *
+         * Without this, "my last post on tiktok" got "I don't have access to
+         * your TikTok analytics" and "how many images did we make" got "no
+         * record" -- both false, because plain chat was never shown either.
+         * Abel's word for it was dumb. Cheap reads, all under RLS.
+         */
+        const accountLines = async (brandId: string | null): Promise<string> => {
+          const [libraryRead, handleRead, madeRead] = await Promise.all([
+            brandId ? asUser.rpc("library_videos", { p_brand: brandId }) : Promise.resolve({ data: null }),
+            brandId
+              ? asUser.from("platform_connections").select("username, platform").eq("brand_id", brandId).eq("status", "active").limit(1)
+              : Promise.resolve({ data: [] as unknown[] }),
+            asUser.from("artifacts").select("kind").limit(2000),
+          ]);
+
+          const lines: string[] = ["ACCOUNT:"];
+          const handle = ((handleRead.data ?? []) as Array<{ username: string; platform: string }>)[0];
+          // deno-lint-ignore no-explicit-any
+          const library = libraryRead.data as Record<string, any> | null;
+          if (!handle) {
+            lines.push("No TikTok account is connected for this app yet.");
+          } else {
+            const account = library?.account ?? {};
+            const count = (n: unknown) => (typeof n === "number" ? n.toLocaleString("en-US") : "unknown");
+            lines.push(
+              `TikTok @${handle.username}: ${count(account.followers)} followers, ${count(account.likes)} total likes, ` +
+                `${count(account.video_count)} public videos. Autocast reads these every 6 hours. It cannot see private ` +
+                `videos, drafts, or when the account was created.`,
+            );
+            // deno-lint-ignore no-explicit-any
+            const videos = ((library?.videos ?? []) as Array<Record<string, any>>).slice(0, 6);
+            if (videos.length > 0) {
+              lines.push("Their latest public videos, newest first:");
+              for (const v of videos) {
+                const posted = v.posted_at ? new Date(v.posted_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "date unknown";
+                const rate = v.views > 0 ? `${(((v.likes + v.comments + v.shares) / v.views) * 100).toFixed(1)}% engagement` : "no views yet";
+                lines.push(
+                  `- "${String(v.title ?? "Untitled").slice(0, 70)}" posted ${posted}: ${v.views} views, ${v.likes} likes, ` +
+                    `${v.comments} comments, ${v.shares} shares (${rate})${v.from_autocast ? ", posted with Autocast" : ""}`,
+                );
+              }
+            }
+          }
+
+          const kinds = new Map<string, number>();
+          for (const row of (madeRead.data ?? []) as Array<{ kind: string }>) {
+            kinds.set(row.kind, (kinds.get(row.kind) ?? 0) + 1);
+          }
+          lines.push(
+            kinds.size === 0
+              ? "Made with Autocast so far, across all conversations: nothing yet."
+              : `Made with Autocast so far, across all conversations: ${[...kinds].map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ")}.`,
+          );
+          return lines.join("\n");
+        };
+
         /** The balance, as one line of STATE. Only when they asked about money. */
         const balanceLine = async (): Promise<string> => {
           const { data } = await asUser.rpc("my_connections");
@@ -1078,7 +1136,7 @@ Deno.serve(async (request) => {
             const from = isoDay(span - 1);
             const to = isoDay(0);
 
-            const [reportRead, autopilotRead, insightRead, recRead] = await Promise.all([
+            const [reportRead, autopilotRead, insightRead, recRead, libraryRead] = await Promise.all([
               asUser.rpc("analytics_report", { p_brand: brand.id, p_from: from, p_to: to }),
               asUser.rpc("autopilot_report", { p_brand: brand.id, p_from: from, p_to: to }),
               asUser.from("insights")
@@ -1087,7 +1145,10 @@ Deno.serve(async (request) => {
               asUser.from("recommendations")
                 .select("title, because, confidence, status")
                 .eq("brand_id", brand.id).in("status", ["open", "applied", "planned"]),
+              asUser.rpc("library_videos", { p_brand: brand.id }),
             ]);
+            // deno-lint-ignore no-explicit-any
+            const library = libraryRead.data as Record<string, any> | null;
 
             // deno-lint-ignore no-explicit-any
             const report = reportRead.data as Record<string, any> | null;
@@ -1126,13 +1187,26 @@ Deno.serve(async (request) => {
                 }
                 : null,
               breakdowns: report?.breakdowns ?? [],
+              account: library?.account ?? null,
+              // deno-lint-ignore no-explicit-any
+              latest: ((library?.videos ?? []) as Array<Record<string, any>>).slice(0, 8).map((v) => ({
+                title: v.title, posted_at: v.posted_at, views: v.views, likes: v.likes,
+                comments: v.comments, shares: v.shares, duration_s: v.duration_s, made_with_autocast: v.from_autocast,
+              })),
               learned: insightRead.data ?? [],
               recommendations: recRead.data ?? [],
               autopilot: autopilotRead.data ?? null,
             };
 
-            const rules = `You are Autocast, answering a question about how this account's content is performing.
+            const rules = `You are Autocast, a sharp, friendly creator coach, answering a question about how this account's content is performing.
 Answer ONLY from DATA. Every number you say must appear in DATA or be simple arithmetic on it.
+
+How to answer:
+- Lead with the direct answer in one sentence. Then the two or three numbers that matter. Then one concrete next step.
+- Write rates as percentages ("15% engagement", never 0.1506) and big numbers the way people say them ("1.1K views").
+- Talk like a person: "your other two videos", not "sample size". No jargon, no hedging paragraphs.
+- "Last post" / "latest video" means the newest item in latest, not the top one.
+- When a cause can't be proven, still say what stands out against their own other videos (views vs their median, engagement vs the others, how new it is) -- as an observation, clearly not a proven reason.
 
 - totals.current is the last ${span} days, totals.previous the ${span} days before. A total with unknown > 0 is incomplete: say Autocast's history only starts at history_starts, and do not compare it.
 - availability says what the platform gives. Reach, saves, watch time, retention, profile visits, link clicks and conversions marked "unavailable" are not shared by TikTok with apps -- say that, never estimate them.
@@ -1148,7 +1222,9 @@ Answer ONLY from DATA. Every number you say must appear in DATA or be simple ari
               method: "POST",
               headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
               body: JSON.stringify({
-                model: MODELS.chat,
+                // The same model as ordinary replies: explaining numbers well
+                // is worth it, and the smaller one read them out like a table.
+                model: MODEL,
                 stream: true,
                 messages: [
                   { role: "system", content: rules },
@@ -1496,6 +1572,14 @@ is connected, what you recently made or tried to make in this conversation and
 how it ended, prices you have seen, and their credit balance when it was
 checked. Use it. If they ask whether they need to top up, answer from it with
 the actual numbers, and suggest the cheaper option that would work.
+
+The ACCOUNT block is their connected TikTok: handle, followers, likes, their
+latest public videos with numbers, and everything Autocast has made for them
+across all conversations. You CAN see these. Never say you have no access to
+their TikTok, their posts or what you made together -- answer from ACCOUNT.
+Only what is not in it is unknown (private videos, drafts, when the account was
+created); say that plainly and say what you can see instead. For deeper
+analysis, the Analytics tab has the full picture.
 </state>
 
 <honesty>
@@ -1557,7 +1641,10 @@ itself.</good>
             ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
             : "";
 
-          const stateBlock = routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState;
+          const stateBlock = [
+            routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState,
+            await accountLines(brand?.id ?? null),
+          ].join("\n\n");
 
           // Attached pictures go to the model as image data on the last turn,
           // so "write a caption for this" is about this picture. Sent as bytes

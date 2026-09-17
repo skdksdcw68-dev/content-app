@@ -34,13 +34,16 @@ struct CampaignAnalyticsView: View {
                 header
 
                 if let report {
-                    MetricGrid(report: report, selected: $metric)
-                        .padding(.top, 18)
-                    TrendCard(report: report, metric: metric)
-                        .padding(.top, 14)
+                    KeyMetricsCard(
+                        report: report,
+                        metrics: [.views, .likes, .comments, .shares, .engagementRate],
+                        selected: $metric,
+                        subtitle: AnalyticsFormat.range(range.from, range.to)
+                    )
+                    .padding(.top, 18)
                     verdict(report)
                         .padding(.top, 28)
-                    TopContentSection(report: report)
+                    TopPostsCard(report: report)
                         .padding(.top, 28)
                 } else if failed {
                     RetryNotice(title: "Couldn't load this campaign") { Task { await load() } }

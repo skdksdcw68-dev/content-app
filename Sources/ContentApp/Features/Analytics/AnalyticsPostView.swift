@@ -1,61 +1,67 @@
 import SwiftUI
 import Charts
 
-/// One post, in full: what it did, what it was, and how it compares.
-///
-/// Comparisons appear only against groups of three or more other videos; with
-/// fewer, "2× your format average" would be a comparison with one video.
+/// One video, laid out like Studio's "Video analysis": the cover and its
+/// numbers across the top, then tabs. What TikTok only gives Business accounts
+/// -- watch time, retention, traffic sources, who watched -- says so in its own
+/// card. Comparisons appear only against groups of three or more other videos.
 struct AnalyticsPostView: View {
     let videoId: String
     let title: String
+
+    enum Page: String, CaseIterable, Hashable {
+        case overview, viewers, engagement, about
+
+        var title: String {
+            switch self {
+            case .overview:   "Overview"
+            case .viewers:    "Viewers"
+            case .engagement: "Engagement"
+            case .about:      "About"
+            }
+        }
+    }
 
     @Environment(AppSession.self) private var session
     @State private var data: PostAnalytics?
     @State private var failed: String?
     @State private var ask: AnalyticsAsk?
-
-    private static let perPostUnavailable: [(String, String)] = [
-        ("Reach", "reach"),
-        ("Saves", "saves"),
-        ("Average watch time", "avg_watch_time"),
-        ("Retention", "avg_retention"),
-        ("Followers gained", "followers_gained"),
-        ("Link / CTA clicks", "link_clicks"),
-        ("Conversions", "conversions"),
-    ]
+    @State private var page: Page = .overview
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 if let data {
                     header(data.video)
-                    summary(data)
-                        .padding(.top, 18)
-                    growth(data)
-                        .padding(.top, 14)
-                    comparisons(data)
-                        .padding(.top, 28)
-                    contentCard(data)
-                        .padding(.top, 28)
-                    actions(data.video)
-                        .padding(.top, 24)
-                } else if let failed {
-                    RetryNotice(title: failed) { Task { await load() } }
-                        .padding(.top, 16)
-                } else {
-                    VStack(spacing: 12) {
-                        SkeletonRow()
-                        SkeletonCard(height: 120)
-                        SkeletonCard(height: 160)
+                        .padding(.bottom, 12)
+                }
+
+                Section {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let data {
+                            switch page {
+                            case .overview:   overview(data)
+                            case .viewers:    viewers
+                            case .engagement: engagement(data)
+                            case .about:      about(data)
+                            }
+                        } else if let failed {
+                            RetryNotice(title: failed) { Task { await load() } }
+                        } else {
+                            SkeletonCard(height: 200)
+                            SkeletonCard(height: 120)
+                        }
                     }
+                    .screenGutter()
                     .padding(.top, 16)
+                    .padding(.bottom, 32)
+                } header: {
+                    UnderlineTabs(items: Page.allCases, selection: $page) { $0.title }
                 }
             }
-            .screenGutter()
-            .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        .navigationTitle("Post")
+        .navigationTitle("Video analysis")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .navigationDestination(item: $ask) { question in
@@ -68,143 +74,207 @@ struct AnalyticsPostView: View {
             data = try await session.postAnalytics(videoId: videoId)
             failed = nil
         } catch {
-            failed = "Couldn't load this post."
+            failed = "Couldn't load this video."
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Header
 
     private func header(_ video: PostAnalytics.Video) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            AnalyticsThumbnail(url: video.coverUrl, width: 84, height: 112)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(meta(video))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let measured = video.measuredAt.flatMap(PostgresTimestamp.parse) {
-                    Text("Numbers as of \(measured.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+        VStack(spacing: 12) {
+            ZStack(alignment: .bottom) {
+                AnalyticsThumbnail(url: video.coverUrl, width: 116, height: 154)
+                if let seconds = video.durationS {
+                    Text(AnalyticsFormat.duration(seconds: Double(seconds)))
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.6), radius: 3)
+                        .padding(.bottom, 8)
                 }
+            }
 
-                Text(video.fromAutocast ? "Posted with Autocast" : "Posted outside Autocast")
-                    .font(.caption2.weight(.semibold))
+            if let posted = video.postedAt.flatMap(PostgresTimestamp.parse) {
+                Text("Posted on \(posted.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
+            }
+
+            HStack(spacing: 0) {
+                stat("play.fill", video.views)
+                separator
+                stat("heart.fill", video.likes)
+                separator
+                stat("ellipsis.bubble.fill", video.comments)
+                separator
+                stat("arrowshape.turn.up.right.fill", video.shares)
+            }
+            .padding(.top, 4)
+
+            Text(video.fromAutocast ? "Posted with Autocast" : "Posted outside Autocast")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color.track, in: Capsule())
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 12)
+        .screenGutter()
+    }
+
+    private func stat(_ symbol: String, _ value: Int) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text(value.formatted())
+                .font(.headline.monospacedDigit())
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Color(uiColor: .separator))
+            .frame(width: 0.5, height: 30)
+    }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
+
+    // MARK: - Pages
+
+    @ViewBuilder
+    private func overview(_ data: PostAnalytics) -> some View {
+        AnalyticsCard(
+            title: "Key metrics",
+            subtitle: data.video.measuredAt.flatMap(PostgresTimestamp.parse).map { "As of \($0.formatted(date: .abbreviated, time: .shortened))" },
+            info: "Lifetime numbers for this video, as TikTok reported them at Autocast's last check."
+        ) {
+            LazyVGrid(columns: columns, spacing: 12) {
+                KeyTile(title: "Video views", value: AnalyticsFormat.number(Double(data.video.views)), isSelected: true)
+                KeyTile(
+                    title: "Engagement rate",
+                    value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "—",
+                    caption: "Likes, comments and shares per view"
+                )
+            }
+            growth(data)
+        }
+        BusinessOnlyCard(
+            title: "Watch time and retention",
+            detail: "Total play time, average watch time, how many watched to the end, and the second people stopped watching."
+        )
+        BusinessOnlyCard(
+            title: "Traffic sources",
+            detail: "For You, search, your profile, following and messages."
+        )
+    }
+
+    @ViewBuilder
+    private var viewers: some View {
+        BusinessOnlyCard(
+            title: "Total viewers",
+            detail: "Unique viewers, new vs returning, and followers vs non-followers."
+        )
+        BusinessOnlyCard(
+            title: "Gender, age and locations",
+            detail: "Who watched this video."
+        )
+    }
+
+    @ViewBuilder
+    private func engagement(_ data: PostAnalytics) -> some View {
+        AnalyticsCard(title: "Engagement") {
+            LazyVGrid(columns: columns, spacing: 12) {
+                KeyTile(title: "Likes", value: AnalyticsFormat.number(Double(data.video.likes)))
+                KeyTile(title: "Comments", value: AnalyticsFormat.number(Double(data.video.comments)))
+                KeyTile(title: "Shares", value: AnalyticsFormat.number(Double(data.video.shares)))
+                KeyTile(title: "Engagement rate", value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "—")
+            }
+        }
+        comparisons(data)
+        BusinessOnlyCard(
+            title: "Likes across the video",
+            detail: "The moment in the video where most people liked it."
+        )
+    }
+
+    @ViewBuilder
+    private func about(_ data: PostAnalytics) -> some View {
+        contentCard(data)
+        Button {
+            ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did?")
+        } label: {
+            PrimaryButtonLabel(title: "Ask Autocast why", systemImage: "sparkles")
+        }
+        .primaryButtonStyle()
+
+        if let share = data.video.shareUrl, let link = URL(string: share) {
+            Link(destination: link) {
+                Text("Open on TikTok")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
                     .background(Color.track, in: Capsule())
             }
         }
-        .padding(.top, 12)
     }
 
-    private func meta(_ video: PostAnalytics.Video) -> String {
-        var parts: [String] = [Platform(rawValue: video.platform)?.displayName ?? video.platform.capitalized]
-        if let posted = video.postedAt.flatMap(PostgresTimestamp.parse) {
-            parts.append(posted.formatted(date: .abbreviated, time: .shortened))
-        }
-        if let seconds = video.durationS {
-            parts.append(AnalyticsFormat.duration(seconds: Double(seconds)))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func summary(_ data: PostAnalytics) -> some View {
-        let video = data.video
-        let columns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-        return VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                stat("Views", AnalyticsFormat.number(Double(video.views)), "eye.fill")
-                stat("Engagement", video.engagementRate.map(AnalyticsFormat.percent) ?? "—", "hand.tap.fill")
-                stat("Likes", AnalyticsFormat.number(Double(video.likes)), "heart.fill")
-                stat("Comments", AnalyticsFormat.number(Double(video.comments)), "bubble.right.fill")
-                stat("Shares", AnalyticsFormat.number(Double(video.shares)), "arrowshape.turn.up.right.fill")
-            }
-
-            VStack(spacing: 0) {
-                ForEach(Self.perPostUnavailable, id: \.1) { item in
-                    HStack {
-                        Text(item.0)
-                            .font(.footnote)
-                        Spacer()
-                        Text("Not available for this platform")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 7)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 6)
-            .raisedCard(radius: Style.rowCard)
-        }
-    }
-
-    private func stat(_ label: String, _ value: String, _ symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(label, systemImage: symbol)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 24, weight: .bold, design: .rounded))
-                .monospacedDigit()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .raisedCard(radius: Style.card)
-    }
+    // MARK: - Pieces
 
     @ViewBuilder
     private func growth(_ data: PostAnalytics) -> some View {
         let days = data.daily.compactMap { day in
             AnalyticsDay.parse(day.day).map { (date: $0, views: day.views) }
         }
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Views over time")
-                .font(.headline)
-            if days.count >= 2 {
-                Chart(days, id: \.date) { day in
-                    LineMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
-                        .foregroundStyle(Color.accentColor)
-                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .interpolationMethod(.monotone)
-                    PointMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
-                        .foregroundStyle(Color.accentColor)
-                        .symbolSize(24)
-                }
-                .frame(height: 170)
-                Text("Running total, as TikTok reported it on each day Autocast checked.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            } else {
-                Text(days.first.map { "One reading so far, on \(AnalyticsFormat.day($0.date)). Growth appears after the next check, within 6 hours." }
-                     ?? "No readings yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        if days.count >= 2 {
+            Chart(days, id: \.date) { day in
+                AreaMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .interpolationMethod(.monotone)
+                LineMark(x: .value("Day", day.date, unit: .day), y: .value("Views", day.views))
+                    .foregroundStyle(Color.accentColor)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                    .interpolationMethod(.monotone)
             }
+            .chartYAxis {
+                AxisMarks(position: .trailing) { _ in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                    AxisValueLabel()
+                }
+            }
+            .frame(height: 180)
+            Text("Running total on each day Autocast checked.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        } else {
+            Text(days.first.map { "One reading so far, on \(AnalyticsFormat.day($0.date)). The chart appears after the next check, within 6 hours." }
+                 ?? "No readings yet.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .raisedCard()
     }
 
     private func comparisons(_ data: PostAnalytics) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(title: "How it compares", subtitle: "Against the median of groups with 3 or more other videos")
-
+        AnalyticsCard(
+            title: "How it compares",
+            info: "This video's views against the median of groups with at least 3 other videos."
+        ) {
             if data.comparisons.isEmpty {
-                AnalyticsNotice(
-                    symbol: "scalemass",
-                    title: "Not enough videos to compare with",
-                    detail: "Comparisons appear once there are at least 3 other videos in a group: your account, the same format, the same theme or the same platform."
-                )
+                Text("Not enough other videos to compare with yet. Comparisons appear once a group has 3 or more.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(data.comparisons.enumerated()), id: \.offset) { index, group in
@@ -212,20 +282,18 @@ struct AnalyticsPostView: View {
                         comparisonRow(group, views: data.video.views)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .raisedCard(radius: Style.rowCard)
             }
         }
     }
 
     private func comparisonRow(_ group: PostAnalytics.Comparison, views: Int) -> some View {
-        let ratio = (group.medianViews ?? 0) > 0 ? Double(views) / (group.medianViews ?? 1) : nil
+        let median = group.medianViews ?? 0
+        let ratio = median > 0 ? Double(views) / median : nil
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(group.label)
                     .font(.subheadline.weight(.semibold))
-                Text("\(group.posts) videos · median \(AnalyticsFormat.number(group.medianViews ?? 0)) views")
+                Text("\(group.posts) videos · median \(AnalyticsFormat.number(median)) views")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -240,9 +308,7 @@ struct AnalyticsPostView: View {
     }
 
     private func contentCard(_ data: PostAnalytics) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(title: "The post")
-
+        AnalyticsCard(title: "The post") {
             VStack(alignment: .leading, spacing: 12) {
                 if let post = data.post {
                     info("Hook", post.hook)
@@ -280,9 +346,6 @@ struct AnalyticsPostView: View {
                     }
                 }
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .raisedCard()
         }
     }
 
@@ -312,26 +375,5 @@ struct AnalyticsPostView: View {
         if let ms = media.durationMs { parts.append(AnalyticsFormat.duration(seconds: Double(ms) / 1000)) }
         if let width = media.width, let height = media.height { parts.append("\(width)×\(height)") }
         return parts.isEmpty ? "Media" : parts.joined(separator: " · ")
-    }
-
-    private func actions(_ video: PostAnalytics.Video) -> some View {
-        VStack(spacing: 10) {
-            Button {
-                ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did?")
-            } label: {
-                PrimaryButtonLabel(title: "Ask Autocast why", systemImage: "sparkles")
-            }
-            .primaryButtonStyle()
-
-            if let share = video.shareUrl, let link = URL(string: share) {
-                Link(destination: link) {
-                    Text("Open on TikTok")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Color.track, in: Capsule())
-                }
-            }
-        }
     }
 }

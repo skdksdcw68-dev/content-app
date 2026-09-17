@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// The range chips: the four presets and Custom, in Remi's chip colours.
+/// The range pills, the way Studio does them: big, full-height capsules that
+/// scroll edge to edge, the chosen one solid ink, the rest quiet grey, and
+/// Custom carrying a chevron because it opens something.
 struct AnalyticsRangeBar: View {
     @Binding var rangeKey: String
     /// "Sep 1 – Sep 15" once a custom range is chosen.
@@ -10,34 +12,45 @@ struct AnalyticsRangeBar: View {
     private let presets = ["7", "28", "60", "365"]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(presets, id: \.self) { key in
-                    chip("\(key) days", isOn: rangeKey == key) {
-                        withAnimation(.snappy(duration: 0.25)) { rangeKey = key }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(presets, id: \.self) { key in
+                        pill("\(key) days", isOn: rangeKey == key) {
+                            withAnimation(.snappy(duration: 0.25)) { rangeKey = key }
+                        }
+                        .id(key)
                     }
-                }
-                chip(rangeKey == "custom" ? (customLabel ?? "Custom") : "Custom", isOn: rangeKey == "custom", symbol: "calendar") {
-                    openCustom()
+                    pill(rangeKey == "custom" ? (customLabel ?? "Custom") : "Custom",
+                         isOn: rangeKey == "custom",
+                         chevron: true) {
+                        openCustom()
+                    }
+                    .id("custom")
                 }
             }
+            .contentMargins(.horizontal, Style.gutter, for: .scrollContent)
+            .onAppear { proxy.scrollTo(rangeKey, anchor: .center) }
+            .onChange(of: rangeKey) { _, key in
+                withAnimation(.snappy(duration: 0.3)) { proxy.scrollTo(key, anchor: .center) }
+            }
         }
-        .scrollClipDisabled()
         .sensoryFeedback(.selection, trigger: rangeKey)
     }
 
-    private func chip(_ title: String, isOn: Bool, symbol: String? = nil, action: @escaping () -> Void) -> some View {
+    private func pill(_ title: String, isOn: Bool, chevron: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                if let symbol {
-                    Image(systemName: symbol).font(.caption.weight(.semibold))
-                }
+            HStack(spacing: 6) {
                 Text(title)
+                if chevron {
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                }
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(isOn ? Color(uiColor: .systemBackground) : Color.primary)
-            .padding(.horizontal, 15)
-            .padding(.vertical, 9)
+            .font(.body.weight(isOn ? .semibold : .regular))
+            .foregroundStyle(isOn ? Color(uiColor: .systemBackground) : Color.primary.opacity(0.75))
+            .padding(.horizontal, 18)
+            .frame(height: 40)
             .background(isOn ? Color.accentColor : Color.track, in: Capsule())
         }
         .buttonStyle(SoftPressStyle())
@@ -209,16 +222,12 @@ struct AnalyticsFilterMenu: View {
                 }
             }
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.caption.weight(.bold))
-                Text(activeCount > 0 ? "Filters · \(activeCount)" : "Filter")
-                    .font(.subheadline.weight(.semibold))
-            }
-            .foregroundStyle(activeCount > 0 ? Color(uiColor: .systemBackground) : Color.primary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .background(activeCount > 0 ? Color.accentColor : Color.track, in: Capsule())
+            // A toolbar icon: filled when something is filtered, so a
+            // narrowed page never passes for the whole account.
+            Image(systemName: activeCount > 0
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle")
+                .accessibilityLabel(activeCount > 0 ? "Filters, \(activeCount) on" : "Filter")
         }
         .sensoryFeedback(.selection, trigger: activeCount)
     }

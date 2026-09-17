@@ -1,25 +1,38 @@
 import SwiftUI
 
-/// The intelligence centre: what happened, why, what is changing, and what
-/// Autocast should do next.
+/// Analytics, laid out the way TikTok Studio lays it out (Abel's screenshots,
+/// 17 Sep 2026) -- tabs that stay put while the page scrolls, the range pills
+/// under them, then cards -- in Remi's black and white, with one tab Studio
+/// does not have: what Autocast learned and what it would do next.
 ///
-/// Abel's brief (15 Sep 2026) asked for it not to be a statistics dashboard,
-/// so the page runs in that order -- overview, trend, top content, what was
-/// learned, what to do -- with detail one tap deeper (a post, a campaign).
+/// Every figure comes from the server's report, computed from readings that
+/// were actually taken. What TikTok only gives Business accounts says so in
+/// its own card instead of showing dashes.
 ///
-/// Three independent loads, so a slow section never holds the page: the report
-/// (overview, trend, top content, timing, campaigns), the learning (findings
-/// and recommendations), and Autopilot. All read what the server computed from
-/// real readings; nothing here makes a number up, and a metric the platform
-/// does not give says so.
+/// Three independent loads, so a slow section never holds the page.
 struct AnalyticsView: View {
     @Environment(AppSession.self) private var session
 
+    enum Page: String, CaseIterable, Hashable {
+        case overview, content, viewers, followers, autocast
+
+        var title: String {
+            switch self {
+            case .overview:  "Overview"
+            case .content:   "Content"
+            case .viewers:   "Viewers"
+            case .followers: "Followers"
+            case .autocast:  "Insights"
+            }
+        }
+    }
+
     // The range survives leaving and coming back, custom dates included.
-    @AppStorage("analytics.range") private var rangeKey = "28"
+    @AppStorage("analytics.range") private var rangeKey = "7"
     @AppStorage("analytics.customFrom") private var customFrom: Double = 0
     @AppStorage("analytics.customTo") private var customTo: Double = 0
 
+    @State private var page: Page = .overview
     @State private var platform: String?
     @State private var format: String?
     @State private var pillarId: UUID?
@@ -61,7 +74,7 @@ struct AnalyticsView: View {
             from = Date(timeIntervalSince1970: customFrom)
             to = Date(timeIntervalSince1970: customTo)
         } else {
-            let days = Int(rangeKey) ?? 28
+            let days = Int(rangeKey) ?? 7
             from = calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
         }
         if from > to { from = to }
@@ -81,37 +94,45 @@ struct AnalyticsView: View {
         report?.platforms ?? Array(Set(session.connections.map { $0.platform.rawValue })).sorted()
     }
 
+    private var hasAccount: Bool { !session.connections.isEmpty }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                controls
-
-                if session.connections.isEmpty {
-                    noConnection
-                        .padding(.top, 20)
-                } else if let report {
-                    content(report)
-                } else if let reportFailed {
-                    RetryNotice(title: reportFailed) { reloads += 1 }
-                        .padding(.top, 20)
-                } else {
-                    VStack(spacing: 12) {
-                        SkeletonCard(height: 120)
-                        SkeletonCard(height: 190)
-                        SkeletonRow()
-                        SkeletonRow()
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    VStack(alignment: .leading, spacing: 16) {
+                        if hasAccount {
+                            AnalyticsRangeBar(rangeKey: $rangeKey, customLabel: customLabel) {
+                                showingCustom = true
+                            }
+                            .padding(.horizontal, -Style.gutter)
+                        }
+                        pageBody
                     }
-                    .padding(.top, 20)
+                    .screenGutter()
+                    .padding(.top, 14)
+                    .padding(.bottom, 32)
+                } header: {
+                    UnderlineTabs(items: Page.allCases, selection: $page) { $0.title }
                 }
             }
-            .screenGutter()
-            .padding(.top, 4)
-            .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
         .navigationTitle("Analytics")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { exportMenu }
+            if hasAccount {
+                ToolbarItem(placement: .topBarTrailing) {
+                    AnalyticsFilterMenu(
+                        platforms: connectedPlatforms,
+                        filters: report?.filters,
+                        platform: $platform,
+                        format: $format,
+                        pillarId: $pillarId,
+                        planId: $planId
+                    )
+                }
+                ToolbarItem(placement: .topBarTrailing) { exportMenu }
+            }
         }
         // Saved numbers first, which is instant; then a fresh reading from
         // TikTok, after which every section reloads.
@@ -156,68 +177,113 @@ struct AnalyticsView: View {
         .sensoryFeedback(.success, trigger: applied)
     }
 
-    // MARK: - Pieces
+    // MARK: - Pages
 
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                AnalyticsRangeBar(rangeKey: $rangeKey, customLabel: customLabel) {
-                    showingCustom = true
-                }
+    @ViewBuilder
+    private var pageBody: some View {
+        if !hasAccount {
+            noConnection
+        } else if let report {
+            if let note = pageNote(report) {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if !session.connections.isEmpty {
-                HStack(spacing: 8) {
-                    AnalyticsFilterMenu(
-                        platforms: connectedPlatforms,
-                        filters: report?.filters,
-                        platform: $platform,
-                        format: $format,
-                        pillarId: $pillarId,
-                        planId: $planId
-                    )
-                    Spacer(minLength: 8)
-                    if let live {
-                        Text("@\(live.username)\(live.followers.map { " · \(AnalyticsFormat.number(Double($0))) followers" } ?? "")")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
+            switch page {
+            case .overview:  overview(report)
+            case .content:   content(report)
+            case .viewers:   viewers(report)
+            case .followers: followers(report)
+            case .autocast:  insights(report)
             }
+        } else if let reportFailed {
+            RetryNotice(title: reportFailed) { reloads += 1 }
+        } else {
+            SkeletonCard(height: 220)
+            SkeletonCard(height: 120)
         }
     }
 
     @ViewBuilder
-    private func content(_ report: AnalyticsReport) -> some View {
-        AnalyticsSectionTitle(title: "Overview", subtitle: overviewSubtitle(report))
-            .padding(.top, 20)
-            .entrance(0)
-
+    private func overview(_ report: AnalyticsReport) -> some View {
         if report.status == "no_videos" {
             AnalyticsNotice(
                 symbol: "play.rectangle",
                 title: "No public videos yet",
-                detail: "TikTok shares numbers for public videos only. Once one is public, Autocast reads it within 6 hours and this page fills in."
+                detail: "TikTok shares numbers for public videos only. Once one is public, Autocast reads it within 6 hours."
             )
-            .padding(.top, 12)
         }
+        KeyMetricsCard(
+            report: report,
+            metrics: [.views, .likes, .comments, .shares, .engagementRate, .followersGained],
+            selected: $metric,
+            subtitle: rangeLine(report)
+        )
+        .entrance(0)
+        BusinessOnlyCard(
+            title: "Reach and watch time",
+            detail: "Unique viewers, profile views, saves, average watch time and how many watched to the end."
+        )
+        .entrance(1)
+        BusinessOnlyCard(
+            title: "Traffic source",
+            detail: "Where your views came from: For You, search, your profile, following."
+        )
+        .entrance(2)
+    }
 
-        MetricGrid(report: report, selected: $metric)
-            .padding(.top, 12)
+    @ViewBuilder
+    private func content(_ report: AnalyticsReport) -> some View {
+        TopPostsCard(report: report)
+            .entrance(0)
+        CampaignsSection(report: report, platform: platform)
+            .padding(.top, 8)
+        allPostsLink
+    }
+
+    @ViewBuilder
+    private func viewers(_ report: AnalyticsReport) -> some View {
+        BusinessOnlyCard(
+            title: "Total and new viewers",
+            detail: "How many different people watched, and how many had never seen you before."
+        )
+        .entrance(0)
+        BestTimeCard(bestTime: report.bestTime, timezone: report.timezone)
             .entrance(1)
+        BusinessOnlyCard(
+            title: "Viewer insights",
+            detail: "Gender, age and locations of the people who watched."
+        )
+        .entrance(2)
+    }
 
-        TrendCard(report: report, metric: metric)
-            .padding(.top, 14)
-            .entrance(2)
+    @ViewBuilder
+    private func followers(_ report: AnalyticsReport) -> some View {
+        FollowersCard(
+            report: report,
+            total: live?.followers,
+            subtitle: followersSubtitle(report)
+        )
+        .entrance(0)
+        BusinessOnlyCard(
+            title: "Follower insights",
+            detail: "Gender, age and locations of your followers.",
+            needsFollowers: true
+        )
+        .entrance(1)
+        BusinessOnlyCard(
+            title: "When followers are online",
+            detail: "The hours of the day your followers are on TikTok."
+        )
+        .entrance(2)
+    }
 
-        TopContentSection(report: report)
-            .padding(.top, 28)
-
+    @ViewBuilder
+    private func insights(_ report: AnalyticsReport) -> some View {
         LearnedSection(learning: learning, failed: learningFailed, videos: report.videos) {
             Task { await loadLearning() }
         }
-        .padding(.top, 28)
-
         RecommendationsSection(
             learning: learning,
             failed: learningFailed,
@@ -228,22 +294,42 @@ struct AnalyticsView: View {
             },
             retry: { Task { await loadLearning() } }
         )
-        .padding(.top, 28)
-
-        BestTimeSection(bestTime: report.bestTime, timezone: report.timezone)
-            .padding(.top, 28)
-
+        .padding(.top, 12)
         CompareSection(breakdowns: report.breakdowns)
-            .padding(.top, 28)
-
-        CampaignsSection(report: report, platform: platform)
-            .padding(.top, 28)
-
+            .padding(.top, 12)
         AutopilotSection(report: autopilot, failed: autopilotFailed) {
             Task { await loadAutopilot() }
         }
-        .padding(.top, 28)
+        .padding(.top, 12)
+    }
 
+    // MARK: - Pieces
+
+    private func rangeLine(_ report: AnalyticsReport) -> String {
+        let current = AnalyticsFormat.range(query.from, query.to)
+        guard let from = AnalyticsDay.parse(report.range.prevFrom),
+              let to = AnalyticsDay.parse(report.range.prevTo) else { return current }
+        return "\(current) · vs \(AnalyticsFormat.range(from, to))"
+    }
+
+    private func followersSubtitle(_ report: AnalyticsReport) -> String {
+        guard let live else { return rangeLine(report) }
+        return "@\(live.username) · \(rangeLine(report))"
+    }
+
+    /// One quiet line when the page is narrowed or starts before the history.
+    private func pageNote(_ report: AnalyticsReport) -> String? {
+        var parts: [String] = []
+        if report.filtered || platform != nil {
+            parts.append("Filtered.")
+        }
+        if let started = report.historyStartDate, started > query.from {
+            parts.append("Autocast started reading your numbers on \(AnalyticsFormat.day(started)); earlier days aren't counted.")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+
+    private var allPostsLink: some View {
         NavigationLink { LibraryView() } label: {
             HStack(spacing: 12) {
                 Image(systemName: "square.grid.2x2.fill")
@@ -260,25 +346,9 @@ struct AnalyticsView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(14)
-            .raisedCard(radius: Style.rowCard)
+            .raisedCard(radius: 18)
         }
         .buttonStyle(SoftPressStyle())
-        .padding(.top, 28)
-    }
-
-    private func overviewSubtitle(_ report: AnalyticsReport) -> String {
-        let current = AnalyticsFormat.range(query.from, query.to)
-        let previous: String
-        if let from = AnalyticsDay.parse(report.range.prevFrom), let to = AnalyticsDay.parse(report.range.prevTo) {
-            previous = " vs \(AnalyticsFormat.range(from, to))"
-        } else {
-            previous = ""
-        }
-        var line = current + previous
-        if let started = report.historyStartDate, started > query.from {
-            line += ". Autocast started reading on \(AnalyticsFormat.day(started)), so earlier days may be incomplete."
-        }
-        return line
     }
 
     private var noConnection: some View {
@@ -301,7 +371,7 @@ struct AnalyticsView: View {
         .padding(.vertical, 28)
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity)
-        .raisedCard()
+        .raisedCard(radius: 18)
     }
 
     private var exportMenu: some View {
@@ -319,14 +389,14 @@ struct AnalyticsView: View {
                 Image(systemName: "square.and.arrow.up")
             }
         }
-        .disabled(exporting || report == nil || session.connections.isEmpty)
+        .disabled(exporting || report == nil)
         .accessibilityLabel("Export analytics")
     }
 
     // MARK: - Loading
 
     private func loadReport() async {
-        guard !session.connections.isEmpty, session.brand != nil else { return }
+        guard hasAccount, session.brand != nil else { return }
         do {
             let fresh = try await session.analyticsReport(query)
             guard !Task.isCancelled else { return }
@@ -339,7 +409,7 @@ struct AnalyticsView: View {
     }
 
     private func loadLearning() async {
-        guard !session.connections.isEmpty, session.brand != nil else { return }
+        guard hasAccount, session.brand != nil else { return }
         do {
             let fresh = try await session.learning()
             guard !Task.isCancelled else { return }
@@ -352,7 +422,7 @@ struct AnalyticsView: View {
     }
 
     private func loadAutopilot() async {
-        guard !session.connections.isEmpty, session.brand != nil else { return }
+        guard hasAccount, session.brand != nil else { return }
         do {
             let fresh = try await session.autopilotReport(from: query.from, to: query.to)
             guard !Task.isCancelled else { return }
@@ -366,7 +436,7 @@ struct AnalyticsView: View {
 
     /// A reading straight from TikTok: saves history, relearns, then reloads.
     private func readLive() async {
-        guard !session.connections.isEmpty else { return }
+        guard hasAccount else { return }
         live = await session.metrics()
         reloads += 1
     }

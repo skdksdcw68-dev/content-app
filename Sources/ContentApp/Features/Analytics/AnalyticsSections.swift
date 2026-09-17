@@ -3,32 +3,89 @@ import Charts
 
 // MARK: - Top content
 
-struct TopContentSection: View {
+enum TopPostSort: String, CaseIterable, Hashable {
+    case views, engagement, likes, comments, shares
+
+    var title: String {
+        switch self {
+        case .views:      "Most views"
+        case .engagement: "Best engagement"
+        case .likes:      "Most likes"
+        case .comments:   "Most comments"
+        case .shares:     "Most shares"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .views:      "play.fill"
+        case .engagement: "hand.tap.fill"
+        case .likes:      "heart.fill"
+        case .comments:   "ellipsis.bubble.fill"
+        case .shares:     "arrowshape.turn.up.right.fill"
+        }
+    }
+
+    func value(_ video: AnalyticsReport.Video) -> Double {
+        switch self {
+        case .views:      Double(video.views)
+        case .engagement: video.engagementRate ?? 0
+        case .likes:      Double(video.likes)
+        case .comments:   Double(video.comments)
+        case .shares:     Double(video.shares)
+        }
+    }
+
+    func label(_ video: AnalyticsReport.Video) -> String {
+        if self == .engagement {
+            return video.engagementRate.map(AnalyticsFormat.percent) ?? "—"
+        }
+        return AnalyticsFormat.number(value(video))
+    }
+}
+
+/// Studio's "Your top posts": chips to choose the ranking, then a numbered list.
+struct TopPostsCard: View {
     let report: AnalyticsReport
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(
-                title: "Top content",
-                subtitle: report.topScope == "posted_in_range"
-                    ? "Posted in this range, ranked by views"
-                    : "Nothing was posted in this range, so this is all time"
-            )
+    @State private var sort: TopPostSort = .views
 
-            if report.top.isEmpty {
-                AnalyticsNotice(
-                    symbol: "play.rectangle",
-                    title: "No videos with numbers yet",
-                    detail: "TikTok shares numbers for public videos only. Publish publicly and Autocast starts measuring within 6 hours."
-                )
+    private var ranked: [AnalyticsReport.Video] {
+        report.top.sorted { sort.value($0) > sort.value($1) }
+    }
+
+    var body: some View {
+        AnalyticsCard(
+            title: "Your top posts",
+            subtitle: report.top.isEmpty ? nil
+                : (report.topScope == "posted_in_range" ? "Posted in this range" : "Nothing was posted in this range, so this is all time"),
+            info: "Each video's lifetime numbers, as TikTok reports them. TikTok only shares numbers for public videos."
+        ) {
+            SoftChips(items: TopPostSort.allCases, selection: $sort) { $0.title }
+
+            if ranked.isEmpty {
+                VStack(spacing: 8) {
+                    EmptyArt(name: "empty-analytics", size: 96)
+                    Text("No top posts")
+                        .font(.headline)
+                    Text("Publish a public video and Autocast ranks it here within 6 hours.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
             } else {
-                VStack(spacing: 10) {
-                    ForEach(report.top.prefix(8)) { video in
+                VStack(spacing: 2) {
+                    ForEach(Array(ranked.prefix(10).enumerated()), id: \.element.id) { index, video in
                         NavigationLink {
                             AnalyticsPostView(videoId: video.videoId, title: video.displayTitle)
                         } label: {
-                            TopContentRow(
+                            RankedPostRow(
+                                rank: index + 1,
                                 video: video,
+                                sort: sort,
                                 platformName: report.platformName(video.platform),
                                 showsRelative: report.videos >= 3
                             )
@@ -75,8 +132,10 @@ struct AnalyticsThumbnail: View {
     }
 }
 
-private struct TopContentRow: View {
+private struct RankedPostRow: View {
+    let rank: Int
     let video: AnalyticsReport.Video
+    let sort: TopPostSort
     let platformName: String
     let showsRelative: Bool
 
@@ -84,13 +143,21 @@ private struct TopContentRow: View {
         var parts = [platformName]
         if let day = AnalyticsFormat.day(video.postedAt) { parts.append(day) }
         if let seconds = video.durationS { parts.append(AnalyticsFormat.duration(seconds: Double(seconds))) }
-        if let format = video.format { parts.append(format.capitalized) }
         return parts.joined(separator: " · ")
     }
 
     var body: some View {
         HStack(spacing: 12) {
-            AnalyticsThumbnail(url: video.coverUrl)
+            Text("\(rank)")
+                .font(.footnote.weight(.bold).monospacedDigit())
+                .foregroundStyle(rank <= 3 ? Color(uiColor: .systemBackground) : Color.secondary)
+                .frame(width: 24, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(rank <= 3 ? Color.accentColor : Color.track)
+                )
+
+            AnalyticsThumbnail(url: video.coverUrl, width: 58, height: 78)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(video.displayTitle)
@@ -104,37 +171,29 @@ private struct TopContentRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
-                HStack(spacing: 12) {
-                    Label(AnalyticsFormat.number(Double(video.views)), systemImage: "eye")
-                    if let rate = video.engagementRate {
-                        Label(AnalyticsFormat.percent(rate), systemImage: "hand.tap")
+                HStack(spacing: 5) {
+                    Image(systemName: sort.symbol)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(sort.label(video))
+                        .font(.subheadline.weight(.bold).monospacedDigit())
+                        .foregroundStyle(.primary)
+                    if sort == .views, showsRelative, let relative = video.relative {
+                        Text("· \(relative.formatted(.number.precision(.fractionLength(1))))× your average")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(relative >= 1 ? Color.green : Color.secondary)
                     }
-                    Label(AnalyticsFormat.number(Double(video.shares)), systemImage: "arrowshape.turn.up.right")
                 }
-                .font(.caption.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
-                .labelStyle(.titleAndIcon)
             }
 
-            Spacer(minLength: 6)
+            Spacer(minLength: 4)
 
-            VStack(alignment: .trailing, spacing: 6) {
-                if showsRelative, let relative = video.relative {
-                    Text("\(relative.formatted(.number.precision(.fractionLength(1))))× avg")
-                        .font(.caption2.weight(.bold).monospacedDigit())
-                        .foregroundStyle(relative >= 1 ? Color.green : Color.secondary)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((relative >= 1 ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
-                }
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
         }
-        .padding(12)
-        .raisedCard(radius: Style.rowCard)
-        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
     }
 }
 
@@ -403,58 +462,59 @@ struct RetryNotice: View {
 
 // MARK: - Best time to post
 
-struct BestTimeSection: View {
+/// Studio's "Most active times" slot, answered from what Autocast can know:
+/// when this brand's own videos went out and how they did.
+struct BestTimeCard: View {
     let bestTime: AnalyticsReport.BestTime
     let timezone: String
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(title: "Best time to post", subtitle: "From when your own videos went out and how they did")
-
-            if bestTime.videos < bestTime.minimum {
-                AnalyticsNotice(
-                    symbol: "clock",
-                    title: "Not enough data yet",
-                    detail: "Autocast needs more posts before making reliable timing recommendations: at least \(bestTime.minimum) videos with numbers. So far: \(bestTime.videos)."
-                )
-            } else if bestTime.bestHours == nil && bestTime.bestDay == nil {
-                AnalyticsNotice(
-                    symbol: "clock",
-                    title: "No clear best time",
-                    detail: "Across \(bestTime.videos) videos, no time of day or weekday did 15% better than your usual."
-                )
-            } else {
-                VStack(alignment: .leading, spacing: 14) {
-                    if let hours = bestTime.bestHours {
-                        pick(AnalyticsFormat.hourBlock(hours.slot), hours)
-                    }
-                    if let day = bestTime.bestDay {
-                        pick("\(AnalyticsFormat.weekday(day.slot))s", day)
-                    }
-                    hourChart
-                    Text("Times are in your brand's timezone, \(timezone). TikTok doesn't share when your followers are online.")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .raisedCard()
-            }
-        }
+    enum Unit: String, CaseIterable, Hashable {
+        case hours, days
+        var title: String { self == .hours ? "Hours" : "Days" }
     }
 
-    private func pick(_ title: String, _ pick: AnalyticsReport.Pick) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title)
-                    .font(.title3.bold())
-                Spacer(minLength: 8)
-                ConfidenceBadge(confidence: pick.confidence)
+    @State private var unit: Unit = .hours
+
+    var body: some View {
+        AnalyticsCard(
+            title: "Best time to post",
+            info: "From when your own videos went out and the views they got, in \(timezone). TikTok only shares when your followers are online with Business accounts."
+        ) {
+            SoftChips(items: Unit.allCases, selection: $unit) { $0.title }
+
+            if bestTime.videos < bestTime.minimum {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "clock")
+                        .font(.title3)
+                        .foregroundStyle(.tertiary)
+                    Text("Not enough data yet. Autocast needs \(bestTime.minimum) videos with numbers before it recommends a time. So far: \(bestTime.videos).")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.vertical, 6)
+            } else {
+                let pick = unit == .hours ? bestTime.bestHours : bestTime.bestDay
+                if let pick {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(unit == .hours ? AnalyticsFormat.hourBlock(pick.slot) : "\(AnalyticsFormat.weekday(pick.slot))s")
+                                .font(.title2.bold())
+                            Spacer(minLength: 8)
+                            ConfidenceBadge(confidence: pick.confidence)
+                        }
+                        Text("\(opportunity(pick.lift)) · \(AnalyticsFormat.signedPercent(pick.lift)) median views across \(pick.posts) videos")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No \(unit == .hours ? "time of day" : "weekday") did 15% better than usual across \(bestTime.videos) videos.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                chart(best: pick?.slot)
             }
-            Text("\(opportunity(pick.lift)) · \(AnalyticsFormat.signedPercent(pick.lift)) median views across \(pick.posts) videos")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -462,17 +522,23 @@ struct BestTimeSection: View {
         lift >= 0.5 ? "Strong opportunity" : lift >= 0.25 ? "Good opportunity" : "Slight edge"
     }
 
-    private var hourChart: some View {
-        let best = bestTime.bestHours?.slot
-        return Chart(bestTime.hours, id: \.slot) { slot in
+    private func label(_ slot: Int) -> String {
+        if unit == .hours { return AnalyticsFormat.clock(slot) }
+        let symbols = Calendar.current.shortWeekdaySymbols
+        return symbols.indices.contains(slot % 7) ? symbols[slot % 7] : "—"
+    }
+
+    private func chart(best: Int?) -> some View {
+        let slots = unit == .hours ? bestTime.hours : bestTime.days
+        return Chart(slots, id: \.slot) { slot in
             BarMark(
-                x: .value("Time", AnalyticsFormat.clock(slot.slot)),
+                x: .value("When", label(slot.slot)),
                 y: .value("Median views", slot.medianViews)
             )
             .foregroundStyle(slot.slot == best ? Color.accentColor : Color.accentColor.opacity(0.22))
             .cornerRadius(4)
         }
-        .frame(height: 120)
+        .frame(height: 140)
     }
 }
 

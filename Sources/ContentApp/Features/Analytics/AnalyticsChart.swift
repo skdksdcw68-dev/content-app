@@ -1,177 +1,125 @@
 import SwiftUI
 import Charts
 
-/// The key numbers, as tiles. Tapping one moves the chart to it.
-///
-/// Only metrics the platform gives get a tile. The rest are listed once,
-/// folded, each saying it is not available -- visible, but not a wall of dashes.
-struct MetricGrid: View {
+/// Key metrics and their chart, in one card -- Studio's arrangement. Tapping a
+/// tile moves the chart to it. Metrics a platform does not give are not tiles;
+/// the Overview says once, in its own card, where they come from.
+struct KeyMetricsCard: View {
     let report: AnalyticsReport
+    let metrics: [AnalyticsMetric]
     @Binding var selected: AnalyticsMetric
-
-    @State private var showingUnavailable = false
+    let subtitle: String
 
     private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
     ]
 
-    private var readings: [MetricReading] { AnalyticsMetric.allCases.map(report.reading) }
-    private var shown: [MetricReading] { readings.filter { $0.status != .unavailable } }
-    private var unavailable: [MetricReading] { readings.filter { $0.status == .unavailable } }
+    private var readings: [MetricReading] {
+        metrics.map(report.reading).filter { $0.status != .unavailable }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(shown, id: \.metric) { reading in
-                    MetricTileButton(reading: reading, isSelected: reading.metric == selected) {
+        AnalyticsCard(
+            title: "Key metrics",
+            subtitle: subtitle,
+            info: "What was gained in this range, compared with the same number of days just before it. Only days Autocast was already reading count; anything earlier is left out, never shown as zero."
+        ) {
+            LazyVGrid(columns: columns, spacing: 12) {
+                ForEach(readings, id: \.metric) { reading in
+                    KeyTile(
+                        title: reading.metric.title,
+                        value: reading.current.map { AnalyticsFormat.value($0, reading.metric) } ?? "—",
+                        caption: caption(reading),
+                        captionColor: color(reading),
+                        isSelected: reading.metric == selected
+                    ) {
                         withAnimation(.snappy(duration: 0.25)) { selected = reading.metric }
                     }
                 }
             }
             .sensoryFeedback(.selection, trigger: selected)
 
-            if !unavailable.isEmpty {
-                DisclosureGroup(isExpanded: $showingUnavailable) {
-                    VStack(spacing: 0) {
-                        ForEach(unavailable, id: \.metric) { reading in
-                            HStack(spacing: 10) {
-                                Image(systemName: reading.metric.symbol)
-                                    .font(.footnote)
-                                    .foregroundStyle(.tertiary)
-                                    .frame(width: 20)
-                                Text(reading.metric.title)
-                                    .font(.subheadline)
-                                Spacer(minLength: 8)
-                                Text("Not available for this platform")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.vertical, 8)
-                        }
-                    }
-                    .padding(.top, 4)
-                } label: {
-                    Text("\(unavailable.count) metrics \(report.platformNames) doesn't share")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .tint(.secondary)
-                .padding(.horizontal, 4)
-            }
+            TrendChart(report: report, metric: selected)
         }
     }
-}
 
-private struct MetricTileButton: View {
-    let reading: MetricReading
-    let isSelected: Bool
-    let pick: () -> Void
-
-    private var caption: String {
+    private func caption(_ reading: MetricReading) -> String {
         switch reading.status {
-        case .filtered:     return "Not available with a content filter"
-        case .insufficient: return "Not enough history yet"
-        default:            return AnalyticsFormat.change(reading) ?? "No previous period data"
+        case .filtered:     "Not with a content filter"
+        case .insufficient: "Not enough history yet"
+        default:            AnalyticsFormat.change(reading) ?? "No earlier period yet"
         }
     }
 
-    private var captionColor: Color {
+    private func color(_ reading: MetricReading) -> Color {
         reading.status == .actual || reading.status == .derived ? AnalyticsFormat.changeColor(reading) : .secondary
     }
+}
+
+/// Followers: the live total and what changed in the range.
+struct FollowersCard: View {
+    let report: AnalyticsReport
+    let total: Int?
+    let subtitle: String
+
+    private var net: MetricReading { report.reading(.followersGained) }
 
     var body: some View {
-        Button(action: pick) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 5) {
-                    Image(systemName: reading.metric.symbol)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text(reading.metric.title)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    if reading.status == .derived {
-                        Text("Derived")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-
-                Text(reading.current.map { AnalyticsFormat.value($0, reading.metric) } ?? "—")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .foregroundStyle(.primary)
-
-                Text(caption)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(captionColor)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+        AnalyticsCard(
+            title: "Key metrics",
+            subtitle: subtitle,
+            info: "Total is what TikTok reports right now. Net is the change across the range, from Autocast's own readings."
+        ) {
+            HStack(spacing: 12) {
+                KeyTile(
+                    title: "Total followers",
+                    value: total.map { AnalyticsFormat.number(Double($0)) } ?? "—",
+                    caption: "All time"
+                )
+                KeyTile(
+                    title: "Net followers",
+                    value: net.current.map { value in (value > 0 ? "+" : "") + AnalyticsFormat.number(value) } ?? "—",
+                    caption: net.current == nil ? "Not enough history yet" : (AnalyticsFormat.change(net) ?? "In this range"),
+                    captionColor: net.current == nil ? .secondary : AnalyticsFormat.changeColor(net),
+                    isSelected: true
+                )
             }
-            .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
-            .padding(12)
-            .background {
-                RoundedRectangle(cornerRadius: Style.card, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.06) : Color.raised)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: Style.card, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor : Color(uiColor: .separator).opacity(0.5),
-                                  lineWidth: isSelected ? 2 : 0.5)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: Style.card, style: .continuous))
+            TrendChart(report: report, metric: .followersGained)
         }
-        .buttonStyle(SoftPressStyle())
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
-/// The selected metric over time, against the period before it.
-///
-/// Only complete buckets are drawn: a day Autocast was not yet reading has no
-/// honest value, and drawing it as zero would draw a drop that never happened.
-struct TrendCard: View {
+/// A metric over time against the period before it. Only complete buckets are
+/// drawn: a day Autocast was not yet reading has no honest value.
+struct TrendChart: View {
     let report: AnalyticsReport
     let metric: AnalyticsMetric
 
     @State private var selectedDate: Date?
     @State private var revealed = false
 
-    private var points: [TrendPoint] { report.trend(metric) }
+    var body: some View {
+        let points = report.trend(metric)
+        Group {
+            if points.count < 2 {
+                AnalyticsEmptyChart(historyStarts: report.historyStartDate, metric: metric, status: report.reading(metric).status)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    chart(points)
+                    legend(hasPrevious: points.contains { $0.previous != nil })
+                }
+            }
+        }
+        .onChange(of: metric) { _, _ in selectedDate = nil }
+    }
 
     private var grain: String {
         switch report.range.grain {
-        case "week":  "By week"
-        case "month": "By 30 days"
-        default:      "By day"
+        case "week":  "by week"
+        case "month": "by 30 days"
+        default:      "by day"
         }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(metric.title)
-                    .font(.headline)
-                Spacer(minLength: 8)
-                Text(grain)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            let current = points
-            if current.count < 2 {
-                AnalyticsEmptyChart(historyStarts: report.historyStartDate, metric: metric, status: report.reading(metric).status)
-            } else {
-                chart(current)
-                legend(hasPrevious: current.contains { $0.previous != nil })
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .raisedCard()
-        .onChange(of: metric) { _, _ in selectedDate = nil }
     }
 
     private func chart(_ current: [TrendPoint]) -> some View {
@@ -196,6 +144,19 @@ struct TrendCard: View {
             }
 
             ForEach(current) { point in
+                AreaMark(
+                    x: .value("Date", point.date),
+                    y: .value(label, revealed ? point.value : 0)
+                )
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .interpolationMethod(.monotone)
+
                 LineMark(
                     x: .value("Date", point.date),
                     y: .value(label, revealed ? point.value : 0),
@@ -204,13 +165,19 @@ struct TrendCard: View {
                 .foregroundStyle(Color.accentColor)
                 .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
                 .interpolationMethod(.monotone)
+                .symbol {
+                    Circle()
+                        .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                        .background(Circle().fill(Color.raised))
+                        .frame(width: 7, height: 7)
+                }
             }
 
             if current.count >= 3, let peak, peak.value > 0 {
                 PointMark(x: .value("Date", peak.date), y: .value(label, revealed ? peak.value : 0))
                     .foregroundStyle(Color.accentColor)
-                    .symbolSize(44)
-                    .annotation(position: .top, spacing: 3) {
+                    .symbolSize(50)
+                    .annotation(position: .top, spacing: 4) {
                         Text("Peak")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -220,8 +187,8 @@ struct TrendCard: View {
             if current.count >= 3, let low, let peak, low.id != peak.id {
                 PointMark(x: .value("Date", low.date), y: .value(label, revealed ? low.value : 0))
                     .foregroundStyle(Color.secondary)
-                    .symbolSize(30)
-                    .annotation(position: .bottom, spacing: 3) {
+                    .symbolSize(34)
+                    .annotation(position: .bottom, spacing: 4) {
                         Text("Lowest")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
@@ -237,7 +204,18 @@ struct TrendCard: View {
             }
         }
         .chartXSelection(value: $selectedDate)
-        .frame(height: 210)
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                AxisValueLabel()
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            }
+        }
+        .frame(height: 200)
         .onAppear {
             withAnimation(.easeOut(duration: 0.7)) { revealed = true }
         }
@@ -251,7 +229,7 @@ struct TrendCard: View {
             Text(AnalyticsFormat.value(point.value, metric))
                 .font(.subheadline.weight(.bold).monospacedDigit())
             if let previous = point.previous {
-                Text("Previous: \(AnalyticsFormat.value(previous, metric))")
+                Text("Before: \(AnalyticsFormat.value(previous, metric))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -260,22 +238,23 @@ struct TrendCard: View {
         .padding(.vertical, 6)
         .background(Color.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 2)
     }
 
     private func legend(hasPrevious: Bool) -> some View {
         HStack(spacing: 14) {
             HStack(spacing: 5) {
-                Capsule().fill(Color.accentColor).frame(width: 16, height: 3)
+                Capsule().fill(Color.accentColor).frame(width: 14, height: 3)
                 Text("This period")
             }
             if hasPrevious {
                 HStack(spacing: 5) {
-                    Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 16, height: 3)
-                    Text("Previous period")
+                    Capsule().fill(Color.secondary.opacity(0.5)).frame(width: 14, height: 3)
+                    Text("Before")
                 }
             }
             Spacer(minLength: 0)
-            Text("Touch the chart for values")
+            Text(grain)
                 .foregroundStyle(.tertiary)
         }
         .font(.caption2)
@@ -301,22 +280,24 @@ private struct AnalyticsEmptyChart: View {
             return "\(metric.title) belongs to the account, so it can't be split by a content filter."
         default:
             if let historyStarts {
-                return "Not enough history for a trend yet. Autocast started reading your numbers on \(AnalyticsFormat.day(historyStarts)) and checks every 6 hours."
+                return "The chart fills in as Autocast reads your numbers. It started on \(AnalyticsFormat.day(historyStarts)) and checks every 6 hours."
             }
             return "No readings yet. Autocast checks your numbers every 6 hours once an account is connected."
         }
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        VStack(spacing: 10) {
             Image(systemName: "chart.xyaxis.line")
-                .font(.system(size: 22, weight: .medium))
+                .font(.system(size: 26, weight: .medium))
                 .foregroundStyle(.tertiary)
             Text(message)
-                .font(.subheadline)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 90, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 140)
+        .padding(.horizontal, 12)
     }
 }

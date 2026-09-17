@@ -46,12 +46,23 @@ export async function publishTarget(
 ): Promise<PublishOutcome> {
   const { data: target } = await admin
     .from("post_targets")
-    .select("id, post_id, connection_id, platform, caption, hashtags, privacy, disable_comment, disable_duet, disable_stitch, is_aigc, brand_content_toggle, brand_organic_toggle, music_track_id, consent_id, state")
+    .select("id, post_id, connection_id, platform, caption, hashtags, privacy, disable_comment, disable_duet, disable_stitch, is_aigc, brand_content_toggle, brand_organic_toggle, music_track_id, consent_id, state, provider_publish_id")
     .eq("id", targetId)
     .maybeSingle();
 
   if (!target) return { state: "failed", reason: "post_missing" };
   if (target.state === "published") return { state: "published" };
+
+  // Already handed to TikTok by an earlier attempt. Starting again would post
+  // the same video twice; ask TikTok what became of the first one instead.
+  if (target.provider_publish_id && ["submitted", "processing"].includes(target.state)) {
+    return await verifyTarget(admin, target.id);
+  }
+  if (target.provider_publish_id && target.state === "uploading") {
+    await fail(admin, target.id, "upload_interrupted",
+      "The upload was interrupted. It was not retried automatically so it can't post twice. Pick a new time to try again.");
+    return { state: "failed", reason: "upload_interrupted" };
+  }
   if (!target.consent_id) return { state: "blocked", reason: "not_approved" };
 
   const { data: consent } = await admin
@@ -226,17 +237,61 @@ export async function publishTarget(
   const outcome = await pollStatus(token, init.data.publish_id);
 
   if (outcome.state === "published") {
-    await admin.from("post_targets").update({
-      state: "published",
-      published_at: new Date().toISOString(),
-      provider_post_id: outcome.publishId ?? null,
-    }).eq("id", target.id);
-    await admin.from("posts").update({ status: "posted" }).eq("id", target.post_id);
+    await markPublished(admin, target.id, target.post_id, outcome.publishId);
   } else if (outcome.state === "failed") {
     await fail(admin, target.id, "rejected", outcome.reason);
   }
 
   return { ...outcome, publishId: init.data.publish_id };
+}
+
+/**
+ * The Verify step. Asks TikTok once what became of a video it accepted, and
+ * records the answer. Called by the scheduler for everything still in flight,
+ * so "processing" never stays the last word.
+ *
+ * A private (SELF_ONLY) post comes back PUBLISH_COMPLETE with no public id --
+ * TikTok's confirmation is still the verification.
+ */
+export async function verifyTarget(admin: SupabaseClient, targetId: string): Promise<PublishOutcome> {
+  const { data: target } = await admin
+    .from("post_targets")
+    .select("id, post_id, connection_id, state, provider_publish_id")
+    .eq("id", targetId)
+    .maybeSingle();
+
+  if (!target?.provider_publish_id) return { state: "failed", reason: "nothing_to_verify" };
+  if (target.state === "published") return { state: "published" };
+
+  const token = await accessToken(admin, target.connection_id);
+  const status = await fetchStatus(token, target.provider_publish_id);
+
+  if (status.state === "published") {
+    await markPublished(admin, target.id, target.post_id, status.publishId);
+    return { state: "published", publishId: target.provider_publish_id };
+  }
+  if (status.state === "failed") {
+    await fail(admin, target.id, "rejected", status.reason);
+    return status;
+  }
+  if (target.state === "submitted" && status.reason === "PROCESSING_DOWNLOAD") {
+    await admin.from("post_targets").update({ state: "processing" }).eq("id", target.id);
+  }
+  return { state: "processing", publishId: target.provider_publish_id };
+}
+
+async function markPublished(
+  admin: SupabaseClient,
+  targetId: string,
+  postId: string,
+  publicId?: string,
+): Promise<void> {
+  await admin.from("post_targets").update({
+    state: "published",
+    published_at: new Date().toISOString(),
+    provider_post_id: publicId ?? null,
+  }).eq("id", targetId);
+  await admin.from("posts").update({ status: "posted", failure_reason: null }).eq("id", postId);
 }
 
 async function fail(
@@ -255,31 +310,41 @@ async function fail(
 async function pollStatus(token: string, publishId: string): Promise<PublishOutcome> {
   for (let attempt = 0; attempt < 10; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, attempt === 0 ? 2_000 : 4_000));
-
-    const response = await fetch(
-      "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json; charset=UTF-8",
-        },
-        body: JSON.stringify({ publish_id: publishId }),
-      },
-    );
-
-    const body = await response.json() as {
-      data?: { status?: string; fail_reason?: string; publicaly_available_post_id?: string[] };
-    };
-
-    if (body.data?.status === "PUBLISH_COMPLETE") {
-      return { state: "published", publishId: body.data?.publicaly_available_post_id?.[0] };
-    }
-    if (body.data?.status === "FAILED") {
-      return { state: "failed", reason: body.data?.fail_reason ?? "TikTok rejected it." };
-    }
+    const status = await fetchStatus(token, publishId);
+    if (status.state !== "processing") return status;
   }
 
-  // Still processing. Not a failure -- the status poller will catch up.
+  // Still processing. Not a failure -- verifyTarget() on the next ticks
+  // records the final answer.
   return { state: "processing" };
+}
+
+/** One status/fetch call. `publishId` on a published result is the PUBLIC
+ *  post id when TikTok gives one; `reason` on processing is TikTok's status. */
+async function fetchStatus(token: string, publishId: string): Promise<PublishOutcome> {
+  const response = await fetch(
+    "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=UTF-8",
+      },
+      body: JSON.stringify({ publish_id: publishId }),
+    },
+  );
+
+  const raw = await response.text();
+  let body: { data?: { status?: string; fail_reason?: string } } = {};
+  try { body = JSON.parse(raw); } catch { /* treated as still processing */ }
+
+  if (body.data?.status === "PUBLISH_COMPLETE") {
+    // The id is an int64; JSON.parse would round it. Read it from the text.
+    const id = /"publicaly_available_post_id"\s*:\s*\[\s*"?(\d+)/.exec(raw)?.[1];
+    return { state: "published", publishId: id };
+  }
+  if (body.data?.status === "FAILED") {
+    return { state: "failed", reason: body.data?.fail_reason ?? "TikTok rejected it." };
+  }
+  return { state: "processing", reason: body.data?.status };
 }

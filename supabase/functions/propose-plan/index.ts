@@ -52,6 +52,8 @@ interface Body {
   days?: number;
   posts_per_day?: number;
   starts_on?: string;
+  /** What the plan is for, in the person's words. Defaults to the brief. */
+  objective?: string;
 }
 
 interface Slot {
@@ -67,6 +69,7 @@ interface Written {
   caption?: string;
   concept?: string;
   hashtags?: string[];
+  cta?: string;
   rationale?: string;
 }
 
@@ -237,6 +240,8 @@ Deno.serve(async (request) => {
         days,
         posts_per_day: perDay,
         brief,
+        objective: (body.objective ?? brief).trim().slice(0, 300),
+        platforms: ["tiktok"],
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
@@ -312,6 +317,8 @@ Deno.serve(async (request) => {
         format: "video",
         hook: hook.slice(0, 200),
         script: (post?.caption ?? "").trim(),
+        cta: (post?.cta ?? "").trim().slice(0, 200),
+        hashtags: cleanTags(post?.hashtags),
         concept: (post?.concept ?? "").trim(),
         rationale: rationale.slice(0, 300),
         status: "planned",
@@ -402,14 +409,15 @@ async function writeBatch(args: {
 
   const system = [
     "You plan short-form video content for one social account.",
-    'Return JSON only, matching: {"posts":[{"n":number,"hook":string,"caption":string,"concept":string,"hashtags":[string],"rationale":string}]}.',
+    'Return JSON only, matching: {"posts":[{"n":number,"hook":string,"caption":string,"concept":string,"hashtags":[string],"cta":string,"rationale":string}]}.',
     "Write exactly one entry per numbered slot, and set n to that slot's number.",
     "hook: the first line said on camera. Under 80 characters.",
     "caption: what goes under the video. Under 150 characters.",
     "concept: what the video shows, in one sentence, as an instruction to whoever makes it. Describe the shot, not the feeling.",
     "hashtags: 2 to 4, lowercase, each starting with #.",
+    "cta: one short call to action for the end of the caption (follow, try the app, comment). No promises, no prices, no numbers.",
     "rationale: one sentence saying why this post exists on this day. Never predict performance.",
-    "Every entry must differ from every other. Avoid hype words and the word easy.",
+    "Every entry must differ from every other. Avoid hype words and the word easy. Never claim speed (instantly, in seconds), accuracy, or being the best unless FACTS say so.",
 
     // The instruction that replaced "prefer a specific number, a specific cost,
     // or a specific mistake". That one produced plans announcing features the
@@ -585,6 +593,14 @@ function unsupportedThemes(
       return false;
     })
     .map((pillar) => pillar.name);
+}
+
+function cleanTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    .map((t) => (t.trim().startsWith("#") ? t.trim() : `#${t.trim()}`).toLowerCase().replace(/s+/g, ""))
+    .slice(0, 5);
 }
 
 function clamp(value: number, low: number, high: number): number {

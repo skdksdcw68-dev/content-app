@@ -88,6 +88,10 @@ struct HomeView: View {
                 .padding(.top, 14)
                 .entrance(2)
 
+                AutopilotLinkRow(brandName: session.brand?.name)
+                    .padding(.top, 12)
+                    .entrance(2)
+
                 if session.connections.isEmpty {
                     ConnectCard()
                         .padding(.top, 16)
@@ -99,7 +103,7 @@ struct HomeView: View {
 
                 Group {
                     if let nextUp {
-                        NavigationLink { PlanView() } label: {
+                        NavigationLink { PostDetailView(postID: nextUp.id) } label: {
                             UpNextCard(post: nextUp, timezone: brandTimeZone)
                         }
                         .buttonStyle(SoftPressStyle())
@@ -123,7 +127,7 @@ struct HomeView: View {
 
                     VStack(spacing: 12) {
                         ForEach(needsYou.prefix(4)) { post in
-                            Button { approving = post } label: {
+                            NavigationLink { PostDetailView(postID: post.postId) } label: {
                                 PostCard(post: post, kind: .review)
                             }
                             .buttonStyle(SoftPressStyle())
@@ -163,7 +167,7 @@ struct HomeView: View {
                     } else {
                         VStack(spacing: 12) {
                             ForEach(recent) { post in
-                                Button { approving = post } label: {
+                                NavigationLink { PostDetailView(postID: post.postId) } label: {
                                     PostCard(post: post, kind: .result)
                                 }
                                 .buttonStyle(SoftPressStyle())
@@ -600,5 +604,38 @@ private struct EmptyStackCard: View {
             RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous)
                 .strokeBorder(Color(uiColor: .separator).opacity(0.35), lineWidth: 1)
         }
+    }
+}
+
+/// The way into Autopilot from Home: what it is, never what is wrong.
+private struct AutopilotLinkRow: View {
+    let brandName: String?
+
+    var body: some View {
+        NavigationLink { AutopilotView() } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "airplane")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .frame(width: 36, height: 36)
+                    .background(Color.accentColor, in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Autopilot")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("What it’s doing for \(brandName ?? "you"), and what’s next")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(12)
+            .raisedCard(radius: Style.rowCard)
+        }
+        .buttonStyle(SoftPressStyle())
     }
 }

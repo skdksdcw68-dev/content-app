@@ -143,7 +143,11 @@ struct ProfileView: View {
             }
 
             Section {
-                Toggle("Make the videos for me", isOn: Binding(
+                NavigationLink { AutopilotView() } label: {
+                    Label("Open Autopilot", systemImage: "airplane")
+                }
+
+                Toggle("Make videos with AI", isOn: Binding(
                     get: { session.settings?.isOn ?? false },
                     set: { on in Task { await session.setAutopilot(on) } }
                 ))

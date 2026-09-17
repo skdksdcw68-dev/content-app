@@ -52,12 +52,13 @@ struct CreateView: View {
                 }
                 .entrance(0)
 
-                Button { pickingVideo = true } label: {
+                // One screen from the file to a checked post in the plan.
+                NavigationLink { UploadFlowView() } label: {
                     PrimaryButtonLabel(title: "Upload", systemImage: "plus")
                 }
                 .primaryButtonStyle()
                 .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
-                .disabled(session.connections.isEmpty || session.isWorking)
+                .disabled(session.connections.isEmpty)
                 .padding(.top, 18)
                 .entrance(1)
 
@@ -84,7 +85,7 @@ struct CreateView: View {
                 } else {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(drafts) { post in
-                            Button { approving = post } label: {
+                            NavigationLink { PostDetailView(postID: post.postId) } label: {
                                 DraftTile(post: post)
                             }
                             .buttonStyle(SoftPressStyle())

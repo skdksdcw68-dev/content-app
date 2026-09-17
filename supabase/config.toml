@@ -178,3 +178,6 @@ verify_jwt = false
 
 [functions.import-plan]
 verify_jwt = true
+
+[functions.content-item]
+verify_jwt = true

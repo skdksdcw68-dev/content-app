@@ -18,13 +18,16 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
     let postsPerDay: Int
     let brief: String
     let approvedAt: Date?
+    /// What the plan is for. Empty on plans written before 0043.
+    var objective: String? = nil
+    var platforms: [String]? = nil
 
     enum Status: String, Decodable, Sendable {
         case draft, proposed, approved, active, paused, archived
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, title, status, days, brief
+        case id, title, status, days, brief, objective, platforms
         case startsOn = "starts_on"
         case postsPerDay = "posts_per_day"
         case approvedAt = "approved_at"

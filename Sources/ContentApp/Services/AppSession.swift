@@ -370,7 +370,9 @@ extension AppSession {
         isWorking = true
         defer { isWorking = false }
 
-        let path = "\(userID.uuidString)/\(UUID().uuidString)/\(filename)"
+        // Lowercase: the storage policy and prepare-post compare against
+        // auth.uid(), which Postgres prints in lowercase. uuidString is upper.
+        let path = "\(userID.uuidString.lowercased())/\(UUID().uuidString.lowercased())/\(filename)"
 
         do {
             _ = try await client.storage
@@ -422,7 +424,8 @@ extension AppSession {
         disableComment: Bool,
         disableDuet: Bool,
         disableStitch: Bool,
-        isAIGC: Bool
+        isAIGC: Bool,
+        runAt: Date? = nil
     ) async -> ApprovalOutcome? {
         isWorking = true
         defer { isWorking = false }
@@ -438,7 +441,8 @@ extension AppSession {
                     disableStitch: disableStitch,
                     isAigc: isAIGC,
                     brandContent: false,
-                    brandOrganic: false
+                    brandOrganic: false,
+                    runAt: runAt.map { ISO8601DateFormatter().string(from: $0) }
                 ))
             )
             await refreshPosts()
@@ -512,8 +516,11 @@ private struct ApprovalRequest: Encodable {
     let isAigc: Bool
     let brandContent: Bool
     let brandOrganic: Bool
+    /// When to post it, if chosen on the review screen.
+    let runAt: String?
 
     enum CodingKeys: String, CodingKey {
+        case runAt = "run_at"
         case postTargetId = "post_target_id"
         case privacy
         case disableComment = "disable_comment"
@@ -646,11 +653,14 @@ extension AppSession {
     /// replaced last month is history, and history belongs on a screen that
     /// says so.
     func refreshPlan() async {
-        guard brand != nil else { return }
+        guard let brand else { return }
         do {
+            // This brand only. Without the filter the newest plan of ANY brand
+            // showed, so Drobe could open Remi Snap's month.
             let plans: [ContentPlan] = try await client
                 .from("content_plans")
-                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at")
+                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms")
+                .eq("brand_id", value: brand.id.uuidString)
                 .in("status", values: ["draft", "proposed", "active", "paused"])
                 .order("created_at", ascending: false)
                 .limit(1)

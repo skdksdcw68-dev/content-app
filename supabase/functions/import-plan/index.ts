@@ -50,6 +50,7 @@ interface Found {
   caption?: string;
   concept?: string;
   hashtags?: string[];
+  cta?: string;
   format?: string;
 }
 
@@ -107,6 +108,7 @@ Deno.serve(async (request) => {
 
     // ------------------------------------------------------------- extract
     let title = "";
+    let objective = "";
     const found: Found[] = [];
     let tokens = 0;
     for (let start = 0; start < text.length; start += CHUNK) {
@@ -114,6 +116,7 @@ Deno.serve(async (request) => {
       const result = await extract(piece, found.length, todayIn(brand.timezone));
       tokens += result.tokens;
       if (!title && result.title) title = result.title;
+      if (!objective && result.objective) objective = result.objective;
       found.push(...result.posts);
     }
 
@@ -200,6 +203,8 @@ Deno.serve(async (request) => {
         days,
         posts_per_day: perDay,
         brief: `Imported from ${fileName || "pasted text"}`,
+        objective: objective.slice(0, 300),
+        platforms: ["tiktok"],
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
@@ -225,7 +230,7 @@ Deno.serve(async (request) => {
       taken.add(at);
 
       const hashtags = (p.hashtags ?? []).filter((h) => typeof h === "string" && h.trim()).map((h) => h.trim().startsWith("#") ? h.trim() : `#${h.trim()}`);
-      const caption = [p.caption, hashtags.length && !(p.caption ?? "").includes("#") ? hashtags.join(" ") : ""].filter(Boolean).join(" ");
+      const caption = (p.caption ?? "").replace(/(^|s)#w+/g, "").trim();
       rows.push({
         user_id: userId,
         brand_id: brand.id,
@@ -236,6 +241,8 @@ Deno.serve(async (request) => {
         format: p.format === "photo" || p.format === "carousel" ? p.format : "video",
         hook: (p.hook || p.caption || p.concept || "").slice(0, 200),
         script: caption,
+        cta: (p.cta ?? "").trim().slice(0, 200),
+        hashtags: hashtags.map((h) => h.toLowerCase().replace(/s+/g, "")).slice(0, 8),
         concept: p.concept ?? "",
         rationale: `From your plan${fileName ? ` "${fileName}"` : ""}, day ${p.dayIndex + 1}.`.slice(0, 300),
         status: "planned",
@@ -364,10 +371,10 @@ function decodeEntities(text: string): string {
 
 // --------------------------------------------------------------- extracting
 
-async function extract(piece: string, already: number, today: string): Promise<{ title: string; posts: Found[]; tokens: number }> {
+async function extract(piece: string, already: number, today: string): Promise<{ title: string; objective: string; posts: Found[]; tokens: number }> {
   const system = [
     "You read a content plan somebody wrote and list the posts that are in it.",
-    'Return JSON only: {"title":string,"posts":[{"day":number|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"hook":string,"caption":string,"concept":string,"hashtags":[string],"format":"video"|"photo"|"carousel"}]}.',
+    'Return JSON only: {"title":string,"posts":[{"day":number|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"hook":string,"caption":string,"concept":string,"hashtags":[string],"cta":string,"format":"video"|"photo"|"carousel"}]}.',
     "One entry per post the document describes, in document order. Several posts on one day are separate entries with the same day.",
     "day: the day number the document gives (Day 1, D3, #5). null if it gives none.",
     `date: only if the document states a calendar date (e.g. "Monday Sep 21"). Never invent one. Today is ${today}; a date written without a year is its next occurrence on or after today. time: only if the document states a time; 24-hour (7:00 PM is 19:00).`,
@@ -375,6 +382,8 @@ async function extract(piece: string, already: number, today: string): Promise<{
     "Copy the document's words. NEVER add posts, ideas, facts, numbers or hashtags that are not in the document. Leave a field empty rather than make it up.",
     "Ignore anything that is not a post: introductions, strategy notes, goals, tips.",
     "title: the plan's own title if it has one, else empty.",
+    "objective: the plan's stated goal, as written, if it states one, else empty. Add \"objective\":string to the top level of the JSON.",
+    "cta: the post's call to action as written (e.g. \"Link in bio\"), else empty. hashtags: the post's hashtags as written.",
     already > 0 ? `This is a later part of the same document; ${already} posts were already listed from earlier parts. Keep the document's own day numbers.` : "",
   ].filter(Boolean).join("\n");
 
@@ -400,12 +409,13 @@ async function extract(piece: string, already: number, today: string): Promise<{
     const parsed = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}");
     return {
       title: typeof parsed.title === "string" ? parsed.title.trim() : "",
+      objective: typeof parsed.objective === "string" ? parsed.objective.trim() : "",
       posts: Array.isArray(parsed.posts) ? parsed.posts : [],
       tokens: completion.usage?.total_tokens ?? 0,
     };
   } catch {
     console.error("unparseable extraction");
-    return { title: "", posts: [], tokens: completion.usage?.total_tokens ?? 0 };
+    return { title: "", objective: "", posts: [], tokens: completion.usage?.total_tokens ?? 0 };
   }
 }
 

@@ -241,7 +241,7 @@ struct ApprovalSheet: View {
 
 /// Who this is going to. Avatar and handle, because TikTok requires the creator
 /// be identifiable before a post and display names are routinely blank.
-private struct CreatorHeader: View {
+struct CreatorHeader: View {
     let info: CreatorInfo
 
     var body: some View {

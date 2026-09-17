@@ -30,6 +30,9 @@ interface Body {
   is_aigc?: boolean;
   brand_content?: boolean;
   brand_organic?: boolean;
+  /** When to post it, chosen on the approval screen. Omitted keeps the time
+   *  the plan gave it. */
+  run_at?: string;
 }
 
 Deno.serve(async (request) => {
@@ -50,6 +53,17 @@ Deno.serve(async (request) => {
     const body = (await request.json().catch(() => ({}))) as Body;
     if (!body.post_target_id) throw new PublicError("post_target_id is required.");
     if (!body.privacy) throw new PublicError("Choose who can see this.");
+
+    // Checked before anything is recorded, so a bad time never leaves consent
+    // behind with nothing queued.
+    let chosen: Date | null = null;
+    if (body.run_at) {
+      chosen = new Date(body.run_at);
+      if (Number.isNaN(chosen.getTime())) throw new PublicError("That time could not be read.");
+      if (chosen.getTime() < Date.now() + 60_000) {
+        throw new PublicError("Pick a time at least a minute from now.");
+      }
+    }
 
     const { data: target } = await asUser
       .from("post_targets")
@@ -137,13 +151,26 @@ Deno.serve(async (request) => {
     // The snapshot creator-info just wrote. Consent points at it, so there is
     // always an answer to "what were they shown" that does not depend on
     // TikTok still returning the same thing months later.
-    const { data: snapshot } = await admin
+    //
+    // Written here from the read above, rather than relying on the app having
+    // called creator-info first: when it had not, there was no snapshot and
+    // approval crashed.
+    const { data: snapshot, error: snapshotError } = await admin
       .from("creator_snapshots")
+      .insert({
+        connection_id: target.connection_id,
+        username: info.creator_username ?? "",
+        nickname: info.creator_nickname ?? "",
+        avatar_url: info.creator_avatar_url ?? "",
+        privacy_level_options: info.privacy_level_options,
+        comment_disabled: info.comment_disabled ?? false,
+        duet_disabled: info.duet_disabled ?? false,
+        stitch_disabled: info.stitch_disabled ?? false,
+        max_video_post_duration_sec: info.max_video_post_duration_sec ?? 600,
+      })
       .select("id")
-      .eq("connection_id", target.connection_id)
-      .order("fetched_at", { ascending: false })
-      .limit(1)
       .single();
+    if (snapshotError) throw snapshotError;
 
     const { data: approval, error: approvalError } = await admin
       .from("approval_requests")
@@ -211,7 +238,14 @@ Deno.serve(async (request) => {
 
     if (targetError) throw targetError;
 
-    await admin.from("posts").update({ status: "scheduled" }).eq("id", target.post_id);
+    // A time picked on the approval screen replaces the plan's.
+    if (chosen) {
+      await admin.from("posts").update({ scheduled_for: chosen.toISOString() }).eq("id", target.post_id);
+    }
+
+    await admin.from("posts")
+      .update({ status: "scheduled", failure_reason: null })
+      .eq("id", target.post_id);
 
     // The step that makes approval mean something on its own.
     //

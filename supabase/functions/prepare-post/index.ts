@@ -14,12 +14,12 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
+import { attachUpload } from "../_shared/attach.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-const BUCKET = "media";
 
 interface Body {
   connection_id?: string;
@@ -63,96 +63,33 @@ Deno.serve(async (request) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    // The path is claimed by the caller, so it is checked rather than believed:
-    // it has to sit under their own user id, and the object has to exist.
-    if (!body.storage_path.startsWith(`${auth.user.id}/`)) {
-      throw new PublicError("That file does not belong to you.", 403);
-    }
-
-    const { data: file, error: fileError } = await admin.storage
-      .from(BUCKET)
-      .download(body.storage_path);
-
-    if (fileError || !file) throw new PublicError("That upload could not be found.", 404);
-
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const checksum = await sha256Hex(bytes);
-
-    // Deliberately no transcode. A video straight off a phone is already H.264
-    // in an MP4 and inside TikTok's limits; generated media will not be, and
-    // that is what the media worker exists for.
-    const { data: asset, error: assetError } = await admin
-      .from("media_assets")
-      .insert({
-        user_id: auth.user.id,
-        brand_id: connection.brand_id,
-        kind: "video",
-        source: "user_upload",
-        rights: "cleared",
-        storage_bucket: BUCKET,
-        storage_path: body.storage_path,
-        mime: file.type || "video/mp4",
-        byte_size: bytes.byteLength,
-        checksum_sha256: checksum,
-      })
-      .select("id")
-      .single();
-
-    if (assetError) throw assetError;
-
-    // The publisher reads variants, never the raw asset -- that is what makes
-    // "an unconverted file reached the platform" impossible rather than a bug
-    // waiting to happen. An upload is its own variant.
-    const { error: variantError } = await admin.from("asset_variants").insert({
-      asset_id: asset.id,
-      purpose: "tiktok_video",
-      mime: file.type || "video/mp4",
-      storage_path: body.storage_path,
-      byte_size: bytes.byteLength,
-      checksum_sha256: checksum,
-    });
-    if (variantError) throw variantError;
-
     // Two ways in. Either this video is filling a slot the plan already wrote,
     // or it is a one-off somebody picked from their camera roll.
     let postId: string;
     let caption = body.caption ?? "";
+    let hashtags = body.hashtags ?? [];
 
     if (body.post_id) {
       // Read under RLS, so a borrowed id finds nothing rather than being
       // checked and refused -- the same reasoning as the connection lookup.
       const { data: planned } = await asUser
         .from("posts")
-        .select("id, brand_id, hook, script, status")
+        .select("id, brand_id, hook, script, cta, hashtags, status")
         .eq("id", body.post_id)
         .maybeSingle();
 
       if (!planned) throw new PublicError("That post does not exist.", 404);
-
       if (planned.brand_id !== connection.brand_id) {
         throw new PublicError("That post belongs to a different brand.", 409);
       }
-
       if (planned.status === "posted") {
         throw new PublicError("That post has already gone out.", 409);
       }
 
       // The plan already wrote the caption. Only fall back to it when the
       // person did not type one, so editing on the way in still works.
-      if (!caption) caption = planned.script ?? "";
-
-      const { error: updateError } = await admin
-        .from("posts")
-        .update({
-          status: "needs_approval",
-          // It came from a plan that intended to generate the media. It did
-          // not; the row should say what actually happened.
-          media_strategy: "user_upload",
-          render_tier: "eager",
-        })
-        .eq("id", planned.id);
-
-      if (updateError) throw updateError;
+      if (!caption) caption = [planned.script ?? "", planned.cta ?? ""].filter(Boolean).join(" ");
+      if (hashtags.length === 0) hashtags = planned.hashtags ?? [];
       postId = planned.id;
     } else {
       const { data: created, error: postError } = await admin
@@ -177,69 +114,19 @@ Deno.serve(async (request) => {
       postId = created.id;
     }
 
-    // One target per post per account -- `unique (post_id, connection_id)`.
-    // Upserting rather than inserting means a second upload for the same day
-    // replaces the first instead of failing with a constraint violation the
-    // person cannot act on.
-    const { data: target, error: targetError } = await admin
-      .from("post_targets")
-      .upsert({
-        user_id: auth.user.id,
-        post_id: postId,
-        connection_id: connection.id,
-        platform: connection.platform,
-        caption,
-        hashtags: body.hashtags ?? [],
-        // Safe defaults. Nothing here is a choice the person has made yet --
-        // the approval screen is where they make them. Replacing the media has
-        // to clear consent too: permission was granted for specific bytes, and
-        // these are different bytes.
-        privacy: "SELF_ONLY",
-        is_aigc: false,
-        state: "pending",
-        consent_id: null,
-        content_digest: null,
-      }, { onConflict: "post_id,connection_id" })
-      .select("id")
-      .single();
-
-    if (targetError) throw targetError;
-
-    // Same reason: whatever was attached before is not what was just uploaded.
-    const { error: clearError } = await admin
-      .from("post_assets")
-      .delete()
-      .eq("post_target_id", target.id);
-
-    if (clearError) throw clearError;
-
-    // And a job queued for the old video must not fire for the new one. The
-    // publisher would refuse it anyway -- consent is cleared above -- but it
-    // would refuse it every minute for ninety minutes and then report a missed
-    // window, which reads to a person as a failure rather than a replacement.
-    await admin
-      .from("publish_jobs")
-      .delete()
-      .eq("post_target_id", target.id)
-      .eq("state", "pending");
-
-    // The trigger on post_assets refuses anything not cleared, so this insert
-    // is also the check that the rights decision above actually took.
-    const { error: linkError } = await admin.from("post_assets").insert({
-      post_target_id: target.id,
-      asset_id: asset.id,
-      ordinal: 0,
-      role: "primary",
+    const attached = await attachUpload(admin, {
+      userId: auth.user.id,
+      brandId: connection.brand_id,
+      connection,
+      storagePath: body.storage_path,
+      postId,
+      caption,
+      hashtags,
     });
-    if (linkError) throw linkError;
 
-    return json({ post_id: postId, post_target_id: target.id, asset_id: asset.id });
+    return json({ post_id: postId, post_target_id: attached.postTargetId, asset_id: attached.assetId });
   } catch (error) {
     return fail(error);
   }
 });
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
-}

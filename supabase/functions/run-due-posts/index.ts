@@ -16,7 +16,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json } from "../_shared/http.ts";
-import { publishTarget } from "../_shared/publish.ts";
+import { publishTarget, verifyTarget } from "../_shared/publish.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -53,7 +53,8 @@ Deno.serve(async (request) => {
     // publishing rather than tidying.
     await admin.rpc("reap_leases");
     await admin.rpc("expire_publish_jobs");
-    return json({ claimed: 0 });
+    const verified = await verifyInFlight(admin);
+    return json({ claimed: 0, verified });
   }
 
   const results: Record<string, string> = {};
@@ -89,6 +90,31 @@ Deno.serve(async (request) => {
 
   return json({ claimed: jobs.length, results });
 });
+
+/**
+ * Verify: everything TikTok accepted but has not confirmed, asked once per
+ * idle tick, so "processing" is never the last word.
+ */
+async function verifyInFlight(admin: ReturnType<typeof createClient>): Promise<Record<string, string>> {
+  const { data: targets } = await admin
+    .from("post_targets")
+    .select("id")
+    .in("state", ["submitted", "processing"])
+    .not("provider_publish_id", "is", null)
+    .limit(5);
+
+  const results: Record<string, string> = {};
+  for (const target of (targets ?? []) as { id: string }[]) {
+    try {
+      const outcome = await verifyTarget(admin, target.id);
+      results[target.id] = outcome.state;
+    } catch (thrown) {
+      console.error("verify threw", target.id, thrown);
+      results[target.id] = "threw";
+    }
+  }
+  return results;
+}
 
 /** Compares without leaking length or position through timing. */
 function timingSafeEqual(a: string, b: string): boolean {

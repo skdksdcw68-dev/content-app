@@ -1,61 +1,74 @@
 import SwiftUI
-import PhotosUI
 
-/// The month, before you agree to it.
+/// The plan as a board: what the campaign is for, and every post in it with
+/// its video, words, time and stage. Tapping a post shows exactly what will be
+/// published before anything is approved.
 ///
-/// This is the screen the product is for. A list of ideas is a notepad; a month
-/// with a date and a time against every line is a thing that can run without
-/// you -- and the only honest way to hand someone an unattended publish key is
-/// to show them, in full, exactly what it intends to do first.
-///
-/// So every post shows four things and not three: what is said, what is shown,
-/// when it goes out, and why it exists. The last one is the one that makes this
-/// reviewable rather than merely long.
+/// Stages come from `post_board()` -- the rows the pipeline writes -- so a post
+/// only says Published when TikTok has said so.
 struct PlanView: View {
     /// What the writer reported about the month it just produced. Present only
-    /// when this screen was pushed straight after generating -- reaching it
-    /// from Home shows the plan without the commentary, because by then the
-    /// interesting question is what is going out, not how it was written.
+    /// when this screen was pushed straight after generating.
     var notice: PlanProposal?
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
 
-    @State private var confirmingDiscard = false
-    @State private var addingTo: PlannedPost?
-    @State private var pickingVideo = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var approving: PendingPost?
+    enum Filter: String, CaseIterable, Hashable {
+        case all, yours, queued, published, attention
 
-    private var plan: ContentPlan? { session.plan }
-    private var posts: [PlannedPost] { session.planPosts }
+        var title: String {
+            switch self {
+            case .all:       "All"
+            case .yours:     "Your review"
+            case .queued:    "Queued"
+            case .published: "Published"
+            case .attention: "Needs attention"
+            }
+        }
 
-    /// The queue entry each planned post produced, if it has produced one yet.
-    /// Built once per redraw rather than searched per row, so a thirty-day plan
-    /// does not do thirty linear scans every time anything changes.
-    private var queued: [UUID: PendingPost] {
-        Dictionary(session.posts.map { ($0.postId, $0) }, uniquingKeysWith: { first, _ in first })
+        func matches(_ post: BoardPost) -> Bool {
+            switch self {
+            case .all:       true
+            case .yours:     post.stage == .readyForReview
+            case .queued:    post.stage == .readyToPublish || post.stage.isWorking
+            case .published: post.stage == .published
+            case .attention: post.stage == .needsAttention || post.stage == .approved
+            }
+        }
     }
 
-    /// Grouped by the day they fall on rather than by `day_index`, because two
-    /// posts a day should sit under one heading.
-    ///
-    /// A named type rather than the tuple this obviously wants to be: Swift key
-    /// paths cannot address tuple elements, so `ForEach(days, id: \.key)` does
-    /// not compile.
+    @State private var board: [BoardPost] = []
+    @State private var loaded = false
+    @State private var filter: Filter = .all
+    @State private var confirmingDiscard = false
+    @State private var uploading = false
+    @State private var approvingPlan = false
+
+    private var plan: ContentPlan? { session.plan }
+
+    private var timezone: TimeZone {
+        session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
+    }
+
     private struct PlanDay: Identifiable {
         let id: Date
-        let posts: [PlannedPost]
+        let posts: [BoardPost]
     }
 
     private var days: [PlanDay] {
-        let calendar = calendarInBrandTime()
-        let grouped = Dictionary(grouping: posts) { post in
-            post.scheduledFor.map { calendar.startOfDay(for: $0) } ?? .distantPast
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
+        let shown = board.filter { filter.matches($0) }
+        let grouped = Dictionary(grouping: shown) { (post: BoardPost) -> Date in
+            guard let when = post.when else { return .distantFuture }
+            return calendar.startOfDay(for: when)
         }
-        return grouped
-            .sorted { $0.key < $1.key }
-            .map { PlanDay(id: $0.key, posts: $0.value) }
+        let sortedKeys = grouped.keys.sorted()
+        return sortedKeys.map { key in
+            let posts = (grouped[key] ?? []).sorted { ($0.when ?? .distantFuture) < ($1.when ?? .distantFuture) }
+            return PlanDay(id: key, posts: posts)
+        }
     }
 
     var body: some View {
@@ -66,30 +79,23 @@ struct PlanView: View {
                 NoPlanYet()
             }
         }
-        .navigationTitle(plan?.isRunning == true ? "Your plan" : "Proposed plan")
-        .pushedPage()
+        .navigationTitle(plan?.isProposal == true ? "Proposed plan" : "Plan")
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable {
-            await session.refreshPlan()
-            await session.refreshPosts()
+        .pushedPage()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { uploading = true } label: {
+                    Image(systemName: "video.badge.plus")
+                }
+                .accessibilityLabel("Upload a video")
+                .disabled(plan?.isProposal == true)
+            }
         }
-        .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
-        .task(id: pickerItem) { await attachPicked() }
-        // Generation takes minutes and finishes on a server. Without this the
-        // row says "Being made" and then says it forever, until somebody
-        // happens to pull down -- which reads as the feature not working.
-        //
-        // Polling rather than Realtime: the interesting change is a row moving
-        // from `sourcing` to `needs_approval`, which is one query, and a
-        // subscription that has to be torn down correctly on every navigation
-        // is a lot of machinery for a screen somebody watches for two minutes.
-        .task(id: isMaking) { await watchWhileMaking() }
-        .sheet(item: $approving) { ApprovalSheet(post: $0) }
-        .confirmationDialog(
-            "Throw this plan away?",
-            isPresented: $confirmingDiscard,
-            titleVisibility: .visible
-        ) {
+        .navigationDestination(isPresented: $uploading) { UploadFlowView() }
+        .refreshable { await reload() }
+        .task(id: plan?.id) { await reload() }
+        .task(id: isMoving) { await watch() }
+        .confirmationDialog("Throw this plan away?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
             Button("Discard", role: .destructive) {
                 Task {
                     await session.discardPlan()
@@ -102,40 +108,30 @@ struct PlanView: View {
         }
     }
 
-    // MARK: - The list
-    //
-    // Split into three small functions rather than one nested expression. The
-    // one-expression version failed to compile at all: "the compiler is unable
-    // to type-check this expression in reasonable time". A List holding a
-    // ForEach holding a Section holding a ForEach holding a view with two
-    // trailing closures is more than the type checker will attempt, and it says
-    // so only after four minutes on a build machine.
-
     private func month(_ plan: ContentPlan) -> some View {
-        List {
-            Section {
-                PlanSummary(plan: plan, posts: posts, withVideo: withVideo)
-            }
-            .listRowInsets(EdgeInsets())
-            .listRowBackground(Color.clear)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                PlanHeader(plan: plan, board: board, timezone: timezone)
 
-            if let notice, notice.needsAttention {
-                Section {
+                if let notice, notice.needsAttention {
                     WritingNotice(notice: notice)
                 }
-                .listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
 
-            ForEach(days) { day in
-                section(day, running: plan.isRunning)
+                if loaded && !board.isEmpty {
+                    filters
+                }
+
+                boardBody(plan)
             }
+            .screenGutter()
+            .padding(.top, 8)
+            .padding(.bottom, 24)
         }
-        .listStyle(.insetGrouped)
+        .background(Color.canvas.ignoresSafeArea())
         .safeAreaInset(edge: .bottom) {
             if plan.isProposal {
                 DecisionBar(
-                    working: session.isWorking,
+                    working: approvingPlan,
                     approve: { Task { await approve() } },
                     discard: { confirmingDiscard = true }
                 )
@@ -143,358 +139,273 @@ struct PlanView: View {
         }
     }
 
-    private func section(_ day: PlanDay, running: Bool) -> some View {
-        Section {
-            ForEach(day.posts) { post in
-                row(post, running: running)
+    @ViewBuilder
+    private func boardBody(_ plan: ContentPlan) -> some View {
+        if !loaded {
+            SkeletonCard(height: 150)
+            SkeletonCard(height: 150)
+        } else if board.isEmpty {
+            emptyBoard(plan)
+        } else if days.isEmpty {
+            Text("Nothing here right now.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 30)
+        } else {
+            ForEach(days) { day in
+                dayBlock(day)
             }
-        } header: {
-            Text(dayHeading(day.id))
         }
     }
 
-    private func row(_ post: PlannedPost, running: Bool) -> some View {
-        PlannedPostRow(
-            post: post,
-            timezone: brandTimeZone,
-            queued: queued[post.id],
-            // A proposal has nothing to attach media to yet. Agreeing to the
-            // month comes first.
-            canAttach: running,
-            // Offered only when there is something to generate with. A button
-            // whose only outcome is "connect a generator first" is a button
-            // that teaches people to distrust the buttons.
-            canGenerate: session.hasWorkingGenerator,
-            addVideo: {
-                addingTo = post
-                pickingVideo = true
-            },
-            generate: { Task { await session.generateMedia(for: post.id) } },
-            review: { approving = queued[post.id] }
-        )
+    private func count(_ option: Filter) -> Int {
+        option == .all ? board.count : board.filter { option.matches($0) }.count
     }
 
-    private var withVideo: Int {
-        let byPost = queued
-        return posts.reduce(into: 0) { total, post in
-            if byPost[post.id] != nil { total += 1 }
+    private var filters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Filter.allCases.filter { $0 == .all || count($0) > 0 }, id: \.self) { option in
+                    filterChip(option)
+                }
+            }
+        }
+        .scrollClipDisabled()
+        .sensoryFeedback(.selection, trigger: filter)
+    }
+
+    private func filterChip(_ option: Filter) -> some View {
+        let on = filter == option
+        let label = option == .all ? option.title : "\(option.title) · \(count(option))"
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) { filter = option }
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(on ? .semibold : .regular))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(on ? Color.accentColor : Color.track, in: Capsule())
+                .foregroundStyle(on ? Theme.onAccent : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dayBlock(_ day: PlanDay) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(dayHeading(day.id))
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.top, 6)
+            ForEach(day.posts) { post in
+                NavigationLink {
+                    PostDetailView(postID: post.id)
+                } label: {
+                    PostPreviewCard(post: post, timezone: timezone)
+                }
+                .buttonStyle(SoftPressStyle())
+            }
+        }
+    }
+
+    private func emptyBoard(_ plan: ContentPlan) -> some View {
+        VStack(spacing: 12) {
+            EmptyArt(name: "empty-plan", size: 110)
+            Text("No posts in this plan yet")
+                .font(.headline)
+            Text("Upload one of your videos and Autocast writes the post, puts it at the next open time and checks it with TikTok.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            Button { uploading = true } label: {
+                PrimaryButtonLabel(title: "Upload a video", systemImage: "video.badge.plus")
+            }
+            .primaryButtonStyle()
+            .disabled(plan.isProposal)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .raisedCard(radius: Style.rowCard)
+    }
+
+    // MARK: - Loading
+
+    private func reload() async {
+        await session.refreshPlan()
+        guard let plan = session.plan else {
+            board = []
+            loaded = true
+            return
+        }
+        do {
+            board = try await session.board(plan: plan.id)
+        } catch {
+            session.lastError = session.readableMessage(error)
+        }
+        loaded = true
+    }
+
+    /// True while anything on the board is being made, published or checked,
+    /// or is due within ten minutes.
+    private var isMoving: Bool {
+        board.contains { post in
+            post.stage.isWorking
+                || (post.stage == .readyToPublish && (post.when ?? .distantFuture).timeIntervalSinceNow < 600)
+        }
+    }
+
+    private func watch() async {
+        guard isMoving else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            if let plan = session.plan, let fresh = try? await session.board(plan: plan.id) {
+                board = fresh
+            }
+            if !isMoving { return }
         }
     }
 
     private func approve() async {
-        if await session.activatePlan() { dismiss() }
+        approvingPlan = true
+        defer { approvingPlan = false }
+        if await session.activatePlan() { await reload() }
     }
 
-    /// True while anything on this plan is being generated.
-    private var isMaking: Bool { posts.contains { $0.status == .sourcing } }
-
-    /// Checks back while a video is being made, and stops the moment it is not.
-    ///
-    /// Twelve seconds because generation takes minutes -- this is not a race,
-    /// it is the difference between a screen that resolves itself and one that
-    /// looks stuck. The task is keyed on `isMaking`, so finishing tears it down
-    /// rather than leaving a timer running behind a screen nobody is looking at.
-    private func watchWhileMaking() async {
-        guard isMaking else { return }
-
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .seconds(12))
-            guard !Task.isCancelled else { return }
-
-            await session.refreshPlan()
-            await session.refreshPosts()
-
-            if !isMaking { return }
-        }
-    }
-
-    /// Puts a video against the day it was picked for.
-    ///
-    /// The caption comes from what the plan already wrote, so filling in a slot
-    /// is one gesture rather than a picker followed by a form. It can still be
-    /// changed on the approval sheet, which is where every other choice about
-    /// this post is made.
-    private func attachPicked() async {
-        guard let pickerItem, let target = addingTo else { return }
-        defer {
-            self.pickerItem = nil
-            addingTo = nil
-        }
-
-        do {
-            guard let movie = try await pickerItem.loadTransferable(type: Movie.self) else { return }
-            let data = try Data(contentsOf: movie.url)
-            try? FileManager.default.removeItem(at: movie.url)
-
-            await session.addVideo(
-                data: data,
-                filename: movie.url.lastPathComponent,
-                caption: target.script,
-                postID: target.id
-            )
-        } catch {
-            session.lastError = "That video could not be read."
-        }
-    }
-
-    // MARK: - Dates in the brand's own zone
-
-    private var brandTimeZone: TimeZone {
-        session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
-    }
-
-    private func calendarInBrandTime() -> Calendar {
-        var calendar = Calendar.current
-        calendar.timeZone = brandTimeZone
-        return calendar
-    }
-
-    /// "Today", "Tomorrow", then the date. The first two days are the ones a
-    /// person is actually deciding about.
     private func dayHeading(_ date: Date) -> String {
-        let calendar = calendarInBrandTime()
+        if date == .distantFuture { return "No time yet" }
+        var calendar = Calendar.current
+        calendar.timeZone = timezone
         if calendar.isDateInToday(date) { return "Today" }
         if calendar.isDateInTomorrow(date) { return "Tomorrow" }
-
         let formatter = DateFormatter()
-        formatter.timeZone = brandTimeZone
+        formatter.timeZone = timezone
         formatter.dateFormat = "EEEE d MMMM"
         return formatter.string(from: date)
     }
 }
 
-// MARK: - Summary
+// MARK: - Header
 
-private struct PlanSummary: View {
+/// Name, objective, platform, duration, frequency, pillars, and where the
+/// posts are: the campaign at a glance.
+private struct PlanHeader: View {
     let plan: ContentPlan
-    let posts: [PlannedPost]
-    /// How many days already have something to publish.
-    let withVideo: Int
-
-    private var waiting: Int { max(0, posts.count - withVideo) }
-
-    var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 12) {
-                if !plan.title.isEmpty {
-                    Text(plan.title)
-                        .font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Text(plan.isRunning
-                     ? "Running. \(withVideo) of \(posts.count) days have a video."
-                     : "\(posts.count) posts written. Nothing is scheduled until you approve it.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // The honest caveat, said here rather than discovered later.
-                // Approving sets the times; it does not make the videos,
-                // because nothing in this app makes videos yet.
-                Label {
-                    Text(caveat)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } icon: {
-                    Image(systemName: "info.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
-    private var caveat: String {
-        guard plan.isRunning else {
-            return "Approving sets the times. Each day still needs a video before it can go out."
-        }
-        if waiting == 0 {
-            return "Every day has a video. Approved ones go out on their own."
-        }
-        return "\(waiting) still need a video. Make it or add your own, approve it once, and it posts itself at the time shown."
-    }
-}
-
-// MARK: - One post
-
-private struct PlannedPostRow: View {
-    let post: PlannedPost
+    let board: [BoardPost]
     let timezone: TimeZone
-    /// The queue entry this day produced, once a video has been attached to it.
-    let queued: PendingPost?
-    let canAttach: Bool
-    let canGenerate: Bool
-    let addVideo: () -> Void
-    let generate: () -> Void
-    let review: () -> Void
 
-    @State private var expanded = false
-
-    /// The planner does not carry the failure text, so this says what is true
-    /// generally rather than inventing a specific reason.
-    private var failureNote: String {
-        "That did not come out. Try again, or add your own video."
+    private var pillars: [String] {
+        var seen: [String] = []
+        for post in board {
+            if let name = post.pillar, !seen.contains(name) { seen.append(name) }
+        }
+        return seen
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(time)
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(Theme.accent)
-
-                if let pillar = post.pillar?.name {
-                    Text(pillar)
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Theme.softAccent, in: Capsule())
-                }
-
-                Spacer(minLength: 0)
-
-                if post.status == .scheduled && queued == nil {
-                    Image(systemName: "clock")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Text(post.hook)
-                .font(.subheadline.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-
-            if !post.script.isEmpty {
-                Text(post.script)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if expanded {
-                if !post.concept.isEmpty {
-                    Detail(icon: "video", title: "Shows", text: post.concept)
-                }
-                if !post.rationale.isEmpty {
-                    Detail(icon: "quote.opening", title: "Why", text: post.rationale)
-                }
-            }
-
-            // Where this day actually stands. Until there is a video there is
-            // nothing to publish, and the row should say that rather than
-            // looking finished because it has words in it.
-            if canAttach {
-                action
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.snappy) { expanded.toggle() }
-        }
-        .accessibilityHint(expanded ? "Collapse details" : "Show what it films and why")
+    private var objective: String {
+        if let objective = plan.objective, !objective.isEmpty { return objective }
+        return plan.brief
     }
 
-    @ViewBuilder
-    private var action: some View {
-        if let queued {
-            if queued.needsYou {
-                Button(action: review) {
-                    Label("Approve it", systemImage: "hand.raised")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                // A row inside a List already has a tap; a button inside it
-                // needs its own hit test or the row swallows the press.
-                .buttonBorderShape(.capsule)
-            } else {
-                Label(queued.statusLine, systemImage: statusSymbol(queued))
-                    .font(.caption)
-                    .foregroundStyle(queued.state == .failed ? Color.red : Color.secondary)
-            }
-        } else if post.status == .sourcing {
-            // Minutes, not seconds, and it finishes without the app open. The
-            // row says which of those is happening rather than showing a
-            // spinner that looks like the screen is stuck.
-            Label("Being made — this takes a few minutes", systemImage: "wand.and.stars")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else if post.status == .failed {
-            Label(failureNote, systemImage: "exclamationmark.triangle")
-                .font(.caption)
-                .foregroundStyle(Color.red)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            HStack(spacing: 8) {
-                if canGenerate {
-                    Button(action: generate) {
-                        Label("Make it", systemImage: "wand.and.stars")
-                            .font(.caption.weight(.medium))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .buttonBorderShape(.capsule)
-                }
-
-                Button(action: addVideo) {
-                    Label(canGenerate ? "Use my own" : "Add video", systemImage: "video.badge.plus")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .buttonBorderShape(.capsule)
-            }
-        }
-    }
-
-    private func statusSymbol(_ queued: PendingPost) -> String {
-        switch queued.state {
-        case .published: return "checkmark.circle.fill"
-        case .failed:    return "exclamationmark.triangle.fill"
-        case .pending:   return "clock"
-        default:         return "paperplane"
-        }
-    }
-
-    private var time: String {
-        guard let when = post.scheduledFor else { return "--:--" }
+    private var startLabel: String {
+        let parser = DateFormatter()
+        parser.dateFormat = "yyyy-MM-dd"
+        parser.timeZone = timezone
+        guard let date = parser.date(from: plan.startsOn) else { return plan.startsOn }
         let formatter = DateFormatter()
         formatter.timeZone = timezone
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: when)
+        formatter.dateFormat = "d MMM"
+        return formatter.string(from: date)
     }
-}
 
-/// The property is `text`, not `body`: a View cannot have a stored property
-/// called body, and the compiler's complaint about it is not obvious.
-private struct Detail: View {
-    let icon: String
-    let title: String
-    let text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: icon)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(width: 14)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(text)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+    private var platforms: String {
+        var names: [String] = []
+        for value in plan.platforms ?? ["tiktok"] {
+            switch value {
+            case "reels":  names.append("Instagram")
+            case "shorts": names.append("YouTube")
+            default:       names.append("TikTok")
             }
         }
+        return names.joined(separator: " · ")
+    }
+
+    private var statusText: String {
+        switch plan.status {
+        case .active:           return "Running"
+        case .paused:           return "Paused"
+        case .draft, .proposed: return "Waiting for your approval"
+        default:                return plan.status.rawValue.capitalized
+        }
+    }
+
+    private var statusTint: Color {
+        switch plan.status {
+        case .active: return .green
+        case .paused, .draft, .proposed: return .orange
+        default: return .secondary
+        }
+    }
+
+    private func tally(_ test: (BoardPost) -> Bool) -> String {
+        String(board.filter(test).count)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(statusText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(statusTint)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(statusTint.opacity(0.12), in: Capsule())
+
+            Text(plan.title)
+                .font(.title2.bold())
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !objective.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Objective").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(objective).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            FlowLayout(spacing: 6) {
+                FactChip(text: platforms, symbol: "music.note")
+                FactChip(text: "\(plan.days) days from \(startLabel)", symbol: "calendar")
+                FactChip(text: "\(plan.postsPerDay) a day", symbol: "repeat")
+                ForEach(pillars, id: \.self) { name in
+                    FactChip(text: name, symbol: "square.stack")
+                }
+            }
+
+            if !board.isEmpty {
+                Divider()
+                HStack(spacing: 0) {
+                    stat(String(board.count), "posts")
+                    stat(tally { $0.stage == .readyForReview }, "for review")
+                    stat(tally { $0.stage == .readyToPublish || $0.stage.isWorking }, "queued")
+                    stat(tally { $0.stage == .published }, "published")
+                }
+            }
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .raisedCard(radius: Style.bigCard)
+    }
+
+    private func stat(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .monospacedDigit()
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -620,8 +531,6 @@ private struct WritingNotice: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
     }
 
     private var importLine: String {

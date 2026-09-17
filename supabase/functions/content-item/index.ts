@@ -380,6 +380,16 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
       stitch_disabled: info.stitch_disabled ?? false,
       max_video_post_duration_sec: info.max_video_post_duration_sec ?? 600,
     });
+    // Until TikTok has reviewed Autocast it refuses posts from PUBLIC accounts
+    // (unaudited_client_can_only_post_to_private_accounts). A public account
+    // is one that is offered PUBLIC_TO_EVERYONE.
+    if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true") {
+      const isPublic = info.privacy_level_options.includes("PUBLIC_TO_EVERYONE");
+      add("private", "Account set to private", !isPublic,
+        isPublic
+          ? `TikTok only accepts posts from private accounts while it reviews Autocast. Set @${info.creator_username ?? "your account"} to Private in TikTok → Settings → Privacy, then check again.`
+          : "Private — TikTok will accept the post.");
+    }
     const onlyPrivate = info.privacy_level_options.length === 1 && info.privacy_level_options[0] === "SELF_ONLY";
     add("posting", "TikTok allows posting", info.privacy_level_options.length > 0,
       onlyPrivate
@@ -476,14 +486,19 @@ async function activeConnection(admin: Admin, brandId: string) {
   return data as { id: string; platform: string; username: string; status: string } | null;
 }
 
-const CLAIMS = /(instant(ly)?|in (a few |mere )?seconds|in no time|effortless(ly)?|easy|easily|fast(er|est)?|quick(ly|er)?|rapid(ly)?|accurate(ly)?|precise(ly)?|best|#1|number one|guarantee[ds]?|proven)/gi;
+const CLAIMS = /\b(instant(ly)?|in (a few |mere )?seconds|in no time|effortless(ly)?|easy|easily|fast(er|est)?|quick(ly|er)?|rapid(ly)?|accurate(ly)?|precise(ly)?|best|number one|guarantee[ds]?|proven)\b|#1\b/gi;
 
 function unsupportedClaims(text: string): string[] {
   return [...new Set((text.match(CLAIMS) ?? []).map((w) => w.toLowerCase()))];
 }
 
 function stripClaims(text: string): string {
-  return text.replace(CLAIMS, "").replace(/s+([.,!?])/g, "$1").replace(/s{2,}/g, " ").replace(/as+(?=[aeiou])/gi, "an ").trim();
+  return text
+    .replace(CLAIMS, "")
+    .replace(/\s+([.,!?])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\ba\s+(?=[aeiou])/gi, "an ")
+    .trim();
 }
 
 function privacyName(level: string): string {

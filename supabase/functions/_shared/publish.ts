@@ -204,7 +204,8 @@ export async function publishTarget(
   };
 
   if (!initResponse.ok || !init.data?.publish_id || !init.data?.upload_url) {
-    await fail(admin, target.id, init.error?.code ?? "init_failed", init.error?.message);
+    const code = init.error?.code ?? "init_failed";
+    await fail(admin, target.id, code, plainReason(code) ?? init.error?.message);
     return { state: "failed", reason: init.error?.message ?? "init_failed" };
   }
 
@@ -292,6 +293,27 @@ async function markPublished(
     provider_post_id: publicId ?? null,
   }).eq("id", targetId);
   await admin.from("posts").update({ status: "posted", failure_reason: null }).eq("id", postId);
+}
+
+/** TikTok's refusals, in words a person can act on. */
+export function plainReason(code: string): string | undefined {
+  switch (code) {
+    case "unaudited_client_can_only_post_to_private_accounts":
+      return "TikTok only accepts posts from private accounts until it has reviewed Autocast. Set your TikTok account to Private (TikTok → Settings → Privacy), then pick a new time.";
+    case "spam_risk_too_many_posts":
+      return "TikTok's daily posting limit for this account was reached. Pick a time tomorrow.";
+    case "spam_risk_user_banned_from_posting":
+      return "TikTok isn't letting this account post right now.";
+    case "privacy_level_option_mismatch":
+      return "That visibility isn't available on this account any more. Review it again.";
+    case "reached_active_user_cap":
+      return "TikTok's limit for apps in review was reached today. Try again tomorrow.";
+    case "access_token_invalid":
+    case "scope_not_authorized":
+      return "TikTok needs you to sign in again (You → Accounts).";
+    default:
+      return undefined;
+  }
 }
 
 async function fail(

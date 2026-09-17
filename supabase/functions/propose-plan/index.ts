@@ -599,7 +599,7 @@ function cleanTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return [];
   return tags
     .filter((t): t is string => typeof t === "string" && t.trim().length > 0)
-    .map((t) => (t.trim().startsWith("#") ? t.trim() : `#${t.trim()}`).toLowerCase().replace(/s+/g, ""))
+    .map((t) => (t.trim().startsWith("#") ? t.trim() : `#${t.trim()}`).toLowerCase().replace(/\s+/g, ""))
     .slice(0, 5);
 }
 

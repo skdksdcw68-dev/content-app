@@ -230,7 +230,7 @@ Deno.serve(async (request) => {
       taken.add(at);
 
       const hashtags = (p.hashtags ?? []).filter((h) => typeof h === "string" && h.trim()).map((h) => h.trim().startsWith("#") ? h.trim() : `#${h.trim()}`);
-      const caption = (p.caption ?? "").replace(/(^|s)#w+/g, "").trim();
+      const caption = (p.caption ?? "").replace(/(^|\s)#\w+/g, "").trim();
       rows.push({
         user_id: userId,
         brand_id: brand.id,
@@ -242,7 +242,7 @@ Deno.serve(async (request) => {
         hook: (p.hook || p.caption || p.concept || "").slice(0, 200),
         script: caption,
         cta: (p.cta ?? "").trim().slice(0, 200),
-        hashtags: hashtags.map((h) => h.toLowerCase().replace(/s+/g, "")).slice(0, 8),
+        hashtags: hashtags.map((h) => h.toLowerCase().replace(/\s+/g, "")).slice(0, 8),
         concept: p.concept ?? "",
         rationale: `From your plan${fileName ? ` "${fileName}"` : ""}, day ${p.dayIndex + 1}.`.slice(0, 300),
         status: "planned",

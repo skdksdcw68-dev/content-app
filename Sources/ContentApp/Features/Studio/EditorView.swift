@@ -680,7 +680,7 @@ private struct AdjustSheet: View {
             Slider(value: Binding(get: { value }, set: set), in: range) {
                 Text(title)
             } minimumValueLabel: {
-                Image(systemName: symbol).foregroundStyle(.secondary)
+                Text("\(Image(systemName: symbol))").foregroundStyle(.secondary)
             } maximumValueLabel: {
                 Text(String(format: "%+.0f", (value - (range.lowerBound + range.upperBound) / 2) / (range.upperBound - range.lowerBound) * 200))
                     .font(.caption.monospacedDigit())

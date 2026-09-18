@@ -159,7 +159,7 @@ struct SoundPickerSheet: View {
                            in: 0...longest) {
                         Text("Starts at")
                     } minimumValueLabel: {
-                        Image(systemName: "scissors")
+                        Text("\(Image(systemName: "scissors"))")
                     } maximumValueLabel: {
                         Text(Clock.format(music.startOffset)).font(.caption.monospacedDigit())
                     } onEditingChanged: { editing in

@@ -18,6 +18,16 @@ extension AppSession {
         let p_brand: String
         let p_plan: String?
         let p_post: String?
+        var p_videos: Bool = false
+    }
+
+    /// Every post with a video, newest first: Home's list.
+    func videos() async throws -> [BoardPost] {
+        guard let brand else { throw AnalyticsError.noBrand }
+        let response = try await client
+            .rpc("post_board", params: BoardParams(p_brand: brand.id.uuidString, p_plan: nil, p_post: nil, p_videos: true))
+            .execute()
+        return try Self.operateDecoder.decode([BoardPost].self, from: response.data)
     }
 
     func board(plan: UUID) async throws -> [BoardPost] {

@@ -19,6 +19,8 @@ struct HomeView: View {
     @State private var approving: PendingPost?
     /// What was made today, read once when the page appears.
     @State private var today: AppSession.DayTally?
+    /// Every video made for this brand, newest first. Nil until loaded.
+    @State private var loadedVideos: [BoardPost]?
     /// Naming another app to market.
     @State private var addingBrand = false
     @State private var newBrand = ""
@@ -28,6 +30,7 @@ struct HomeView: View {
         SwitchAppTip()
     }
 
+    private var videos: [BoardPost] { loadedVideos ?? [] }
     private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
     private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
 
@@ -98,59 +101,9 @@ struct HomeView: View {
                         .entrance(3)
                 }
 
-                SectionHeader(title: "Up next")
-                    .padding(.top, 28)
-
-                Group {
-                    if let nextUp {
-                        NavigationLink { PostDetailView(postID: nextUp.id) } label: {
-                            UpNextCard(post: nextUp, timezone: brandTimeZone)
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
-                        NavigationLink { CreateView().pushedPage() } label: {
-                            EmptyStackCard(
-                                art: "empty-plan",
-                                symbol: "calendar",
-                                message: "Plan your first week and your next post shows up here."
-                            )
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    }
-                }
-                .padding(.top, 12)
-                .entrance(4)
-
-                if !needsYou.isEmpty {
-                    SectionHeader(title: "Waiting for you")
-                        .padding(.top, 28)
-
-                    VStack(spacing: 12) {
-                        ForEach(needsYou.prefix(4)) { post in
-                            NavigationLink { PostDetailView(postID: post.postId) } label: {
-                                PostCard(post: post, kind: .review)
-                            }
-                            .buttonStyle(SoftPressStyle())
-                        }
-                    }
-                    .padding(.top, 12)
-                }
-
-                if !inFlight.isEmpty {
-                    SectionHeader(title: "On its way")
-                        .padding(.top, 28)
-
-                    VStack(spacing: 12) {
-                        ForEach(inFlight) { post in
-                            PostCard(post: post, kind: .working)
-                        }
-                    }
-                    .padding(.top, 12)
-                }
-
-                SectionHeader(title: "Recently posted") {
-                    NavigationLink { LibraryView() } label: {
-                        Text("View all")
+                SectionHeader(title: "Your videos") {
+                    if !videos.isEmpty {
+                        Text("\(videos.count)")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
@@ -158,24 +111,33 @@ struct HomeView: View {
                 .padding(.top, 28)
 
                 Group {
-                    if recent.isEmpty {
-                        EmptyStackCard(
-                            art: "empty-posts",
-                            symbol: "play.rectangle",
-                            message: "Your posts appear here once they go out."
-                        )
-                    } else {
-                        VStack(spacing: 12) {
-                            ForEach(recent) { post in
-                                NavigationLink { PostDetailView(postID: post.postId) } label: {
-                                    PostCard(post: post, kind: .result)
+                    if let videos = loadedVideos, !videos.isEmpty {
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                            ForEach(videos) { video in
+                                NavigationLink { PostDetailView(postID: video.id) } label: {
+                                    VideoTile(post: video, timezone: brandTimeZone)
                                 }
                                 .buttonStyle(SoftPressStyle())
                             }
                         }
+                    } else if loadedVideos == nil {
+                        HStack(spacing: 12) {
+                            SkeletonCard(height: 250)
+                            SkeletonCard(height: 250)
+                        }
+                    } else {
+                        NavigationLink { StudioFlowView() } label: {
+                            EmptyStackCard(
+                                art: "empty-posts",
+                                symbol: "video.badge.plus",
+                                message: "Videos you make show up here — drafts, scheduled and posted."
+                            )
+                        }
+                        .buttonStyle(SoftPressStyle())
                     }
                 }
                 .padding(.top, 12)
+                .entrance(4)
             }
             .screenGutter()
             .padding(.bottom, 32)
@@ -185,7 +147,9 @@ struct HomeView: View {
         // bar is hidden here. Pushed pages show their own.
         .toolbar(.hidden, for: .navigationBar)
         .task { today = await session.todayTally() }
+        .task(id: session.brand?.id) { loadedVideos = try? await session.videos() }
         .refreshable {
+            loadedVideos = try? await session.videos()
             await session.refreshConnections()
             await session.refreshPosts()
             await session.refreshPlan()
@@ -637,5 +601,42 @@ private struct AutopilotLinkRow: View {
             .raisedCard(radius: Style.rowCard)
         }
         .buttonStyle(SoftPressStyle())
+    }
+}
+
+/// One made video on Home: its frame, where it is, and its words.
+private struct VideoTile: View {
+    let post: BoardPost
+    let timezone: TimeZone
+
+    private var when: String {
+        let date = post.publishedDate ?? post.when
+        guard let date else { return post.stage.title }
+        let formatter = DateFormatter()
+        formatter.timeZone = timezone
+        formatter.dateFormat = Calendar.current.isDate(date, equalTo: .now, toGranularity: .year) ? "d MMM, HH:mm" : "d MMM yyyy"
+        return formatter.string(from: date)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GeometryReader { proxy in
+                PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
+            }
+            .aspectRatio(9 / 16, contentMode: .fit)
+            .overlay(alignment: .topLeading) {
+                StageChip(stage: post.stage, compact: true)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(8)
+            }
+            Text(post.hook)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+            Text(when)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 }

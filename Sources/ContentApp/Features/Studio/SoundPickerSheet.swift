@@ -31,9 +31,9 @@ extension AppSession {
     }
 }
 
-/// TikTok's sound sheet (Abel's screenshot): For You / Hot / Favorites /
-/// Recent with search, rows with artwork, ✂ and 🔖, and Original / Sound /
-/// Volume along the bottom. TikTok's own sounds cannot be used by apps, so the
+/// The sound sheet, built from native parts: a segmented For You / Hot /
+/// Favorites / Recent, the system search field, a list of tracks, and the mix
+/// in a form section. TikTok's own sounds cannot be used by apps, so the
 /// library is licensed music, plus your own audio, plus the honest route to a
 /// TikTok sound: finish it in TikTok through Drafts.
 struct SoundPickerSheet: View {
@@ -46,11 +46,10 @@ struct SoundPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     enum Tab: String, CaseIterable { case forYou = "For You", hot = "Hot", favorites = "Favorites", recent = "Recent" }
-    enum Bottom { case none, volume, trim }
 
     @State private var tab: Tab = .forYou
-    @State private var searching = false
     @State private var query = ""
+    @State private var searched = ""
     @State private var tracks: [MusicTrack] = []
     @State private var loading = false
     @State private var failed: String?
@@ -58,55 +57,78 @@ struct SoundPickerSheet: View {
     @State private var applying: String?
     @State private var favorites: [MusicTrack] = SoundShelf.load(SoundShelf.favoritesKey)
     @State private var recent: [MusicTrack] = SoundShelf.load(SoundShelf.recentKey)
-    @State private var bottom: Bottom = .none
     @State private var importingFile = false
     @State private var videoItem: PhotosPickerItem?
     @State private var pickingVideo = false
     @State private var explainingTikTok = false
     @State private var player = AVPlayer()
 
+    private var searching: Bool { !searched.isEmpty }
+
     private var shown: [MusicTrack] {
+        if searching { return tracks }
         switch tab {
-        case .favorites: favorites
-        case .recent:    recent
-        default:         tracks
+        case .favorites: return favorites
+        case .recent:    return recent
+        default:         return tracks
         }
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                tabBar
-                if searching { searchField }
-                List {
-                    if tab == .forYou && !searching { extraRows }
-                    if loading && shown.isEmpty {
-                        HStack { Spacer(); ProgressView(); Spacer() }.listRowBackground(Color.clear)
-                    } else if let failed, shown.isEmpty {
-                        Text(failed).font(.subheadline).foregroundStyle(.secondary)
-                    } else if shown.isEmpty {
-                        Text(emptyText).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    ForEach(shown) { track in
-                        row(track)
-                    }
-                    if !shown.isEmpty && (tab == .forYou || tab == .hot || searching) {
-                        Text("Free-to-use music from Openverse (CC BY / CC0). The artist credit is added to your description.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            List {
+                if project.music != nil || project.originalVolume != 1 {
+                    mixSection
+                }
+
+                if !searching {
+                    Section {
+                        Picker("Sounds", selection: $tab) {
+                            ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     }
                 }
-                .listStyle(.plain)
-                bottomPanel
-                bottomBar
+
+                if tab == .forYou && !searching {
+                    Section {
+                        Button { importingFile = true } label: { Label("Your audio file", systemImage: "folder") }
+                        Button { pickingVideo = true } label: { Label("Sound from a video", systemImage: "film") }
+                        Button { explainingTikTok = true } label: { Label("Use a TikTok sound", systemImage: "music.note.tv") }
+                    }
+                }
+
+                Section {
+                    if loading && shown.isEmpty {
+                        HStack { Spacer(); ProgressView(); Spacer() }
+                    } else if let failed, shown.isEmpty {
+                        Text(failed).foregroundStyle(.secondary)
+                    } else if shown.isEmpty {
+                        Text(emptyText).foregroundStyle(.secondary)
+                    }
+                    ForEach(shown) { track in row(track) }
+                } header: {
+                    Text(searching ? "Results" : tab.rawValue)
+                } footer: {
+                    if !shown.isEmpty && tab != .favorites && tab != .recent {
+                        Text("Free-to-use music (CC BY / CC0) from Openverse. The artist credit is added to your description.")
+                    }
+                }
             }
+            .listStyle(.insetGrouped)
+            .searchable(text: $query, prompt: "Search sounds")
+            .onSubmit(of: .search) { searched = query }
+            .onChange(of: query) { _, value in if value.isEmpty { searched = "" } }
+            .navigationTitle("Sound")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
         }
         .presentationDetents([.large])
-        .task(id: "\(tab.rawValue)|\(searching)") { await load() }
+        .task(id: "\(tab.rawValue)|\(searched)") { await load() }
         .onDisappear { player.pause() }
         .fileImporter(isPresented: $importingFile, allowedContentTypes: [.audio]) { result in
             if case .success(let url) = result { Task { await useFile(url) } }
@@ -120,61 +142,50 @@ struct SoundPickerSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("TikTok doesn't let other apps use its sounds. Finish your edit here, then tap Drafts on the post screen — the video opens in TikTok, where you can add any TikTok sound and post.")
+            Text("TikTok doesn't let other apps use its sounds. Finish your edit here, then choose Drafts on the post screen — the video opens in TikTok, where you can add any TikTok sound and post.")
         }
     }
 
     // MARK: - Pieces
 
-    private var tabBar: some View {
-        HStack(spacing: 22) {
-            ForEach(Tab.allCases, id: \.self) { item in
-                Button {
-                    tab = item
-                    searching = false
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(item.rawValue)
-                            .font(.system(size: 16, weight: tab == item && !searching ? .semibold : .regular))
-                            .foregroundStyle(tab == item && !searching ? Color.primary : Color.secondary)
-                        Capsule().fill(tab == item && !searching ? Color.primary : Color.clear).frame(height: 2.5)
+    private var mixSection: some View {
+        Section("Mix") {
+            if let music = project.music {
+                LabeledContent("Sound", value: music.title)
+                let longest = max(0, music.trackDuration - project.duration)
+                if longest > 1 {
+                    Slider(value: Binding(get: { music.startOffset },
+                                          set: { value in update { $0.music?.startOffset = value } }),
+                           in: 0...longest) {
+                        Text("Starts at")
+                    } minimumValueLabel: {
+                        Image(systemName: "scissors")
+                    } maximumValueLabel: {
+                        Text(Clock.format(music.startOffset)).font(.caption.monospacedDigit())
+                    } onEditingChanged: { editing in
+                        if !editing { previewFrom(music.fileURL, music.startOffset) }
                     }
-                    .fixedSize()
+                }
+                volumeRow("Added sound", Double(music.volume)) { value in update { $0.music?.volume = Float(value) } }
+            }
+            volumeRow("Original sound", Double(project.originalVolume)) { value in update { $0.originalVolume = Float(value) } }
+            if project.music != nil {
+                Button("Remove sound", role: .destructive) {
+                    player.pause()
+                    previewing = nil
+                    update { $0.music = nil }
                 }
             }
-            Spacer()
-            Button { searching.toggle() } label: {
-                Image(systemName: "magnifyingglass").font(.system(size: 19, weight: .medium))
-            }
-            .foregroundStyle(Color.primary)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 4)
     }
 
-    private var searchField: some View {
-        HStack {
-            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Search sounds", text: $query)
-                .submitLabel(.search)
-                .onSubmit { Task { await load() } }
-        }
-        .padding(10)
-        .background(Color.track, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .padding(.horizontal, 16)
-        .padding(.top, 10)
-    }
-
-    @ViewBuilder
-    private var extraRows: some View {
-        Button { importingFile = true } label: {
-            Label("Your audio", systemImage: "folder")
-        }
-        Button { pickingVideo = true } label: {
-            Label("Use sound from a video", systemImage: "film")
-        }
-        Button { explainingTikTok = true } label: {
-            Label("Use a TikTok sound", systemImage: "music.note")
+    private func volumeRow(_ title: String, _ value: Double, set: @escaping (Double) -> Void) -> some View {
+        Slider(value: Binding(get: { value }, set: set), in: 0...1.5) {
+            Text(title)
+        } minimumValueLabel: {
+            Text(title).font(.subheadline).frame(width: 110, alignment: .leading)
+        } maximumValueLabel: {
+            Text("\(Int(value * 100))").font(.caption.monospacedDigit()).frame(width: 32)
         }
     }
 
@@ -188,131 +199,37 @@ struct SoundPickerSheet: View {
                     } placeholder: {
                         ZStack { Color.track; Image(systemName: "music.note").foregroundStyle(.secondary) }
                     }
-                    .frame(width: 54, height: 54)
+                    .frame(width: 48, height: 48)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .overlay {
-                        if applying == track.id { ProgressView().tint(.white) }
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 4) {
-                            if previewing == track.id {
-                                Image(systemName: "waveform").font(.caption).foregroundStyle(Color.accentColor)
-                            }
-                            Text(track.title)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(selected ? Color.accentColor : Color.primary)
-                                .lineLimit(1)
-                        }
-                        Text("\(track.artist) · \(MediaPickerView.clock(Double(track.durationS)))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    .overlay { if applying == track.id { ProgressView() } }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title).font(.body.weight(selected ? .semibold : .regular)).lineLimit(1)
+                        Text("\(track.artist) · \(Clock.format(Double(track.durationS)))")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                }
-            }
-            .buttonStyle(.plain)
-
-            if selected {
-                Button { bottom = bottom == .trim ? .none : .trim } label: {
-                    Image(systemName: "scissors").font(.system(size: 18))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Choose where the sound starts")
-            }
-            Button { toggleFavorite(track) } label: {
-                Image(systemName: favorites.contains(track) ? "bookmark.fill" : "bookmark").font(.system(size: 18))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Favorite")
-        }
-        .padding(.vertical, 4)
-        .listRowBackground(selected ? Color.accentColor.opacity(0.08) : Color.clear)
-    }
-
-    @ViewBuilder
-    private var bottomPanel: some View {
-        switch bottom {
-        case .volume:
-            VStack(spacing: 10) {
-                volumeRow("Original", value: Binding(
-                    get: { Double(project.originalVolume) },
-                    set: { value in update { $0.originalVolume = Float(value) } }
-                ))
-                if project.music != nil {
-                    volumeRow("Added sound", value: Binding(
-                        get: { Double(project.music?.volume ?? 0) },
-                        set: { value in update { $0.music?.volume = Float(value) } }
-                    ))
-                }
-            }
-            .padding(16)
-            .background(Color.track.opacity(0.5))
-        case .trim:
-            if let music = project.music {
-                let longest = max(0, music.trackDuration - project.duration)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Starts at \(MediaPickerView.clock(music.startOffset))")
-                        .font(.caption.weight(.semibold))
-                    Slider(value: Binding(
-                        get: { music.startOffset },
-                        set: { value in update { $0.music?.startOffset = value } }
-                    ), in: 0...max(0.1, longest)) { editing in
-                        if !editing { previewFrom(music.fileURL, music.startOffset) }
+                    if selected {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+                    } else if previewing == track.id {
+                        Image(systemName: "waveform").foregroundStyle(.secondary)
                     }
                 }
-                .padding(16)
-                .background(Color.track.opacity(0.5))
             }
-        case .none:
-            EmptyView()
+            .buttonStyle(.plain)
+            Button { toggleFavorite(track) } label: {
+                Image(systemName: favorites.contains(track) ? "bookmark.fill" : "bookmark")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Favorite")
         }
-    }
-
-    private func volumeRow(_ title: String, value: Binding<Double>) -> some View {
-        HStack {
-            Text(title).font(.subheadline).frame(width: 100, alignment: .leading)
-            Slider(value: value, in: 0...1.5)
-            Text("\(Int(value.wrappedValue * 100))").font(.caption.monospacedDigit()).frame(width: 34)
-        }
-    }
-
-    private var bottomBar: some View {
-        HStack {
-            barButton(project.originalVolume == 0 ? "mic.slash" : "mic", "Original") {
-                update { $0.originalVolume = $0.originalVolume == 0 ? 1 : 0 }
-            }
-            barButton("music.note", project.music?.title ?? "Sound") {
-                if project.music != nil {
-                    player.pause()
-                    previewing = nil
-                    update { $0.music = nil }
-                }
-            }
-            barButton("speaker.wave.2", "Volume") {
-                bottom = bottom == .volume ? .none : .volume
-            }
-        }
-        .padding(.vertical, 10)
-        .background(.bar)
-    }
-
-    private func barButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: symbol).font(.system(size: 20))
-                Text(title).font(.caption).lineLimit(1)
-            }
-            .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
     }
 
     private var emptyText: String {
+        if searching { return "No sounds found." }
         switch tab {
-        case .favorites: "Tap 🔖 on a sound to keep it here."
-        case .recent:    "Sounds you use show up here."
-        default:         searching ? "No sounds found." : "No sounds right now."
+        case .favorites: return "Tap the bookmark on a sound to keep it here."
+        case .recent:    return "Sounds you use show up here."
+        default:         return "No sounds right now."
         }
     }
 
@@ -327,13 +244,12 @@ struct SoundPickerSheet: View {
 
     private func load() async {
         guard tab == .forYou || tab == .hot || searching else { return }
-        if searching && query.trimmingCharacters(in: .whitespaces).isEmpty { return }
         loading = true
         failed = nil
         defer { loading = false }
         do {
             tracks = try await session.music(tab: searching ? "search" : (tab == .hot ? "hot" : "for_you"),
-                                             query: searching ? query : nil)
+                                             query: searching ? searched : nil)
         } catch {
             failed = session.readableMessage(error)
         }

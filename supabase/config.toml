@@ -181,3 +181,6 @@ verify_jwt = true
 
 [functions.content-item]
 verify_jwt = true
+
+[functions.music]
+verify_jwt = true

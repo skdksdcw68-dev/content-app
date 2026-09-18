@@ -1,40 +1,48 @@
 import SwiftUI
 import PhotosUI
+import Photos
 import AVKit
 
-/// Posting, in TikTok's own order (Abel's screenshots, 18 Sep 2026):
-/// pick the video → watch it full screen → Next → the post screen.
-///
-/// The post screen is TikTok's: the description on the left with the cover on
-/// the right (Preview / Edit cover), "# Hashtags" and "@ Mention" under it,
-/// then "Everyone can view this post" and "More options" as plain rows, and
-/// Drafts / Post at the bottom. The one addition is a small ✨ in the corner
-/// of the description: it rewrites your words and puts hashtags in the text,
-/// the way TikTok keeps them.
+/// TikTok's post screen, after the editor (Abel's screenshots, 18 Sep 2026):
+/// the description on the left with the cover on the right (Preview / Edit
+/// cover), "# Hashtags" and "@ Mention" under it -- typing either shows
+/// suggestions in place of the rows, as TikTok does -- then "Everyone can view
+/// this post" and "More options" as plain rows, and Drafts / Post at the
+/// bottom. The one addition is a small ✨ in the description's corner.
 ///
 /// A connected account is all it needs -- no brand setup, no plan. The file
-/// goes up as recorded.
+/// from the editor goes up as rendered.
 struct ComposeView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
 
-    enum Phase { case preview, details }
     enum Sending { case post, drafts }
 
+    /// The finished video from the editor.
+    let movieURL: URL
+    /// The music's credit, when the editor used a library track.
+    let attribution: String?
+    /// They chose a TikTok sound, which can only be added in TikTok: Drafts.
+    let preferDrafts: Bool
+
+    init(video: URL, attribution: String? = nil, preferDrafts: Bool = false) {
+        movieURL = video
+        self.attribution = attribution
+        self.preferDrafts = preferDrafts
+        _caption = State(initialValue: attribution.map { "\n\n" + $0 } ?? "")
+    }
+
     // The video
-    @State private var phase: Phase = .preview
-    @State private var picking = false
-    @State private var pickerItem: PhotosPickerItem?
-    @State private var movieURL: URL?
     @State private var facts: VideoFacts?
     @State private var poster: UIImage?
-    @State private var player: AVPlayer?
     @State private var uploadTask: Task<String, Error>?
     @State private var path: String?
 
     // The post
-    @State private var caption = ""
+    @State private var caption: String
     @State private var writing = false
     @FocusState private var typing: Bool
+    @State private var aiTags: [String] = []
     @State private var info: CreatorInfo?
     @State private var privacy: String?
     @State private var scheduled = false
@@ -45,6 +53,7 @@ struct ComposeView: View {
     @State private var disclose = false
     @State private var yourBrand = false
     @State private var brandedContent = false
+    @State private var saveToDevice = false
     @State private var coverMs: Int?
 
     // Sheets
@@ -60,84 +69,12 @@ struct ComposeView: View {
     @State private var done: UUID?
 
     var body: some View {
-        Group {
-            switch phase {
-            case .preview: preview
-            case .details: details
+        details
+            .task { await loadVideo() }
+            .task { await loadAccount() }
+            .navigationDestination(item: $done) { id in
+                PostDetailView(postID: id)
             }
-        }
-        .photosPicker(isPresented: $picking, selection: $pickerItem, matching: .videos)
-        .task(id: pickerItem) { await loadPicked() }
-        .task { await loadAccount() }
-        .task {
-            // Straight to the camera roll, after the push has finished.
-            guard facts == nil else { return }
-            try? await Task.sleep(for: .milliseconds(450))
-            picking = true
-        }
-        .navigationDestination(item: $done) { id in
-            PostDetailView(postID: id)
-        }
-    }
-
-    // MARK: - 1. Preview
-
-    private var preview: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            if let player {
-                VideoPlayer(player: player)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 90)
-                    .onAppear { player.play() }
-                    .onDisappear { player.pause() }
-            } else if facts == nil {
-                VStack(spacing: 14) {
-                    Image(systemName: "video.badge.plus")
-                        .font(.system(size: 34, weight: .light))
-                    Button("Choose a video") { picking = true }
-                        .buttonStyle(.borderedProminent)
-                        .buttonBorderShape(.capsule)
-                }
-                .foregroundStyle(.white)
-            } else {
-                ProgressView().tint(.white)
-            }
-
-            VStack {
-                Spacer()
-                HStack(spacing: 12) {
-                    Button {
-                        picking = true
-                    } label: {
-                        Text("Change")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                            .background(.white.opacity(0.14), in: Capsule())
-                            .foregroundStyle(.white)
-                    }
-                    Button {
-                        player?.pause()
-                        withAnimation(.snappy(duration: 0.25)) { phase = .details }
-                    } label: {
-                        Text("Next")
-                            .font(.body.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 52)
-                            .background(Color.white, in: Capsule())
-                            .foregroundStyle(.black)
-                    }
-                    .disabled(facts == nil)
-                }
-                .buttonStyle(SoftPressStyle())
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-            }
-        }
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .navigationBarTitleDisplayMode(.inline)
-        .pushedPage()
     }
 
     // MARK: - 2. The post screen
@@ -156,18 +93,31 @@ struct ComposeView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
 
-                Divider().padding(.top, 18)
+                if let token = activeToken, !suggestions(for: token).isEmpty {
+                    Divider().padding(.top, 18)
+                    suggestionList(token)
+                } else {
+                    Divider().padding(.top, 18)
 
-                if !problems.isEmpty {
-                    problemsList
-                    Divider()
-                }
+                    if !problems.isEmpty {
+                        problemsList
+                        Divider()
+                    }
 
-                row("globe", audienceTitle) { choosingAudience = true }
-                row("clock", scheduled ? "Scheduled · \(scheduleAt.formatted(date: .abbreviated, time: .shortened))" : "Post now") {
-                    choosingTime = true
+                    if preferDrafts {
+                        Label("To add a TikTok sound, tap Drafts — the video opens in TikTok to finish.", systemImage: "music.note")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .padding(16)
+                        Divider()
+                    }
+
+                    row("globe", audienceTitle) { choosingAudience = true }
+                    row("clock", scheduled ? "Scheduled · \(scheduleAt.formatted(date: .abbreviated, time: .shortened))" : "Post now") {
+                        choosingTime = true
+                    }
+                    row("ellipsis.circle", "More options") { showingMore = true }
                 }
-                row("ellipsis.circle", "More options") { showingMore = true }
 
                 Text("By posting, you agree to TikTok's Music Usage Confirmation.")
                     .font(.caption)
@@ -184,11 +134,11 @@ struct ComposeView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    withAnimation(.snappy(duration: 0.25)) { phase = .preview }
+                    dismiss()
                 } label: {
                     Image(systemName: "chevron.left").font(.body.weight(.semibold))
                 }
-                .accessibilityLabel("Back to the video")
+                .accessibilityLabel("Back to the editor")
             }
         }
         .navigationBarBackButtonHidden(true)
@@ -199,10 +149,11 @@ struct ComposeView: View {
         .sheet(isPresented: $showingMore) { MoreOptionsSheet(
             info: info, privacy: privacy,
             allowComments: $allowComments, allowReuse: $allowReuse, isAIGC: $isAIGC,
-            disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent
+            disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent,
+            saveToDevice: $saveToDevice
         ) }
         .sheet(isPresented: $showingCover) {
-            if let movieURL, let facts {
+            if let facts {
                 CoverPicker(url: movieURL, duration: facts.duration, chosenMs: $coverMs, poster: $poster)
             }
         }
@@ -438,25 +389,14 @@ struct ComposeView: View {
         allowReuse = !(fetched.duetDisabled && fetched.stitchDisabled)
     }
 
-    private func loadPicked() async {
-        guard let pickerItem else { return }
+    private func loadVideo() async {
+        guard facts == nil else { return }
         do {
-            guard let movie = try await pickerItem.loadTransferable(type: Movie.self) else { return }
-            if let old = movieURL { try? FileManager.default.removeItem(at: old) }
-            movieURL = movie.url
-            let read = try await VideoFacts.read(movie.url)
+            let read = try await VideoFacts.read(movieURL)
             facts = read
             poster = read.poster
-            coverMs = nil
-            composed = nil
-            problems = []
-            path = nil
-            let next = AVPlayer(url: movie.url)
-            player = next
-            phase = .preview
-            next.play()
-            // Upload while they watch and write, so Post is quick.
-            let url = movie.url
+            // Upload while they write, so Post is quick.
+            let url = movieURL
             let task = Task { try await session.uploadVideo(at: url) }
             uploadTask = task
             path = try? await task.value
@@ -465,11 +405,68 @@ struct ComposeView: View {
         }
     }
 
+    // MARK: - # and @ suggestions
+
+    /// The word being typed, when it starts with # or @.
+    private var activeToken: String? {
+        guard let last = caption.last, last != " ", last != "\n",
+              let word = caption.split(whereSeparator: { $0 == " " || $0 == "\n" }).last,
+              let first = word.first, first == "#" || first == "@" else { return nil }
+        return String(word)
+    }
+
+    private func suggestions(for token: String) -> [String] {
+        let typed = token.lowercased()
+        let pool = token.hasPrefix("#") ? aiTags + TagMemory.tags : TagMemory.mentions
+        var seen = Set<String>()
+        return Array(pool.filter { tag in
+            let lower = tag.lowercased()
+            return lower.hasPrefix(typed) && lower != typed && seen.insert(lower).inserted
+        }.prefix(8))
+    }
+
+    private func suggestionList(_ token: String) -> some View {
+        VStack(spacing: 0) {
+            ForEach(suggestions(for: token), id: \.self) { tag in
+                Button {
+                    complete(token, with: tag)
+                } label: {
+                    HStack {
+                        Text(tag).font(.system(size: 17))
+                        Spacer()
+                        Text(aiTags.contains(tag) ? "Suggested" : "Used before")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func complete(_ token: String, with value: String) {
+        guard caption.hasSuffix(token) else { return }
+        caption = String(caption.dropLast(token.count)) + value + " "
+    }
+
+    /// Save to device: the rendered video into Photos.
+    static func saveToPhotos(_ url: URL) async {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else { return }
+        try? await PHPhotoLibrary.shared().performChanges {
+            PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+        }
+    }
+
     private func writeWithAI() async {
         writing = true
         defer { writing = false }
         do {
             let result = try await session.writeCaption(caption, hashtags: [], frames: facts?.frames ?? [])
+            aiTags = result.hashtags
             let existing = Set(caption.split(separator: " ").map { $0.lowercased() }.filter { $0.hasPrefix("#") })
             let tags = result.hashtags.filter { !existing.contains($0.lowercased()) && !result.caption.lowercased().contains($0.lowercased()) }
             withAnimation(.snappy(duration: 0.25)) {
@@ -485,7 +482,7 @@ struct ComposeView: View {
     }
 
     private func send(_ mode: Sending) async {
-        guard let facts else { picking = true; return }
+        guard let facts else { return }
         sending = mode
         defer { sending = nil }
         problems = []
@@ -495,7 +492,7 @@ struct ComposeView: View {
             if path == nil {
                 if let uploadTask, let finished = try? await uploadTask.value {
                     path = finished
-                } else if let movieURL {
+                } else {
                     path = try await session.uploadVideo(at: movieURL)
                 }
             }
@@ -541,7 +538,8 @@ struct ComposeView: View {
                 brandOrganic: disclose && yourBrand && !drafts
             )
             guard outcome != nil else { return }
-            player?.pause()
+            TagMemory.remember(caption)
+            if saveToDevice { await Self.saveToPhotos(movieURL) }
             done = post.postId
         } catch {
             session.lastError = session.readableMessage(error)
@@ -561,6 +559,7 @@ private struct MoreOptionsSheet: View {
     @Binding var disclose: Bool
     @Binding var yourBrand: Bool
     @Binding var brandedContent: Bool
+    @Binding var saveToDevice: Bool
 
     @Environment(\.dismiss) private var dismiss
 
@@ -579,6 +578,8 @@ private struct MoreOptionsSheet: View {
                     } label: {
                         Label("Content disclosure and ads", systemImage: "megaphone")
                     }
+                    toggleRow("square.and.arrow.down", "Save to device",
+                              "Your video is saved to Photos when you post.", $saveToDevice)
                     toggleRow("wand.and.stars", "AI-generated content",
                               "Add this label to tell viewers your content was generated or edited with AI.", $isAIGC)
                     HStack(alignment: .top, spacing: 12) {
@@ -717,5 +718,32 @@ private struct CoverPicker: View {
         generator.requestedTimeToleranceAfter = .zero
         guard let cg = try? await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600)).image else { return nil }
         return UIImage(cgImage: cg)
+    }
+}
+
+// MARK: - Remembering tags
+
+/// Hashtags and @mentions used before, kept on the phone for suggestions.
+enum TagMemory {
+    private static let tagsKey = "compose.tags"
+    private static let mentionsKey = "compose.mentions"
+
+    static var tags: [String] { UserDefaults.standard.stringArray(forKey: tagsKey) ?? [] }
+    static var mentions: [String] { UserDefaults.standard.stringArray(forKey: mentionsKey) ?? [] }
+
+    static func remember(_ caption: String) {
+        let words = caption.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+        store(words.filter { $0.hasPrefix("#") && $0.count > 1 }, tagsKey)
+        store(words.filter { $0.hasPrefix("@") && $0.count > 1 }, mentionsKey)
+    }
+
+    private static func store(_ new: [String], _ key: String) {
+        guard !new.isEmpty else { return }
+        var list = UserDefaults.standard.stringArray(forKey: key) ?? []
+        for item in new.reversed() {
+            list.removeAll { $0.lowercased() == item.lowercased() }
+            list.insert(item, at: 0)
+        }
+        UserDefaults.standard.set(Array(list.prefix(60)), forKey: key)
     }
 }

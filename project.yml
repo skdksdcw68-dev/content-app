@@ -110,6 +110,9 @@ targets:
         # Shown verbatim in the system prompt. An app that reaches the photo
         # library without declaring this is rejected at review.
         NSPhotoLibraryAddUsageDescription: Autocast saves the videos it makes to your photo library so you can post or repurpose them yourself.
+        # The create flow's own picker (TikTok's: tabs, Select multiple,
+        # numbered order) needs to read the library, not just add to it.
+        NSPhotoLibraryUsageDescription: Autocast shows your photos and videos so you can pick what to edit and post.
         # Declares no non-exempt encryption. Without this TestFlight blocks
         # every build behind a manual export-compliance question.
         ITSAppUsesNonExemptEncryption: false

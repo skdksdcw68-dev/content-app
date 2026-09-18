@@ -53,7 +53,7 @@ struct CreateView: View {
                 .entrance(0)
 
                 // TikTok-style: your video, your words, Write with AI, Post.
-                NavigationLink { ComposeView() } label: {
+                NavigationLink { StudioFlowView() } label: {
                     PrimaryButtonLabel(title: "Upload", systemImage: "plus")
                 }
                 .primaryButtonStyle()

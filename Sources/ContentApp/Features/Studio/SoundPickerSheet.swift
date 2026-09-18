@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import PhotosUI
 import UniformTypeIdentifiers
+import Supabase
 
 /// A track from the library (`music` edge function → Openverse, CC0 / CC BY).
 struct MusicTrack: Codable, Identifiable, Hashable, Sendable {

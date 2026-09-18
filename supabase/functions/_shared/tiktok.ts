@@ -197,3 +197,31 @@ export async function creatorInfo(
 
   return body.data;
 }
+
+/**
+ * Tells TikTok to forget the grant, so "Disconnect" means the token is dead at
+ * TikTok too and not just deleted here. Best effort: a token that has already
+ * expired or been revoked is the outcome we wanted anyway, so failure is
+ * returned rather than thrown and the local cleanup still runs.
+ */
+export async function revokeAtTikTok(
+  admin: SupabaseClient,
+  connectionId: string,
+): Promise<boolean> {
+  try {
+    const token = await accessToken(admin, connectionId);
+    const response = await fetch("https://open.tiktokapis.com/v2/oauth/revoke/", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_key: CLIENT_KEY,
+        client_secret: CLIENT_SECRET,
+        token,
+      }),
+    });
+    return response.ok;
+  } catch (error) {
+    console.warn("revoke skipped", connectionId, error instanceof Error ? error.message : error);
+    return false;
+  }
+}

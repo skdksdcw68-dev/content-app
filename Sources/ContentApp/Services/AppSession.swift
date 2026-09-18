@@ -79,6 +79,13 @@ final class AppSession {
     /// What could be connected that is not. Drives the Plus menu.
     internal(set) var connectable: [ConnectableProvider] = []
 
+    /// Whether this is still the anonymous account the app opened with. Once
+    /// Sign in with Apple is linked it is false, and the same user id -- with
+    /// every row -- comes back on any phone.
+    internal(set) var isAnonymous = true
+    /// The Apple ID's email, when Apple shared one (it may be a relay address).
+    internal(set) var accountEmail: String?
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -105,6 +112,7 @@ final class AppSession {
             try await signInIfNeeded()
             let user = try await client.auth.session.user
             userID = user.id
+            readAccount(user)
             try await loadBrand(for: user.id)
             await refreshConnections()
             await refreshPosts()
@@ -132,6 +140,36 @@ final class AppSession {
         if (try? await client.auth.session) == nil {
             _ = try await client.auth.signInAnonymously()
         }
+    }
+
+    func readAccount(_ user: User) {
+        isAnonymous = user.isAnonymous
+        accountEmail = user.email?.isEmpty == false ? user.email : nil
+    }
+
+    /// Starts over as whoever is signed in now -- after signing out, deleting
+    /// the account, or signing in to an Apple ID that already had one.
+    /// Everything on screen belonged to the previous user, so all of it goes
+    /// before the next one is read.
+    func restart() async {
+        state = .starting
+        userID = nil
+        brand = nil
+        brands = []
+        connections = []
+        posts = []
+        plan = nil
+        planPosts = []
+        generators = []
+        settings = nil
+        facts = []
+        health = []
+        connectedProviders = []
+        connectable = []
+        isAnonymous = true
+        accountEmail = nil
+        UserDefaults.standard.removeObject(forKey: Self.chosenBrandKey)
+        await start()
     }
 
     /// Every app this person markets, and which one is being looked at.
@@ -1094,6 +1132,46 @@ extension AppSession {
                 .execute()
                 .value
             brand = updated.first ?? brand
+            if let changed = updated.first, let index = brands.firstIndex(where: { $0.id == changed.id }) {
+                brands[index] = changed
+            }
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// Posting hours: the quiet window and how many a day in `brand_settings`,
+    /// and the zone every one of those hours is read in, on the brand.
+    @discardableResult
+    func updateSchedule(quietStart: Int, quietEnd: Int, postsPerDay: Int, timezone: String) async -> Bool {
+        guard let brandID = brand?.id else { return false }
+        struct Hours: Encodable, Sendable {
+            let quiet_hours_start: Int
+            let quiet_hours_end: Int
+            let posts_per_day: Int
+        }
+        do {
+            try await client
+                .from("brand_settings")
+                .update(Hours(quiet_hours_start: quietStart, quiet_hours_end: quietEnd, posts_per_day: postsPerDay))
+                .eq("brand_id", value: brandID.uuidString)
+                .execute()
+            if timezone != brand?.timezone {
+                let updated: [Brand] = try await client
+                    .from("brands")
+                    .update(["timezone": timezone])
+                    .eq("id", value: brandID.uuidString)
+                    .select()
+                    .execute()
+                    .value
+                if let changed = updated.first {
+                    brand = changed
+                    if let index = brands.firstIndex(where: { $0.id == changed.id }) { brands[index] = changed }
+                }
+            }
+            await refreshSettings()
             return true
         } catch {
             lastError = readableMessage(error)

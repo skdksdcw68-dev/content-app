@@ -61,6 +61,16 @@ enable_signup = true
 # normally -- and Supabase can upgrade the same row to a permanent identity
 # later without the person losing anything they made.
 enable_anonymous_sign_ins = true
+# Sign in with Apple is LINKED to the anonymous user (same id, every row kept),
+# which is a manual identity link.
+enable_manual_linking = true
+
+# Native Sign in with Apple: the app hands Supabase Apple's ID token, so only
+# the audience -- the bundle id -- is needed, no Services ID or secret.
+[auth.external.apple]
+enabled = true
+client_id = "Autocast"
+secret = ""
 
 [auth.email]
 enable_signup = true
@@ -183,4 +193,14 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.music]
+verify_jwt = true
+
+# Profile: disconnect an account, delete everything, export everything.
+[functions.tiktok-disconnect]
+verify_jwt = true
+
+[functions.delete-account]
+verify_jwt = true
+
+[functions.export-data]
 verify_jwt = true

@@ -47,13 +47,14 @@ struct ComposeView: View {
     @State private var privacy: String?
     @State private var scheduled = false
     @State private var scheduleAt = Date().addingTimeInterval(3600)
-    @State private var allowComments = true
-    @State private var allowReuse = true
-    @State private var isAIGC = false
+    // Starting values from Profile → Post defaults.
+    @State private var allowComments = PostDefaults.allowComments
+    @State private var allowReuse = PostDefaults.allowReuse
+    @State private var isAIGC = PostDefaults.aiLabel
     @State private var disclose = false
     @State private var yourBrand = false
     @State private var brandedContent = false
-    @State private var saveToDevice = false
+    @State private var saveToDevice = PostDefaults.saveToPhotos
     @State private var coverMs: Int?
 
     // Sheets
@@ -274,9 +275,10 @@ struct ComposeView: View {
         guard info == nil, let connection = session.connections.first(where: \.isHealthy) else { return }
         guard let fetched = await session.creatorInfo(for: connection.id) else { return }
         info = fetched
-        privacy = fetched.privacyOptions.contains("PUBLIC_TO_EVERYONE") ? "PUBLIC_TO_EVERYONE" : fetched.privacyOptions.first
-        allowComments = !fetched.commentDisabled
-        allowReuse = !(fetched.duetDisabled && fetched.stitchDisabled)
+        privacy = PostDefaults.privacy(from: fetched.privacyOptions)
+        // A default never switches on what the account has turned off.
+        allowComments = PostDefaults.allowComments && !fetched.commentDisabled
+        allowReuse = PostDefaults.allowReuse && !(fetched.duetDisabled && fetched.stitchDisabled)
     }
 
     private func loadVideo() async {

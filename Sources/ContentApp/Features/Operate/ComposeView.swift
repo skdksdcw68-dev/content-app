@@ -1,51 +1,55 @@
 import SwiftUI
 import PhotosUI
-import AVFoundation
+import AVKit
 
-/// Posting, the way TikTok's own post screen works -- your words, your tags,
-/// your cover, who can see it, when -- with one thing TikTok does not have:
-/// Write with AI, which makes your caption better and adds hashtags without
-/// inventing anything.
+/// Posting, in TikTok's own order (Abel's screenshots, 18 Sep 2026):
+/// pick the video → watch it full screen → Next → the post screen.
 ///
-/// A connected account is all it needs (Abel, 18 Sep 2026): no brand setup,
-/// no plan. The file goes up as recorded -- no re-compression -- and after
-/// Post the post screen shows it moving through Publishing, Verifying,
-/// Published from the rows the scheduler writes.
+/// The post screen is TikTok's: the description on the left with the cover on
+/// the right (Preview / Edit cover), "# Hashtags" and "@ Mention" under it,
+/// then "Everyone can view this post" and "More options" as plain rows, and
+/// Drafts / Post at the bottom. The one addition is a small ✨ in the corner
+/// of the description: it rewrites your words and puts hashtags in the text,
+/// the way TikTok keeps them.
+///
+/// A connected account is all it needs -- no brand setup, no plan. The file
+/// goes up as recorded.
 struct ComposeView: View {
     @Environment(AppSession.self) private var session
 
+    enum Phase { case preview, details }
     enum Sending { case post, drafts }
-    enum When: Hashable { case now, later }
 
     // The video
+    @State private var phase: Phase = .preview
     @State private var picking = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var movieURL: URL?
     @State private var facts: VideoFacts?
     @State private var poster: UIImage?
+    @State private var player: AVPlayer?
     @State private var uploadTask: Task<String, Error>?
     @State private var path: String?
-    @State private var uploadFailed: String?
 
-    // The words
+    // The post
     @State private var caption = ""
-    @State private var hashtags: [String] = []
     @State private var writing = false
     @FocusState private var typing: Bool
-
-    // The account and its options
     @State private var info: CreatorInfo?
     @State private var privacy: String?
-    @State private var when: When = .now
+    @State private var scheduled = false
     @State private var scheduleAt = Date().addingTimeInterval(3600)
     @State private var allowComments = true
-    @State private var allowDuet = true
-    @State private var allowStitch = true
+    @State private var allowReuse = true
     @State private var isAIGC = false
     @State private var disclose = false
     @State private var yourBrand = false
     @State private var brandedContent = false
     @State private var coverMs: Int?
+
+    // Sheets
+    @State private var choosingAudience = false
+    @State private var choosingTime = false
     @State private var showingMore = false
     @State private var showingCover = false
 
@@ -55,372 +59,366 @@ struct ComposeView: View {
     @State private var composed: (signature: String, post: ComposedPost)?
     @State private var done: UUID?
 
-    private var hasVideo: Bool { facts != nil }
-
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                editor
-                accountRow
-                options
-                if !problems.isEmpty { problemsCard }
-                footnote
+        Group {
+            switch phase {
+            case .preview: preview
+            case .details: details
             }
-            .screenGutter()
-            .padding(.top, 8)
-            .padding(.bottom, 24)
         }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Color.canvas.ignoresSafeArea())
-        .navigationTitle("New post")
-        .navigationBarTitleDisplayMode(.inline)
-        .pushedPage()
-        .safeAreaInset(edge: .bottom) { actionBar }
         .photosPicker(isPresented: $picking, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await loadPicked() }
         .task { await loadAccount() }
         .task {
-            // Straight to the camera roll, like TikTok opens on the camera --
-            // after the push has finished, or the picker never appears.
-            guard !hasVideo else { return }
+            // Straight to the camera roll, after the push has finished.
+            guard facts == nil else { return }
             try? await Task.sleep(for: .milliseconds(450))
             picking = true
-        }
-        .sheet(isPresented: $showingMore) { moreOptions }
-        .sheet(isPresented: $showingCover) {
-            if let movieURL, let facts {
-                CoverPicker(url: movieURL, duration: facts.duration, chosenMs: $coverMs, poster: $poster)
-            }
         }
         .navigationDestination(item: $done) { id in
             PostDetailView(postID: id)
         }
     }
 
-    // MARK: - Editor
+    // MARK: - 1. Preview
 
-    /// The caption, the tags and the tools all live in one box, with the cover
-    /// beside it -- TikTok's arrangement.
-    private var editor: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 10) {
-                TextField("Add a description…", text: $caption, axis: .vertical)
-                    .lineLimit(5...12)
-                    .font(.body)
-                    .focused($typing)
+    private var preview: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let player {
+                VideoPlayer(player: player)
+                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 90)
+                    .onAppear { player.play() }
+                    .onDisappear { player.pause() }
+            } else if facts == nil {
+                VStack(spacing: 14) {
+                    Image(systemName: "video.badge.plus")
+                        .font(.system(size: 34, weight: .light))
+                    Button("Choose a video") { picking = true }
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                }
+                .foregroundStyle(.white)
+            } else {
+                ProgressView().tint(.white)
+            }
 
-                if !hashtags.isEmpty {
-                    FlowLayout(spacing: 6) {
-                        ForEach(hashtags, id: \.self) { tag in
-                            tagChip(tag)
-                        }
+            VStack {
+                Spacer()
+                HStack(spacing: 12) {
+                    Button {
+                        picking = true
+                    } label: {
+                        Text("Change")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(.white.opacity(0.14), in: Capsule())
+                            .foregroundStyle(.white)
                     }
+                    Button {
+                        player?.pause()
+                        withAnimation(.snappy(duration: 0.25)) { phase = .details }
+                    } label: {
+                        Text("Next")
+                            .font(.body.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 52)
+                            .background(Color.white, in: Capsule())
+                            .foregroundStyle(.black)
+                    }
+                    .disabled(facts == nil)
+                }
+                .buttonStyle(SoftPressStyle())
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+            }
+        }
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
+        .pushedPage()
+    }
+
+    // MARK: - 2. The post screen
+
+    private var details: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                descriptionArea
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                HStack(spacing: 10) {
+                    chip("#", "Hashtags") { insert("#") }
+                    chip("@", "Mention") { insert("@") }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+
+                Divider().padding(.top, 18)
+
+                if !problems.isEmpty {
+                    problemsList
+                    Divider()
                 }
 
-                toolRow
+                row("globe", audienceTitle) { choosingAudience = true }
+                row("clock", scheduled ? "Scheduled · \(scheduleAt.formatted(date: .abbreviated, time: .shortened))" : "Post now") {
+                    choosingTime = true
+                }
+                row("ellipsis.circle", "More options") { showingMore = true }
+
+                Text("By posting, you agree to TikTok's Music Usage Confirmation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) { phase = .preview }
+                } label: {
+                    Image(systemName: "chevron.left").font(.body.weight(.semibold))
+                }
+                .accessibilityLabel("Back to the video")
+            }
+        }
+        .navigationBarBackButtonHidden(true)
+        .pushedPage()
+        .safeAreaInset(edge: .bottom) { bottomBar }
+        .sheet(isPresented: $choosingAudience) { audienceSheet }
+        .sheet(isPresented: $choosingTime) { timeSheet }
+        .sheet(isPresented: $showingMore) { MoreOptionsSheet(
+            info: info, privacy: privacy,
+            allowComments: $allowComments, allowReuse: $allowReuse, isAIGC: $isAIGC,
+            disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent
+        ) }
+        .sheet(isPresented: $showingCover) {
+            if let movieURL, let facts {
+                CoverPicker(url: movieURL, duration: facts.duration, chosenMs: $coverMs, poster: $poster)
+            }
+        }
+    }
+
+    /// The description, borderless, with the cover beside it and the small
+    /// ✨ in its corner.
+    private var descriptionArea: some View {
+        HStack(alignment: .top, spacing: 12) {
+            ZStack(alignment: .bottomTrailing) {
+                TextField("Add description...", text: $caption, axis: .vertical)
+                    .font(.system(size: 17))
+                    .lineLimit(7...14)
+                    .focused($typing)
+                    .padding(.bottom, 34)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+
+                Button {
+                    Task { await writeWithAI() }
+                } label: {
+                    Group {
+                        if writing {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                    }
+                    .frame(width: 34, height: 34)
+                    .background(Color.track, in: Circle())
+                    .foregroundStyle(Color.primary)
+                }
+                .buttonStyle(SoftPressStyle())
+                .disabled(writing || (caption.isEmpty && facts == nil))
+                .accessibilityLabel("Improve with AI")
+            }
 
             cover
         }
-        .padding(14)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
     }
 
-    private func tagChip(_ tag: String) -> some View {
-        HStack(spacing: 4) {
-            Text(tag)
-            Button {
-                hashtags.removeAll { $0 == tag }
-            } label: {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-            }
-            .accessibilityLabel("Remove \(tag)")
-        }
-        .font(.caption.weight(.medium))
-        .foregroundStyle(Color.accentColor)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(Color.accentColor.opacity(0.08), in: Capsule())
-    }
-
-    private var toolRow: some View {
-        HStack(spacing: 6) {
-            toolButton("#", "Hashtags") { insert("#") }
-            toolButton("@", "Mention") { insert("@") }
-            Spacer(minLength: 0)
-            Button {
-                Task { await writeWithAI() }
-            } label: {
-                HStack(spacing: 5) {
-                    if writing {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "sparkles").font(.system(size: 12, weight: .semibold))
-                    }
-                    Text(writing ? "Writing…" : "Write with AI")
-                        .font(.caption.weight(.semibold))
+    private var cover: some View {
+        Button { showingCover = true } label: {
+            ZStack {
+                Color.track
+                if let poster {
+                    Image(uiImage: poster).resizable().scaledToFill()
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.accentColor, in: Capsule())
-                .foregroundStyle(Theme.onAccent)
+                VStack {
+                    Text("Preview")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                    Spacer()
+                    Text("Edit cover")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.bottom, 8)
+                }
+                .background(
+                    LinearGradient(colors: [.black.opacity(0.35), .clear, .black.opacity(0.35)],
+                                   startPoint: .top, endPoint: .bottom)
+                )
             }
-            .buttonStyle(SoftPressStyle())
-            .disabled(writing || (caption.isEmpty && !hasVideo))
+            .frame(width: 118, height: 176)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
+        .buttonStyle(SoftPressStyle())
     }
 
-    private func toolButton(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+    private func chip(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 3) {
-                Text(symbol).font(.caption.weight(.bold))
-                Text(title).font(.caption.weight(.medium))
+            HStack(spacing: 5) {
+                Text(symbol).font(.system(size: 17, weight: .bold))
+                Text(title).font(.system(size: 16, weight: .medium))
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-            .background(Color.track, in: Capsule())
+            .padding(.horizontal, 13)
+            .padding(.vertical, 9)
+            .background(Color.track, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .foregroundStyle(Color.primary)
         }
         .buttonStyle(SoftPressStyle())
     }
 
-    private var cover: some View {
-        Button {
-            if hasVideo { showingCover = true } else { picking = true }
-        } label: {
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.track)
-                if let poster {
-                    Image(uiImage: poster).resizable().scaledToFill()
-                } else {
-                    VStack(spacing: 6) {
-                        Image(systemName: "video.badge.plus").font(.system(size: 22, weight: .medium))
-                        Text("Add video").font(.caption.weight(.semibold))
-                    }
-                    .foregroundStyle(.secondary)
-                    .frame(maxHeight: .infinity)
-                }
-                if hasVideo {
-                    VStack(spacing: 0) {
-                        uploadBadge
-                        Spacer()
-                        Text("Edit cover")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
-                            .background(.black.opacity(0.45))
-                    }
-                }
+    private func row(_ symbol: String, _ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 20))
+                    .frame(width: 26)
+                Text(title)
+                    .font(.system(size: 17))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .frame(width: 104, height: 170)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .foregroundStyle(Color.primary)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 17)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(SoftPressStyle())
+        .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private var uploadBadge: some View {
-        HStack {
-            Spacer()
-            Group {
-                if uploadFailed != nil {
-                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
-                } else if path == nil {
-                    ProgressView().controlSize(.mini).tint(.white)
-                } else {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                }
-            }
-            .font(.system(size: 14))
-            .padding(5)
-            .background(.black.opacity(0.35), in: Circle())
-            .padding(5)
+    private var audienceTitle: String {
+        switch privacy {
+        case "PUBLIC_TO_EVERYONE":    "Everyone can view this post"
+        case "MUTUAL_FOLLOW_FRIENDS": "Friends can view this post"
+        case "FOLLOWER_OF_CREATOR":   "Followers can view this post"
+        case "SELF_ONLY":             "Only you can view this post"
+        default:                      "Who can view this post"
         }
     }
 
-    // MARK: - Account and options
-
-    private var accountRow: some View {
-        HStack(spacing: 10) {
-            AsyncImage(url: info?.avatarURL) { image in
-                image.resizable().scaledToFill()
-            } placeholder: {
-                Circle().fill(Color.track)
-            }
-            .frame(width: 32, height: 32)
-            .clipShape(Circle())
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Posting to").font(.caption).foregroundStyle(.secondary)
-                Text(info.map { "@\($0.username)" } ?? (session.connections.first?.label ?? "TikTok"))
-                    .font(.subheadline.weight(.semibold))
-            }
-            Spacer()
-            Image(systemName: "music.note").foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 4)
-    }
-
-    private var options: some View {
-        VStack(spacing: 0) {
-            optionRow("globe", "Who can see this") {
-                Menu {
-                    ForEach(info?.privacyOptions ?? [], id: \.self) { option in
-                        Button(CreatorInfo.label(for: option)) { privacy = option }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(privacy.map { CreatorInfo.label(for: $0) } ?? "Choose")
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
-                    }
-                    .font(.subheadline)
-                }
-                .disabled(info == nil)
-            }
-            Divider().padding(.leading, 44)
-            optionRow("clock", "When") {
-                Picker("When", selection: $when) {
-                    Text("Now").tag(When.now)
-                    Text("Schedule").tag(When.later)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 170)
-            }
-            if when == .later {
-                DatePicker("Post at", selection: $scheduleAt, in: Date().addingTimeInterval(120)..., displayedComponents: [.date, .hourAndMinute])
-                    .font(.subheadline)
-                    .padding(.leading, 44)
-                    .padding(.trailing, 14)
-                    .padding(.bottom, 10)
-            }
-            Divider().padding(.leading, 44)
-            Button { showingMore = true } label: {
-                optionRow("gearshape", "More options") {
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-            }
-            .buttonStyle(.plain)
-            Divider().padding(.leading, 44)
-            optionRow("sparkles.tv", "Original quality") {
-                Text("Sent as recorded").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-    }
-
-    private func optionRow<Trailing: View>(_ symbol: String, _ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 16))
-                .frame(width: 22)
-                .foregroundStyle(.primary)
-            Text(title).font(.subheadline)
-            Spacer(minLength: 8)
-            trailing()
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 13)
-        .contentShape(Rectangle())
-    }
-
-    private var moreOptions: some View {
-        NavigationStack {
-            Form {
-                Section("Privacy settings") {
-                    Toggle("Allow comments", isOn: $allowComments).disabled(info?.commentDisabled == true)
-                    Toggle("Allow Duet", isOn: $allowDuet).disabled(info?.duetDisabled == true)
-                    Toggle("Allow Stitch", isOn: $allowStitch).disabled(info?.stitchDisabled == true)
-                }
-                Section {
-                    Toggle("AI-generated content", isOn: $isAIGC)
-                } footer: {
-                    Text("Adds TikTok's label telling viewers the content was generated or edited with AI.")
-                }
-                Section {
-                    Toggle("Disclose post content", isOn: $disclose)
-                    if disclose {
-                        Toggle("Your brand", isOn: $yourBrand)
-                        Toggle("Branded content", isOn: $brandedContent)
-                            .disabled(privacy == "SELF_ONLY")
-                    }
-                } footer: {
-                    Text(disclose
-                         ? (privacy == "SELF_ONLY"
-                            ? "Branded content can't be private. Your brand: you're promoting yourself or your own business."
-                            : "Your brand: promoting yourself or your own business. Branded content: promoting someone else in exchange for something.")
-                         : "Turn on if this promotes a brand, product or service.")
-                }
-            }
-            .navigationTitle("More options")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("Done") { showingMore = false } }
-            }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private var problemsCard: some View {
+    private var problemsList: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Fix before posting", systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.red)
             ForEach(problems) { check in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(check.title).font(.subheadline.weight(.medium))
-                    Text(check.detail).font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(check.title).font(.subheadline.weight(.semibold))
+                        Text(check.detail).font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .padding(16)
     }
 
-    private var footnote: some View {
-        Text("By posting, you agree to TikTok's Music Usage Confirmation. It may take a few minutes for the post to appear on your profile.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 4)
-    }
-
-    private var actionBar: some View {
+    private var bottomBar: some View {
         HStack(spacing: 12) {
             Button {
                 Task { await send(.drafts) }
             } label: {
-                HStack(spacing: 6) {
-                    if sending == .drafts { ProgressView().controlSize(.small) } else { Image(systemName: "tray.and.arrow.down") }
+                HStack(spacing: 8) {
+                    if sending == .drafts { ProgressView() } else { Image(systemName: "tray") }
                     Text("Drafts")
                 }
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 50)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 52)
                 .background(Color.track, in: Capsule())
                 .foregroundStyle(Color.primary)
             }
-            .buttonStyle(SoftPressStyle())
-
             Button {
                 Task { await send(.post) }
             } label: {
-                HStack(spacing: 6) {
-                    if sending == .post { ProgressView().controlSize(.small).tint(Theme.onAccent) } else { Image(systemName: "arrow.up.circle.fill") }
-                    Text(when == .now ? "Post" : "Schedule")
+                HStack(spacing: 8) {
+                    if sending == .post {
+                        ProgressView().tint(Theme.onAccent)
+                    } else {
+                        Image(systemName: "arrow.up.circle.fill")
+                    }
+                    Text(scheduled ? "Schedule" : "Post")
                 }
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity, minHeight: 50)
+                .font(.system(size: 17, weight: .semibold))
+                .frame(maxWidth: .infinity, minHeight: 52)
                 .background(Color.accentColor, in: Capsule())
                 .foregroundStyle(Theme.onAccent)
             }
-            .buttonStyle(SoftPressStyle())
         }
-        .disabled(sending != nil || !hasVideo || info == nil)
-        .padding(.horizontal, Style.gutter)
+        .buttonStyle(SoftPressStyle())
+        .disabled(sending != nil || facts == nil || info == nil)
+        .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .background(.bar)
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    // MARK: - Sheets
+
+    private var audienceSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(info?.privacyOptions ?? [], id: \.self) { option in
+                    Button {
+                        privacy = option
+                        choosingAudience = false
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(CreatorInfo.label(for: option)).foregroundStyle(Color.primary)
+                                Text(CreatorInfo.detail(for: option)).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            if privacy == option {
+                                Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Who can view this post")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium])
+    }
+
+    private var timeSheet: some View {
+        NavigationStack {
+            Form {
+                Toggle("Schedule for later", isOn: $scheduled)
+                if scheduled {
+                    DatePicker("Post at", selection: $scheduleAt, in: Date().addingTimeInterval(120)...,
+                               displayedComponents: [.date, .hourAndMinute])
+                }
+            }
+            .navigationTitle("When")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { choosingTime = false } }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     // MARK: - Actions
@@ -437,8 +435,7 @@ struct ComposeView: View {
         info = fetched
         privacy = fetched.privacyOptions.contains("PUBLIC_TO_EVERYONE") ? "PUBLIC_TO_EVERYONE" : fetched.privacyOptions.first
         allowComments = !fetched.commentDisabled
-        allowDuet = !fetched.duetDisabled
-        allowStitch = !fetched.stitchDisabled
+        allowReuse = !(fetched.duetDisabled && fetched.stitchDisabled)
     }
 
     private func loadPicked() async {
@@ -454,16 +451,15 @@ struct ComposeView: View {
             composed = nil
             problems = []
             path = nil
-            uploadFailed = nil
-            // Upload while they write, so Post is quick.
+            let next = AVPlayer(url: movie.url)
+            player = next
+            phase = .preview
+            next.play()
+            // Upload while they watch and write, so Post is quick.
             let url = movie.url
             let task = Task { try await session.uploadVideo(at: url) }
             uploadTask = task
-            do {
-                path = try await task.value
-            } catch {
-                uploadFailed = session.readableMessage(error)
-            }
+            path = try? await task.value
         } catch {
             session.lastError = "That video couldn't be read."
         }
@@ -473,12 +469,11 @@ struct ComposeView: View {
         writing = true
         defer { writing = false }
         do {
-            let result = try await session.writeCaption(caption, hashtags: hashtags, frames: facts?.frames ?? [])
+            let result = try await session.writeCaption(caption, hashtags: [], frames: facts?.frames ?? [])
+            let existing = Set(caption.split(separator: " ").map { $0.lowercased() }.filter { $0.hasPrefix("#") })
+            let tags = result.hashtags.filter { !existing.contains($0.lowercased()) && !result.caption.lowercased().contains($0.lowercased()) }
             withAnimation(.snappy(duration: 0.25)) {
-                caption = result.caption
-                var merged = hashtags
-                for tag in result.hashtags where !merged.contains(tag) { merged.append(tag) }
-                hashtags = merged
+                caption = tags.isEmpty ? result.caption : result.caption + "\n\n" + tags.joined(separator: " ")
             }
         } catch {
             session.lastError = session.readableMessage(error)
@@ -486,7 +481,7 @@ struct ComposeView: View {
     }
 
     private func signature(_ mode: Sending) -> String {
-        [caption, hashtags.joined(separator: " "), String(coverMs ?? 0), mode == .drafts ? "d" : "p"].joined(separator: "|")
+        [caption, String(coverMs ?? 0), mode == .drafts ? "d" : "p"].joined(separator: "|")
     }
 
     private func send(_ mode: Sending) async {
@@ -498,8 +493,8 @@ struct ComposeView: View {
 
         do {
             if path == nil {
-                if let uploadTask {
-                    path = try await uploadTask.value
+                if let uploadTask, let finished = try? await uploadTask.value {
+                    path = finished
                 } else if let movieURL {
                     path = try await session.uploadVideo(at: movieURL)
                 }
@@ -508,13 +503,13 @@ struct ComposeView: View {
 
             // Same words as last time: check again rather than make a second post.
             let post: ComposedPost
-            var checks: [ValidationReport.Check]
+            let checks: [ValidationReport.Check]
             if let existing = composed, existing.signature == signature(mode) {
                 post = existing.post
                 checks = try await session.validate(post: existing.post.postId, toDrafts: drafts).checks
             } else {
                 post = try await session.compose(
-                    path: path, video: facts, caption: caption, hashtags: hashtags,
+                    path: path, video: facts, caption: caption, hashtags: [],
                     coverMs: coverMs, toDrafts: drafts
                 )
                 composed = (signature(mode), post)
@@ -536,23 +531,132 @@ struct ComposeView: View {
                 postTargetID: post.postTargetId,
                 privacy: chosenPrivacy,
                 disableComment: !allowComments,
-                disableDuet: !allowDuet,
-                disableStitch: !allowStitch,
+                disableDuet: !allowReuse,
+                disableStitch: !allowReuse,
                 isAIGC: isAIGC,
-                runAt: when == .later && !drafts ? scheduleAt : nil,
-                postNow: drafts || when == .now,
+                runAt: scheduled && !drafts ? scheduleAt : nil,
+                postNow: drafts || !scheduled,
                 toDrafts: drafts,
                 brandContent: disclose && brandedContent && !drafts,
                 brandOrganic: disclose && yourBrand && !drafts
             )
             guard outcome != nil else { return }
-            if let movieURL { try? FileManager.default.removeItem(at: movieURL) }
+            player?.pause()
             done = post.postId
         } catch {
             session.lastError = session.readableMessage(error)
         }
     }
 }
+
+// MARK: - More options
+
+/// TikTok's More options sheet: privacy settings, then advanced settings.
+private struct MoreOptionsSheet: View {
+    let info: CreatorInfo?
+    let privacy: String?
+    @Binding var allowComments: Bool
+    @Binding var allowReuse: Bool
+    @Binding var isAIGC: Bool
+    @Binding var disclose: Bool
+    @Binding var yourBrand: Bool
+    @Binding var brandedContent: Bool
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Privacy settings") {
+                    toggleRow("bubble.left", "Allow comments", nil, $allowComments)
+                        .disabled(info?.commentDisabled == true)
+                    toggleRow("play.square.stack", "Allow reuse of content", "Duet and Stitch", $allowReuse)
+                        .disabled(info?.duetDisabled == true && info?.stitchDisabled == true)
+                }
+                Section("Advanced settings") {
+                    NavigationLink {
+                        DisclosureView(privacy: privacy, disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent)
+                    } label: {
+                        Label("Content disclosure and ads", systemImage: "megaphone")
+                    }
+                    toggleRow("wand.and.stars", "AI-generated content",
+                              "Add this label to tell viewers your content was generated or edited with AI.", $isAIGC)
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "sparkles.tv").frame(width: 24)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("High-quality upload")
+                            Text("Autocast always sends your original file, never re-compressed.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "checkmark").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle("More options")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func toggleRow(_ symbol: String, _ title: String, _ detail: String?, _ value: Binding<Bool>) -> some View {
+        Toggle(isOn: value) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: symbol).frame(width: 24)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                    if let detail {
+                        Text(detail).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct DisclosureView: View {
+    let privacy: String?
+    @Binding var disclose: Bool
+    @Binding var yourBrand: Bool
+    @Binding var brandedContent: Bool
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Disclose post content", isOn: $disclose)
+            } footer: {
+                Text("Turn on to disclose that this post promotes goods or services in exchange for something of value.")
+            }
+            if disclose {
+                Section {
+                    Toggle(isOn: $yourBrand) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your brand")
+                            Text("You are promoting yourself or your own business.").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Toggle(isOn: $brandedContent) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Branded content")
+                            Text(privacy == "SELF_ONLY"
+                                 ? "Not available when only you can view the post."
+                                 : "You are promoting another brand or a third party.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .disabled(privacy == "SELF_ONLY")
+                }
+            }
+        }
+        .navigationTitle("Content disclosure and ads")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: - Cover
 
 /// Pick the frame people see before they tap.
 private struct CoverPicker: View {
@@ -585,7 +689,7 @@ private struct CoverPicker: View {
                     .foregroundStyle(.secondary)
             }
             .padding(Style.gutter)
-            .navigationTitle("Cover")
+            .navigationTitle("Edit cover")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }

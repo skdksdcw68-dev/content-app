@@ -401,10 +401,13 @@ extension AppSession {
     /// Reads what the account currently allows, straight from TikTok.
     func creatorInfo(for connectionID: UUID) async -> CreatorInfo? {
         do {
-            return try await client.functions.invoke(
-                "creator-info",
-                options: FunctionInvokeOptions(body: ["connection_id": connectionID.uuidString])
-            )
+            let info: CreatorInfo = try await retryingDroppedConnection {
+                try await client.functions.invoke(
+                    "creator-info",
+                    options: FunctionInvokeOptions(body: ["connection_id": connectionID.uuidString])
+                )
+            }
+            return info
         } catch {
             lastError = readableMessage(error)
             return nil
@@ -435,22 +438,22 @@ extension AppSession {
         defer { isWorking = false }
 
         do {
-            let result: ApprovalResult = try await client.functions.invoke(
-                "approve-post",
-                options: FunctionInvokeOptions(body: ApprovalRequest(
-                    postTargetId: postTargetID.uuidString,
-                    privacy: privacy,
-                    disableComment: disableComment,
-                    disableDuet: disableDuet,
-                    disableStitch: disableStitch,
-                    isAigc: isAIGC,
-                    brandContent: brandContent,
-                    brandOrganic: brandOrganic,
-                    runAt: runAt.map { ISO8601DateFormatter().string(from: $0) },
-                    postNow: postNow ? true : nil,
-                    mode: toDrafts ? "UPLOAD_TO_DRAFT" : nil
-                ))
+            let request = ApprovalRequest(
+                postTargetId: postTargetID.uuidString,
+                privacy: privacy,
+                disableComment: disableComment,
+                disableDuet: disableDuet,
+                disableStitch: disableStitch,
+                isAigc: isAIGC,
+                brandContent: brandContent,
+                brandOrganic: brandOrganic,
+                runAt: runAt.map { ISO8601DateFormatter().string(from: $0) },
+                postNow: postNow ? true : nil,
+                mode: toDrafts ? "UPLOAD_TO_DRAFT" : nil
             )
+            let result: ApprovalResult = try await retryingDroppedConnection {
+                try await client.functions.invoke("approve-post", options: FunctionInvokeOptions(body: request))
+            }
             await refreshPosts()
             await refreshPlan()
             return ApprovalOutcome(

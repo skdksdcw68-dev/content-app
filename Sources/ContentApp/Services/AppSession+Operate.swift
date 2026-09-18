@@ -98,10 +98,33 @@ extension AppSession {
         let data = try Data(contentsOf: url)
         let ext = url.pathExtension.lowercased() == "mov" ? "mov" : "mp4"
         let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).\(ext)"
-        _ = try await client.storage
-            .from("media")
-            .upload(path, data: data, options: FileOptions(contentType: ext == "mov" ? "video/quicktime" : "video/mp4"))
+        do {
+            try await retryingDroppedConnection {
+                _ = try await client.storage
+                    .from("media")
+                    .upload(path, data: data, options: FileOptions(contentType: ext == "mov" ? "video/quicktime" : "video/mp4"))
+            }
+        } catch {
+            // The first try landed and only its answer was lost: the retry is
+            // refused because the file is already there, which is success.
+            let text = String(describing: error).lowercased()
+            guard text.contains("duplicate") || text.contains("already exists") || text.contains("409") else { throw error }
+        }
         return path
+    }
+
+    /// One quiet retry when the network drops the request.
+    ///
+    /// Abel, 18 Sep: "every first try it says connection issue". iOS reuses a
+    /// keep-alive connection the server has already closed, the first request
+    /// after a pause fails with networkConnectionLost, and the second works.
+    func retryingDroppedConnection<T>(_ work: () async throws -> T) async throws -> T {
+        do {
+            return try await work()
+        } catch let error as URLError where [.networkConnectionLost, .timedOut, .cannotConnectToHost, .notConnectedToInternet].contains(error.code) {
+            try await Task.sleep(for: .milliseconds(800))
+            return try await work()
+        }
     }
 
     private struct ItemRequest: Encodable, Sendable {
@@ -122,11 +145,13 @@ extension AppSession {
     }
 
     private func contentItem<T: Decodable>(_ request: ItemRequest) async throws -> T {
-        try await client.functions.invoke(
-            "content-item",
-            options: FunctionInvokeOptions(body: request),
-            decoder: Self.operateDecoder
-        )
+        try await retryingDroppedConnection {
+            try await client.functions.invoke(
+                "content-item",
+                options: FunctionInvokeOptions(body: request),
+                decoder: Self.operateDecoder
+            )
+        }
     }
 
     func understand(video: VideoFacts, path: String, note: String?) async throws -> UnderstoodVideo {

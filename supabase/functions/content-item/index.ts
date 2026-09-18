@@ -419,8 +419,10 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
     if (media.duration_ms) {
       const seconds = media.duration_ms / 1000;
       const max = info?.max_video_post_duration_sec ?? 600;
-      add("length", "Length", seconds >= 3 && seconds <= max,
-        `${Math.round(seconds)}s${seconds > max ? ` — this account allows up to ${max}s` : seconds < 3 ? " — TikTok needs at least 3s" : ""}`);
+      // Only TikTok's stated limit, the account's maximum. A minimum was
+      // guessed here once and blocked a real 2-second clip.
+      add("length", "Length", seconds <= max,
+        `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s${seconds > max ? ` — this account allows up to ${max}s` : ""}`);
     }
     if (media.width && media.height) {
       const short = Math.min(media.width, media.height);

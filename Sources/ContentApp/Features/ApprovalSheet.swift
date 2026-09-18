@@ -107,7 +107,7 @@ struct ApprovalSheet: View {
             }
 
             Section {
-                Toggle("Made with AI", isOn: $isAIGC)
+                Toggle("AI-generated content", isOn: $isAIGC)
                 Toggle("Turn off comments", isOn: $disableComment)
                     .disabled(info.commentDisabled)
                 Toggle("Turn off Duet", isOn: $disableDuet)

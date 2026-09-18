@@ -13,7 +13,7 @@ extension AppSession {
     /// A fresh random nonce, and its SHA-256 for Apple's request. Apple signs
     /// the hash into the ID token; Supabase checks the raw one against it, so
     /// a token lifted from somewhere else cannot be replayed here.
-    static func appleNonce() -> (raw: String, hashed: String) {
+    nonisolated static func appleNonce() -> (raw: String, hashed: String) {
         let raw = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
         let hashed = SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
         return (raw, hashed)

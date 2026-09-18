@@ -425,7 +425,11 @@ extension AppSession {
         disableDuet: Bool,
         disableStitch: Bool,
         isAIGC: Bool,
-        runAt: Date? = nil
+        runAt: Date? = nil,
+        postNow: Bool = false,
+        toDrafts: Bool = false,
+        brandContent: Bool = false,
+        brandOrganic: Bool = false
     ) async -> ApprovalOutcome? {
         isWorking = true
         defer { isWorking = false }
@@ -440,9 +444,11 @@ extension AppSession {
                     disableDuet: disableDuet,
                     disableStitch: disableStitch,
                     isAigc: isAIGC,
-                    brandContent: false,
-                    brandOrganic: false,
-                    runAt: runAt.map { ISO8601DateFormatter().string(from: $0) }
+                    brandContent: brandContent,
+                    brandOrganic: brandOrganic,
+                    runAt: runAt.map { ISO8601DateFormatter().string(from: $0) },
+                    postNow: postNow ? true : nil,
+                    mode: toDrafts ? "UPLOAD_TO_DRAFT" : nil
                 ))
             )
             await refreshPosts()
@@ -518,9 +524,15 @@ private struct ApprovalRequest: Encodable {
     let brandOrganic: Bool
     /// When to post it, if chosen on the review screen.
     let runAt: String?
+    /// Queue it for this minute.
+    let postNow: Bool?
+    /// "UPLOAD_TO_DRAFT" sends it to the creator's TikTok drafts.
+    let mode: String?
 
     enum CodingKeys: String, CodingKey {
         case runAt = "run_at"
+        case postNow = "post_now"
+        case mode
         case postTargetId = "post_target_id"
         case privacy
         case disableComment = "disable_comment"

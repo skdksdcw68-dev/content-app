@@ -29,7 +29,8 @@ const SINGLE_CHUNK_LIMIT = 60 * 1024 * 1024;
 export type PublishMode = "DIRECT_POST" | "UPLOAD_TO_DRAFT";
 
 export interface PublishOutcome {
-  state: "published" | "processing" | "failed" | "blocked";
+  /** "inbox": the video reached the creator's TikTok drafts (UPLOAD_TO_DRAFT). */
+  state: "published" | "processing" | "failed" | "blocked" | "inbox";
   reason?: string;
   publishId?: string;
 }
@@ -46,12 +47,13 @@ export async function publishTarget(
 ): Promise<PublishOutcome> {
   const { data: target } = await admin
     .from("post_targets")
-    .select("id, post_id, connection_id, platform, caption, hashtags, privacy, disable_comment, disable_duet, disable_stitch, is_aigc, brand_content_toggle, brand_organic_toggle, music_track_id, consent_id, state, provider_publish_id")
+    .select("id, post_id, connection_id, platform, caption, hashtags, privacy, disable_comment, disable_duet, disable_stitch, is_aigc, brand_content_toggle, brand_organic_toggle, music_track_id, consent_id, state, provider_publish_id, video_cover_ms")
     .eq("id", targetId)
     .maybeSingle();
 
   if (!target) return { state: "failed", reason: "post_missing" };
   if (target.state === "published") return { state: "published" };
+  if (target.state === "sent_to_inbox") return { state: "inbox" };
 
   // Already handed to TikTok by an earlier attempt. Starting again would post
   // the same video twice; ask TikTok what became of the first one instead.
@@ -182,7 +184,12 @@ export async function publishTarget(
       disable_stitch: target.disable_stitch,
       brand_content_toggle: target.brand_content_toggle,
       brand_organic_toggle: target.brand_organic_toggle,
+      is_aigc: target.is_aigc,
     };
+    // The frame the person picked as the cover, if they picked one.
+    if (typeof target.video_cover_ms === "number" && target.video_cover_ms > 0) {
+      (initBody.post_info as Record<string, unknown>).video_cover_timestamp_ms = target.video_cover_ms;
+    }
   }
 
   const endpoint = mode === "DIRECT_POST"
@@ -239,6 +246,8 @@ export async function publishTarget(
 
   if (outcome.state === "published") {
     await markPublished(admin, target.id, target.post_id, outcome.publishId);
+  } else if (outcome.state === "inbox") {
+    await admin.from("post_targets").update({ state: "sent_to_inbox" }).eq("id", target.id);
   } else if (outcome.state === "failed") {
     await fail(admin, target.id, "rejected", outcome.reason);
   }
@@ -273,6 +282,10 @@ export async function verifyTarget(admin: SupabaseClient, targetId: string): Pro
   }
   if (status.state === "failed") {
     await fail(admin, target.id, "rejected", status.reason);
+    return status;
+  }
+  if (status.state === "inbox") {
+    await admin.from("post_targets").update({ state: "sent_to_inbox" }).eq("id", target.id);
     return status;
   }
   if (target.state === "submitted" && status.reason === "PROCESSING_DOWNLOAD") {
@@ -364,6 +377,9 @@ async function fetchStatus(token: string, publishId: string): Promise<PublishOut
     // The id is an int64; JSON.parse would round it. Read it from the text.
     const id = /"publicaly_available_post_id"\s*:\s*\[\s*"?(\d+)/.exec(raw)?.[1];
     return { state: "published", publishId: id };
+  }
+  if (body.data?.status === "SEND_TO_USER_INBOX") {
+    return { state: "inbox" };
   }
   if (body.data?.status === "FAILED") {
     return { state: "failed", reason: body.data?.fail_reason ?? "TikTok rejected it." };

@@ -61,10 +61,14 @@ Deno.serve(async (request) => {
 
   for (const job of jobs) {
     try {
-      const outcome = await publishTarget(admin, job.post_target_id, "DIRECT_POST");
+      // Drafts take TikTok's inbox route; everything else posts directly.
+      const { data: route } = await admin
+        .from("post_targets").select("publish_mode").eq("id", job.post_target_id).maybeSingle();
+      const mode = route?.publish_mode === "UPLOAD_TO_DRAFT" ? "UPLOAD_TO_DRAFT" : "DIRECT_POST";
+      const outcome = await publishTarget(admin, job.post_target_id, mode);
       results[job.post_target_id] = outcome.state;
 
-      if (outcome.state === "published" || outcome.state === "processing") {
+      if (outcome.state === "published" || outcome.state === "processing" || outcome.state === "inbox") {
         await admin.from("publish_jobs")
           .update({ state: "published", claimed_by: null, lease_until: null })
           .eq("id", job.id);

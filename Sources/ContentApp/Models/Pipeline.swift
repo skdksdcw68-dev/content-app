@@ -12,6 +12,7 @@ enum PipelineStage: String, Decodable, Hashable, Sendable, CaseIterable {
     case publishing
     case verifying
     case published
+    case inDrafts = "in_drafts"
     case needsAttention = "needs_attention"
 
     init(from decoder: Decoder) throws {
@@ -30,6 +31,7 @@ enum PipelineStage: String, Decodable, Hashable, Sendable, CaseIterable {
         case .publishing:     "Publishing"
         case .verifying:      "Verifying"
         case .published:      "Published"
+        case .inDrafts:       "In TikTok drafts"
         case .needsAttention: "Needs attention"
         }
     }
@@ -45,6 +47,7 @@ enum PipelineStage: String, Decodable, Hashable, Sendable, CaseIterable {
         case .publishing:     "arrow.up.circle"
         case .verifying:      "checkmark.circle.badge.questionmark"
         case .published:      "checkmark.circle.fill"
+        case .inDrafts:       "tray.full.fill"
         case .needsAttention: "exclamationmark.triangle.fill"
         }
     }
@@ -56,7 +59,7 @@ enum PipelineStage: String, Decodable, Hashable, Sendable, CaseIterable {
         case .approved, .readyToPublish:      .blue
         case .generating:                     .purple
         case .publishing, .verifying:         .indigo
-        case .published:                      .green
+        case .published, .inDrafts:           .green
         case .needsAttention:                 .red
         }
     }
@@ -308,4 +311,20 @@ struct ValidationReport: Decodable, Sendable {
         let detail: String
         var id: String { key }
     }
+}
+
+/// What `content-item` compose returns: the new post, attached and checked.
+struct ComposedPost: Decodable, Sendable {
+    let postId: UUID
+    let postTargetId: UUID
+    let ok: Bool
+    let checks: [ValidationReport.Check]
+    let privacyOptions: [String]
+    let username: String?
+}
+
+/// "Write with AI": the improved caption and hashtags.
+struct WrittenCaption: Decodable, Sendable {
+    let caption: String
+    let hashtags: [String]
 }

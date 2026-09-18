@@ -256,6 +256,9 @@ struct PostDetailView: View {
                            ? "Published privately — only you can see it on \(post.platformName)."
                            : "Published. Autocast reads its numbers every hour and learns from them.")
             }
+        case .inDrafts:
+            MoveBanner(yours: true, text: "It's in your TikTok drafts (inbox). Open TikTok to add sound or effects and post it.",
+                       action: ("Open TikTok", { if let url = URL(string: "snssdk1233://") { UIApplication.shared.open(url) } }))
         case .scheduled, .draft:
             if post.media == nil && attaching {
                 MoveBanner(yours: false, text: "Adding your video and checking it…")

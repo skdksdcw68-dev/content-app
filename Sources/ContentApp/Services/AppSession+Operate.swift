@@ -115,6 +115,10 @@ extension AppSession {
         var height: Int? = nil
         var file_name: String? = nil
         var note: String? = nil
+        var caption: String? = nil
+        var hashtags: [String]? = nil
+        var cover_ms: Int? = nil
+        var mode: String? = nil
     }
 
     private func contentItem<T: Decodable>(_ request: ItemRequest) async throws -> T {
@@ -153,12 +157,44 @@ extension AppSession {
         ))
     }
 
-    func validate(post: UUID) async throws -> ValidationReport {
+    /// The person's own post: their words, tags and cover, attached and
+    /// checked in one call. Needs a connected account, nothing else.
+    func compose(path: String, video: VideoFacts, caption: String, hashtags: [String], coverMs: Int?, toDrafts: Bool) async throws -> ComposedPost {
+        guard let brand else { throw AnalyticsError.noBrand }
+        return try await contentItem(ItemRequest(
+            step: "compose",
+            brand_id: brand.id.uuidString,
+            storage_path: path,
+            duration_s: video.duration,
+            width: video.width,
+            height: video.height,
+            file_name: video.fileName,
+            caption: caption,
+            hashtags: hashtags,
+            cover_ms: coverMs,
+            mode: toDrafts ? "UPLOAD_TO_DRAFT" : "DIRECT_POST"
+        ))
+    }
+
+    /// "Write with AI": their caption made better, plus hashtags.
+    func writeCaption(_ caption: String, hashtags: [String], frames: [String]) async throws -> WrittenCaption {
+        guard let brand else { throw AnalyticsError.noBrand }
+        return try await contentItem(ItemRequest(
+            step: "write",
+            brand_id: brand.id.uuidString,
+            frames: frames.isEmpty ? nil : Array(frames.prefix(3)),
+            caption: caption,
+            hashtags: hashtags
+        ))
+    }
+
+    func validate(post: UUID, toDrafts: Bool = false) async throws -> ValidationReport {
         guard let brand else { throw AnalyticsError.noBrand }
         return try await contentItem(ItemRequest(
             step: "validate",
             brand_id: brand.id.uuidString,
-            post_id: post.uuidString
+            post_id: post.uuidString,
+            mode: toDrafts ? "UPLOAD_TO_DRAFT" : nil
         ))
     }
 }

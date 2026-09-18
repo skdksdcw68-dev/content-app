@@ -35,7 +35,14 @@ const MAX_BYTES = 60 * 1024 * 1024;
 const MAX_CAPTION = 2200;
 
 interface Body {
-  step?: "understand" | "prepare" | "validate";
+  step?: "understand" | "prepare" | "validate" | "compose" | "write";
+  /** compose/write: the person's own words and tags. */
+  caption?: string;
+  hashtags?: string[];
+  /** compose: the frame chosen as the cover, in milliseconds. */
+  cover_ms?: number;
+  /** compose/validate: DIRECT_POST or UPLOAD_TO_DRAFT. */
+  mode?: string;
   brand_id?: string;
   post_id?: string;
   storage_path?: string;
@@ -80,6 +87,8 @@ Deno.serve(async (request) => {
       case "understand": return json(await understand(admin, userId, brand, body));
       case "prepare":    return json(await prepare(admin, userId, brand, body));
       case "validate":   return json(await validate(admin, userId, brand, body));
+      case "compose":    return json(await compose(admin, userId, brand, body));
+      case "write":      return json(await write(brand, body, admin));
       default:           throw new PublicError("Unknown step.");
     }
   } catch (error) {
@@ -383,7 +392,8 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
     // Until TikTok has reviewed Autocast it refuses posts from PUBLIC accounts
     // (unaudited_client_can_only_post_to_private_accounts). A public account
     // is one that is offered PUBLIC_TO_EVERYONE.
-    if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true") {
+    // The inbox route (drafts) is left to TikTok to decide.
+    if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true" && body.mode !== "UPLOAD_TO_DRAFT") {
       const isPublic = info.privacy_level_options.includes("PUBLIC_TO_EVERYONE");
       add("private", "Account set to private", !isPublic,
         isPublic
@@ -420,12 +430,15 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
   }
 
   const fullCaption = [target.caption ?? "", ...((target.hashtags ?? []) as string[])].filter(Boolean).join(" ");
-  add("caption", "Caption", fullCaption.length > 0 && fullCaption.length <= MAX_CAPTION,
-    `${fullCaption.length} of ${MAX_CAPTION} characters`);
+  add("caption", "Caption", fullCaption.length <= MAX_CAPTION,
+    fullCaption.length === 0 ? "No caption" : `${fullCaption.length} of ${MAX_CAPTION} characters`);
 
+  // A post with no time goes out when the person taps Post.
   const when = post.scheduled_for ? new Date(post.scheduled_for) : null;
-  add("time", "Scheduled time", !!when && when.getTime() > Date.now(),
-    when && when.getTime() > Date.now() ? "In the future" : "The time has passed — pick a new one when you approve.");
+  if (when) {
+    add("time", "Scheduled time", when.getTime() > Date.now(),
+      when.getTime() > Date.now() ? "In the future" : "The time has passed — pick a new one when you approve.");
+  }
 
   const { data: rate } = await admin
     .from("account_rate_state").select("day_count, day_window, max_per_day").eq("connection_id", target.connection_id).maybeSingle();
@@ -457,6 +470,148 @@ async function finish(
     username: info?.creator_username ?? null,
     avatar_url: info?.creator_avatar_url ?? null,
   };
+}
+
+// ------------------------------------------------------------------- compose
+
+/**
+ * A post the person wrote themselves: their video, their caption, their tags.
+ * No plan, no brand facts needed -- a connected account is enough (Abel, 18
+ * Sep). Attached and checked in one call; approving and posting follow.
+ */
+async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
+  if (!body.storage_path) throw new PublicError("storage_path is required.");
+  const connection = await activeConnection(admin, brand.id);
+  if (!connection) throw new PublicError("Connect TikTok first (You → Accounts).", 409);
+
+  const caption = (body.caption ?? "").trim().slice(0, 2000);
+  const hashtags = cleanTags(body.hashtags ?? []);
+  const firstLine = caption.split("\n")[0].replace(/(^|\s)#\w+/g, "").trim();
+
+  const { data: post, error: postError } = await admin
+    .from("posts")
+    .insert({
+      user_id: userId,
+      brand_id: brand.id,
+      format: "video",
+      hook: (firstLine || body.file_name || "Your video").slice(0, 120),
+      script: caption,
+      hashtags,
+      concept: "",
+      rationale: "You posted this yourself.",
+      status: "scripted",
+      render_tier: "eager",
+      media_strategy: "user_upload",
+    })
+    .select("id")
+    .single();
+  if (postError) throw postError;
+
+  const attached = await attachUpload(admin, {
+    userId,
+    brandId: brand.id,
+    connection,
+    storagePath: body.storage_path,
+    postId: post.id,
+    caption,
+    hashtags,
+    durationMs: body.duration_s ? Math.round(body.duration_s * 1000) : null,
+    width: body.width ?? null,
+    height: body.height ?? null,
+  });
+
+  if (typeof body.cover_ms === "number" && body.cover_ms > 0) {
+    await admin.from("post_targets").update({ video_cover_ms: Math.round(body.cover_ms) }).eq("id", attached.postTargetId);
+  }
+
+  await admin.rpc("log_activity", {
+    p_user: userId, p_brand: brand.id, p_post: post.id, p_kind: "prepared", p_actor: "you",
+    p_title: "You wrote the post",
+    p_detail: `Original file (${(attached.byteSize / 1_048_576).toFixed(1)} MB), sent as is — no re-compression.`,
+  });
+
+  const report = await validate(admin, userId, brand, { ...body, post_id: post.id });
+  return { post_id: post.id, post_target_id: attached.postTargetId, ...report };
+}
+
+// --------------------------------------------------------------------- write
+
+/**
+ * "Write with AI": the person's own caption, made better -- same meaning,
+ * same language, same voice -- plus hashtags. With nothing typed it writes
+ * from the frames. Uses the brand's facts when there are any; never needs
+ * them.
+ */
+async function write(brand: Brand, body: Body, admin: Admin) {
+  if (!OPENAI_KEY) throw new PublicError("The writer is not configured yet.", 503);
+  const draft = (body.caption ?? "").trim();
+  const frames = (body.frames ?? []).filter((f) => typeof f === "string" && f.length > 100).slice(0, 3);
+  if (!draft && frames.length === 0) throw new PublicError("Write something or pick a video first.");
+
+  const { data: memory } = await admin
+    .from("brand_memory").select("fact").eq("brand_id", brand.id).order("created_at", { ascending: false }).limit(10);
+  const facts = [
+    brand.niche ? `About ${brand.name}: ${brand.niche}` : "",
+    ...((memory ?? []) as { fact: string }[]).map((m) => m.fact),
+  ].map((f) => f.trim()).filter(Boolean).filter((f, i, all) => all.indexOf(f) === i);
+
+  const system = [
+    "You improve a TikTok caption for the person who wrote it.",
+    'Return JSON only: {"caption":string,"hashtags":[string]}.',
+    draft
+      ? "caption: their caption, made clearer and more engaging. Keep their meaning, their language and their voice. Keep any @mentions exactly. Under 150 characters unless theirs is longer. No hashtags inside the caption."
+      : "caption: a short caption for this video, written from what is visibly on screen. Under 150 characters. No hashtags inside the caption.",
+    "hashtags: 4 to 6, lowercase, each starting with #, relevant to the video and caption. Mix broad and specific. No invented trends.",
+    "NEVER add a fact, number, feature, price, result or claim that is not in their caption, the FACTS, or visible on screen. Never claim speed, ease, accuracy or being the best. Never invent a person or testimonial.",
+  ].join("\n");
+
+  const content: unknown[] = [{
+    type: "text",
+    text: [
+      facts.length ? `FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}` : "No facts about the account were given.",
+      draft ? `\nTheir caption:\n${draft}` : "\nThey wrote nothing yet.",
+      ...(body.hashtags?.length ? [`\nTheir hashtags: ${body.hashtags.join(" ")}`] : []),
+      frames.length ? "\nFrames from the video:" : "",
+    ].join("\n"),
+  }, ...frames.map((frame) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${frame}`, detail: "low" } }))];
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: MODEL,
+      temperature: 0.6,
+      response_format: { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content }],
+    }),
+  });
+  const completion = await response.json();
+  if (!response.ok) {
+    console.error("openai", completion?.error);
+    throw new PublicError("The writer couldn't be reached just now. Try again.", 502);
+  }
+  let out: { caption?: string; hashtags?: string[] } = {};
+  try { out = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}"); } catch { /* checked below */ }
+
+  // Only claims the person did not write themselves are removed.
+  const theirs = unsupportedClaims(draft);
+  const added = unsupportedClaims(out.caption ?? "").filter((w) => !theirs.includes(w));
+  let caption = (out.caption ?? "").trim();
+  if (added.length) {
+    caption = caption.replace(CLAIMS, (word) => (theirs.includes(word.toLowerCase()) ? word : ""))
+      .replace(/\s+([.,!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  }
+  if (!caption) caption = draft;
+
+  return { caption, hashtags: cleanTags(out.hashtags ?? []) };
+}
+
+function cleanTags(tags: string[]): string[] {
+  return tags
+    .filter((t) => typeof t === "string" && t.trim())
+    .map((t) => (t.trim().startsWith("#") ? t.trim() : `#${t.trim()}`).toLowerCase().replace(/\s+/g, ""))
+    .filter((t, i, all) => t.length > 1 && all.indexOf(t) === i)
+    .slice(0, 8);
 }
 
 // --------------------------------------------------------------------- utils

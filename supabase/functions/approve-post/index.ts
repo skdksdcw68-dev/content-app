@@ -33,6 +33,11 @@ interface Body {
   /** When to post it, chosen on the approval screen. Omitted keeps the time
    *  the plan gave it. */
   run_at?: string;
+  /** Go out now: queued for this minute instead of a planned time. */
+  post_now?: boolean;
+  /** DIRECT_POST (default) or UPLOAD_TO_DRAFT -- TikTok's inbox, for the
+   *  creator to finish in TikTok. */
+  mode?: string;
 }
 
 Deno.serve(async (request) => {
@@ -233,12 +238,19 @@ Deno.serve(async (request) => {
         consent_id: consent.id,
         content_digest: `\\x${digest}`,
         state: "pending",
+        publish_mode: body.mode === "UPLOAD_TO_DRAFT" ? "UPLOAD_TO_DRAFT" : "DIRECT_POST",
+        failure_code: null,
+        failure_reason: null,
+        provider_publish_id: null,
       })
       .eq("id", target.id);
 
     if (targetError) throw targetError;
 
     // A time picked on the approval screen replaces the plan's.
+    if (body.post_now) {
+      chosen = new Date(Date.now() + 5_000);
+    }
     if (chosen) {
       await admin.from("posts").update({ scheduled_for: chosen.toISOString() }).eq("id", target.post_id);
     }
@@ -267,7 +279,7 @@ Deno.serve(async (request) => {
 
     let scheduledFor: string | null = null;
 
-    if (post?.scheduled_for && new Date(post.scheduled_for).getTime() > Date.now()) {
+    if (post?.scheduled_for && (body.post_now || new Date(post.scheduled_for).getTime() > Date.now())) {
       const { error: scheduleError } = await admin.rpc("schedule_publish", {
         p_post_target_id: target.id,
         p_run_at: post.scheduled_for,

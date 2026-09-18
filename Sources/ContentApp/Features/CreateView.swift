@@ -52,8 +52,8 @@ struct CreateView: View {
                 }
                 .entrance(0)
 
-                // One screen from the file to a checked post in the plan.
-                NavigationLink { UploadFlowView() } label: {
+                // TikTok-style: your video, your words, Write with AI, Post.
+                NavigationLink { ComposeView() } label: {
                     PrimaryButtonLabel(title: "Upload", systemImage: "plus")
                 }
                 .primaryButtonStyle()

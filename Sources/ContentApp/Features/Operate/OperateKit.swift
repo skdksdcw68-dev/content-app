@@ -120,6 +120,7 @@ struct LoopTimeline: View {
         case .publishing:     6
         case .verifying:      7
         case .published:      8
+        case .inDrafts:       8
         case .needsAttention: -1
         }
     }
@@ -216,9 +217,10 @@ struct LoopTimeline: View {
         }
         result.append(Step(
             id: "published",
-            title: "Published",
+            title: post.stage == .inDrafts ? "Sent to your TikTok drafts" : "Published",
             detail: publishedParts.isEmpty ? nil : publishedParts.joined(separator: " · "),
-            state: progress(done: post.stage == .published, at: post.publishedDate ?? published?.date, active: false),
+            state: progress(done: post.stage == .published || post.stage == .inDrafts,
+                            at: post.publishedDate ?? published?.date, active: false),
             yours: false
         ))
 

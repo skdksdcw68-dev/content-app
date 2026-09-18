@@ -674,18 +674,24 @@ private struct AdjustSheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    /// -100 ... +100 around the middle of the range.
+    private func amount(_ value: Double, _ range: ClosedRange<Double>) -> String {
+        let middle = (range.lowerBound + range.upperBound) / 2
+        let span = range.upperBound - range.lowerBound
+        let percent = (value - middle) / span * 200
+        return String(format: "%+.0f", percent)
+    }
+
     private func row(_ title: String, _ symbol: String, _ value: Double, _ range: ClosedRange<Double>,
                      set: @escaping (Double) -> Void) -> some View {
-        Section {
+        let label = amount(value, range)
+        return Section {
             Slider(value: Binding(get: { value }, set: set), in: range) {
                 Text(title)
             } minimumValueLabel: {
-                Text("\(Image(systemName: symbol))").foregroundStyle(.secondary)
+                Text(Image(systemName: symbol))
             } maximumValueLabel: {
-                Text(String(format: "%+.0f", (value - (range.lowerBound + range.upperBound) / 2) / (range.upperBound - range.lowerBound) * 200))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 36, alignment: .trailing)
+                Text(label).font(.caption.monospacedDigit())
             }
         } header: {
             Text(title)

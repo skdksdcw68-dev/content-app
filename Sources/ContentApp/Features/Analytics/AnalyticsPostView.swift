@@ -406,7 +406,7 @@ struct AnalyticsPostView: View {
     private func nextStep(_ data: PostAnalytics) -> some View {
         let step = PostInsights.nextStep(data, title: title)
         // Inverted, as in the mockup: the one card that asks for an action.
-        let ink = Color(uiColor: .systemBackground)
+        let ink = Theme.onAccent
         return VStack(alignment: .leading, spacing: 12) {
             Label("What to post next", systemImage: "sparkles")
                 .font(.title3.bold())

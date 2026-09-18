@@ -171,7 +171,7 @@ struct AutopilotCard: View {
                         .fontWeight(.semibold)
                         .frame(maxWidth: .infinity, minHeight: 28)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(RemiFilledButtonStyle())
                 .tint(Theme.accent)
                 .disabled(turningOn)
             } else {

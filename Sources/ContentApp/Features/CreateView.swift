@@ -303,7 +303,7 @@ private struct ConnectGeneratorRow: View {
             HStack(spacing: 12) {
                 Image(systemName: "wand.and.stars")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .foregroundStyle(Theme.onAccent)
                     .frame(width: 38, height: 38)
                     .background(Color.accentColor, in: Circle())
 

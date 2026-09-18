@@ -260,7 +260,7 @@ private struct ReportCard: View {
 
             HStack(spacing: 8) {
                 Button("Read") { reading = true }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemiFilledButtonStyle())
                     .tint(Theme.accent)
 
                 // The three formats as one menu, because three equal buttons
@@ -452,7 +452,7 @@ private struct CampaignCard: View {
                     Button { onApprove(artifact) } label: {
                         Text("Write the posts")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemiFilledButtonStyle())
                     .tint(Theme.accent)
 
                     NavigationLink { PlanView() } label: {
@@ -463,7 +463,7 @@ private struct CampaignCard: View {
                     Button { onApprove(artifact) } label: {
                         Text("Approve and write the posts")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemiFilledButtonStyle())
                     .tint(Theme.accent)
                     .disabled(standing == nil)
                 }

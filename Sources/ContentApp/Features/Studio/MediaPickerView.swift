@@ -37,8 +37,7 @@ struct MediaPickerView: View {
             content
             bottomBar
         }
-        .background(Color.black.ignoresSafeArea())
-        .environment(\.colorScheme, .dark)
+        .background(Color.canvas.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .pushedPage()
         .task { await start() }
@@ -89,10 +88,10 @@ struct MediaPickerView: View {
                     .font(.system(size: 17, weight: .semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 9)
-                    .background(Color.white.opacity(0.12), in: Capsule())
+                    .background(Color.raised, in: Capsule())
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 16)
 
             HStack(spacing: 26) {
@@ -101,9 +100,9 @@ struct MediaPickerView: View {
                         VStack(spacing: 7) {
                             Text(item.rawValue)
                                 .font(.system(size: 16, weight: tab == item ? .semibold : .regular))
-                                .foregroundStyle(tab == item ? Color.white : Color.white.opacity(0.55))
+                                .foregroundStyle(tab == item ? Color.primary : Color.secondary)
                             Capsule()
-                                .fill(tab == item ? Color.white : Color.clear)
+                                .fill(tab == item ? Color.accentColor : Color.clear)
                                 .frame(width: 40, height: 3)
                         }
                     }
@@ -128,7 +127,7 @@ struct MediaPickerView: View {
                     } label: {
                         Text("You've allowed some photos. Tap to choose more.")
                             .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.8))
+                            .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity)
                             .padding(10)
                     }
@@ -151,10 +150,10 @@ struct MediaPickerView: View {
                 Button("Open Settings") {
                     if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(RemiFilledButtonStyle())
                 Spacer()
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
             .padding(32)
         }
     }
@@ -190,7 +189,7 @@ struct MediaPickerView: View {
                     }
                 }
                 .overlay {
-                    if order != nil { Color.white.opacity(0.15) }
+                    if order != nil { Color.accentColor.opacity(0.18) }
                 }
                 .clipped()
                 .contentShape(Rectangle())
@@ -209,10 +208,10 @@ struct MediaPickerView: View {
                 HStack(spacing: 8) {
                     Image(systemName: multiple ? "checkmark.circle.fill" : "circle")
                         .font(.system(size: 22))
-                        .foregroundStyle(multiple ? Color.accentColor : Color.white)
+                        .foregroundStyle(multiple ? Color.accentColor : Color.secondary)
                     Text("Select multiple")
                         .font(.system(size: 17, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(.primary)
                 }
             }
             Spacer()
@@ -222,14 +221,14 @@ struct MediaPickerView: View {
                 Text(picked.count > 1 ? "Next (\(picked.count))" : "Next")
                     .font(.system(size: 17, weight: .semibold))
                     .frame(width: 180, height: 50)
-                    .background(picked.isEmpty ? Color.white.opacity(0.12) : Color.accentColor, in: Capsule())
-                    .foregroundStyle(picked.isEmpty ? Color.white.opacity(0.4) : Theme.onAccent)
+                    .background(picked.isEmpty ? Color.track : Color.accentColor, in: Capsule())
+                    .foregroundStyle(picked.isEmpty ? Color.secondary : Theme.onAccent)
             }
             .disabled(picked.isEmpty || loading)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color.black)
+        .background(Color.raised.ignoresSafeArea(edges: .bottom))
     }
 
     // MARK: - Actions
@@ -350,7 +349,7 @@ private struct AssetThumbnail: View {
     var body: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.white.opacity(0.06)
+                Color.track
                 if let image {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: proxy.size.width, height: proxy.size.height)

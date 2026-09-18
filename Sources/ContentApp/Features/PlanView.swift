@@ -438,7 +438,7 @@ private struct DecisionBar: View {
                 }
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(RemiFilledButtonStyle())
             .controlSize(.large)
             .disabled(working)
         }

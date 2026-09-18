@@ -150,7 +150,7 @@ struct RankedPostRow: View {
         HStack(spacing: 12) {
             Text("\(rank)")
                 .font(.footnote.weight(.bold).monospacedDigit())
-                .foregroundStyle(rank <= 3 ? Color(uiColor: .systemBackground) : Color.secondary)
+                .foregroundStyle(rank <= 3 ? Theme.onAccent : Color.secondary)
                 .frame(width: 24, height: 24)
                 .background(
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -399,7 +399,7 @@ private struct RecommendationCard: View {
                 Button { act(recommendation, "apply") } label: {
                     Text("Apply")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color(uiColor: .systemBackground))
+                        .foregroundStyle(Theme.onAccent)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                         .background(Color.accentColor, in: Capsule())
@@ -653,7 +653,7 @@ private struct AnalyticsCampaignRow: View {
         HStack(spacing: 12) {
             Image(systemName: "megaphone.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(uiColor: .systemBackground))
+                .foregroundStyle(Theme.onAccent)
                 .frame(width: 38, height: 38)
                 .background(Color.accentColor, in: Circle())
 

@@ -370,6 +370,7 @@ struct ComposeView: View {
             }
         }
         .presentationDetents([.medium])
+        .toggleStyle(RemiSwitchStyle())
     }
 
     // MARK: - Actions
@@ -601,6 +602,7 @@ private struct MoreOptionsSheet: View {
             }
         }
         .presentationDetents([.large])
+        .toggleStyle(RemiSwitchStyle())
     }
 
     private func toggleRow(_ symbol: String, _ title: String, _ detail: String?, _ value: Binding<Bool>) -> some View {

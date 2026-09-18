@@ -48,7 +48,7 @@ struct AnalyticsRangeBar: View {
                 }
             }
             .font(.body.weight(isOn ? .semibold : .regular))
-            .foregroundStyle(isOn ? Color(uiColor: .systemBackground) : Color.primary.opacity(0.75))
+            .foregroundStyle(isOn ? Theme.onAccent : Color.primary.opacity(0.75))
             .padding(.horizontal, 18)
             .frame(height: 40)
             .background(isOn ? Color.accentColor : Color.track, in: Capsule())

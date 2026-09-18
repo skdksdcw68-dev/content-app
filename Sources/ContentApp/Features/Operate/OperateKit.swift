@@ -76,7 +76,7 @@ struct MoveBanner: View {
             if let action {
                 Button(action.title, action: action.run)
                     .font(.subheadline.weight(.semibold))
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(RemiFilledButtonStyle())
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
             }
@@ -530,6 +530,7 @@ struct ReviewSheet: View {
             }
         }
         .task { await load() }
+        .toggleStyle(RemiSwitchStyle())
     }
 
     private func form(_ info: CreatorInfo) -> some View {
@@ -620,7 +621,7 @@ struct ReviewSheet: View {
                     }
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(RemiFilledButtonStyle())
                 .controlSize(.large)
                 .disabled(privacy == nil || approving)
                 .listRowBackground(Color.clear)

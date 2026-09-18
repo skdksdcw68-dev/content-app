@@ -68,7 +68,7 @@ struct OnboardingConnect: View {
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(RemiFilledButtonStyle())
             .tint(anythingConnected ? Theme.accent : Color.secondary)
             .controlSize(.large)
 

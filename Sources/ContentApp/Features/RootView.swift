@@ -47,6 +47,8 @@ struct RootView: View {
         .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
         .preferredColorScheme(appearance.colorScheme)
+        // Every switch in the app, Remi's way: visible in light and dark.
+        .toggleStyle(RemiSwitchStyle())
         .onReceive(NotificationCenter.default.publisher(for: .appearanceChanged)) { _ in
             appearance = AppAppearance.current
         }
@@ -181,7 +183,7 @@ private struct StartupFailedView: View {
                 .padding(.horizontal, 32)
 
             Button("Try again", action: retry)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(RemiFilledButtonStyle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.canvas)

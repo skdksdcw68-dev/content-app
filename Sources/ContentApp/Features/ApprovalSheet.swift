@@ -47,6 +47,7 @@ struct ApprovalSheet: View {
             }
         }
         .task { await load() }
+        .toggleStyle(RemiSwitchStyle())
     }
 
     private var loading: some View {

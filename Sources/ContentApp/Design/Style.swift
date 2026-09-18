@@ -83,7 +83,7 @@ struct PrimaryButtonLabel: View {
         }
         .fontWeight(.semibold)
         .frame(maxWidth: .infinity, minHeight: 30)
-        .foregroundStyle(Color(uiColor: .systemBackground))
+        .foregroundStyle(Theme.onAccent)
     }
 }
 

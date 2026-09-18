@@ -113,7 +113,7 @@ private struct OnboardingWelcome: View {
                     .fontWeight(.semibold)
                     .frame(maxWidth: .infinity, minHeight: 30)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(RemiFilledButtonStyle())
             .controlSize(.large)
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
@@ -204,7 +204,7 @@ private struct OnboardingQuestionView: View {
                     .frame(maxWidth: .infinity, minHeight: 30)
                     .contentTransition(.opacity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(RemiFilledButtonStyle())
             .tint(chosen.isEmpty ? Color.secondary : Theme.accent)
             .controlSize(.large)
             .animation(.snappy(duration: 0.2), value: chosen.isEmpty)

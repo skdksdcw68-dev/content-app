@@ -406,7 +406,7 @@ private struct ConnectCard: View {
             HStack(spacing: 12) {
                 Image(systemName: "link")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .foregroundStyle(Theme.onAccent)
                     .frame(width: 38, height: 38)
                     .background(Color.accentColor, in: Circle())
 
@@ -616,7 +616,7 @@ private struct AutopilotLinkRow: View {
             HStack(spacing: 12) {
                 Image(systemName: "airplane")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .foregroundStyle(Theme.onAccent)
                     .frame(width: 36, height: 36)
                     .background(Color.accentColor, in: Circle())
                 VStack(alignment: .leading, spacing: 1) {

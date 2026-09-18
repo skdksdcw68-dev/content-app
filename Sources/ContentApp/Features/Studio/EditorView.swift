@@ -114,8 +114,7 @@ struct EditorView: View {
             Spacer(minLength: 0)
             bottom
         }
-        .background(Color.black.ignoresSafeArea())
-        .environment(\.colorScheme, .dark)
+        .background(Color.canvas.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .pushedPage()
         .task(id: rebuild) { await rebuildPlayer() }
@@ -156,8 +155,9 @@ struct EditorView: View {
             Image(systemName: symbol)
                 .font(.system(size: 20, weight: .bold))
                 .frame(width: 52, height: 52)
-                .background(filled ? Color.accentColor : Color.white.opacity(0.14), in: Circle())
-                .foregroundStyle(filled ? Theme.onAccent : Color.white)
+                .background(filled ? Color.accentColor : Color.raised, in: Circle())
+                .foregroundStyle(filled ? Theme.onAccent : Color.primary)
+                .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
         }
         .buttonStyle(SoftPressStyle())
     }
@@ -179,7 +179,7 @@ struct EditorView: View {
         HStack {
             Text("\(MediaPickerView.clock(playback.time))/\(MediaPickerView.clock(project.duration))")
                 .font(.system(size: 15, weight: .medium).monospacedDigit())
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.secondary)
                 .frame(width: 120, alignment: .leading)
             Spacer()
             Button { playback.toggle(duration: project.duration) } label: {
@@ -196,7 +196,7 @@ struct EditorView: View {
             .font(.system(size: 19, weight: .medium))
             .frame(width: 120, alignment: .trailing)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
     }
@@ -223,8 +223,8 @@ struct EditorView: View {
                             Image(systemName: "plus")
                                 .font(.system(size: 22, weight: .bold))
                                 .frame(width: 56, height: 56)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .foregroundStyle(.black)
+                                .background(Color.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .foregroundStyle(.primary)
                         }
                         .padding(.leading, 10)
                     }
@@ -237,8 +237,8 @@ struct EditorView: View {
                         .font(.system(size: 14, weight: .semibold))
                         .padding(.horizontal, 12)
                         .frame(width: max(120, CGFloat(project.duration) * pointsPerSecond), height: 40, alignment: .leading)
-                        .background(Color(red: 0.55, green: 0.62, blue: 1).opacity(0.85), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                        .foregroundStyle(Color(red: 0.1, green: 0.12, blue: 0.3))
+                        .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .foregroundStyle(.primary)
                     }
                     .buttonStyle(.plain)
                     if !project.texts.isEmpty {
@@ -249,8 +249,8 @@ struct EditorView: View {
                                     .lineLimit(1)
                                     .padding(.horizontal, 8)
                                     .frame(height: 26)
-                                    .background(Color.yellow.opacity(0.85), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                                    .foregroundStyle(.black)
+                                    .background(Color.orange.opacity(0.18), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                    .foregroundStyle(.primary)
                                     .onTapGesture {
                                         editingText = text.id
                                         tool = .text
@@ -260,7 +260,7 @@ struct EditorView: View {
                     }
                 }
                 Rectangle()
-                    .fill(Color.white)
+                    .fill(Color.primary)
                     .frame(width: 2, height: 150)
                     .offset(x: CGFloat(playback.time) * pointsPerSecond)
                     .allowsHitTesting(false)
@@ -284,14 +284,15 @@ struct EditorView: View {
                         Image(systemName: "checkmark").font(.system(size: 18, weight: .bold))
                     }
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 18)
                 .padding(.top, 12)
                 panel(tool)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 12)
             }
-            .background(Color(white: 0.1))
+            .background(Color.raised, in: UnevenRoundedRectangle(topLeadingRadius: 22, topTrailingRadius: 22, style: .continuous))
+            .shadow(color: .black.opacity(0.06), radius: 12, y: -2)
         } else {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
@@ -305,8 +306,8 @@ struct EditorView: View {
                                 Text(item.rawValue).font(.system(size: 15, weight: .medium))
                             }
                             .frame(width: 84, height: 80)
-                            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .foregroundStyle(.white)
+                            .background(Color.raised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .foregroundStyle(.primary)
                         }
                         .buttonStyle(SoftPressStyle())
                     }
@@ -463,7 +464,7 @@ private struct ClipStrip: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            Color.white.opacity(0.12)
+            Color.track
             if let thumb {
                 HStack(spacing: 0) {
                     ForEach(0..<max(1, Int(width / 42)), id: \.self) { _ in
@@ -486,7 +487,7 @@ private struct ClipStrip: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(selected ? Color.white : Color.clear, lineWidth: 2.5)
+                .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 2.5)
         }
         .task(id: clip.url) {
             if clip.kind == .photo {
@@ -542,8 +543,8 @@ private struct EditPanel: View {
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
-                                .background(clip.speed == speed ? Color.white : Color.white.opacity(0.12), in: Capsule())
-                                .foregroundStyle(clip.speed == speed ? Color.black : Color.white)
+                                .background(clip.speed == speed ? Color.accentColor : Color.track, in: Capsule())
+                                .foregroundStyle(clip.speed == speed ? Theme.onAccent : Color.primary)
                         }
                     }
                 }
@@ -568,7 +569,7 @@ private struct EditPanel: View {
                     .disabled(project.clips.count < 2)
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(.primary)
         } else {
             Text("Tap a clip on the timeline to edit it.").font(.subheadline).foregroundStyle(.secondary)
         }
@@ -582,7 +583,7 @@ private struct EditPanel: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
-            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color.track, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -607,7 +608,7 @@ private struct TextPanel: View {
                 .lineLimit(1...3)
                 .font(.body.weight(.semibold))
                 .padding(10)
-                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Color.track, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 HStack(spacing: 8) {
                     ForEach(StudioText.Style.allCases, id: \.self) { style in
@@ -615,8 +616,8 @@ private struct TextPanel: View {
                             Text(style.rawValue.capitalized)
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 10).padding(.vertical, 6)
-                                .background(text.style == style ? Color.white : Color.white.opacity(0.12), in: Capsule())
-                                .foregroundStyle(text.style == style ? Color.black : Color.white)
+                                .background(text.style == style ? Color.accentColor : Color.track, in: Capsule())
+                                .foregroundStyle(text.style == style ? Theme.onAccent : Color.primary)
                         }
                     }
                 }
@@ -625,7 +626,7 @@ private struct TextPanel: View {
                         Button { update(text.id) { $0.color = hex } } label: {
                             Circle().fill(Color(uiColor: UIColor(hex: hex) ?? .white))
                                 .frame(width: 26, height: 26)
-                                .overlay(Circle().strokeBorder(text.color == hex ? Color.white : Color.white.opacity(0.3), lineWidth: text.color == hex ? 3 : 1))
+                                .overlay(Circle().strokeBorder(text.color == hex ? Color.accentColor : Color.primary.opacity(0.18), lineWidth: text.color == hex ? 3 : 1))
                         }
                     }
                 }
@@ -660,14 +661,14 @@ private struct TextPanel: View {
                     Label("Add text", systemImage: "plus")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(Color.track, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
                 if !project.texts.isEmpty {
                     Text("Or tap a text on the timeline to change it.").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     private func update(_ id: UUID, _ edit: @escaping (inout StudioText) -> Void) {
@@ -699,7 +700,7 @@ private struct FilterPanel: View {
                                     .fill(swatch(filter))
                                     .frame(width: 62, height: 62)
                                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .strokeBorder(project.filter == filter ? Color.white : Color.clear, lineWidth: 2.5))
+                                        .strokeBorder(project.filter == filter ? Color.accentColor : Color.clear, lineWidth: 2.5))
                                 Text(filter.title).font(.caption)
                             }
                         }
@@ -715,7 +716,7 @@ private struct FilterPanel: View {
                 }
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     private func swatch(_ filter: StudioFilter) -> LinearGradient {
@@ -749,7 +750,7 @@ private struct AdjustPanel: View {
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(.primary)
     }
 
     private func row(_ symbol: String, _ title: String, _ value: Double, _ range: ClosedRange<Double>, set: @escaping (Double) -> Void) -> some View {

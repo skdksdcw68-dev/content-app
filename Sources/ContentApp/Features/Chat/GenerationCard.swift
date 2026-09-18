@@ -188,7 +188,7 @@ struct GenerationCard: View {
             }
             .frame(maxWidth: .infinity, minHeight: 30)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(RemiFilledButtonStyle())
         .tint(Theme.accent)
         .controlSize(.large)
         .disabled(selected == nil || selected?.affordable == false)

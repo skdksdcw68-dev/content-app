@@ -331,7 +331,7 @@ private struct TextCell: View {
                 if let badge {
                     Text(badge)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(Color(uiColor: .systemBackground))
+                        .foregroundStyle(Theme.onAccent)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(Color.accentColor, in: Capsule())

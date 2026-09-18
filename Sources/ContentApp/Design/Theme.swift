@@ -22,10 +22,15 @@ enum Theme {
     ///
     /// Not `.white`. The accent flips to near-white in dark mode, so white text
     /// on it is white on white -- a filled button with nothing readable in it.
-    /// `systemBackground` is the exact inverse of the accent in both schemes:
-    /// white behind black ink, black behind white ink. Anything drawn on top of
-    /// Theme.accent uses this and never a literal colour.
-    static let onAccent = Color(.systemBackground)
+    /// It is the accent's exact inverse: white on the black accent, near-black
+    /// on the white one. Anything drawn on top of Theme.accent uses this and
+    /// never a literal colour.
+    ///
+    /// An asset, not `Color(.systemBackground)`: a UIKit colour resolves from
+    /// the window, not from SwiftUI's environment, so on any view that set its
+    /// own colour scheme it stayed white while the accent turned white -- the
+    /// Studio's Next button and checkmarks vanished that way (18 Sep 2026).
+    static let onAccent = Color("OnAccent")
 
     /// The fill behind a chip or a selected surface. Grey now, for the same
     /// reason -- a tint, never a large fill, and never competing.

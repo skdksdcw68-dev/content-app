@@ -361,7 +361,7 @@ struct AnalyticsView: View {
             HStack(spacing: 12) {
                 Image(systemName: "square.grid.3x3.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(uiColor: .systemBackground))
+                    .foregroundStyle(Theme.onAccent)
                     .frame(width: 38, height: 38)
                     .background(Color.accentColor, in: Circle())
                 Text("Your posts")

@@ -153,6 +153,7 @@ extension AppSession {
         var cover_ms: Int? = nil
         var mode: String? = nil
         var connection_ids: [String]? = nil
+        var captions: [String: String]? = nil
     }
 
     private func contentItem<T: Decodable>(_ request: ItemRequest) async throws -> T {
@@ -196,7 +197,7 @@ extension AppSession {
     /// The person's own post: their words, tags and cover, attached and
     /// checked in one call. Needs a connected account, nothing else.
     func compose(path: String, video: VideoFacts, caption: String, hashtags: [String], coverMs: Int?, toDrafts: Bool,
-                 connections: [UUID] = []) async throws -> ComposedPost {
+                 connections: [UUID] = [], captions: [UUID: String] = [:]) async throws -> ComposedPost {
         guard let brand else { throw AnalyticsError.noBrand }
         return try await contentItem(ItemRequest(
             step: "compose",
@@ -210,7 +211,8 @@ extension AppSession {
             hashtags: hashtags,
             cover_ms: coverMs,
             mode: toDrafts ? "UPLOAD_TO_DRAFT" : "DIRECT_POST",
-            connection_ids: connections.isEmpty ? nil : connections.map(\.uuidString)
+            connection_ids: connections.isEmpty ? nil : connections.map(\.uuidString),
+            captions: captions.isEmpty ? nil : Dictionary(uniqueKeysWithValues: captions.map { ($0.key.uuidString.lowercased(), $0.value) })
         ))
     }
 

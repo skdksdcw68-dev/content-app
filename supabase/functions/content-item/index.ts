@@ -48,6 +48,9 @@ interface Body {
   mode?: string;
   /** compose: the accounts to post to. Default: the TikTok account. */
   connection_ids?: string[];
+  /** compose: a different caption for some accounts, by connection id. For
+   *  YouTube the first line is the video's title. */
+  captions?: Record<string, string>;
   brand_id?: string;
   post_id?: string;
   storage_path?: string;
@@ -528,6 +531,11 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
 
   const caption = (body.caption ?? "").trim().slice(0, 2000);
   const hashtags = cleanTags(body.hashtags ?? []);
+  // An account's own caption when the post screen gave one.
+  const captionFor = (connectionId: string) => {
+    const own = body.captions?.[connectionId]?.trim();
+    return own ? own.slice(0, 2000) : caption;
+  };
   const firstLine = caption.split("\n")[0].replace(/(^|\s)#\w+/g, "").trim();
 
   const { data: post, error: postError } = await admin
@@ -555,7 +563,7 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
     connection,
     storagePath: body.storage_path,
     postId: post.id,
-    caption,
+    caption: captionFor(connection.id),
     hashtags,
     durationMs: body.duration_s ? Math.round(body.duration_s * 1000) : null,
     width: body.width ?? null,
@@ -565,7 +573,7 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
   const targetIds = [attached.postTargetId];
   for (const other of destinations.slice(1)) {
     targetIds.push(await addTarget(admin, {
-      userId, postId: post.id, connection: other, caption, hashtags, assetId: attached.assetId,
+      userId, postId: post.id, connection: other, caption: captionFor(other.id), hashtags, assetId: attached.assetId,
     }));
   }
 

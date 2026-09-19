@@ -58,6 +58,11 @@ struct ComposeView: View {
     @State private var coverMs: Int?
     /// The accounts this post goes to.
     @State private var destinations: Set<UUID> = []
+    // YouTube and Instagram's own settings.
+    @State private var youtubeTitle = ""
+    @State private var youtubeVisibility = "PUBLIC_TO_EVERYONE"
+    @State private var instagramOwnCaption = false
+    @State private var instagramCaption = ""
 
     // Sheets
     @State private var showingCover = false
@@ -166,21 +171,63 @@ struct ComposeView: View {
             } footer: {
                 if accounts.isEmpty {
                     Text("Connect an account in Profile → Accounts first.")
-                } else if destinations.contains(where: { id in accounts.first { $0.id == id }?.platform != .tiktok }) {
-                    Text("Drafts is TikTok only; YouTube and Instagram post straight away. While Google reviews Autocast, YouTube uploads stay private.")
                 }
             }
 
-            Section("Audience") {
-                Picker("Who can view", selection: Binding(
-                    get: { privacy ?? info?.privacyOptions.first ?? "SELF_ONLY" },
-                    set: { privacy = $0 }
-                )) {
-                    ForEach(info?.privacyOptions ?? [], id: \.self) { option in
-                        Text(CreatorInfo.label(for: option)).tag(option)
+            if chosenTikTok != nil {
+                Section {
+                    Picker("Who can view", selection: Binding(
+                        get: { privacy ?? info?.privacyOptions.first ?? "SELF_ONLY" },
+                        set: { privacy = $0 }
+                    )) {
+                        ForEach(info?.privacyOptions ?? [], id: \.self) { option in
+                            Text(CreatorInfo.label(for: option)).tag(option)
+                        }
                     }
+                    .disabled(info == nil)
+                    Toggle("Allow comments", isOn: $allowComments)
+                        .disabled(info?.commentDisabled == true)
+                    Toggle("Allow Duet and Stitch", isOn: $allowReuse)
+                        .disabled(info?.duetDisabled == true && info?.stitchDisabled == true)
+                    NavigationLink {
+                        DisclosureView(privacy: privacy, disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent)
+                    } label: {
+                        LabeledContent("Content disclosure", value: disclose ? "On" : "Off")
+                    }
+                } header: {
+                    platformHeader(.tiktok)
+                } footer: {
+                    Text("By posting, you agree to TikTok’s Music Usage Confirmation.")
                 }
-                .disabled(info == nil)
+            }
+
+            if chosen(.shorts) {
+                Section {
+                    TextField("Title", text: $youtubeTitle, prompt: Text(defaultTitle))
+                    Picker("Visibility", selection: $youtubeVisibility) {
+                        Text("Public").tag("PUBLIC_TO_EVERYONE")
+                        Text("Unlisted").tag("FOLLOWER_OF_CREATOR")
+                        Text("Private").tag("SELF_ONLY")
+                    }
+                } header: {
+                    platformHeader(.shorts)
+                } footer: {
+                    Text("Your description goes under the video. While Google reviews Autocast, YouTube keeps uploads private.")
+                }
+            }
+
+            if chosen(.reels) {
+                Section {
+                    Toggle("Different caption for Instagram", isOn: $instagramOwnCaption)
+                    if instagramOwnCaption {
+                        TextField("Instagram caption", text: $instagramCaption, axis: .vertical)
+                            .lineLimit(3...8)
+                    }
+                } header: {
+                    platformHeader(.reels)
+                } footer: {
+                    Text("Shared as a Reel to your profile and the Reels tab. Reels are public.")
+                }
             }
 
             Section("When") {
@@ -191,23 +238,11 @@ struct ComposeView: View {
                 }
             }
 
-            Section("Interactions") {
-                Toggle("Allow comments", isOn: $allowComments)
-                    .disabled(info?.commentDisabled == true)
-                Toggle("Allow Duet and Stitch", isOn: $allowReuse)
-                    .disabled(info?.duetDisabled == true && info?.stitchDisabled == true)
-            }
-
             Section {
                 Toggle("AI-generated content", isOn: $isAIGC)
-                NavigationLink {
-                    DisclosureView(privacy: privacy, disclose: $disclose, yourBrand: $yourBrand, brandedContent: $brandedContent)
-                } label: {
-                    LabeledContent("Content disclosure", value: disclose ? "On" : "Off")
-                }
                 Toggle("Save to Photos", isOn: $saveToDevice)
             } footer: {
-                Text("Sent in original quality, never re-compressed. By posting, you agree to TikTok's Music Usage Confirmation.")
+                Text("Sent in original quality, never re-compressed. The AI label goes to TikTok and YouTube.")
             }
         }
         .scrollDismissesKeyboard(.interactively)
@@ -289,7 +324,7 @@ struct ComposeView: View {
             .buttonStyle(RemiFilledButtonStyle())
             .controlSize(.large)
         }
-        .disabled(sending != nil || facts == nil || info == nil || destinations.isEmpty)
+        .disabled(sending != nil || facts == nil || (chosenTikTok != nil && info == nil) || destinations.isEmpty)
         .padding(.horizontal, Style.gutter)
         .padding(.vertical, 10)
         .background(.bar)
@@ -307,6 +342,39 @@ struct ComposeView: View {
     private var accounts: [PlatformConnection] {
         session.connections.filter(\.isHealthy)
             .sorted { ($0.platform == .tiktok ? 0 : 1) < ($1.platform == .tiktok ? 0 : 1) }
+    }
+
+    private func chosen(_ platform: Platform) -> Bool {
+        accounts.contains { $0.platform == platform && destinations.contains($0.id) }
+    }
+
+    private func platformHeader(_ platform: Platform) -> some View {
+        Label(platform.networkName, systemImage: platform.symbolName)
+    }
+
+    /// YouTube's title when none is typed: the caption's first line.
+    private var defaultTitle: String {
+        let line = caption.split(separator: "\n").first.map(String.init) ?? ""
+        let words = line.split(separator: " ").filter { !$0.hasPrefix("#") }.joined(separator: " ")
+        return words.isEmpty ? "Title" : String(words.prefix(100))
+    }
+
+    /// Each account's own caption, where it differs from the shared one.
+    private var captionOverrides: [UUID: String] {
+        var result: [UUID: String] = [:]
+        for account in accounts where destinations.contains(account.id) {
+            switch account.platform {
+            case .shorts:
+                let title = youtubeTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !title.isEmpty { result[account.id] = title + "\n\n" + caption }
+            case .reels:
+                let own = instagramCaption.trimmingCharacters(in: .whitespacesAndNewlines)
+                if instagramOwnCaption && !own.isEmpty { result[account.id] = own }
+            case .tiktok:
+                break
+            }
+        }
+        return result
     }
 
     private var chosenTikTok: PlatformConnection? {
@@ -395,7 +463,8 @@ struct ComposeView: View {
 
     private func signature(_ mode: Sending) -> String {
         [caption, String(coverMs ?? 0), mode == .drafts ? "d" : "p",
-         destinations.map(\.uuidString).sorted().joined(separator: ",")].joined(separator: "|")
+         destinations.map(\.uuidString).sorted().joined(separator: ","),
+         youtubeTitle, instagramOwnCaption ? instagramCaption : ""].joined(separator: "|")
     }
 
     private func send(_ mode: Sending) async {
@@ -426,7 +495,8 @@ struct ComposeView: View {
                 let chosen = drafts ? [chosenTikTok?.id].compactMap { $0 } : Array(destinations)
                 post = try await session.compose(
                     path: path, video: facts, caption: caption, hashtags: [],
-                    coverMs: coverMs, toDrafts: drafts, connections: chosen
+                    coverMs: coverMs, toDrafts: drafts, connections: chosen,
+                    captions: drafts ? [:] : captionOverrides
                 )
                 composed = (signature(mode), post)
                 checks = post.checks
@@ -451,7 +521,7 @@ struct ComposeView: View {
                 let targetPrivacy: String
                 switch target.platform {
                 case "reels": targetPrivacy = "PUBLIC_TO_EVERYONE"
-                case "shorts": targetPrivacy = chosenPrivacy == "PUBLIC_TO_EVERYONE" ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY"
+                case "shorts": targetPrivacy = youtubeVisibility
                 default: targetPrivacy = chosenPrivacy
                 }
                 let outcome = await session.approve(

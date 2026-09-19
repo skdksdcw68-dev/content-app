@@ -21,8 +21,10 @@ export async function accountOptions(admin: SupabaseClient, connectionId: string
       creator_avatar_url: connection.avatar_url ?? "",
       creator_username: connection.username,
       creator_nickname: connection.display_name ?? "",
-      // Public or private; "unlisted" has no place in the shared vocabulary.
-      privacy_level_options: ["PUBLIC_TO_EVERYONE", "SELF_ONLY"],
+      // Public, unlisted or private. Unlisted rides on FOLLOWER_OF_CREATOR in
+      // the shared vocabulary (youtubePrivacy maps it back); the app labels
+      // it "Unlisted" for YouTube.
+      privacy_level_options: ["PUBLIC_TO_EVERYONE", "FOLLOWER_OF_CREATOR", "SELF_ONLY"],
       comment_disabled: false,
       duet_disabled: true,
       stitch_disabled: true,

@@ -30,6 +30,7 @@ import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { requireQuota } from "../_shared/quota.ts";
+import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -1717,6 +1718,8 @@ itself.</good>
             body: JSON.stringify({
               model: MODEL,
               stream: true,
+              // The last chunk then carries the real token counts.
+              stream_options: { include_usage: true },
               messages: [
                 { role: "system", content: system },
                 { role: "system", content: [brief, factBlock, stateBlock, avoid].filter(Boolean).join("\n\n") },
@@ -1740,6 +1743,7 @@ itself.</good>
           const decoder = new TextDecoder();
           let buffer = "";
           let wrote = false;
+          let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
 
           while (true) {
             const { done, value } = await reader.read();
@@ -1758,6 +1762,7 @@ itself.</good>
               if (payload === "[DONE]") continue;
               try {
                 const parsed = JSON.parse(payload);
+                if (parsed?.usage) usage = parsed.usage;
                 const delta = parsed?.choices?.[0]?.delta?.content;
                 if (typeof delta === "string" && delta.length > 0) {
                   wrote = true;
@@ -1775,6 +1780,7 @@ itself.</good>
             send({ t: "error", message: "Nothing came back. Try rephrasing." });
           }
           await remember();
+          await recordUsage(admin, { userId: auth.user.id, brandId: brand?.id ?? null, kind: "chat_reply", model: MODEL, usage });
           send({ t: "done" });
           controller.close();
         } catch (thrown) {

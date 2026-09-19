@@ -26,6 +26,7 @@ import { attachUpload } from "../_shared/attach.ts";
 import { creatorInfo } from "../_shared/tiktok.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
 import { requireQuota } from "../_shared/quota.ts";
+import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -93,7 +94,7 @@ Deno.serve(async (request) => {
       case "write":
         await requireQuota(admin, userId, "ai_write",
           "You’ve used this month’s AI caption writes. Autocast Pro gives you 500 a month.");
-        return json(await write(brand, body, admin));
+        return json(await write(brand, body, admin, userId));
       default:           throw new PublicError("Unknown step.");
     }
   } catch (error) {
@@ -201,6 +202,7 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
       throw new PublicError("Autocast couldn't look at the video just now. Try again.", 502);
     }
     tokens += completion.usage?.total_tokens ?? 0;
+    await recordUsage(admin, { userId, brandId: brand.id, kind: "video_understand", model: completion.model ?? MODEL, usage: completion.usage });
     const text = completion.choices?.[0]?.message?.content ?? "{}";
     try { draft = JSON.parse(text); } catch { draft = {}; }
     const found = unsupportedClaims([draft.hook, draft.caption, draft.cta].join(" "));
@@ -550,7 +552,7 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
  * from the frames. Uses the brand's facts when there are any; never needs
  * them.
  */
-async function write(brand: Brand, body: Body, admin: Admin) {
+async function write(brand: Brand, body: Body, admin: Admin, userId: string) {
   if (!OPENAI_KEY) throw new PublicError("The writer is not configured yet.", 503);
   const draft = (body.caption ?? "").trim();
   const frames = (body.frames ?? []).filter((f) => typeof f === "string" && f.length > 100).slice(0, 3);
@@ -599,6 +601,7 @@ async function write(brand: Brand, body: Body, admin: Admin) {
     console.error("openai", completion?.error);
     throw new PublicError("The writer couldn't be reached just now. Try again.", 502);
   }
+  await recordUsage(admin, { userId, brandId: brand.id, kind: "caption_write", model: completion.model ?? MODEL, usage: completion.usage });
   let out: { caption?: string; hashtags?: string[] } = {};
   try { out = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}"); } catch { /* checked below */ }
 

@@ -38,9 +38,11 @@ export async function applyTransaction(
   };
   if (extra.autoRenew !== undefined) row.auto_renew = extra.autoRenew;
 
-  // A manual owner grant is never overwritten by an Apple row.
-  const { data: current } = await admin.from("subscriptions").select("provider").eq("user_id", userId).maybeSingle();
-  if (current?.provider === "manual") {
+  // A manual owner grant still running is never overwritten by an Apple row;
+  // one that has been switched off (to test buying) is.
+  const { data: current } = await admin.from("subscriptions")
+    .select("provider, status").eq("user_id", userId).maybeSingle();
+  if (current?.provider === "manual" && current.status === "active") {
     return { status: "active", expiresAt: null, isTrial: false };
   }
 

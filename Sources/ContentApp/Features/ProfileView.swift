@@ -286,6 +286,9 @@ struct ProfileView: View {
             } label: {
                 SettingsRow("Notifications", symbol: "bell", accessory: .external)
             }
+            Button { session.restartOnboarding() } label: {
+                SettingsRow("Show setup again", symbol: "arrow.counterclockwise", accessory: .chevron)
+            }
         }
     }
 

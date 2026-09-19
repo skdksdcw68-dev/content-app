@@ -1,65 +1,65 @@
 import SwiftUI
 
-/// The top of Profile: your picture, your name, your handle. No follower or
-/// like counts -- Autocast is not only TikTok, and those numbers live in
-/// Analytics (Abel, 19 Sep 2026).
+/// The top of Profile: you. Your initial, your name, and what you promote.
+///
+/// Not a TikTok or YouTube identity -- those are accounts you connect, listed
+/// under Accounts (Abel, 19 Sep 2026: "do not set the user account with its
+/// tiktok or youtube, just ask for a name").
 struct ProfileHeader: View {
     @Environment(AppSession.self) private var session
+    @State private var editing = false
+    @State private var draft = ""
 
-    private var connection: PlatformConnection? {
-        session.connections.first(where: \.isHealthy) ?? session.connections.first
-    }
+    private var name: String { session.displayName ?? "Add your name" }
 
-    private var title: String {
-        if let connection, !connection.displayName.trimmingCharacters(in: .whitespaces).isEmpty {
-            return connection.displayName
+    /// The brand line, unless it is still the placeholder name.
+    private var subtitle: String? {
+        guard let brand = session.brand?.name, brand != "My brand", !brand.isEmpty else {
+            return session.accountEmail
         }
-        return session.brand?.name ?? "Your profile"
+        return brand
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            avatar
+            InitialAvatar(initial: session.initial, size: 88)
 
-            Text(title)
-                .font(.title2.weight(.bold))
-                .lineLimit(1)
-                .padding(.top, 12)
-
-            Text(connection?.label ?? "No TikTok connected")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .padding(.top, 2)
-
-            if connection == nil {
-                Button {
-                    Task { await session.connectTikTok() }
-                } label: {
-                    Text(session.isConnecting ? "Opening TikTok…" : "Connect TikTok")
-                        .frame(maxWidth: 220)
+            Button {
+                draft = session.displayName ?? ""
+                editing = true
+            } label: {
+                HStack(spacing: 6) {
+                    Text(name)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(session.displayName == nil ? Color.secondary : Color.primary)
+                        .lineLimit(1)
+                    Image(systemName: "pencil")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(RemiFilledButtonStyle())
-                .disabled(session.isConnecting)
-                .padding(.top, 16)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            .accessibilityHint("Change your name")
+
+            if let subtitle {
+                Text(subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 4)
-    }
-
-    private var avatar: some View {
-        AsyncImage(url: connection?.avatarURL) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Image(systemName: "person.crop.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color(uiColor: .tertiaryLabel))
+        .alert("Your name", isPresented: $editing) {
+            TextField("Name", text: $draft)
+                .textContentType(.name)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") {
+                let name = draft
+                Task { await session.saveName(name, promoting: "") }
+            }
         }
-        .frame(width: 88, height: 88)
-        .clipShape(Circle())
-        .accessibilityHidden(true)
     }
-
 }

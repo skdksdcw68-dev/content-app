@@ -24,6 +24,17 @@ struct PaywallView: View {
     @State private var buying = false
     @State private var restoring = false
 
+    /// Set when shown as an onboarding step rather than a sheet.
+    private let onClose: (() -> Void)?
+
+    init(onClose: (() -> Void)? = nil) {
+        self.onClose = onClose
+    }
+
+    private func close() {
+        if let onClose { onClose() } else { dismiss() }
+    }
+
     private var yearly: Product? { products.first { $0.id == "autocast.pro.yearly" } }
     private var monthly: Product? { products.first { $0.id == "autocast.pro.monthly" } }
     private var choice: Product? { products.first { $0.id == selected } }
@@ -179,7 +190,7 @@ struct PaywallView: View {
 
     private var closeButton: some View {
         Button {
-            dismiss()
+            close()
         } label: {
             Image(systemName: "xmark")
                 .font(.body.weight(.semibold))
@@ -251,7 +262,7 @@ struct PaywallView: View {
             switch try await choice.purchase(options: options) {
             case .success(let verification):
                 await session.completePurchase(verification)
-                if session.subscription?.isPro == true { dismiss() }
+                if session.subscription?.isPro == true { close() }
             case .pending, .userCancelled:
                 break
             @unknown default:
@@ -268,7 +279,7 @@ struct PaywallView: View {
         try? await AppStore.sync()
         await session.syncPurchases()
         if session.subscription?.isPro == true {
-            dismiss()
+            close()
         } else {
             session.lastError = "No Autocast Pro subscription was found for this Apple ID."
         }

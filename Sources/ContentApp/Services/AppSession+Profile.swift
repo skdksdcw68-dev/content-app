@@ -92,6 +92,45 @@ extension AppSession {
         }
     }
 
+    // MARK: - Your name
+
+    func refreshName() async {
+        struct Row: Decodable, Sendable { let display_name: String? }
+        guard let userID else { return }
+        let rows: [Row]? = try? await client
+            .from("profiles")
+            .select("display_name")
+            .eq("user_id", value: userID.uuidString)
+            .execute()
+            .value
+        displayName = rows?.first?.display_name
+    }
+
+    /// Onboarding's first question. The name is the person's; "what you're
+    /// promoting", when given, names the brand the planner writes for.
+    @discardableResult
+    func saveName(_ name: String, promoting: String) async -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            try await client.rpc("set_my_name", params: ["p_name": trimmed]).execute()
+            displayName = trimmed.isEmpty ? nil : trimmed
+            let product = promoting.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !product.isEmpty, let brand {
+                await updateBrand(name: product, niche: brand.niche, audience: brand.audience)
+            }
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// The letter in the round picture: the name's, else the brand's.
+    var initial: String {
+        let source = displayName ?? brand?.name ?? "A"
+        return source.trimmingCharacters(in: .whitespaces).first.map { String($0).uppercased() } ?? "A"
+    }
+
     // MARK: - A platform account
 
     /// The TikTok account, for everything that is TikTok-only (drafts, creator

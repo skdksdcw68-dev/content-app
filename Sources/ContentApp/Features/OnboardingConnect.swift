@@ -46,12 +46,12 @@ struct OnboardingConnect: View {
                     .padding(.bottom, 2)
             }
 
-            Text(kind == .account ? "Connect your account" : "Connect a video engine")
+            Text(kind == .account ? "Connect your accounts" : "Connect a video engine")
                 .font(.title2.bold())
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(kind == .account
-                 ? "Autocast needs permission to post for you. Nothing goes out without your approval."
+                 ? "Connect any you use. Autocast posts only what you approve, and you can add more later in Profile."
                  : "Where the videos come from. You bring your own key, and you are billed by them for what it makes.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -74,7 +74,7 @@ struct OnboardingConnect: View {
 
             if !anythingConnected {
                 Text(kind == .account
-                     ? "You can connect it later under You."
+                     ? "You can connect them later in Profile → Accounts."
                      : "Without one you add your own videos, which works fine.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -95,34 +95,9 @@ struct OnboardingConnect: View {
         switch kind {
         case .account:
             return [
-                .init(
-                    id: "tiktok",
-                    title: "TikTok",
-                    detail: "Post short video to your account",
-                    symbol: "music.note",
-                    logo: .tiktok,
-                    avatar: session.connections.first?.avatarURL,
-                    state: session.connections.isEmpty
-                        ? .available
-                        : (session.connections.first?.isHealthy == true ? .connected : .needsAttention),
-                    connectedAs: session.connections.first?.label
-                ),
-                .init(
-                    id: "reels",
-                    title: "Instagram Reels",
-                    detail: "Waiting on Meta's review",
-                    symbol: "camera",
-                    logo: .instagram,
-                    state: .soon
-                ),
-                .init(
-                    id: "shorts",
-                    title: "YouTube Shorts",
-                    detail: "Waiting on a quota increase",
-                    symbol: "play.rectangle",
-                    logo: .youtube,
-                    state: .soon
-                ),
+                platformRow(.tiktok, detail: "Post and send to drafts", logo: .tiktok),
+                platformRow(.shorts, detail: "Post Shorts to your channel", logo: .youtube),
+                platformRow(.reels, detail: "Post Reels (Business or Creator account)", logo: .instagram),
             ]
 
         case .generator:
@@ -168,10 +143,26 @@ struct OnboardingConnect: View {
         }
     }
 
+    private func platformRow(_ platform: Platform, detail: String, logo: BrandLogo) -> ConnectRow.Model {
+        let connection = session.connection(for: platform)
+        return .init(
+            id: platform.rawValue,
+            title: platform.networkName,
+            detail: detail,
+            symbol: platform.symbolName,
+            logo: logo,
+            avatar: connection?.avatarURL,
+            state: connection == nil ? .available : (connection?.isHealthy == true ? .connected : .needsAttention),
+            connectedAs: connection?.label
+        )
+    }
+
     private func act(on row: ConnectRow.Model) {
         switch (kind, row.state) {
         case (.account, .available), (.account, .needsAttention):
-            Task { await session.connectTikTok() }
+            if let platform = Platform(rawValue: row.id) {
+                Task { await session.connect(platform) }
+            }
         case (.generator, .available), (.generator, .needsAttention):
             // Sign in to Higgsfield, not paste a key. The key sheet was the
             // only way in before MCP connection existed, and it asked somebody

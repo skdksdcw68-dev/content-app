@@ -34,7 +34,14 @@ struct OnboardingQuestion: Identifiable, Hashable, Sendable {
 // MARK: - The questions
 
 extension OnboardingQuestion {
-    static let all: [OnboardingQuestion] = [product, audience, voice]
+    /// The Brand page's questions, the ones worth asking on day one. Each
+    /// answer lands in brands.profile exactly as the Brand page saves it, so
+    /// the two never disagree (Abel, 19 Sep 2026: "selections and questions,
+    /// like onboarding").
+    static var all: [OnboardingQuestion] {
+        [BrandQuestions.category, BrandQuestions.goal, BrandQuestions.audience,
+         BrandQuestions.styles, BrandQuestions.voice, BrandQuestions.cta]
+    }
 
     /// Writes `brands.niche`. The reference calls this "What did you build?"
     /// and offers thirty-five categories; the planner needs a sentence, not a
@@ -127,17 +134,21 @@ extension OnboardingQuestion {
 /// which is what "finished unless proven otherwise" would do.
 enum OnboardingStep: Equatable, Hashable, Sendable {
     case welcome
+    /// "What should we call you?" -- the account is the person.
+    case name
     case question(Int)
     case connectAccount
-    case connectGenerator
+    /// Autocast Pro, closable. Stored as "generator", the step it replaced.
+    case pro
     case done
 
     var storedValue: String {
         switch self {
         case .welcome:          return "welcome"
+        case .name:             return "name"
         case .question(let i):  return "question:\(i)"
         case .connectAccount:   return "account"
-        case .connectGenerator: return "generator"
+        case .pro:              return "generator"
         case .done:             return "done"
         }
     }
@@ -145,8 +156,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     init?(stored: String) {
         switch stored {
         case "welcome":   self = .welcome
+        case "name":      self = .name
         case "account":   self = .connectAccount
-        case "generator": self = .connectGenerator
+        case "generator": self = .pro
         case "done":      self = .done
         default:
             guard stored.hasPrefix("question:"),
@@ -170,12 +182,14 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// read 17, 33, 50, 67, 83 — and the bar still has somewhere to go when
     /// the last one is on screen, which is what makes it worth having.
     var progress: Double? {
-        let steps = Double(OnboardingQuestion.all.count + 2)
+        // name + the questions + accounts + Pro, and the end.
+        let steps = Double(OnboardingQuestion.all.count + 3)
         switch self {
         case .welcome:          return nil
-        case .question(let i):  return Double(i + 1) / (steps + 1)
-        case .connectAccount:   return Double(OnboardingQuestion.all.count + 1) / (steps + 1)
-        case .connectGenerator: return steps / (steps + 1)
+        case .name:             return 1 / (steps + 1)
+        case .question(let i):  return Double(i + 2) / (steps + 1)
+        case .connectAccount:   return Double(OnboardingQuestion.all.count + 2) / (steps + 1)
+        case .pro:              return steps / (steps + 1)
         case .done:             return 1
         }
     }

@@ -264,13 +264,13 @@ private struct HomeHeader: View {
 
             NavigationLink { ProfileView().pushedPage() } label: {
                 HStack(spacing: 7) {
-                    Text(session.brand?.name ?? "Profile")
+                    Text(session.displayName ?? "Profile")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                         .frame(maxWidth: 120, alignment: .leading)
                         .fixedSize(horizontal: true, vertical: false)
-                    AccountAvatar(url: session.connections.first?.avatarURL)
+                    InitialAvatar(initial: session.initial, size: 34)
                 }
                 .padding(.leading, 12)
                 .padding(3)
@@ -280,26 +280,6 @@ private struct HomeHeader: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Your profile")
         }
-    }
-}
-
-/// Your picture, in a quiet ring. Always the same ring: the orange one that
-/// meant "needs attention" is gone with the rest of Home's warnings.
-private struct AccountAvatar: View {
-    let url: URL?
-
-    var body: some View {
-        AsyncImage(url: url) { image in
-            image.resizable().scaledToFill()
-        } placeholder: {
-            Image(systemName: "person.crop.circle.fill")
-                .resizable()
-                .scaledToFit()
-                .foregroundStyle(Color(uiColor: .tertiaryLabel))
-        }
-        .frame(width: 34, height: 34)
-        .clipShape(Circle())
-        .overlay(Circle().stroke(Color(uiColor: .separator), lineWidth: 0.5))
     }
 }
 

@@ -50,6 +50,9 @@ struct OnboardingFlowView: View {
         case .welcome:
             OnboardingWelcome()
 
+        case .name:
+            OnboardingName()
+
         case .question(let index):
             // Guarded: a stored step can outlive a question being removed from
             // the set, and an out-of-range index would crash on launch.
@@ -62,8 +65,10 @@ struct OnboardingFlowView: View {
         case .connectAccount:
             OnboardingConnect(kind: .account)
 
-        case .connectGenerator:
-            OnboardingConnect(kind: .generator)
+        case .pro:
+            // Closable: Pro is offered, never required to get in.
+            PaywallView(onClose: { session.onboardingNext() })
+                .toolbar(.hidden, for: .navigationBar)
 
         case .done:
             Color.clear
@@ -137,6 +142,96 @@ private struct OnboardingArt: View {
                 RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous)
                     .fill(Theme.softAccent)
             }
+        }
+    }
+}
+
+// MARK: - Your name
+
+/// "What should we call you?" -- the account is the person. What they are
+/// promoting is optional and names the brand the planner writes for.
+private struct OnboardingName: View {
+    @Environment(AppSession.self) private var session
+    @State private var name = ""
+    @State private var promoting = ""
+    @State private var saving = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                if let progress = session.onboarding.progress {
+                    ProgressView(value: progress)
+                        .tint(Theme.accent)
+                        .padding(.bottom, 2)
+                }
+                Text("What should we call you?")
+                    .font(.title2.bold())
+                Text("This is your Autocast account. Your TikTok, YouTube and Instagram connect to it later.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+
+            VStack(spacing: 12) {
+                TextField("Your name", text: $name)
+                    .textContentType(.name)
+                    .submitLabel(.next)
+                    .focused($focused)
+                    .padding(14)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                TextField("What you’re promoting (optional)", text: $promoting)
+                    .textContentType(.organizationName)
+                    .submitLabel(.done)
+                    .padding(14)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .padding(.horizontal, 20)
+
+            Spacer(minLength: 16)
+
+            Button {
+                Task {
+                    saving = true
+                    await session.saveName(name, promoting: promoting)
+                    saving = false
+                    session.onboardingNext()
+                }
+            } label: {
+                Group {
+                    if saving { ProgressView() } else { Text(name.trimmingCharacters(in: .whitespaces).isEmpty ? "Skip" : "Continue") }
+                }
+                .fontWeight(.semibold)
+                .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(RemiFilledButtonStyle())
+            .controlSize(.large)
+            .disabled(saving)
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+        }
+        .background(Theme.canvas)
+        .onAppear {
+            name = session.displayName ?? ""
+            if let brand = session.brand?.name, brand != "My brand" { promoting = brand }
+            focused = name.isEmpty
+        }
+    }
+}
+
+/// Onboarding asks the Brand page's questions as questions.
+enum OnboardingPrompt {
+    static func title(for question: OnboardingQuestion) -> String {
+        switch question.id {
+        case "category": return "What are you promoting?"
+        case "goal": return "What’s your main goal?"
+        case "audience": return "Who is it for?"
+        case "styles": return "What kind of videos?"
+        case "voice": return "What’s your voice?"
+        case "cta": return "What should viewers do?"
+        default: return question.title
         }
     }
 }
@@ -226,7 +321,7 @@ private struct OnboardingQuestionView: View {
                     .animation(.snappy(duration: 0.4), value: progress)
             }
 
-            Text(question.title)
+            Text(OnboardingPrompt.title(for: question))
                 .font(.title2.bold())
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)

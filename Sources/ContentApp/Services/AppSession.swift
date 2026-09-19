@@ -85,6 +85,9 @@ final class AppSession {
     internal(set) var isAnonymous = true
     /// The Apple ID's email, when Apple shared one (it may be a relay address).
     internal(set) var accountEmail: String?
+    /// What the person asked to be called. The account is the person, never
+    /// their TikTok or YouTube (Abel, 19 Sep 2026).
+    internal(set) var displayName: String?
 
     /// Autocast Pro, as the server decided it. Nil until first read.
     internal(set) var subscription: MyPlan?
@@ -118,6 +121,7 @@ final class AppSession {
             let user = try await client.auth.session.user
             userID = user.id
             readAccount(user)
+            await refreshName()
             try await loadBrand(for: user.id)
             await refreshConnections()
             await refreshPosts()
@@ -176,6 +180,7 @@ final class AppSession {
         connectable = []
         isAnonymous = true
         accountEmail = nil
+        displayName = nil
         subscription = nil
         UserDefaults.standard.removeObject(forKey: Self.chosenBrandKey)
         await start()
@@ -1275,14 +1280,17 @@ extension AppSession {
     func onboardingNext() {
         switch onboarding {
         case .welcome:
+            setOnboarding(.name)
+        case .name:
             setOnboarding(.question(0))
         case .question(let index):
             Task { await saveAnswers() }
             let next = index + 1
             setOnboarding(next < OnboardingQuestion.all.count ? .question(next) : .connectAccount)
         case .connectAccount:
-            setOnboarding(.connectGenerator)
-        case .connectGenerator:
+            // Already Pro (or on the trial): nothing to offer.
+            setOnboarding(subscription?.isPro == true ? .done : .pro)
+        case .pro:
             setOnboarding(.done)
         case .done:
             break
@@ -1293,11 +1301,13 @@ extension AppSession {
         switch onboarding {
         case .welcome, .done:
             break
+        case .name:
+            setOnboarding(.welcome)
         case .question(let index):
-            setOnboarding(index == 0 ? .welcome : .question(index - 1))
+            setOnboarding(index == 0 ? .name : .question(index - 1))
         case .connectAccount:
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
-        case .connectGenerator:
+        case .pro:
             setOnboarding(.connectAccount)
         }
     }
@@ -1333,50 +1343,35 @@ extension AppSession {
     /// exactly what was answered here, editable, which is what stops the two
     /// screens disagreeing about which one is true.
     private func saveAnswers() async {
-        guard let brandID = brand?.id else { return }
+        guard let brand else { return }
 
         let labels = { (question: OnboardingQuestion) -> [String] in
             let chosen = self.onboardingAnswers[question.id] ?? []
             return question.options.filter { chosen.contains($0.id) }.map(\.label)
         }
 
-        let product = labels(.product).first
-        let audience = labels(.audience)
-        let voice = (self.onboardingAnswers[OnboardingQuestion.voice.id] ?? []).first
-
-        do {
-            if product != nil || !audience.isEmpty {
-                var fields: [String: String] = [:]
-                // Written as a sentence, because the planner reads a sentence.
-                // Storing "app" would make the field a category and force every
-                // reader to translate it back.
-                if let product { fields["niche"] = product.lowercased() }
-                if !audience.isEmpty { fields["audience"] = audience.joined(separator: ", ") }
-
-                let updated: [Brand] = try await client
-                    .from("brands")
-                    .update(fields)
-                    .eq("id", value: brandID.uuidString)
-                    .select()
-                    .execute()
-                    .value
-                brand = updated.first ?? brand
-            }
-
-            if let voice,
-               let tone = OnboardingQuestion.voice.options.first(where: { $0.id == voice }) {
-                _ = try await client
-                    .from("brand_settings")
-                    .update(["tone": "\(tone.label). \(tone.detail ?? "")".trimmingCharacters(in: .whitespaces)])
-                    .eq("brand_id", value: brandID.uuidString)
-                    .execute()
-                await refreshSettings()
-            }
-        } catch {
-            // Deliberately silent. Losing an onboarding answer is a worse plan
-            // later, not a broken app now, and an alert here would land on top
-            // of a screen that has already moved on.
-            print("onboarding save failed: \(readableMessage(error))")
+        // Into the same profile the Brand page edits, keeping anything it
+        // already holds.
+        var profile = brand.profile ?? [:]
+        for question in OnboardingQuestion.all {
+            let picked = labels(question)
+            if !picked.isEmpty { profile[question.id] = BrandAnswer(title: question.title, answers: picked) }
         }
+
+        // The two sentences the planner reads, filled only when still empty:
+        // what the person typed on the Brand page always wins.
+        let kind = labels(BrandQuestions.category).first
+        let audience = labels(BrandQuestions.audience)
+        let niche = brand.niche.isEmpty ? (kind?.lowercased() ?? "") : brand.niche
+        let who = brand.audience.isEmpty ? audience.joined(separator: ", ") : brand.audience
+
+        let voice = BrandQuestions.voice.options.first { (onboardingAnswers["voice"] ?? []).contains($0.id) }
+        let tone = voice.map { "\($0.label). \($0.detail ?? "")".trimmingCharacters(in: .whitespaces) }
+
+        // Silent on failure: a lost answer is a slightly worse plan later,
+        // not a broken app now, and an alert would land on a moved-on screen.
+        _ = await saveBrandProfile(name: brand.name, niche: niche, audience: who, profile: profile, tone: tone)
+        lastError = nil
+        await refreshSettings()
     }
 }

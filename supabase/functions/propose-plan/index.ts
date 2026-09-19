@@ -23,6 +23,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
+import { preferenceBlock } from "../_shared/brand-profile.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -99,7 +100,7 @@ Deno.serve(async (request) => {
     // plan asked for from Drobe could be written for Remi.
     const brandQuery = asUser
       .from("brands")
-      .select("id, name, niche, audience, timezone");
+      .select("id, name, niche, audience, timezone, profile");
     const { data: brand } = await (
       typeof body.brand_id === "string" && body.brand_id.length === 36
         ? brandQuery.eq("id", body.brand_id)
@@ -395,7 +396,7 @@ Deno.serve(async (request) => {
 // ------------------------------------------------------------------ writing
 
 async function writeBatch(args: {
-  brand: { name: string; niche: string; audience: string };
+  brand: { name: string; niche: string; audience: string; profile?: unknown };
   brief: string;
   /** What the person has told it about themselves, one fact per row. */
   memory: string[];
@@ -453,6 +454,7 @@ async function writeBatch(args: {
     facts.length <= 1
       ? "\nThat is everything known about this account. Write posts that do not depend on facts you were not given."
       : "",
+    preferenceBlock(brand.profile),
     pillars.length > 0
       ? `\nThemes to rotate between:\n${pillars.map((p) => `- ${p.name}${p.detail ? `: ${p.detail}` : ""}`).join("\n")}`
       : "",

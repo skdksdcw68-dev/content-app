@@ -32,7 +32,7 @@ struct ActivityHistoryView: View {
                 Section(day.day.formatted(.dateTime.weekday(.wide).day().month(.wide))) {
                     ForEach(day.events) { event in
                         if let postID = event.postId {
-                            NavigationLink { PostDetailView(postID: postID) } label: {
+                            NavigationLink { PostDetailView(postID: postID).pushedPage() } label: {
                                 ActivityRow(event: event, timezone: zone)
                             }
                         } else {

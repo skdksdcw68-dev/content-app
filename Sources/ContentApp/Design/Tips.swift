@@ -27,12 +27,6 @@ struct CreateTip: Tip {
     var image: Image? { Image(systemName: "plus.circle.fill") }
 }
 
-struct SwitchAppTip: Tip {
-    var title: Text { Text("All your apps") }
-    var message: Text? { Text("Switch between the apps you market, or add a new one. Each has its own plan and accounts.") }
-    var image: Image? { Image(systemName: "square.stack.3d.up.fill") }
-}
-
 // MARK: - Analytics
 
 struct PostsLibraryTip: Tip {

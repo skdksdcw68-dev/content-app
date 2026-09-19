@@ -112,6 +112,23 @@ extension AppSession {
         }
     }
 
+    // MARK: - A post
+
+    /// Removes a post from Autocast. The database refuses while it is on its
+    /// way to TikTok; a video already there stays there.
+    @discardableResult
+    func deletePost(_ id: UUID) async -> Bool {
+        do {
+            try await client.rpc("delete_post", params: ["p_post": id.uuidString]).execute()
+            await refreshPosts()
+            await refreshPlan()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
     // MARK: - Pillars
 
     func pillars() async -> [ContentPillar] {

@@ -1142,6 +1142,47 @@ extension AppSession {
         }
     }
 
+    /// Saves the whole Brand page at once: the description the planner writes
+    /// from, the questionnaire, and the voice (which the planner reads from
+    /// `brand_settings.tone`).
+    @discardableResult
+    func saveBrandProfile(name: String, niche: String, audience: String,
+                          profile: [String: BrandAnswer], tone: String?) async -> Bool {
+        guard let brandID = brand?.id else { return false }
+        struct Fields: Encodable, Sendable {
+            let name: String
+            let niche: String
+            let audience: String
+            let profile: [String: BrandAnswer]
+        }
+        struct Tone: Encodable, Sendable { let tone: String }
+        let clean = { (text: String) in text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        do {
+            let updated: [Brand] = try await client
+                .from("brands")
+                .update(Fields(name: clean(name), niche: clean(niche), audience: clean(audience), profile: profile))
+                .eq("id", value: brandID.uuidString)
+                .select()
+                .execute()
+                .value
+            if let changed = updated.first {
+                brand = changed
+                if let index = brands.firstIndex(where: { $0.id == changed.id }) { brands[index] = changed }
+            }
+            if let tone {
+                try await client
+                    .from("brand_settings")
+                    .update(Tone(tone: tone))
+                    .eq("brand_id", value: brandID.uuidString)
+                    .execute()
+            }
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
     /// Posting hours: the quiet window and how many a day in `brand_settings`,
     /// and the zone every one of those hours is read in, on the brand.
     @discardableResult

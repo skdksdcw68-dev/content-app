@@ -80,6 +80,8 @@ struct PostDetailView: View {
     @State private var pickingVideo = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var attaching = false
+    @State private var confirmingDelete = false
+    @Environment(\.dismiss) private var dismiss
 
     private var timezone: TimeZone {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
@@ -105,6 +107,32 @@ struct PostDetailView: View {
         .background(Color.canvas.ignoresSafeArea())
         .navigationTitle("Post")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let post, post.stage != .publishing, post.stage != .verifying {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Button(role: .destructive) { confirmingDelete = true } label: {
+                            Label("Delete Post", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .accessibilityLabel("More")
+                }
+            }
+        }
+        .alert("Delete this post?", isPresented: $confirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    if await session.deletePost(postID) { dismiss() }
+                }
+            }
+        } message: {
+            Text(post?.stage == .published || post?.stage == .inDrafts
+                 ? "It’s removed from Autocast. The video on TikTok stays there."
+                 : "Its schedule is cancelled and it’s removed from Autocast.")
+        }
         .pushedPage()
         .refreshable { await load() }
         .task { await load() }

@@ -16,8 +16,6 @@ struct ProfileView: View {
     @Environment(\.openURL) private var openURL
 
     @State private var approving: PendingPost?
-    @State private var addingBrand = false
-    @State private var newBrand = ""
     @State private var web: WebPage?
     @State private var exporting = false
     @State private var exported: ExportShare?
@@ -32,7 +30,7 @@ struct ProfileView: View {
     var body: some View {
         List {
             Section {
-                ProfileHeader(addingBrand: $addingBrand)
+                ProfileHeader()
                     .listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             }
@@ -59,17 +57,6 @@ struct ProfileView: View {
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(item: $web) { page in SafariSheet(url: page.url).ignoresSafeArea() }
         .sheet(item: $exported) { file in ShareSheet(items: [file.url]).presentationDetents([.medium, .large]) }
-        .alert("Add an app", isPresented: $addingBrand) {
-            TextField("What is it called?", text: $newBrand)
-            Button("Cancel", role: .cancel) { newBrand = "" }
-            Button("Add") {
-                let name = newBrand
-                newBrand = ""
-                Task { await session.addBrand(named: name) }
-            }
-        } message: {
-            Text("Its own plan, its own accounts, its own schedule.")
-        }
         .alert("Sign out?", isPresented: $confirmingSignOut) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
@@ -173,10 +160,10 @@ struct ProfileView: View {
                 SettingsValueLabel("Brand", symbol: "sparkles",
                                    value: session.brand?.isComplete == true ? nil : "Add details")
             }
-            NavigationLink { PillarsView() } label: {
+            NavigationLink { PillarsView().pushedPage() } label: {
                 SettingsLabel("Content pillars", symbol: "square.grid.2x2")
             }
-            NavigationLink { ScheduleView() } label: {
+            NavigationLink { ScheduleView().pushedPage() } label: {
                 SettingsValueLabel("Posting hours", symbol: "clock",
                                    value: session.settings.map { "\($0.postsPerDay) a day" })
             }
@@ -190,7 +177,7 @@ struct ProfileView: View {
     private var accounts: some View {
         Section {
             ForEach(session.connections) { connection in
-                NavigationLink { AccountDetailView(connection: connection) } label: {
+                NavigationLink { AccountDetailView(connection: connection).pushedPage() } label: {
                     HStack(spacing: 8) {
                         SettingsLabel("TikTok", symbol: "music.note")
                         Spacer(minLength: 0)
@@ -224,14 +211,14 @@ struct ProfileView: View {
 
     private var autopilot: some View {
         Section {
-            NavigationLink { AutopilotView() } label: {
+            NavigationLink { AutopilotView().pushedPage() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
             }
-            NavigationLink { GeneratorsView() } label: {
+            NavigationLink { GeneratorsView().pushedPage() } label: {
                 SettingsValueLabel("AI generators", symbol: "wand.and.stars",
                                    value: session.hasWorkingGenerator ? "Connected" : nil)
             }
-            NavigationLink { PostDefaultsView() } label: {
+            NavigationLink { PostDefaultsView().pushedPage() } label: {
                 SettingsLabel("Post defaults", symbol: "slider.horizontal.3")
             }
         } header: {
@@ -243,10 +230,10 @@ struct ProfileView: View {
 
     private var insights: some View {
         Section {
-            NavigationLink { UsageView() } label: {
+            NavigationLink { UsageView().pushedPage() } label: {
                 SettingsLabel("Usage this month", symbol: "chart.bar")
             }
-            NavigationLink { ActivityHistoryView() } label: {
+            NavigationLink { ActivityHistoryView().pushedPage() } label: {
                 SettingsLabel("Activity", symbol: "list.bullet.rectangle")
             }
         }
@@ -256,7 +243,7 @@ struct ProfileView: View {
 
     private var app: some View {
         Section {
-            NavigationLink { AppearanceView() } label: {
+            NavigationLink { AppearanceView().pushedPage() } label: {
                 SettingsValueLabel("Appearance", symbol: "circle.lefthalf.filled", value: AppAppearance.current.title)
             }
             Button {
@@ -354,7 +341,7 @@ private struct AttentionRow: View {
         }
 
         if finding.route.flatMap(HealthRoute.init(rawValue:)) == .plan {
-            NavigationLink { PlanView() } label: { row }
+            NavigationLink { PlanView().pushedPage() } label: { row }
         } else {
             row
         }

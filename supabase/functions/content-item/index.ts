@@ -24,6 +24,7 @@ import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { MODELS } from "../_shared/route.ts";
 import { attachUpload } from "../_shared/attach.ts";
 import { creatorInfo } from "../_shared/tiktok.ts";
+import { preferenceBlock } from "../_shared/brand-profile.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -77,7 +78,7 @@ Deno.serve(async (request) => {
     if (!body.brand_id) throw new PublicError("brand_id is required.");
     const { data: brand } = await admin
       .from("brands")
-      .select("id, name, niche, audience, timezone")
+      .select("id, name, niche, audience, timezone, profile")
       .eq("id", body.brand_id)
       .eq("user_id", userId)
       .maybeSingle();
@@ -123,7 +124,7 @@ function jwtRole(authorization: string): string | null {
   }
 }
 
-type Brand = { id: string; name: string; niche: string; audience: string; timezone: string };
+type Brand = { id: string; name: string; niche: string; audience: string; timezone: string; profile?: unknown };
 type Admin = ReturnType<typeof createClient>;
 
 // ---------------------------------------------------------------- understand
@@ -170,6 +171,7 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
       text: [
         "FACTS:",
         ...facts.map((f) => `- ${f}`),
+        preferenceBlock(brand.profile),
         body.note ? `\nThe owner says about this video: ${body.note}` : "",
         `\nVideo: ${body.duration_s ? `${Math.round(body.duration_s)} seconds` : "length unknown"}, frames in order:`,
       ].join("\n"),
@@ -571,6 +573,7 @@ async function write(brand: Brand, body: Body, admin: Admin) {
     type: "text",
     text: [
       facts.length ? `FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}` : "No facts about the account were given.",
+      preferenceBlock(brand.profile),
       draft ? `\nTheir caption:\n${draft}` : "\nThey wrote nothing yet.",
       ...(body.hashtags?.length ? [`\nTheir hashtags: ${body.hashtags.join(" ")}`] : []),
       frames.length ? "\nFrames from the video:" : "",

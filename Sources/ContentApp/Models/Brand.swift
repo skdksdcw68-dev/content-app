@@ -14,9 +14,12 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
     /// never in whatever the phone happens to be set to.
     var timezone: String
     var usesMemory: Bool
+    /// The Brand page's questionnaire, keyed by question id. Nil on rows read
+    /// with a column list that leaves it out.
+    var profile: [String: BrandAnswer]?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, audience, niche, timezone
+        case id, name, audience, niche, timezone, profile
         case usesMemory = "uses_memory"
     }
 
@@ -27,6 +30,13 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
             && !niche.trimmingCharacters(in: .whitespaces).isEmpty
             && !audience.trimmingCharacters(in: .whitespaces).isEmpty
     }
+}
+
+/// One answered question, stored with its title and the chosen labels so the
+/// writers on the server can print it without a copy of the question set.
+struct BrandAnswer: Codable, Hashable, Sendable {
+    var title: String
+    var answers: [String]
 }
 
 /// What the app sends when creating one. Separate from `Brand` because the id

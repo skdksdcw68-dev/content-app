@@ -21,13 +21,11 @@ struct HomeView: View {
     @State private var today: AppSession.DayTally?
     /// Every video made for this brand, newest first. Nil until loaded.
     @State private var loadedVideos: [BoardPost]?
-    /// Naming another app to market.
-    @State private var addingBrand = false
-    @State private var newBrand = ""
+    /// A video long-pressed for deletion, waiting for the confirm.
+    @State private var deleting: BoardPost?
     /// First-time help, one at a time.
     @State private var tips = TipGroup(.ordered) {
         CreateTip()
-        SwitchAppTip()
     }
 
     private var videos: [BoardPost] { loadedVideos ?? [] }
@@ -67,7 +65,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                HomeHeader(adding: $addingBrand, tip: tips.currentTip as? SwitchAppTip)
+                HomeHeader()
                     // Off the status bar: with the navigation bar hidden the
                     // name and picture would sit right under the clock.
                     .padding(.top, 18)
@@ -118,6 +116,13 @@ struct HomeView: View {
                                     VideoTile(post: video, timezone: brandTimeZone)
                                 }
                                 .buttonStyle(SoftPressStyle())
+                                .contextMenu {
+                                    if video.stage != .publishing && video.stage != .verifying {
+                                        Button(role: .destructive) { deleting = video } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
                             }
                         }
                     } else if loadedVideos == nil {
@@ -156,23 +161,24 @@ struct HomeView: View {
             await session.refreshHealth()
             today = await session.todayTally()
         }
-        // Named here, and nothing else asked: what it is for, who it is for
-        // and how it should sound are the agent's questions, not a form's.
-        .alert("Add an app", isPresented: $addingBrand) {
-            TextField("What is it called?", text: $newBrand)
-            Button("Cancel", role: .cancel) { newBrand = "" }
-            Button("Add") {
-                let name = newBrand
-                newBrand = ""
+        .sheet(item: $approving) { ApprovalSheet(post: $0) }
+        .alert("Delete this video?", isPresented: Binding(
+            get: { deleting != nil },
+            set: { if !$0 { deleting = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { deleting = nil }
+            Button("Delete", role: .destructive) {
+                guard let video = deleting else { return }
+                deleting = nil
                 Task {
-                    await session.addBrand(named: name)
-                    today = await session.todayTally()
+                    if await session.deletePost(video.id) {
+                        loadedVideos?.removeAll { $0.id == video.id }
+                    }
                 }
             }
         } message: {
-            Text("Its own plan, its own accounts, its own schedule.")
+            Text("It’s removed from Autocast. Anything already on TikTok stays there.")
         }
-        .sheet(item: $approving) { ApprovalSheet(post: $0) }
     }
 }
 
@@ -239,12 +245,10 @@ private extension HomeView {
 
 // MARK: - Top
 
-/// The mark and the name on the left; one capsule on the right holding the app
-/// you are marketing and your picture. Remi's header, with the brand switcher
-/// where Remi keeps its streak.
+/// The mark and the name on the left; one capsule on the right holding your
+/// name and picture, which opens Profile. There is no app switcher: each
+/// account is one brand, described once in Profile → Brand.
 private struct HomeHeader: View {
-    @Binding var adding: Bool
-    var tip: SwitchAppTip?
     @Environment(AppSession.self) private var session
 
     var body: some View {
@@ -258,62 +262,24 @@ private struct HomeHeader: View {
 
             Spacer(minLength: 8)
 
-            HStack(spacing: 7) {
-                BrandMenu(adding: $adding)
-                    .popoverTip(tip, arrowEdge: .top)
-
-                NavigationLink { ProfileView().pushedPage() } label: {
+            NavigationLink { ProfileView().pushedPage() } label: {
+                HStack(spacing: 7) {
+                    Text(session.brand?.name ?? "Profile")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 120, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
                     AccountAvatar(url: session.connections.first?.avatarURL)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Your account")
+                .padding(.leading, 12)
+                .padding(3)
+                .background(Color.raised, in: Capsule())
+                .overlay(Capsule().strokeBorder(Color(uiColor: .separator).opacity(0.6), lineWidth: 0.5))
             }
-            .padding(.leading, 12)
-            .padding(3)
-            .background(Color.raised, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color(uiColor: .separator).opacity(0.6), lineWidth: 0.5))
+            .buttonStyle(.plain)
+            .accessibilityLabel("Your profile")
         }
-    }
-}
-
-/// Which app this page is about. Switching is a tap, because posting one app's
-/// video under another's name is the worst mistake this product can make.
-private struct BrandMenu: View {
-    @Binding var adding: Bool
-    @Environment(AppSession.self) private var session
-
-    var body: some View {
-        Menu {
-            ForEach(session.brands) { brand in
-                Button {
-                    Task { await session.switchBrand(to: brand.id) }
-                } label: {
-                    if brand.id == session.brand?.id {
-                        Label(brand.name, systemImage: "checkmark")
-                    } else {
-                        Text(brand.name)
-                    }
-                }
-            }
-            Divider()
-            Button { adding = true } label: {
-                Label("Add an app", systemImage: "plus")
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text(session.brand?.name ?? "My app")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .frame(maxWidth: 120, alignment: .leading)
-                    .fixedSize(horizontal: true, vertical: false)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary)
-            .contentShape(Rectangle())
-        }
-        .accessibilityLabel("Switch app")
     }
 }
 

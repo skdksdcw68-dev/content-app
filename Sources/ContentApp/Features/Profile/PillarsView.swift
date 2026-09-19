@@ -7,6 +7,7 @@ struct PillarsView: View {
     @Environment(AppSession.self) private var session
     @State private var pillars: [ContentPillar]?
     @State private var editing: ContentPillar?
+    @State private var isNew = false
 
     var body: some View {
         Form {
@@ -19,15 +20,21 @@ struct PillarsView: View {
                 } else {
                     Section {
                         ForEach(pillars) { pillar in
-                            Button { editing = pillar } label: {
+                            Button { isNew = false; editing = pillar } label: {
                                 PillarRow(pillar: pillar, share: share(of: pillar, in: pillars))
                             }
                             .tint(.primary)
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    Task { await remove(pillar.id) }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                         .onDelete { offsets in
-                            let gone = offsets.map { pillars[$0] }
-                            self.pillars?.remove(atOffsets: offsets)
-                            Task { for pillar in gone { await session.deletePillar(pillar.id) } }
+                            let gone = offsets.map { pillars[$0].id }
+                            Task { for id in gone { await remove(id) } }
                         }
                     } footer: {
                         Text("Share is how much of a plan each one gets. Switched-off pillars are skipped.")
@@ -40,8 +47,11 @@ struct PillarsView: View {
         .navigationTitle("Content pillars")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if pillars?.isEmpty == false {
+                ToolbarItem(placement: .topBarTrailing) { EditButton() }
+            }
             ToolbarItem(placement: .primaryAction) {
-                Button { editing = ContentPillar() } label: {
+                Button { isNew = true; editing = ContentPillar() } label: {
                     Image(systemName: "plus")
                 }
                 .accessibilityLabel("Add a pillar")
@@ -49,12 +59,19 @@ struct PillarsView: View {
         }
         .task(id: session.brand?.id) { pillars = await session.pillars() }
         .sheet(item: $editing) { pillar in
-            PillarEditor(pillar: pillar) { saved in
+            PillarEditor(pillar: pillar, isNew: isNew) { saved in
                 Task {
                     if await session.savePillar(saved) { pillars = await session.pillars() }
                 }
+            } delete: {
+                Task { await remove(pillar.id) }
             }
         }
+    }
+
+    private func remove(_ id: UUID) async {
+        pillars?.removeAll { $0.id == id }
+        await session.deletePillar(id)
     }
 
     private func share(of pillar: ContentPillar, in all: [ContentPillar]) -> Double? {
@@ -94,8 +111,11 @@ private struct PillarRow: View {
 
 private struct PillarEditor: View {
     @State var pillar: ContentPillar
+    let isNew: Bool
     let save: (ContentPillar) -> Void
+    let delete: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmingDelete = false
 
     var body: some View {
         NavigationStack {
@@ -113,6 +133,23 @@ private struct PillarEditor: View {
                 } footer: {
                     Text("A pillar with weight 2 gets twice the posts of one with weight 1.")
                 }
+
+                if !isNew {
+                    Section {
+                        Button(role: .destructive) { confirmingDelete = true } label: {
+                            Text("Delete Pillar").frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+            .alert("Delete this pillar?", isPresented: $confirmingDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    delete()
+                    dismiss()
+                }
+            } message: {
+                Text("Plans already written keep their posts. New plans won’t use it.")
             }
             .navigationTitle(pillar.name.isEmpty ? "New pillar" : pillar.name)
             .navigationBarTitleDisplayMode(.inline)

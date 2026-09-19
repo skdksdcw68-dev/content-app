@@ -191,6 +191,12 @@ extension AppSession {
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            if http.statusCode == 402 {
+                // This month's chat allowance is used: say so, and offer Pro.
+                showingPaywall = true
+                onEvent(.failed("You’ve used this month’s chat messages. Autocast Pro gives you 1,000 a month."))
+                return
+            }
             onEvent(.failed(
                 http.statusCode == 401
                     ? "Sign in again to keep chatting."

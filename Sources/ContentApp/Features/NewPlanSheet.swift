@@ -17,6 +17,10 @@ struct NewPlanSheet: View {
 
     @State private var days = 30
     @State private var postsPerDay = 1
+    @State private var showingPaywall = false
+
+    /// The longest plan this person's plan writes (the server enforces it too).
+    private var maxDays: Int { session.subscription?.limits.planDays ?? 30 }
 
     @State private var showingFilePicker = false
     @State private var pasted = ""
@@ -99,7 +103,21 @@ struct NewPlanSheet: View {
                     )
                     .disabled(session.isPlanning)
                 } footer: {
-                    Text("\(days * postsPerDay) posts, spread across the hours you have not marked quiet. Today's slot is skipped if it has already passed.")
+                    if days > maxDays {
+                        Text("Plans longer than \(maxDays) days are part of Autocast Pro.")
+                    } else {
+                        Text("\(days * postsPerDay) posts, spread across the hours you have not marked quiet. Today's slot is skipped if it has already passed.")
+                    }
+                }
+
+                if days > maxDays {
+                    Section {
+                        Button {
+                            showingPaywall = true
+                        } label: {
+                            Label("Get Autocast Pro", systemImage: "sparkles")
+                        }
+                    }
                 }
 
                 // The single biggest lever on whether the month is worth
@@ -158,7 +176,7 @@ struct NewPlanSheet: View {
                             Spacer()
                         }
                     }
-                    .disabled(session.isPlanning)
+                    .disabled(session.isPlanning || days > maxDays)
                 } footer: {
                     if session.isPlanning {
                         // Twenty-odd seconds with no explanation reads as a
@@ -195,7 +213,14 @@ struct NewPlanSheet: View {
                 }
             }
             .interactiveDismissDisabled(session.isPlanning)
-            .task { await session.refreshFacts() }
+            .task {
+                await session.refreshFacts()
+                // Start on the longest plan this account can write.
+                if days > maxDays { days = maxDays }
+            }
+            // Presented from here: this is already a sheet, and the root's
+            // paywall cannot appear on top of it.
+            .sheet(isPresented: $showingPaywall) { PaywallView() }
             .fileImporter(
                 isPresented: $showingFilePicker,
                 allowedContentTypes: Self.importTypes

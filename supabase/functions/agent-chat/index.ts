@@ -29,6 +29,7 @@ import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose
 import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
+import { requireQuota } from "../_shared/quota.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -159,6 +160,11 @@ Deno.serve(async (request) => {
     if (!auth.user) throw new PublicError("Sign in first.", 401);
 
     const body = (await request.json().catch(() => ({}))) as Body;
+
+    // One message, one unit of this month's chat allowance.
+    await requireQuota(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id, "chat",
+      "You’ve used this month’s chat messages. Autocast Pro gives you 1,000 a month.");
+
     const history = (body.messages ?? [])
       .filter((turn) => typeof turn?.content === "string" && turn.content.trim())
       .slice(-TURNS_KEPT);

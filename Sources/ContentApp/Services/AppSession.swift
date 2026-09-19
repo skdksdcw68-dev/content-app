@@ -86,6 +86,11 @@ final class AppSession {
     /// The Apple ID's email, when Apple shared one (it may be a relay address).
     internal(set) var accountEmail: String?
 
+    /// Autocast Pro, as the server decided it. Nil until first read.
+    internal(set) var subscription: MyPlan?
+    /// Set when a Pro limit is reached anywhere; the root shows the paywall.
+    var showingPaywall = false
+
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?
 
@@ -126,7 +131,10 @@ final class AppSession {
             await refreshConnectable()
             await refreshSettings()
             await refreshHealth()
+            await refreshSubscription()
             state = .ready
+            // Anything bought on another device, or renewed while closed.
+            Task { await syncPurchases() }
         } catch {
             state = .failed(readableMessage(error))
         }
@@ -168,6 +176,7 @@ final class AppSession {
         connectable = []
         isAnonymous = true
         accountEmail = nil
+        subscription = nil
         UserDefaults.standard.removeObject(forKey: Self.chosenBrandKey)
         await start()
     }
@@ -352,6 +361,15 @@ final class AppSession {
     func readableMessage(_ error: Error) -> String {
         if let postgrest = error as? PostgrestError {
             return postgrest.message
+        }
+        // A function's own words, and the paywall when it says a Pro limit
+        // was reached (HTTP 402, see _shared/quota.ts).
+        if case let FunctionsError.httpError(code, data) = error {
+            if code == 402 { showingPaywall = true }
+            struct Body: Decodable { let error: String? }
+            if let message = (try? JSONDecoder().decode(Body.self, from: data))?.error, !message.isEmpty {
+                return message
+            }
         }
         if (error as NSError).domain == NSURLErrorDomain {
             return "No connection. Check your network and try again."

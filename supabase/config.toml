@@ -204,3 +204,7 @@ verify_jwt = true
 
 [functions.export-data]
 verify_jwt = true
+
+# The phone sends Apple-signed transactions; only what Apple signed is believed.
+[functions.verify-purchase]
+verify_jwt = true

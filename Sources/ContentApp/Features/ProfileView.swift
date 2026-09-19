@@ -26,6 +26,7 @@ struct ProfileView: View {
     @State private var deleting = false
     @State private var appleNonce = ""
     @State private var appleMessage: String?
+    @State private var managingSubscription = false
 
     var body: some View {
         List {
@@ -36,6 +37,7 @@ struct ProfileView: View {
             }
 
             attention
+            pro
             account
             brandSection
             accounts
@@ -53,7 +55,9 @@ struct ProfileView: View {
             await session.refreshSettings()
             await session.refreshHealth()
             await session.refreshPosts()
+            await session.refreshSubscription()
         }
+        .task { await session.refreshSubscription() }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(item: $web) { page in SafariSheet(url: page.url).ignoresSafeArea() }
         .sheet(item: $exported) { file in ShareSheet(items: [file.url]).presentationDetents([.medium, .large]) }
@@ -112,6 +116,36 @@ struct ProfileView: View {
                 Text("Needs attention")
             }
         }
+    }
+
+    // MARK: - Autocast Pro
+
+    @ViewBuilder
+    private var pro: some View {
+        Section {
+            if let plan = session.subscription, plan.isPro {
+                Button { managingSubscription = true } label: {
+                    SettingsRow("Autocast Pro", symbol: "sparkles", value: proDetail(plan), accessory: .chevron)
+                }
+                .disabled(plan.productId == "owner")
+            } else {
+                Button { session.showingPaywall = true } label: {
+                    SettingsRow("Get Autocast Pro", symbol: "sparkles", accessory: .chevron)
+                }
+            }
+        } footer: {
+            if let plan = session.subscription, !plan.isPro {
+                Text("Free: \(plan.limits.planDays)-day plans, \(plan.limits.aiWrites) AI caption writes and \(plan.limits.chat) chat messages a month.")
+            }
+        }
+        .manageSubscriptionsSheet(isPresented: $managingSubscription)
+    }
+
+    private func proDetail(_ plan: MyPlan) -> String {
+        guard let date = plan.expires else { return plan.title }
+        let when = date.formatted(date: .abbreviated, time: .omitted)
+        if plan.isTrial { return "Trial ends \(when)" }
+        return plan.autoRenew == false ? "Ends \(when)" : "Renews \(when)"
     }
 
     // MARK: - Account

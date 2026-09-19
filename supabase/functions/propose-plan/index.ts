@@ -24,6 +24,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
+import { maxPlanDays, NEEDS_PRO } from "../_shared/quota.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -94,6 +95,15 @@ Deno.serve(async (request) => {
     const brief = (body.brief ?? "").trim();
     const days = clamp(body.days ?? 30, 1, 60);
     const perDay = clamp(body.posts_per_day ?? 1, 1, 6);
+
+    // Free and trial plans write a week at a time; Pro writes the month.
+    const allowedDays = await maxPlanDays(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
+    if (days > allowedDays) {
+      throw new PublicError(
+        `Your plan writes up to ${allowedDays} days at a time. Autocast Pro plans the whole month.`,
+        NEEDS_PRO, false, "needs_pro",
+      );
+    }
 
     // Read under RLS, so a caller cannot plan into somebody else's brand. The
     // brand on screen when one is named: it used to take the first row, so a

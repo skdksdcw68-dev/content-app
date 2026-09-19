@@ -52,10 +52,16 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .appearanceChanged)) { _ in
             appearance = AppAppearance.current
         }
+        // A Pro limit anywhere opens Autocast Pro; the message that came with
+        // it is the paywall's reason, not a second alert.
+        .sheet(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
+            PaywallView()
+        }
+        .task { await session.listenForTransactions() }
         .alert(
             "That did not work",
             isPresented: Binding(
-                get: { session.lastError != nil },
+                get: { session.lastError != nil && !session.showingPaywall },
                 set: { if !$0 { session.lastError = nil } }
             )
         ) {

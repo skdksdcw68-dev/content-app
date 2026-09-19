@@ -25,6 +25,7 @@ import { MODELS } from "../_shared/route.ts";
 import { attachUpload } from "../_shared/attach.ts";
 import { creatorInfo } from "../_shared/tiktok.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
+import { requireQuota } from "../_shared/quota.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -89,7 +90,10 @@ Deno.serve(async (request) => {
       case "prepare":    return json(await prepare(admin, userId, brand, body));
       case "validate":   return json(await validate(admin, userId, brand, body));
       case "compose":    return json(await compose(admin, userId, brand, body));
-      case "write":      return json(await write(brand, body, admin));
+      case "write":
+        await requireQuota(admin, userId, "ai_write",
+          "You’ve used this month’s AI caption writes. Autocast Pro gives you 500 a month.");
+        return json(await write(brand, body, admin));
       default:           throw new PublicError("Unknown step.");
     }
   } catch (error) {

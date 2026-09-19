@@ -9,6 +9,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { seal, open, keyVersion } from "./crypto.ts";
 import { PublicError } from "./http.ts";
+import { refreshInstagram, refreshYouTube } from "./oauth-refresh.ts";
 
 const CLIENT_KEY = Deno.env.get("TIKTOK_CLIENT_KEY")!;
 const CLIENT_SECRET = Deno.env.get("TIKTOK_CLIENT_SECRET")!;
@@ -66,6 +67,11 @@ export async function accessToken(
     return await open(fresh.access_ct, `${connectionId}:access`);
   }
 
+  // One function hands out tokens for every platform; only the refresh differs.
+  const { data: connection } = await admin
+    .from("platform_connections").select("provider").eq("id", connectionId).maybeSingle();
+  if (connection?.provider === "youtube") return await refreshYouTube(admin, connectionId, credential);
+  if (connection?.provider === "instagram") return await refreshInstagram(admin, connectionId, credential);
   return await refresh(admin, connectionId, credential);
 }
 
@@ -210,6 +216,16 @@ export async function revokeAtTikTok(
 ): Promise<boolean> {
   try {
     const token = await accessToken(admin, connectionId);
+    const { data: connection } = await admin
+      .from("platform_connections").select("provider").eq("id", connectionId).maybeSingle();
+    if (connection?.provider === "youtube") {
+      const google = await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, { method: "POST" });
+      return google.ok;
+    }
+    if (connection?.provider === "instagram") {
+      // Instagram Login has no revoke call; deleting the token is the disconnect.
+      return true;
+    }
     const response = await fetch("https://open.tiktokapis.com/v2/oauth/revoke/", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

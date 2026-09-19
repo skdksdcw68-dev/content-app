@@ -22,8 +22,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { MODELS } from "../_shared/route.ts";
-import { attachUpload } from "../_shared/attach.ts";
-import { creatorInfo } from "../_shared/tiktok.ts";
+import { addTarget, attachUpload } from "../_shared/attach.ts";
+import { accountOptions } from "../_shared/accounts.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
 import { requireQuota } from "../_shared/quota.ts";
 import { recordUsage } from "../_shared/usage.ts";
@@ -46,6 +46,8 @@ interface Body {
   cover_ms?: number;
   /** compose/validate: DIRECT_POST or UPLOAD_TO_DRAFT. */
   mode?: string;
+  /** compose: the accounts to post to. Default: the TikTok account. */
+  connection_ids?: string[];
   brand_id?: string;
   post_id?: string;
   storage_path?: string;
@@ -364,84 +366,101 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
   if (!body.post_id) throw new PublicError("post_id is required.");
   const post = await ownPost(admin, userId, brand.id, body.post_id);
 
-  const { data: target } = await admin
+  // Every destination this post goes to, TikTok first.
+  const { data: rows } = await admin
     .from("post_targets")
-    .select("id, connection_id, caption, hashtags, platform_connections(username, status), post_assets(media_assets(byte_size, mime, duration_ms, width, height))")
-    .eq("post_id", post.id)
-    .limit(1)
-    .maybeSingle();
+    .select("id, connection_id, platform, caption, hashtags, platform_connections(username, status), post_assets(media_assets(byte_size, mime, duration_ms, width, height))")
+    .eq("post_id", post.id);
+  const targets = ((rows ?? []) as Array<Record<string, any>>)
+    .sort((x, y) => (x.platform === "tiktok" ? -1 : 0) - (y.platform === "tiktok" ? -1 : 0));
 
   const checks: Check[] = [];
   const add = (key: string, title: string, ok: boolean, detail: string) => checks.push({ key, title, ok, detail });
 
-  if (!target) {
+  if (targets.length === 0) {
     add("prepared", "Prepared", false, "The video isn't attached yet.");
     return finish(admin, userId, brand, post.id, checks, null);
   }
 
-  const conn = target.platform_connections as unknown as { username: string; status: string } | null;
-  add("account", "TikTok account", conn?.status === "active",
-    conn?.status === "active" ? `Connected as @${conn.username}` : "Reconnect TikTok in You → Accounts.");
+  let info: Awaited<ReturnType<typeof accountOptions>> | null = null;
+  const several = targets.length > 1;
 
-  let info: Awaited<ReturnType<typeof creatorInfo>> | null = null;
-  try {
-    info = await creatorInfo(admin, target.connection_id);
-    await admin.from("creator_snapshots").insert({
-      connection_id: target.connection_id,
-      username: info.creator_username ?? "",
-      nickname: info.creator_nickname ?? "",
-      avatar_url: info.creator_avatar_url ?? "",
-      privacy_level_options: info.privacy_level_options,
-      comment_disabled: info.comment_disabled ?? false,
-      duet_disabled: info.duet_disabled ?? false,
-      stitch_disabled: info.stitch_disabled ?? false,
-      max_video_post_duration_sec: info.max_video_post_duration_sec ?? 600,
-    });
-    // Until TikTok has reviewed Autocast it refuses posts from PUBLIC accounts
-    // (unaudited_client_can_only_post_to_private_accounts). A public account
-    // is one that is offered PUBLIC_TO_EVERYONE.
-    // The inbox route (drafts) is left to TikTok to decide.
-    if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true" && body.mode !== "UPLOAD_TO_DRAFT") {
-      const isPublic = info.privacy_level_options.includes("PUBLIC_TO_EVERYONE");
-      add("private", "Account set to private", !isPublic,
-        isPublic
-          ? `TikTok only accepts posts from private accounts while it reviews Autocast. Set @${info.creator_username ?? "your account"} to Private in TikTok → Settings → Privacy, then check again.`
-          : "Private — TikTok will accept the post.");
+  for (const target of targets) {
+    const name = PLATFORM_NAME[target.platform] ?? "Account";
+    const key = (k: string) => (several ? `${target.platform}.${k}` : k);
+    const label = (t: string) => (several ? `${name}: ${t}` : t);
+
+    const conn = target.platform_connections as { username: string; status: string } | null;
+    add(key("account"), label(`${name} account`), conn?.status === "active",
+      conn?.status === "active" ? `Connected as @${conn.username}` : `Reconnect ${name} in Profile → Accounts.`);
+
+    let options: Awaited<ReturnType<typeof accountOptions>> | null = null;
+    try {
+      options = await accountOptions(admin, target.connection_id);
+      if (!info) info = options;
+      await admin.from("creator_snapshots").insert({
+        connection_id: target.connection_id,
+        username: options.creator_username ?? "",
+        nickname: options.creator_nickname ?? "",
+        avatar_url: options.creator_avatar_url ?? "",
+        privacy_level_options: options.privacy_level_options,
+        comment_disabled: options.comment_disabled ?? false,
+        duet_disabled: options.duet_disabled ?? false,
+        stitch_disabled: options.stitch_disabled ?? false,
+        max_video_post_duration_sec: options.max_video_post_duration_sec ?? 600,
+      });
+      if (target.platform === "tiktok") {
+        // Until TikTok has reviewed Autocast it refuses posts from PUBLIC
+        // accounts. The inbox route (drafts) is left to TikTok to decide.
+        if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true" && body.mode !== "UPLOAD_TO_DRAFT") {
+          const isPublic = options.privacy_level_options.includes("PUBLIC_TO_EVERYONE");
+          add(key("private"), label("Account set to private"), !isPublic,
+            isPublic
+              ? `TikTok only accepts posts from private accounts while it reviews Autocast. Set @${options.creator_username ?? "your account"} to Private in TikTok → Settings → Privacy, then check again.`
+              : "Private — TikTok will accept the post.");
+        }
+        const onlyPrivate = options.privacy_level_options.length === 1 && options.privacy_level_options[0] === "SELF_ONLY";
+        add(key("posting"), label("TikTok allows posting"), options.privacy_level_options.length > 0,
+          onlyPrivate
+            ? "Yes — as private (only you) while TikTok reviews Autocast."
+            : `Yes — ${options.privacy_level_options.map(privacyName).join(", ")}.`);
+      }
+    } catch (error) {
+      add(key("posting"), label(`${name} allows posting`), false, error instanceof Error ? error.message : `${name} didn't answer.`);
     }
-    const onlyPrivate = info.privacy_level_options.length === 1 && info.privacy_level_options[0] === "SELF_ONLY";
-    add("posting", "TikTok allows posting", info.privacy_level_options.length > 0,
-      onlyPrivate
-        ? "Yes — as private (only you) while TikTok reviews Autocast."
-        : `Yes — ${info.privacy_level_options.map(privacyName).join(", ")}.`);
-  } catch (error) {
-    add("posting", "TikTok allows posting", false, error instanceof Error ? error.message : "TikTok didn't answer.");
+
+    const media = ((target.post_assets ?? []) as { media_assets: { byte_size: number; mime: string; duration_ms: number | null; width: number | null; height: number | null } }[])[0]?.media_assets;
+    if (!media) {
+      add(key("video"), label("Video attached"), false, "No video on this post.");
+    } else {
+      add(key("size"), label("File size"), media.byte_size <= MAX_BYTES,
+        `${(media.byte_size / 1_048_576).toFixed(1)} MB${media.byte_size <= MAX_BYTES ? "" : " — over the 60 MB Autocast can send today"}`);
+      add(key("format"), label("Format"), /mp4|quicktime/.test(media.mime), media.mime.includes("quicktime") ? "MOV" : "MP4");
+      if (media.duration_ms) {
+        const seconds = media.duration_ms / 1000;
+        const max = options?.max_video_post_duration_sec ?? 600;
+        // Instagram also has a floor: a Reel is at least 3 seconds.
+        const min = target.platform === "reels" ? 3 : 0;
+        add(key("length"), label("Length"), seconds <= max && seconds >= min,
+          `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s${seconds > max ? ` — ${name} allows up to ${max}s` : ""}${seconds < min ? ` — ${name} needs at least ${min}s` : ""}`);
+      }
+      if (media.width && media.height) {
+        const short = Math.min(media.width, media.height);
+        add(key("resolution"), label("Resolution"), short >= 360,
+          `${media.width}×${media.height}${media.height > media.width ? " (vertical)" : ""}`);
+      }
+    }
+
+    const fullCaption = [target.caption ?? "", ...((target.hashtags ?? []) as string[])].filter(Boolean).join(" ");
+    add(key("caption"), label("Caption"), fullCaption.length <= MAX_CAPTION,
+      fullCaption.length === 0 ? "No caption" : `${fullCaption.length} of ${MAX_CAPTION} characters`);
+
+    const { data: rate } = await admin
+      .from("account_rate_state").select("day_count, day_window, max_per_day").eq("connection_id", target.connection_id).maybeSingle();
+    const usedToday = rate && rate.day_window === new Date().toISOString().slice(0, 10) ? rate.day_count : 0;
+    add(key("cap"), label("Daily posting cap"), !rate || usedToday < rate.max_per_day,
+      rate ? `${usedToday} of ${rate.max_per_day} used today` : "No limit recorded");
   }
-
-  const media = ((target.post_assets ?? []) as unknown as { media_assets: { byte_size: number; mime: string; duration_ms: number | null; width: number | null; height: number | null } }[])[0]?.media_assets;
-  if (!media) {
-    add("video", "Video attached", false, "No video on this post.");
-  } else {
-    add("size", "File size", media.byte_size <= MAX_BYTES,
-      `${(media.byte_size / 1_048_576).toFixed(1)} MB${media.byte_size <= MAX_BYTES ? "" : " — over the 60 MB Autocast can send today"}`);
-    add("format", "Format", /mp4|quicktime/.test(media.mime), media.mime.includes("quicktime") ? "MOV" : "MP4");
-    if (media.duration_ms) {
-      const seconds = media.duration_ms / 1000;
-      const max = info?.max_video_post_duration_sec ?? 600;
-      // Only TikTok's stated limit, the account's maximum. A minimum was
-      // guessed here once and blocked a real 2-second clip.
-      add("length", "Length", seconds <= max,
-        `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)}s${seconds > max ? ` — this account allows up to ${max}s` : ""}`);
-    }
-    if (media.width && media.height) {
-      const short = Math.min(media.width, media.height);
-      add("resolution", "Resolution", short >= 360,
-        `${media.width}×${media.height}${media.height > media.width ? " (vertical)" : ""}`);
-    }
-  }
-
-  const fullCaption = [target.caption ?? "", ...((target.hashtags ?? []) as string[])].filter(Boolean).join(" ");
-  add("caption", "Caption", fullCaption.length <= MAX_CAPTION,
-    fullCaption.length === 0 ? "No caption" : `${fullCaption.length} of ${MAX_CAPTION} characters`);
 
   // A post with no time goes out when the person taps Post.
   const when = post.scheduled_for ? new Date(post.scheduled_for) : null;
@@ -450,14 +469,10 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
       when.getTime() > Date.now() ? "In the future" : "The time has passed — pick a new one when you approve.");
   }
 
-  const { data: rate } = await admin
-    .from("account_rate_state").select("day_count, day_window, max_per_day").eq("connection_id", target.connection_id).maybeSingle();
-  const usedToday = rate && rate.day_window === new Date().toISOString().slice(0, 10) ? rate.day_count : 0;
-  add("cap", "Daily posting cap", !rate || usedToday < rate.max_per_day,
-    rate ? `${usedToday} of ${rate.max_per_day} used today` : "No limit recorded");
-
   return finish(admin, userId, brand, post.id, checks, info);
 }
+
+const PLATFORM_NAME: Record<string, string> = { tiktok: "TikTok", shorts: "YouTube", reels: "Instagram" };
 
 async function finish(
   admin: Admin, userId: string, brand: Brand, postId: string, checks: Check[],
@@ -470,7 +485,7 @@ async function finish(
     p_kind: blocking.length === 0 ? "validated" : "validation_failed", p_actor: "autocast",
     p_title: blocking.length === 0 ? "Checked — ready for your review" : "Needs a fix before it can post",
     p_detail: blocking.length === 0
-      ? `${checks.length} checks passed against your TikTok account.`
+      ? `${checks.length} checks passed against your accounts.`
       : blocking.map((c) => `${c.title}: ${c.detail}`).join(" · "),
   });
   return {
@@ -491,8 +506,25 @@ async function finish(
  */
 async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
   if (!body.storage_path) throw new PublicError("storage_path is required.");
-  const connection = await activeConnection(admin, brand.id);
-  if (!connection) throw new PublicError("Connect TikTok first (You → Accounts).", 409);
+
+  // Where it goes: the accounts chosen on the post screen, or TikTok.
+  let destinations: Array<{ id: string; platform: string; username: string; status: string }> = [];
+  if (body.connection_ids?.length) {
+    const { data } = await admin
+      .from("platform_connections")
+      .select("id, platform, username, status")
+      .eq("brand_id", brand.id)
+      .eq("status", "active")
+      .in("id", body.connection_ids.slice(0, 5));
+    destinations = (data ?? []) as typeof destinations;
+  } else {
+    const tiktok = await activeConnection(admin, brand.id);
+    if (tiktok) destinations = [tiktok];
+  }
+  // TikTok first, so drafts and its checks lead.
+  destinations.sort((a, b) => (a.platform === "tiktok" ? -1 : 0) - (b.platform === "tiktok" ? -1 : 0));
+  const connection = destinations[0];
+  if (!connection) throw new PublicError("Connect an account first (Profile → Accounts).", 409);
 
   const caption = (body.caption ?? "").trim().slice(0, 2000);
   const hashtags = cleanTags(body.hashtags ?? []);
@@ -530,8 +562,15 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
     height: body.height ?? null,
   });
 
+  const targetIds = [attached.postTargetId];
+  for (const other of destinations.slice(1)) {
+    targetIds.push(await addTarget(admin, {
+      userId, postId: post.id, connection: other, caption, hashtags, assetId: attached.assetId,
+    }));
+  }
+
   if (typeof body.cover_ms === "number" && body.cover_ms > 0) {
-    await admin.from("post_targets").update({ video_cover_ms: Math.round(body.cover_ms) }).eq("id", attached.postTargetId);
+    await admin.from("post_targets").update({ video_cover_ms: Math.round(body.cover_ms) }).in("id", targetIds);
   }
 
   await admin.rpc("log_activity", {
@@ -541,7 +580,14 @@ async function compose(admin: Admin, userId: string, brand: Brand, body: Body) {
   });
 
   const report = await validate(admin, userId, brand, { ...body, post_id: post.id });
-  return { post_id: post.id, post_target_id: attached.postTargetId, ...report };
+  const { data: made } = await admin.from("post_targets").select("id, platform").in("id", targetIds);
+  return {
+    post_id: post.id,
+    post_target_id: attached.postTargetId,
+    // Every destination, so the app can approve each with its own settings.
+    targets: (made ?? []).map((t: { id: string; platform: string }) => ({ id: t.id, platform: t.platform })),
+    ...report,
+  };
 }
 
 // --------------------------------------------------------------------- write

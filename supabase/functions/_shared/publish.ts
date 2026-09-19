@@ -17,7 +17,10 @@
  */
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
-import { accessToken, creatorInfo } from "./tiktok.ts";
+import { accessToken } from "./tiktok.ts";
+import { accountOptions } from "./accounts.ts";
+import { uploadShort } from "./youtube.ts";
+import { containerStatus, createReel, publishReel } from "./instagram.ts";
 import { contentDigest } from "./digest.ts";
 
 const BUCKET = "media";
@@ -131,7 +134,7 @@ export async function publishTarget(
   // --- does the account still allow it? -------------------------------------
 
   if (mode === "DIRECT_POST") {
-    const info = await creatorInfo(admin, target.connection_id);
+    const info = await accountOptions(admin, target.connection_id);
     if (!info.privacy_level_options.includes(target.privacy)) {
       await fail(
         admin,
@@ -156,6 +159,60 @@ export async function publishTarget(
   if (bytes.byteLength > SINGLE_CHUNK_LIMIT) {
     await fail(admin, target.id, "too_large", "That video is too large to publish from here yet.");
     return { state: "failed", reason: "too_large" };
+  }
+
+  // --- YouTube: one resumable upload, and the video exists ------------------
+
+  if (target.platform === "shorts") {
+    await admin.from("post_targets").update({ state: "uploading" }).eq("id", target.id);
+    const result = await uploadShort(admin, target.connection_id, {
+      bytes,
+      mime: variant.mime,
+      caption: target.caption ?? "",
+      hashtags: target.hashtags ?? [],
+      privacy: target.privacy,
+      isAIGC: target.is_aigc,
+    });
+    if (!result.ok || !result.videoId) {
+      await fail(admin, target.id, result.code ?? "upload_failed", result.reason);
+      return { state: "failed", reason: result.reason };
+    }
+    await admin.from("post_targets").update({ provider_publish_id: result.videoId }).eq("id", target.id);
+    await markPublished(admin, target.id, target.post_id, result.videoId);
+    return { state: "published", publishId: result.videoId };
+  }
+
+  // --- Instagram: a container Instagram fetches, then publish --------------
+
+  if (target.platform === "reels") {
+    // Instagram downloads the video itself, from a link that works for a day.
+    const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(variant.storage_path, 24 * 3600);
+    if (!signed?.signedUrl) {
+      await fail(admin, target.id, "media_missing", "The video link could not be made.");
+      return { state: "failed", reason: "media_missing" };
+    }
+    const container = await createReel(admin, target.connection_id, {
+      videoUrl: signed.signedUrl,
+      caption: target.caption ?? "",
+      hashtags: target.hashtags ?? [],
+    });
+    if (!container.ok || !container.containerId) {
+      await fail(admin, target.id, container.code ?? "container_failed", container.reason);
+      return { state: "failed", reason: container.reason };
+    }
+    await admin.from("post_targets").update({
+      state: "submitted",
+      provider_publish_id: container.containerId,
+    }).eq("id", target.id);
+
+    // Short clips finish in seconds; anything slower is finished by Verify.
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      const outcome = await finishReel(admin, target.id, target.post_id, target.connection_id, container.containerId);
+      if (outcome.state !== "processing") return outcome;
+    }
+    await admin.from("post_targets").update({ state: "processing" }).eq("id", target.id);
+    return { state: "processing", publishId: container.containerId };
   }
 
   const token = await accessToken(admin, target.connection_id);
@@ -266,12 +323,21 @@ export async function publishTarget(
 export async function verifyTarget(admin: SupabaseClient, targetId: string): Promise<PublishOutcome> {
   const { data: target } = await admin
     .from("post_targets")
-    .select("id, post_id, connection_id, state, provider_publish_id")
+    .select("id, post_id, connection_id, platform, state, provider_publish_id")
     .eq("id", targetId)
     .maybeSingle();
 
   if (!target?.provider_publish_id) return { state: "failed", reason: "nothing_to_verify" };
   if (target.state === "published") return { state: "published" };
+
+  if (target.platform === "reels") {
+    return await finishReel(admin, target.id, target.post_id, target.connection_id, target.provider_publish_id);
+  }
+  if (target.platform === "shorts") {
+    // A YouTube upload is complete once it returns an id.
+    await markPublished(admin, target.id, target.post_id, target.provider_publish_id);
+    return { state: "published", publishId: target.provider_publish_id };
+  }
 
   const token = await accessToken(admin, target.connection_id);
   const status = await fetchStatus(token, target.provider_publish_id);
@@ -292,6 +358,35 @@ export async function verifyTarget(admin: SupabaseClient, targetId: string): Pro
     await admin.from("post_targets").update({ state: "processing" }).eq("id", target.id);
   }
   return { state: "processing", publishId: target.provider_publish_id };
+}
+
+/** An Instagram container: publish it once FINISHED, record a failure if
+ *  Instagram gave up, otherwise say it is still processing. */
+async function finishReel(
+  admin: SupabaseClient,
+  targetId: string,
+  postId: string,
+  connectionId: string,
+  containerId: string,
+): Promise<PublishOutcome> {
+  const status = await containerStatus(admin, connectionId, containerId);
+  if (status.status === "FINISHED") {
+    const published = await publishReel(admin, connectionId, containerId);
+    if (!published.ok || !published.mediaId) {
+      await fail(admin, targetId, published.code ?? "publish_failed", published.reason);
+      return { state: "failed", reason: published.reason };
+    }
+    await markPublished(admin, targetId, postId, published.mediaId);
+    return { state: "published", publishId: published.mediaId };
+  }
+  if (status.status === "ERROR" || status.status === "EXPIRED") {
+    const reason = status.status === "EXPIRED"
+      ? "Instagram waited too long for the video. Pick a new time to try again."
+      : `Instagram couldn’t process the video${status.detail ? ` (${status.detail})` : ""}.`;
+    await fail(admin, targetId, `container_${status.status.toLowerCase()}`, reason);
+    return { state: "failed", reason };
+  }
+  return { state: "processing", publishId: containerId };
 }
 
 async function markPublished(

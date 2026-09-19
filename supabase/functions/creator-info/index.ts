@@ -12,7 +12,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { creatorInfo } from "../_shared/tiktok.ts";
+import { accountOptions } from "../_shared/accounts.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -47,7 +47,7 @@ Deno.serve(async (request) => {
     if (!connection) throw new PublicError("That account is not connected.", 404);
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-    const info = await creatorInfo(admin, connection.id);
+    const info = await accountOptions(admin, connection.id);
 
     // Kept because consent binds to it. When a post is approved we record which
     // snapshot the person was looking at, so there is an answer to "what were

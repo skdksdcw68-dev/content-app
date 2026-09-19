@@ -12,7 +12,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { creatorInfo } from "../_shared/tiktok.ts";
+import { accountOptions } from "../_shared/accounts.ts";
 import { contentDigest } from "../_shared/digest.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -92,7 +92,7 @@ Deno.serve(async (request) => {
     // Read now, not from anything cached. A creator who switched their account
     // to private since the screen was drawn must not be able to approve a
     // visibility their account no longer offers.
-    const info = await creatorInfo(admin, target.connection_id);
+    const info = await accountOptions(admin, target.connection_id);
 
     if (!info.privacy_level_options.includes(body.privacy)) {
       throw new PublicError(
@@ -238,7 +238,8 @@ Deno.serve(async (request) => {
         consent_id: consent.id,
         content_digest: `\\x${digest}`,
         state: "pending",
-        publish_mode: body.mode === "UPLOAD_TO_DRAFT" ? "UPLOAD_TO_DRAFT" : "DIRECT_POST",
+        // Drafts are TikTok's inbox; YouTube and Instagram only post.
+        publish_mode: body.mode === "UPLOAD_TO_DRAFT" && target.platform === "tiktok" ? "UPLOAD_TO_DRAFT" : "DIRECT_POST",
         failure_code: null,
         failure_reason: null,
         provider_publish_id: null,

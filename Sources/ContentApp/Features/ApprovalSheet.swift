@@ -191,7 +191,7 @@ struct ApprovalSheet: View {
     }
 
     private func load() async {
-        guard let connection = session.connections.first(where: \.isHealthy) else { return }
+        guard let connection = session.tiktok else { return }
         let fetched = await session.creatorInfo(for: connection.id)
         info = fetched
         // Default to the most private option available rather than the widest.

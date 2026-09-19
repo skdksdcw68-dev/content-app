@@ -56,6 +56,8 @@ struct ComposeView: View {
     @State private var brandedContent = false
     @State private var saveToDevice = PostDefaults.saveToPhotos
     @State private var coverMs: Int?
+    /// The accounts this post goes to.
+    @State private var destinations: Set<UUID> = []
 
     // Sheets
     @State private var showingCover = false
@@ -141,8 +143,35 @@ struct ComposeView: View {
                 }
             }
 
+            Section {
+                ForEach(accounts) { account in
+                    Toggle(isOn: Binding(
+                        get: { destinations.contains(account.id) },
+                        set: { on in
+                            if on { destinations.insert(account.id) } else { destinations.remove(account.id) }
+                        }
+                    )) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(account.platform.networkName)
+                                Text(account.label).font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            SettingsIcon(account.platform.symbolName)
+                        }
+                    }
+                }
+            } header: {
+                Text("Post to")
+            } footer: {
+                if accounts.isEmpty {
+                    Text("Connect an account in Profile → Accounts first.")
+                } else if destinations.contains(where: { id in accounts.first { $0.id == id }?.platform != .tiktok }) {
+                    Text("Drafts is TikTok only; YouTube and Instagram post straight away. While Google reviews Autocast, YouTube uploads stay private.")
+                }
+            }
+
             Section("Audience") {
-                LabeledContent("Account", value: info.map { "@\($0.username)" } ?? "TikTok")
                 Picker("Who can view", selection: Binding(
                     get: { privacy ?? info?.privacyOptions.first ?? "SELF_ONLY" },
                     set: { privacy = $0 }
@@ -232,18 +261,21 @@ struct ComposeView: View {
 
     private var bottomBar: some View {
         HStack(spacing: 12) {
-            Button {
-                Task { await send(.drafts) }
-            } label: {
-                HStack(spacing: 6) {
-                    if sending == .drafts { ProgressView() } else { Image(systemName: "tray.and.arrow.down") }
-                    Text("Drafts")
+            // Drafts is TikTok's inbox, so it only appears when TikTok is chosen.
+            if chosenTikTok != nil {
+                Button {
+                    Task { await send(.drafts) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if sending == .drafts { ProgressView() } else { Image(systemName: "tray.and.arrow.down") }
+                        Text("Drafts")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
             }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.large)
 
             Button {
                 Task { await send(.post) }
@@ -257,7 +289,7 @@ struct ComposeView: View {
             .buttonStyle(RemiFilledButtonStyle())
             .controlSize(.large)
         }
-        .disabled(sending != nil || facts == nil || info == nil)
+        .disabled(sending != nil || facts == nil || info == nil || destinations.isEmpty)
         .padding(.horizontal, Style.gutter)
         .padding(.vertical, 10)
         .background(.bar)
@@ -271,8 +303,22 @@ struct ComposeView: View {
         typing = true
     }
 
+    /// Every account that can post right now.
+    private var accounts: [PlatformConnection] {
+        session.connections.filter(\.isHealthy)
+            .sorted { ($0.platform == .tiktok ? 0 : 1) < ($1.platform == .tiktok ? 0 : 1) }
+    }
+
+    private var chosenTikTok: PlatformConnection? {
+        accounts.first { $0.platform == .tiktok && destinations.contains($0.id) }
+    }
+
     private func loadAccount() async {
-        guard info == nil, let connection = session.connections.first(where: \.isHealthy) else { return }
+        // Everything connected starts switched on.
+        if destinations.isEmpty { destinations = Set(accounts.map(\.id)) }
+        // The audience and interaction settings follow TikTok when it is
+        // chosen (it has the most choices), otherwise the first account.
+        guard info == nil, let connection = chosenTikTok ?? accounts.first(where: { destinations.contains($0.id) }) else { return }
         guard let fetched = await session.creatorInfo(for: connection.id) else { return }
         info = fetched
         privacy = PostDefaults.privacy(from: fetched.privacyOptions)
@@ -348,7 +394,8 @@ struct ComposeView: View {
     }
 
     private func signature(_ mode: Sending) -> String {
-        [caption, String(coverMs ?? 0), mode == .drafts ? "d" : "p"].joined(separator: "|")
+        [caption, String(coverMs ?? 0), mode == .drafts ? "d" : "p",
+         destinations.map(\.uuidString).sorted().joined(separator: ",")].joined(separator: "|")
     }
 
     private func send(_ mode: Sending) async {
@@ -375,9 +422,11 @@ struct ComposeView: View {
                 post = existing.post
                 checks = try await session.validate(post: existing.post.postId, toDrafts: drafts).checks
             } else {
+                // Drafts goes to TikTok alone.
+                let chosen = drafts ? [chosenTikTok?.id].compactMap { $0 } : Array(destinations)
                 post = try await session.compose(
                     path: path, video: facts, caption: caption, hashtags: [],
-                    coverMs: coverMs, toDrafts: drafts
+                    coverMs: coverMs, toDrafts: drafts, connections: chosen
                 )
                 composed = (signature(mode), post)
                 checks = post.checks
@@ -394,20 +443,33 @@ struct ComposeView: View {
                 ? (options.contains("SELF_ONLY") ? "SELF_ONLY" : (options.first ?? "SELF_ONLY"))
                 : (privacy ?? options.first ?? "SELF_ONLY")
 
-            let outcome = await session.approve(
-                postTargetID: post.postTargetId,
-                privacy: chosenPrivacy,
-                disableComment: !allowComments,
-                disableDuet: !allowReuse,
-                disableStitch: !allowReuse,
-                isAIGC: isAIGC,
-                runAt: scheduled && !drafts ? scheduleAt : nil,
-                postNow: drafts || !scheduled,
-                toDrafts: drafts,
-                brandContent: disclose && brandedContent && !drafts,
-                brandOrganic: disclose && yourBrand && !drafts
-            )
-            guard outcome != nil else { return }
+            // Each account is approved with the settings it understands.
+            let targets = post.targets ?? [ComposedPost.Target(id: post.postTargetId, platform: "tiktok")]
+            var approvedAny = false
+            for target in targets {
+                let isTikTok = target.platform == "tiktok"
+                let targetPrivacy: String
+                switch target.platform {
+                case "reels": targetPrivacy = "PUBLIC_TO_EVERYONE"
+                case "shorts": targetPrivacy = chosenPrivacy == "PUBLIC_TO_EVERYONE" ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY"
+                default: targetPrivacy = chosenPrivacy
+                }
+                let outcome = await session.approve(
+                    postTargetID: target.id,
+                    privacy: targetPrivacy,
+                    disableComment: !allowComments,
+                    disableDuet: isTikTok ? !allowReuse : true,
+                    disableStitch: isTikTok ? !allowReuse : true,
+                    isAIGC: isAIGC,
+                    runAt: scheduled && !drafts ? scheduleAt : nil,
+                    postNow: drafts || !scheduled,
+                    toDrafts: drafts && isTikTok,
+                    brandContent: isTikTok && disclose && brandedContent && !drafts,
+                    brandOrganic: isTikTok && disclose && yourBrand && !drafts
+                )
+                if outcome != nil { approvedAny = true }
+            }
+            guard approvedAny else { return }
             TagMemory.remember(caption)
             if saveToDevice { await Self.saveToPhotos(movieURL) }
             done = post.postId

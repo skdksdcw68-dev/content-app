@@ -210,34 +210,35 @@ struct ProfileView: View {
 
     private var accounts: some View {
         Section {
-            ForEach(session.connections) { connection in
-                NavigationLink { AccountDetailView(connection: connection).pushedPage() } label: {
-                    HStack(spacing: 8) {
-                        SettingsLabel("TikTok", symbol: "music.note")
-                        Spacer(minLength: 0)
-                        if !connection.isHealthy {
-                            Image(systemName: "exclamationmark.circle")
-                                .foregroundStyle(Color.orange)
+            ForEach([Platform.tiktok, .shorts, .reels]) { platform in
+                if let connection = session.connection(for: platform) {
+                    NavigationLink { AccountDetailView(connection: connection).pushedPage() } label: {
+                        HStack(spacing: 8) {
+                            SettingsLabel(platform.networkName, symbol: platform.symbolName)
+                            Spacer(minLength: 0)
+                            if !connection.isHealthy {
+                                Image(systemName: "exclamationmark.circle")
+                                    .foregroundStyle(Color.orange)
+                            }
+                            Text(connection.label)
+                                .foregroundStyle(Color(uiColor: .secondaryLabel))
+                                .lineLimit(1)
                         }
-                        Text(connection.label)
-                            .foregroundStyle(Color(uiColor: .secondaryLabel))
-                            .lineLimit(1)
                     }
+                } else {
+                    Button {
+                        Task { await session.connect(platform) }
+                    } label: {
+                        SettingsRow(platform.networkName, symbol: platform.symbolName,
+                                    value: session.isConnecting ? "Opening…" : "Connect", accessory: .chevron)
+                    }
+                    .disabled(session.isConnecting)
                 }
             }
-            if session.connections.isEmpty {
-                Button {
-                    Task { await session.connectTikTok() }
-                } label: {
-                    SettingsRow(session.isConnecting ? "Opening TikTok…" : "Connect TikTok", symbol: "music.note",
-                                accessory: .chevron)
-                }
-                .disabled(session.isConnecting)
-            }
-            SettingsRow("Instagram Reels", symbol: "camera", value: "Coming soon")
-            SettingsRow("YouTube Shorts", symbol: "play.rectangle", value: "Coming soon")
         } header: {
             Text("Accounts")
+        } footer: {
+            Text("Instagram needs a Business or Creator account. While Google and Meta review Autocast, only accounts added as testers can connect.")
         }
     }
 

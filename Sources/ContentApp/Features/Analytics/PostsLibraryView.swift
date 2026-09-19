@@ -31,7 +31,7 @@ struct PostsLibraryView: View {
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
 
-    private var connection: PlatformConnection? { session.connections.first }
+    private var connection: PlatformConnection? { session.tiktok }
 
     private var scheduled: [PlannedPost] {
         session.planPosts

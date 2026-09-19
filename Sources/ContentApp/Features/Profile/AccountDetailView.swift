@@ -26,7 +26,7 @@ struct AccountDetailView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(connection.label).font(.headline)
-                        Text(connection.platform.displayName)
+                        Text(connection.platform.networkName)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -50,12 +50,12 @@ struct AccountDetailView: View {
             } header: {
                 Text("What Autocast can do")
             } footer: {
-                Text("Autocast never sees your TikTok password, and can’t do anything you haven’t allowed here.")
+                Text("Autocast never sees your \(connection.platform.networkName) password, and can’t do anything you haven’t allowed here.")
             }
 
             Section {
                 Label {
-                    Text("While Autocast is in TikTok’s review, it can only post straight to private accounts. Drafts work on any account.")
+                    Text(reviewNote)
                         .font(.subheadline)
                 } icon: {
                     SettingsIcon("lock")
@@ -64,9 +64,9 @@ struct AccountDetailView: View {
 
             Section {
                 Button {
-                    Task { await session.connectTikTok() }
+                    Task { await session.connect(connection.platform) }
                 } label: {
-                    SettingsRow(session.isConnecting ? "Opening TikTok…" : "Reconnect", symbol: "arrow.triangle.2.circlepath")
+                    SettingsRow(session.isConnecting ? "Opening \(connection.platform.networkName)…" : "Reconnect", symbol: "arrow.triangle.2.circlepath")
                 }
                 .disabled(session.isConnecting)
             }
@@ -97,11 +97,20 @@ struct AccountDetailView: View {
                 }
             }
         } message: {
-            Text("Autocast loses access at TikTok and anything scheduled for this account is cancelled. Your videos on TikTok stay as they are.")
+            Text("Autocast loses access to this \(connection.platform.networkName) account and anything scheduled for it is cancelled. Your videos there stay as they are.")
         }
     }
 
-    /// TikTok's scope names, in words.
+    /// What each platform says while Autocast is in its review.
+    private var reviewNote: String {
+        switch connection.platform {
+        case .tiktok: return "While Autocast is in TikTok’s review, it can only post straight to private accounts. Drafts work on any account."
+        case .shorts: return "While Google reviews Autocast, YouTube keeps uploads private, and you’ll need to reconnect about once a week."
+        case .reels: return "Instagram posts from Business and Creator accounts. While Meta reviews Autocast, only tester accounts can connect."
+        }
+    }
+
+    /// Each platform's permission names, in words.
     static func plain(_ scope: String) -> String {
         switch scope {
         case "user.info.basic":   "See your name and picture"
@@ -110,6 +119,10 @@ struct AccountDetailView: View {
         case "video.list":        "See your public videos and views"
         case "video.publish":     "Post videos you approve"
         case "video.upload":      "Send videos to your drafts"
+        case "https://www.googleapis.com/auth/youtube.upload": "Upload videos you approve"
+        case "https://www.googleapis.com/auth/youtube.readonly": "See your channel and videos"
+        case "instagram_business_basic": "See your profile"
+        case "instagram_business_content_publish": "Post Reels you approve"
         default:                  scope
         }
     }

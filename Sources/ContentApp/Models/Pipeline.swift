@@ -315,8 +315,15 @@ struct ValidationReport: Decodable, Sendable {
 
 /// What `content-item` compose returns: the new post, attached and checked.
 struct ComposedPost: Decodable, Sendable {
+    struct Target: Decodable, Sendable {
+        let id: UUID
+        let platform: String
+    }
+
     let postId: UUID
     let postTargetId: UUID
+    /// Every account this post goes to (TikTok first). Nil from older servers.
+    let targets: [Target]?
     let ok: Bool
     let checks: [ValidationReport.Check]
     let privacyOptions: [String]

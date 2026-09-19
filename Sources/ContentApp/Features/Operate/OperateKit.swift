@@ -633,7 +633,7 @@ struct ReviewSheet: View {
     }
 
     private func load() async {
-        guard let connection = session.connections.first(where: \.isHealthy) else {
+        guard let connection = session.tiktok else {
             loadFailed = true
             return
         }

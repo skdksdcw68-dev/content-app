@@ -208,3 +208,11 @@ verify_jwt = true
 # The phone sends Apple-signed transactions; only what Apple signed is believed.
 [functions.verify-purchase]
 verify_jwt = true
+
+# Google and Instagram redirect the browser here after sign-in; no session
+# exists, so the single-use state claimed in _shared/connect.ts stands in.
+[functions.youtube-callback]
+verify_jwt = false
+
+[functions.instagram-callback]
+verify_jwt = false

@@ -19,6 +19,15 @@ enum Platform: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// The network's own name, for account rows ("YouTube", not "Shorts").
+    var networkName: String {
+        switch self {
+        case .tiktok: return "TikTok"
+        case .reels:  return "Instagram"
+        case .shorts: return "YouTube"
+        }
+    }
+
     /// SF Symbol used on badges and the connect rows.
     var symbolName: String {
         switch self {

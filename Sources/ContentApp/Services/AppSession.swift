@@ -293,7 +293,11 @@ final class AppSession {
     /// The app never sees a token or the client secret. It asks the server for a
     /// URL, shows it, and waits for iOS to hand back the `autocast://` callback
     /// once the exchange has already happened server-side.
-    func connectTikTok() async {
+    func connectTikTok() async { await connect(.tiktok) }
+
+    /// Any platform: TikTok, YouTube (shorts) or Instagram (reels). Same round
+    /// trip; the server picks the provider.
+    func connect(_ platform: Platform) async {
         guard let brandID = brand?.id, !isConnecting else { return }
         isConnecting = true
         defer { isConnecting = false }
@@ -303,7 +307,7 @@ final class AppSession {
                 "oauth-start",
                 options: FunctionInvokeOptions(body: [
                     "brand_id": brandID.uuidString,
-                    "platform": "tiktok",
+                    "platform": platform.rawValue,
                     "return_to": Config.oauthReturnURL,
                 ])
             )
@@ -417,8 +421,7 @@ extension AppSession {
     /// a new one. Without it, adding a video for day 4 would create something
     /// unrelated and day 4 would stay empty.
     func addVideo(data: Data, filename: String, caption: String, postID: UUID? = nil) async {
-        guard let connection = connections.first(where: \.isHealthy),
-              let userID else {
+        guard let connection = tiktok, let userID else {
             lastError = "Connect an account first."
             return
         }

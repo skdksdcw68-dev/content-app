@@ -94,6 +94,18 @@ extension AppSession {
 
     // MARK: - A platform account
 
+    /// The TikTok account, for everything that is TikTok-only (drafts, creator
+    /// info, TikTok analytics). Healthy first.
+    var tiktok: PlatformConnection? {
+        connections.first { $0.platform == .tiktok && $0.isHealthy }
+            ?? connections.first { $0.platform == .tiktok }
+    }
+
+    func connection(for platform: Platform) -> PlatformConnection? {
+        connections.first { $0.platform == platform && $0.isHealthy }
+            ?? connections.first { $0.platform == platform }
+    }
+
     /// Revokes at TikTok and forgets it here. Anything queued for the account
     /// is cancelled by the database in the same step.
     @discardableResult

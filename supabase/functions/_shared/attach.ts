@@ -143,3 +143,44 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+/**
+ * The same video to one more account. The asset (and its bytes) already
+ * exist from attachUpload; this only adds the account's own target, linked to
+ * that asset, with consent cleared -- each account is approved on its own.
+ */
+export async function addTarget(
+  admin: SupabaseClient,
+  input: { userId: string; postId: string; connection: { id: string; platform: string }; caption: string; hashtags: string[]; assetId: string },
+): Promise<string> {
+  const { data: target, error } = await admin
+    .from("post_targets")
+    .upsert({
+      user_id: input.userId,
+      post_id: input.postId,
+      connection_id: input.connection.id,
+      platform: input.connection.platform,
+      caption: input.caption,
+      hashtags: input.hashtags,
+      privacy: input.connection.platform === "reels" ? "PUBLIC_TO_EVERYONE" : "SELF_ONLY",
+      is_aigc: false,
+      state: "pending",
+      consent_id: null,
+      content_digest: null,
+      failure_code: null,
+      failure_reason: null,
+    }, { onConflict: "post_id,connection_id" })
+    .select("id")
+    .single();
+  if (error) throw error;
+
+  await admin.from("post_assets").delete().eq("post_target_id", target.id);
+  const { error: linkError } = await admin.from("post_assets").insert({
+    post_target_id: target.id,
+    asset_id: input.assetId,
+    ordinal: 0,
+    role: "primary",
+  });
+  if (linkError) throw linkError;
+  return target.id;
+}

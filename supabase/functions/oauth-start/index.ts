@@ -12,12 +12,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError, CORS } from "../_shared/http.ts";
 import { randomToken } from "../_shared/crypto.ts";
+import { YOUTUBE_SCOPES } from "../_shared/youtube.ts";
+import { INSTAGRAM_SCOPES } from "../_shared/instagram.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const TIKTOK_CLIENT_KEY = Deno.env.get("TIKTOK_CLIENT_KEY");
+const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CLIENT_ID") ?? "";
+const INSTAGRAM_APP_ID = Deno.env.get("INSTAGRAM_APP_ID") ?? "";
 const REDIRECT_URI =
   Deno.env.get("TIKTOK_REDIRECT_URI") ?? "https://netrocast.com/oauth/tiktok/callback/";
 
@@ -76,11 +80,17 @@ Deno.serve(async (request) => {
 
     const body = (await request.json().catch(() => ({}))) as StartBody;
     const platform = body.platform ?? "tiktok";
-    if (platform !== "tiktok") {
+    if (!["tiktok", "shorts", "reels"].includes(platform)) {
       throw new PublicError(`${platform} is not connectable yet.`);
     }
-    if (!TIKTOK_CLIENT_KEY) {
+    if (platform === "tiktok" && !TIKTOK_CLIENT_KEY) {
       throw new PublicError("TikTok is not configured on this deployment.", 503);
+    }
+    if (platform === "shorts" && !GOOGLE_CLIENT_ID) {
+      throw new PublicError("YouTube is not configured on this deployment.", 503);
+    }
+    if (platform === "reels" && !INSTAGRAM_APP_ID) {
+      throw new PublicError("Instagram is not configured on this deployment.", 503);
     }
     if (!body.brand_id) throw new PublicError("brand_id is required.");
 
@@ -105,6 +115,30 @@ Deno.serve(async (request) => {
       return_to: body.return_to ?? "autocast://oauth/done",
     });
     if (stateError) throw stateError;
+
+    if (platform === "shorts") {
+      const google = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+      google.searchParams.set("client_id", GOOGLE_CLIENT_ID);
+      google.searchParams.set("redirect_uri", `${SUPABASE_URL}/functions/v1/youtube-callback`);
+      google.searchParams.set("response_type", "code");
+      google.searchParams.set("scope", YOUTUBE_SCOPES.join(" "));
+      // offline + consent: the only way Google hands back a refresh token.
+      google.searchParams.set("access_type", "offline");
+      google.searchParams.set("prompt", "consent");
+      google.searchParams.set("include_granted_scopes", "true");
+      google.searchParams.set("state", state);
+      return json({ authorize_url: google.toString(), state });
+    }
+
+    if (platform === "reels") {
+      const instagram = new URL("https://www.instagram.com/oauth/authorize");
+      instagram.searchParams.set("client_id", INSTAGRAM_APP_ID);
+      instagram.searchParams.set("redirect_uri", `${SUPABASE_URL}/functions/v1/instagram-callback`);
+      instagram.searchParams.set("response_type", "code");
+      instagram.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
+      instagram.searchParams.set("state", state);
+      return json({ authorize_url: instagram.toString(), state });
+    }
 
     const authorize = new URL("https://www.tiktok.com/v2/auth/authorize/");
     authorize.searchParams.set("client_key", TIKTOK_CLIENT_KEY);

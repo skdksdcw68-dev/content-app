@@ -32,7 +32,12 @@ struct OnboardingFlowView: View {
                 }
 
                 content
+                    // Every screen takes the whole page. Without this a screen
+                    // that sizes to its content is squeezed into a column
+                    // while the two slide past each other.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.canvas)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -294,70 +299,84 @@ enum OnboardingPrompt {
 private struct OnboardingBuilding: View {
     @Environment(AppSession.self) private var session
 
-    private let fillDuration: TimeInterval = 2.2
-    private let hold: TimeInterval = 0.5
-    @State private var start = Date.now
-
-    private static let stages: [(Double, String, String)] = [
-        (0, "Saving your answers…", "square.and.arrow.down"),
-        (0.35, "Writing your brand…", "sparkles"),
-        (0.65, "Setting your posting hours…", "clock"),
-        (0.90, "Nearly there…", "checkmark.circle.fill"),
+    /// What is being written, in the order it happens. Each line lands, ticks,
+    /// and the next begins.
+    private static let steps: [(String, String)] = [
+        ("Your answers", "checklist"),
+        ("What you're promoting", "sparkles"),
+        ("Who it's for", "person.2"),
+        ("How it should sound", "quote.bubble"),
+        ("When it posts", "clock"),
     ]
 
+    /// How many lines have landed.
+    @State private var done = 0
+    @State private var finished = false
+
+    private let beat: Duration = .milliseconds(420)
+
     var body: some View {
-        TimelineView(.animation) { context in
-            let fraction = min(1, context.date.timeIntervalSince(start) / fillDuration)
-            let stage = Self.stages.last { fraction >= $0.0 } ?? Self.stages[0]
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
-            VStack(spacing: 0) {
-                Spacer()
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(Array(Self.steps.enumerated()), id: \.offset) { index, step in
+                    let landed = index < done
+                    let current = index == done
 
-                ZStack {
-                    Circle()
-                        .stroke(Color(uiColor: .tertiarySystemFill), lineWidth: 12)
-                    Circle()
-                        .trim(from: 0, to: fraction)
-                        .stroke(Theme.accent, style: StrokeStyle(lineWidth: 12, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Image(systemName: stage.2)
-                        .font(.system(size: 42))
-                        .foregroundStyle(Theme.accent)
-                        .contentTransition(.symbolEffect(.replace))
-                    Text("\(Int(fraction * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .offset(y: 28)
+                    HStack(spacing: 14) {
+                        ZStack {
+                            // The tick replaces the symbol in place, which is
+                            // the whole animation: no ring, no percentage.
+                            Image(systemName: landed ? "checkmark.circle.fill" : step.1)
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(landed ? Theme.accent : Color.secondary)
+                                .contentTransition(.symbolEffect(.replace))
+                                .symbolEffect(.bounce, value: landed)
+                        }
+                        .frame(width: 26)
+
+                        Text(step.0)
+                            .font(.body.weight(landed || current ? .semibold : .regular))
+                            .foregroundStyle(landed || current ? Color.primary : Color.secondary)
+
+                        Spacer(minLength: 0)
+                    }
+                    // The line being written is full strength, the ones still
+                    // to come are faint: the eye always knows where it is.
+                    .opacity(landed ? 1 : (current ? 1 : 0.35))
+                    .offset(y: current ? 0 : 0)
+                    .animation(.snappy(duration: 0.3), value: done)
                 }
-                .frame(width: 160, height: 160)
-                .animation(.snappy(duration: 0.25), value: stage.2)
-
-                Text(stage.1)
-                    .font(.title3.weight(.semibold))
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 48)
-                    .padding(.horizontal, 32)
-                    .animation(.easeInOut(duration: 0.25), value: stage.1)
-
-                Text("We’re setting everything up for you")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 8)
-
-                Spacer()
-
-                Text("You can change any of this later in Profile.")
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .padding(.bottom, 40)
             }
+            .frame(maxWidth: 320)
+            .padding(.horizontal, 32)
+
+            Text(finished ? "Ready" : "Setting up your brand")
+                .font(.title3.weight(.semibold))
+                .padding(.top, 40)
+                .contentTransition(.opacity)
+                .animation(.snappy(duration: 0.25), value: finished)
+
+            Spacer(minLength: 0)
+
+            Text("You can change any of this later in Profile.")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 40)
         }
-        .onAppear {
-            start = .now
-            Task {
-                try? await Task.sleep(for: .seconds(fillDuration + hold))
-                session.onboardingNext()
+        // Fills the page, so nothing is squeezed into a column while the
+        // screens slide (Abel's screenshot, 21 Sep 2026).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sensoryFeedback(.impact(weight: .light), trigger: done)
+        .task {
+            for step in 1...Self.steps.count {
+                try? await Task.sleep(for: beat)
+                withAnimation(.snappy(duration: 0.3)) { done = step }
             }
+            withAnimation(.snappy(duration: 0.25)) { finished = true }
+            try? await Task.sleep(for: .milliseconds(450))
+            session.onboardingNext()
         }
     }
 }

@@ -32,9 +32,11 @@ packages:
   # project ("continue to dosszkllkassvyprkhrg.supabase.co"); this names the
   # app. Reads GIDClientID from Info.plist at launch -- until that key is set
   # the app falls back to the browser flow (see GoogleAuth.swift).
+  # 9.0.0 or later: passing a nonce through to Google's token only arrived
+  # then, and without it Supabase refuses the id token.
   GoogleSignIn:
     url: https://github.com/google/GoogleSignIn-iOS
-    from: 7.1.0
+    from: 9.0.0
 
 targets:
   ContentApp:

@@ -50,10 +50,16 @@ enum GoogleAuth {
         guard clientID != nil else { throw Failure.notConfigured }
         guard let presenter = topViewController else { throw Failure.noPresenter }
         do {
-            let signIn = try await GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: nil, additionalScopes: nil, nonce: hashedNonce)
+            let signIn = try await GIDSignIn.sharedInstance.signIn(
+                withPresenting: presenter,
+                hint: nil,
+                additionalScopes: nil,
+                nonce: hashedNonce
+            )
             guard let idToken = signIn.user.idToken?.tokenString else { throw Failure.missingIDToken }
-            let name = signIn.user.profile?.name.trimmingCharacters(in: .whitespaces)
-            return Result(idToken: idToken, name: name?.isEmpty == false ? name : nil)
+            let full: String? = signIn.user.profile?.name
+            let name = full?.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+            return Result(idToken: idToken, name: (name?.isEmpty == false) ? name : nil)
         } catch {
             // -5 is the SDK's "they closed the sheet", which is not a failure
             // worth showing anybody.

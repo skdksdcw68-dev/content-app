@@ -390,7 +390,7 @@ struct AnalyticsView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             NavigationLink { ProfileView().pushedPage() } label: {
-                PrimaryButtonLabel(title: "Connect TikTok")
+                PrimaryButtonLabel(title: "Connect an account")
             }
             .primaryButtonStyle()
             .padding(.top, 6)

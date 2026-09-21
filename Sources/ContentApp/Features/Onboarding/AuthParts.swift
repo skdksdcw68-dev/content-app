@@ -43,10 +43,11 @@ struct SocialSignInButtons: View {
                     finish(outcome)
                 }
             } glyph: {
-                Image(systemName: "g.circle.fill")
-                    .font(.system(size: 19))
-                    .foregroundStyle(.primary)
-                    .frame(width: 20)
+                Image("GoogleG")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
+                    .accessibilityHidden(true)
             }
         }
     }
@@ -192,14 +193,24 @@ struct AuthTerms: View {
 struct OnboardingButton: View {
     let title: String
     var tint: Color = Theme.accent
+    /// Working: the system's spinner takes the button's place, rather than the
+    /// word "Sending" (Abel, 21 Sep 2026).
+    var isBusy = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Text(title)
-                .fontWeight(.semibold)
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .contentTransition(.opacity)
+            Group {
+                if isBusy {
+                    ProgressView()
+                        .tint(Theme.onAccent)
+                } else {
+                    Text(title)
+                        .fontWeight(.semibold)
+                        .contentTransition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 30)
         }
         .buttonStyle(RemiFilledButtonStyle())
         .tint(tint)

@@ -262,7 +262,7 @@ struct KeyTile: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Text(value)
-                .font(.system(size: 26, weight: .bold, design: .rounded))
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .foregroundStyle(.primary)

@@ -147,7 +147,7 @@ struct AnalyticsPostView: View {
                     withAnimation(.snappy(duration: 0.25)) { playing = true }
                 } label: {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 60, height: 60)
                         .background(.ultraThinMaterial, in: Circle())

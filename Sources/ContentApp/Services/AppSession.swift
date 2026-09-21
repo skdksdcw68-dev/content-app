@@ -151,6 +151,12 @@ final class AppSession {
             await refreshSettings()
             await refreshHealth()
             await refreshSubscription()
+            // An account is how somebody gets in (Abel, 21 Sep 2026:
+            // "registration and onboarding completion is must"). Anyone who
+            // finished setup before that rule, or whose session lapsed into a
+            // fresh anonymous one, lands on the account screen with their
+            // answers intact rather than in a half-owned app.
+            if isAnonymous, onboarding == .done { setOnboarding(.account) }
             state = .ready
             // Anything bought on another device, or renewed while closed.
             Task { await syncPurchases() }
@@ -304,7 +310,7 @@ final class AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readableMessage(error)
+            report("refreshConnections", error)
         }
     }
 
@@ -384,6 +390,14 @@ final class AppSession {
 
     /// Postgres and PostgREST errors are not written for people. Anything we do
     /// not recognise becomes something plain rather than a raw code.
+    /// A background load that failed. Logged with the name of the call --
+    /// "the data couldn't be read" tells nobody which data -- and never shown
+    /// as an alert: these run at launch and on every refresh, and the next
+    /// pass fixes most of them.
+    func report(_ call: String, _ error: Error) {
+        print("[autocast] \(call) failed: \(error)")
+    }
+
     func readableMessage(_ error: Error) -> String {
         if let postgrest = error as? PostgrestError {
             return postgrest.message
@@ -427,7 +441,7 @@ extension AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readableMessage(error)
+            report("refreshPosts", error)
         }
     }
 
@@ -782,7 +796,7 @@ extension AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readableMessage(error)
+            report("refreshPlan", error)
         }
     }
 
@@ -945,7 +959,7 @@ extension AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readableMessage(error)
+            report("refreshGenerators", error)
         }
     }
 
@@ -1062,7 +1076,7 @@ extension AppSession {
                 .value
             settings = rows.first
         } catch {
-            lastError = readableMessage(error)
+            report("refreshSettings", error)
         }
     }
 
@@ -1111,7 +1125,7 @@ extension AppSession {
                 .execute()
                 .value
         } catch {
-            lastError = readableMessage(error)
+            report("refreshFacts", error)
         }
     }
 
@@ -1331,9 +1345,7 @@ extension AppSession {
     /// Where the flow goes on the account screens, which are not a queue.
     func onboarding(goTo step: OnboardingStep) { setOnboarding(step) }
 
-    /// Guest: in, with the answers already saved. Signing up stays one tap
-    /// away in Profile, and the setup sheet asks again tomorrow.
-    func continueAsGuest() { setOnboarding(.done) }
+
 
     func onboardingBack() {
         switch onboarding {

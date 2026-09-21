@@ -26,7 +26,7 @@ struct HeroCarousel: View {
                 images: ["hero-connect", "promo-connect"],
                 symbol: "link",
                 eyebrow: "Start here",
-                headline: "Connect TikTok and it posts for you",
+                headline: "Connect TikTok, YouTube or Instagram and it posts for you",
                 destination: .profile
             ))
         }

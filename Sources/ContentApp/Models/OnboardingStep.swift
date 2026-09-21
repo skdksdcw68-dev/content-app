@@ -226,13 +226,12 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// has none, and neither do the account screens, which are a choice rather
     /// than a queue to be got through.
     var progress: Double? {
-        let steps = Double(OnboardingQuestion.all.count + 2)
         switch self {
-        case .question(let i):  return Double(i + 1) / (steps + 1)
-        case .building:         return Double(OnboardingQuestion.all.count + 1) / (steps + 1)
-        case .included:         return steps / (steps + 1)
+        case .question(let i):  return Double(i + 1) / Double(OnboardingQuestion.all.count)
         case .done:             return 1
-        case .welcome, .account, .email, .code, .verified: return nil
+        // The ring and everything after it are not a queue being got through,
+        // so they carry no bar at all.
+        case .welcome, .building, .included, .account, .email, .code, .verified: return nil
         }
     }
 }

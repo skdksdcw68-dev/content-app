@@ -28,23 +28,23 @@ final class OnboardingTests: XCTestCase {
         XCTAssertNil(OnboardingStep(stored: "nonsense"))
     }
 
-    func testProgressCoversOnlyTheQuestionsAndNeverFillsEarly() {
+    /// The bar belongs to the questions and finishes on the last one (Abel,
+    /// 21 Sep 2026: "it should end on... what should viewers do"). Everything
+    /// after that is a choice, not a queue, and carries no bar.
+    func testProgressCoversOnlyTheQuestionsAndFinishesOnTheLastOne() {
         XCTAssertNil(OnboardingStep.welcome.progress)
-        // The account screens are a choice, not a queue to be got through.
+        XCTAssertNil(OnboardingStep.building.progress)
+        XCTAssertNil(OnboardingStep.included.progress)
         XCTAssertNil(OnboardingStep.account.progress)
         XCTAssertNil(OnboardingStep.email(.signup).progress)
         XCTAssertNil(OnboardingStep.code(.login).progress)
         XCTAssertNil(OnboardingStep.verified(.created).progress)
 
-        let first = try? XCTUnwrap(OnboardingStep.question(0).progress)
-        let last = try? XCTUnwrap(OnboardingStep.question(OnboardingQuestion.all.count - 1).progress)
-        let included = try? XCTUnwrap(OnboardingStep.included.progress)
+        let first = OnboardingStep.question(0).progress
+        let last = OnboardingStep.question(OnboardingQuestion.all.count - 1).progress
         XCTAssertNotNil(first)
         XCTAssertLessThan(first ?? 1, last ?? 0)
-        XCTAssertLessThan(last ?? 1, included ?? 0)
-        // Only being in the app is 100%.
-        XCTAssertLessThan(included ?? 1, 1)
-        XCTAssertEqual(OnboardingStep.done.progress, 1)
+        XCTAssertEqual(last, 1)
     }
 
     func testBackBelongsOnlyWhereSomebodyChoseToGo() {

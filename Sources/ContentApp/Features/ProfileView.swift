@@ -221,7 +221,7 @@ struct ProfileView: View {
 
     private var autopilot: some View {
         Section {
-            NavigationLink { AutopilotView().pushedPage() } label: {
+            NavigationLink { AutopilotView() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
             }
             NavigationLink { GeneratorsView().pushedPage() } label: {
@@ -354,7 +354,7 @@ private struct AttentionRow: View {
         }
 
         if finding.route.flatMap(HealthRoute.init(rawValue:)) == .plan {
-            NavigationLink { PlanView().pushedPage() } label: { row }
+            NavigationLink { PlanView() } label: { row }
         } else {
             row
         }

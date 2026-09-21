@@ -236,3 +236,56 @@ extension View {
     /// section 70ms after the one before.
     func entrance(_ order: Int) -> some View { modifier(Entrance(order: order)) }
 }
+
+// MARK: - Rows
+
+/// Placeholder rows for a list that is still loading: a settings page, the
+/// activity log, a usage summary. Shaped like what is coming, so the page does
+/// not jump when the real rows land, and breathing so it reads as busy rather
+/// than broken (Abel, 21 Sep 2026: "while loading chats, or anything show a
+/// skeleton").
+struct SkeletonRows: View {
+    var count = 4
+    var showsLeadingCircle = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(0..<count, id: \.self) { index in
+                HStack(spacing: 12) {
+                    if showsLeadingCircle {
+                        Circle().frame(width: 26, height: 26)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .frame(width: index.isMultiple(of: 2) ? 160 : 120, height: 12)
+                        RoundedRectangle(cornerRadius: 4)
+                            .frame(width: index.isMultiple(of: 2) ? 90 : 140, height: 10)
+                            .opacity(0.6)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 10)
+            }
+        }
+        .foregroundStyle(Color.track)
+        .breathing()
+        .accessibilityHidden(true)
+    }
+}
+
+/// One bubble's worth of placeholder, for a reply that is still coming.
+struct SkeletonBubble: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            RoundedRectangle(cornerRadius: 6).frame(width: 220, height: 13)
+            RoundedRectangle(cornerRadius: 6).frame(width: 170, height: 13)
+            RoundedRectangle(cornerRadius: 6).frame(width: 120, height: 13)
+        }
+        .foregroundStyle(Color.track)
+        .padding(14)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .breathing()
+        .accessibilityHidden(true)
+    }
+}

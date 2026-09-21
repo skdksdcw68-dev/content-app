@@ -75,10 +75,8 @@ struct OnboardingFlowView: View {
 
         case .account:
             AccountScreen(
-                allowsGuest: true,
                 onEmail: { session.goToEmail(.signup) },
                 onLogin: { session.goToEmail(.login) },
-                onGuest: { session.continueAsGuest() },
                 onDone: { session.onboarding(goTo: .verified($0)) }
             )
 
@@ -118,19 +116,11 @@ private struct OnboardingWelcome: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                TowerMark()
-                    .frame(width: 42, height: 42)
-                Text("Autocast")
-                    .font(.system(size: 32, weight: .bold))
-            }
-            .padding(.top, 14)
-            .accessibilityElement(children: .combine)
+            Spacer(minLength: 0)
 
             OnboardingArt(name: "welcome-hero", fallback: "hero-plan")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 24)
-                .padding(.top, 26)
                 .padding(.bottom, 30)
                 .layoutPriority(1)
 

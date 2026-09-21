@@ -13,11 +13,8 @@ import UIKit
 /// "Save your progress": Apple and Google first, email third, then the guest
 /// door and the way back for somebody who already has an account.
 struct AccountScreen: View {
-    /// Shown only where skipping is a real choice: first run.
-    var allowsGuest = false
     let onEmail: () -> Void
     let onLogin: () -> Void
-    var onGuest: (() -> Void)?
     let onDone: (OnboardingStep.Arrival) -> Void
 
     @State private var pending: SignInProvider?
@@ -27,8 +24,11 @@ struct AccountScreen: View {
         VStack(spacing: 0) {
             Spacer()
 
-            TowerMark()
+            Image("app-mark")
+                .resizable()
+                .scaledToFit()
                 .frame(width: 84, height: 84)
+                .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
                 .padding(.bottom, 14)
 
             Text("Save your progress")
@@ -63,22 +63,6 @@ struct AccountScreen: View {
                     .multilineTextAlignment(.center)
                     .padding(.top, 12)
                     .padding(.horizontal, 32)
-            }
-
-            if let onGuest, allowsGuest {
-                HStack(spacing: 12) {
-                    Rectangle().fill(Color(uiColor: .separator)).frame(height: 1)
-                    Text("or").font(.subheadline).foregroundStyle(.secondary)
-                    Rectangle().fill(Color(uiColor: .separator)).frame(height: 1)
-                }
-                .padding(.horizontal, 32)
-                .padding(.top, 20)
-
-                Button("Continue as Guest", action: onGuest)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 14)
-                    .disabled(pending != nil)
             }
 
             Button(action: onLogin) {
@@ -180,7 +164,7 @@ struct EmailScreen: View {
 
             AuthTerms().padding(.bottom, 12)
 
-            OnboardingButton(title: sending ? "Sending…" : "Send Code", action: send)
+            OnboardingButton(title: "Send Code", isBusy: sending, action: send)
                 .disabled(!canSend)
         }
         .onAppear { focus = .email }
@@ -268,7 +252,7 @@ struct CodeScreen: View {
 
             Spacer()
 
-            OnboardingButton(title: checking ? "Verifying…" : "Verify Code") { verify() }
+            OnboardingButton(title: "Verify Code", isBusy: checking) { verify() }
                 .disabled(code.count < 6 || checking)
         }
         .onAppear {

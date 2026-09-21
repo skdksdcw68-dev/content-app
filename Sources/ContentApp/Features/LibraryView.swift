@@ -23,7 +23,7 @@ struct LibraryView: View {
                 ComingSoon(
                     symbol: "link",
                     title: "Connect an account first",
-                    detail: "Autocast needs somewhere to post before it can hold anything for you. You → Connect TikTok."
+                    detail: "Autocast needs somewhere to post before it can hold anything for you. Profile → Accounts."
                 )
             } else if session.posts.isEmpty {
                 ComingSoon(

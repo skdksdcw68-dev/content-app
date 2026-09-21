@@ -41,7 +41,7 @@ struct PillarsView: View {
                     }
                 }
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                SkeletonRows(count: 5)
             }
         }
         .navigationTitle("Content pillars")

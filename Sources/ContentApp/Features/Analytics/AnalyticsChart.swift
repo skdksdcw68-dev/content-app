@@ -301,7 +301,7 @@ private struct AnalyticsEmptyChart: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "chart.xyaxis.line")
-                .font(.system(size: 26, weight: .medium))
+                .font(.system(size: 21, weight: .medium))
                 .foregroundStyle(.tertiary)
             Text(message)
                 .font(.footnote)

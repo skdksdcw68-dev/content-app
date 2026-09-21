@@ -234,7 +234,7 @@ private extension HomeView {
             return "Your next posts are on their way."
         }
         if session.connections.isEmpty {
-            return "Connect TikTok and Autocast posts for you."
+            return "Connect an account and Autocast posts for you."
         }
         if session.health.contains(where: \.isBlocked) {
             return "One thing needs you in You."
@@ -273,14 +273,28 @@ private struct HomeHeader: View {
 
             Spacer(minLength: 8)
 
-            // Just the circle, top right, the way every iOS app puts an
-            // account there (Abel, 21 Sep 2026: "a native circle profile").
-            NavigationLink { ProfileView().pushedPage() } label: {
-                InitialAvatar(initial: session.initial, size: 36)
-                    .overlay(Circle().strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5))
+            // Upgrade beside the circle, both big enough to hit: the way every
+            // app with a paid tier puts them there (Abel, 21 Sep 2026).
+            HStack(spacing: 10) {
+                if session.subscription?.isPro != true {
+                    Button { session.showingPaywall = true } label: {
+                        Text("Upgrade")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.onAccent)
+                            .padding(.horizontal, 16)
+                            .frame(height: 38)
+                            .background(Theme.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                NavigationLink { ProfileView().pushedPage() } label: {
+                    InitialAvatar(initial: session.initial, size: 38)
+                        .overlay(Circle().strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Your profile")
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Your profile")
         }
     }
 }
@@ -323,7 +337,7 @@ private struct ConnectCard: View {
                     .background(Color.accentColor, in: Circle())
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Connect TikTok")
+                    Text("Connect an account")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     Text("Then Autocast can post for you")

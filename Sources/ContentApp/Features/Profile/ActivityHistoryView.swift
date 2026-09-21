@@ -26,13 +26,13 @@ struct ActivityHistoryView: View {
                 Text("Nothing has happened for this brand yet.")
                     .foregroundStyle(.secondary)
             } else if events == nil {
-                ProgressView().frame(maxWidth: .infinity)
+                SkeletonRows(count: 5)
             }
             ForEach(days, id: \.day) { day in
                 Section(day.day.formatted(.dateTime.weekday(.wide).day().month(.wide))) {
                     ForEach(day.events) { event in
                         if let postID = event.postId {
-                            NavigationLink { PostDetailView(postID: postID).pushedPage() } label: {
+                            NavigationLink { PostDetailView(postID: postID) } label: {
                                 ActivityRow(event: event, timezone: zone)
                             }
                         } else {

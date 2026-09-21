@@ -41,7 +41,7 @@ struct UsageView: View {
             } else if loaded {
                 Section { Text("Couldn’t load this month’s numbers.").foregroundStyle(.secondary) }
             } else {
-                ProgressView().frame(maxWidth: .infinity)
+                SkeletonRows(count: 5)
             }
         }
         .navigationTitle(monthStart.formatted(.dateTime.month(.wide)))

@@ -30,6 +30,9 @@ struct ChatView: View {
     @Environment(AppSession.self) private var session
 
     @State private var turns: [ChatMessage] = []
+    /// Reading a saved conversation back. Without this the empty-state
+    /// wordmark flashes over a thread that is about to appear.
+    @State private var restoring = false
     @State private var draft = ""
     @State private var isWorking = false
     @State private var showsOptions = false
@@ -130,7 +133,7 @@ struct ChatView: View {
         )
     }
 
-    private var showsWordmark: Bool { turns.isEmpty && draft.isEmpty }
+    private var showsWordmark: Bool { turns.isEmpty && draft.isEmpty && !restoring }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -189,7 +192,17 @@ struct ChatView: View {
                 showsJump = away
             }
             .background {
-                if showsWordmark {
+                if restoring {
+                    VStack(alignment: .leading, spacing: 14) {
+                        SkeletonBubble()
+                        SkeletonBubble().opacity(0.7)
+                        SkeletonBubble().opacity(0.45)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .transition(.opacity)
+                } else if showsWordmark {
                     EmptyChat { suggestion in
                         draft = suggestion
                         send()
@@ -279,7 +292,9 @@ struct ChatView: View {
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
+            restoring = true
             turns = await session.messages(in: threadId)
+            restoring = false
         }
         .task {
             // Asked for on the way in. Sent as though it had been typed, so the

@@ -137,9 +137,6 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// "What should we call you?" -- the account is the person.
     case name
     case question(Int)
-    case connectAccount
-    /// Autocast Pro, closable. Stored as "generator", the step it replaced.
-    case pro
     case done
 
     var storedValue: String {
@@ -147,8 +144,6 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         case .welcome:          return "welcome"
         case .name:             return "name"
         case .question(let i):  return "question:\(i)"
-        case .connectAccount:   return "account"
-        case .pro:              return "generator"
         case .done:             return "done"
         }
     }
@@ -157,8 +152,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         switch stored {
         case "welcome":   self = .welcome
         case "name":      self = .name
-        case "account":   self = .connectAccount
-        case "generator": self = .pro
+        // Steps that no longer exist: whoever was on one is finished.
+        case "account":   self = .done
+        case "generator": self = .done
         case "done":      self = .done
         default:
             guard stored.hasPrefix("question:"),
@@ -182,14 +178,14 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// read 17, 33, 50, 67, 83 — and the bar still has somewhere to go when
     /// the last one is on screen, which is what makes it worth having.
     var progress: Double? {
-        // name + the questions + accounts + Pro, and the end.
-        let steps = Double(OnboardingQuestion.all.count + 3)
+        // The name, then the questions. Nothing else is asked before
+        // somebody is in the app (Abel, 21 Sep 2026: "let the onboarding be
+        // clean which has no connection").
+        let steps = Double(OnboardingQuestion.all.count + 1)
         switch self {
         case .welcome:          return nil
         case .name:             return 1 / (steps + 1)
         case .question(let i):  return Double(i + 2) / (steps + 1)
-        case .connectAccount:   return Double(OnboardingQuestion.all.count + 2) / (steps + 1)
-        case .pro:              return steps / (steps + 1)
         case .done:             return 1
         }
     }

@@ -72,9 +72,19 @@ enabled = true
 client_id = "Autocast"
 secret = ""
 
+# Sign in with Google: the browser round trip lands back on autocast://auth.
+# The same Web client as YouTube's connect flow, so one client id serves both.
+[auth.external.google]
+enabled = true
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_CLIENT_SECRET)"
+
 [auth.email]
 enable_signup = true
+# A six-digit code, not a link: a link opens a browser and loses the app.
 enable_confirmations = true
+otp_length = 6
+otp_expiry = 900
 
 
 # ----------------------------------------------------------------- functions

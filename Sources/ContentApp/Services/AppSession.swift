@@ -121,6 +121,15 @@ final class AppSession {
             let user = try await client.auth.session.user
             userID = user.id
             readAccount(user)
+            // A different person than last launch -- signed out, or a session
+            // that expired and came back as a fresh anonymous account. Setup
+            // belongs to a person, so it starts again (Abel, 21 Sep 2026:
+            // "signout doesn't let you go to the onboarding").
+            let remembered = UserDefaults.standard.string(forKey: Self.lastUserKey)
+            if remembered != user.id.uuidString {
+                UserDefaults.standard.set(user.id.uuidString, forKey: Self.lastUserKey)
+                if remembered != nil { setOnboarding(.welcome) }
+            }
             await refreshName()
             try await loadBrand(for: user.id)
             await refreshConnections()
@@ -233,6 +242,8 @@ final class AppSession {
 
     /// Which brand everything else is about, between launches.
     private static let chosenBrandKey = "autocast.brand"
+    /// Who was signed in last launch, to notice when it is somebody else.
+    private static let lastUserKey = "autocast.lastUser"
 
     /// Look at another one. Everything brand-shaped is read again: leaving one
     /// app's posts on screen under another app's name is worse than a moment
@@ -1286,12 +1297,7 @@ extension AppSession {
         case .question(let index):
             Task { await saveAnswers() }
             let next = index + 1
-            setOnboarding(next < OnboardingQuestion.all.count ? .question(next) : .connectAccount)
-        case .connectAccount:
-            // Already Pro (or on the trial): nothing to offer.
-            setOnboarding(subscription?.isPro == true ? .done : .pro)
-        case .pro:
-            setOnboarding(.done)
+            setOnboarding(next < OnboardingQuestion.all.count ? .question(next) : .done)
         case .done:
             break
         }
@@ -1305,10 +1311,6 @@ extension AppSession {
             setOnboarding(.welcome)
         case .question(let index):
             setOnboarding(index == 0 ? .name : .question(index - 1))
-        case .connectAccount:
-            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
-        case .pro:
-            setOnboarding(.connectAccount)
         }
     }
 

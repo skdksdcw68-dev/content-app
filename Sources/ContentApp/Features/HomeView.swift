@@ -23,6 +23,8 @@ struct HomeView: View {
     @State private var loadedVideos: [BoardPost]?
     /// A video long-pressed for deletion, waiting for the confirm.
     @State private var deleting: BoardPost?
+    /// The once-a-day reminder to save the account and connect somewhere.
+    @State private var nudging = false
     /// First-time help, one at a time.
     @State private var tips = TipGroup(.ordered) {
         CreateTip()
@@ -151,7 +153,16 @@ struct HomeView: View {
         // Home draws its own top -- the mark, the name, the capsule -- so the
         // bar is hidden here. Pushed pages show their own.
         .toolbar(.hidden, for: .navigationBar)
-        .task { today = await session.todayTally() }
+        .task {
+            today = await session.todayTally()
+            // A moment after the app is on screen, not over the top of it.
+            try? await Task.sleep(for: .seconds(1.2))
+            if SetupNudge.due(session) {
+                SetupNudge.markShown()
+                nudging = true
+            }
+        }
+        .sheet(isPresented: $nudging) { SetupNudge() }
         .task(id: session.brand?.id) { loadedVideos = try? await session.videos() }
         .refreshable {
             loadedVideos = try? await session.videos()
@@ -262,20 +273,11 @@ private struct HomeHeader: View {
 
             Spacer(minLength: 8)
 
+            // Just the circle, top right, the way every iOS app puts an
+            // account there (Abel, 21 Sep 2026: "a native circle profile").
             NavigationLink { ProfileView().pushedPage() } label: {
-                HStack(spacing: 7) {
-                    Text(session.displayName ?? "Profile")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .frame(maxWidth: 120, alignment: .leading)
-                        .fixedSize(horizontal: true, vertical: false)
-                    InitialAvatar(initial: session.initial, size: 34)
-                }
-                .padding(.leading, 12)
-                .padding(3)
-                .background(Color.raised, in: Capsule())
-                .overlay(Capsule().strokeBorder(Color(uiColor: .separator).opacity(0.6), lineWidth: 0.5))
+                InitialAvatar(initial: session.initial, size: 36)
+                    .overlay(Circle().strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Your profile")

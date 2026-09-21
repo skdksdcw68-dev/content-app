@@ -32,7 +32,14 @@ extension View {
 private struct PushedPage: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .toolbar(.hidden, for: .tabBar)
+            // 🔴 `.toolbar(.hidden, for: .tabBar)` was here as well, and it is
+            // what made going back feel wrong (Abel, 21 Sep 2026: "after the
+            // bottom nav gets hidden, to appear it takes time"). SwiftUI
+            // restores its own hidden bar only once the pop has finished, so
+            // the bar faded in late and on top of the page instead of sliding
+            // out from under it. UIKit's `hidesBottomBarWhenPushed` alone does
+            // the real thing: the page covers the bar and carries it back,
+            // frame for frame, including on a swipe-back.
             .background {
                 HidesBottomBarWhenPushed()
                     .allowsHitTesting(false)

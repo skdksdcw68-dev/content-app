@@ -1,6 +1,5 @@
 import SwiftUI
 import StoreKit
-import AuthenticationServices
 
 /// The creator's control room: who is posting and how it is going on top,
 /// then everything Autocast runs on, one short group at a time -- the account,
@@ -24,8 +23,7 @@ struct ProfileView: View {
     @State private var typingDelete = false
     @State private var deleteWord = ""
     @State private var deleting = false
-    @State private var appleNonce = ""
-    @State private var appleMessage: String?
+    @State private var signingUp = false
     @State private var managingSubscription = false
 
     var body: some View {
@@ -90,11 +88,7 @@ struct ProfileView: View {
         } message: {
             Text("This can’t be undone.")
         }
-        .alert("Signed in", isPresented: Binding(get: { appleMessage != nil }, set: { if !$0 { appleMessage = nil } })) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(appleMessage ?? "")
-        }
+        .sheet(isPresented: $signingUp) { AuthView(purpose: .save) }
     }
 
     // MARK: - Needs attention
@@ -154,34 +148,15 @@ struct ProfileView: View {
     private var account: some View {
         Section {
             if session.isAnonymous {
-                SignInWithAppleButton(.continue) { request in
-                    let nonce = AppSession.appleNonce()
-                    appleNonce = nonce.raw
-                    request.requestedScopes = [.email]
-                    request.nonce = nonce.hashed
-                } onCompletion: { result in
-                    guard case .success(let authorization) = result else { return }
-                    let nonce = appleNonce
-                    Task {
-                        switch await session.signInWithApple(authorization, nonce: nonce) {
-                        case .linked:
-                            appleMessage = "Your account is saved to your Apple ID. Everything you made is kept."
-                        case .switched:
-                            appleMessage = "Welcome back. This is the account already saved to that Apple ID."
-                        case .failed:
-                            break
-                        }
-                    }
+                Button { signingUp = true } label: {
+                    SettingsRow("Save your account", symbol: "person.crop.circle.badge.checkmark", accessory: .chevron)
                 }
-                .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
-                .frame(height: 48)
-                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             } else {
-                SettingsRow("Apple ID", symbol: "apple.logo", value: session.accountEmail ?? "Signed in")
+                SettingsRow("Signed in", symbol: "checkmark.seal", value: session.accountEmail ?? "Apple ID")
             }
         } footer: {
             if session.isAnonymous {
-                Text("Save your account so your brands and videos come back on any iPhone, and after reinstalling.")
+                Text("Everything is on this iPhone only. Save it with Apple, Google or your email so it comes back anywhere.")
             }
         }
     }

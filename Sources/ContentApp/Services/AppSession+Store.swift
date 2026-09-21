@@ -31,7 +31,10 @@ extension AppSession {
             }
         }
         guard !signed.isEmpty else { return }
-        await send(signed)
+        // Silent: this runs at every launch, and a receipt the server will not
+        // take (bought by another account, or a sandbox one that has lapsed)
+        // must not greet somebody with an error they cannot act on.
+        await send(signed, announce: false)
     }
 
     /// Straight after a purchase in the paywall.
@@ -40,7 +43,8 @@ extension AppSession {
             lastError = "Apple couldn’t confirm that purchase."
             return
         }
-        await send([result.jwsRepresentation])
+        // They just tapped Subscribe: a failure here is worth saying.
+        await send([result.jwsRepresentation], announce: true)
         await transaction.finish()
     }
 
@@ -48,20 +52,21 @@ extension AppSession {
     func listenForTransactions() async {
         for await result in Transaction.updates {
             if case .verified(let transaction) = result {
-                await send([result.jwsRepresentation])
+                await send([result.jwsRepresentation], announce: false)
                 await transaction.finish()
             }
         }
     }
 
-    private func send(_ signed: [String]) async {
+    private func send(_ signed: [String], announce: Bool) async {
         do {
             try await client.functions.invoke(
                 "verify-purchase",
                 options: FunctionInvokeOptions(body: ["transactions": signed])
             )
         } catch {
-            lastError = readableMessage(error)
+            let message = readableMessage(error)
+            if announce { lastError = message } else { print("purchase sync: \(message)") }
         }
         await refreshSubscription()
     }

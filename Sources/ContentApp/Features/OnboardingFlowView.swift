@@ -59,16 +59,8 @@ struct OnboardingFlowView: View {
             if index < OnboardingQuestion.all.count {
                 OnboardingQuestionView(question: OnboardingQuestion.all[index])
             } else {
-                OnboardingConnect(kind: .account)
+                Color.clear.task { session.onboardingNext() }
             }
-
-        case .connectAccount:
-            OnboardingConnect(kind: .account)
-
-        case .pro:
-            // Closable: Pro is offered, never required to get in.
-            PaywallView(onClose: { session.onboardingNext() })
-                .toolbar(.hidden, for: .navigationBar)
 
         case .done:
             Color.clear
@@ -86,6 +78,7 @@ struct OnboardingFlowView: View {
 /// have agreed to anything. It is drawn once, complete.
 private struct OnboardingWelcome: View {
     @Environment(AppSession.self) private var session
+    @State private var signingIn = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -121,10 +114,22 @@ private struct OnboardingWelcome: View {
             .buttonStyle(RemiFilledButtonStyle())
             .controlSize(.large)
             .padding(.horizontal, 24)
-            .padding(.bottom, 12)
+
+            Button { signingIn = true } label: {
+                Text("I already have an account")
+                    .font(.subheadline.weight(.medium))
+                    .padding(.vertical, 12)
+            }
+            .tint(.secondary)
+            .padding(.bottom, 4)
         }
         .background(Theme.canvas)
         .toolbar(.hidden, for: .navigationBar)
+        .sheet(isPresented: $signingIn) {
+            // Signing in as somebody else reloads the app as them, and their
+            // setup is already done.
+            AuthView(purpose: .signIn)
+        }
     }
 }
 

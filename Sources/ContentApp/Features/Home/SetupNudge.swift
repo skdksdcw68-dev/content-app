@@ -60,7 +60,7 @@ struct SetupNudge: View {
                 }
             }
             .sheet(isPresented: $signingUp) {
-                AuthView(purpose: .save) { signingUp = false }
+                AuthSheet { signingUp = false }
             }
         }
         .presentationDetents([.medium, .large])

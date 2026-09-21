@@ -28,6 +28,13 @@ packages:
   Supabase:
     url: https://github.com/supabase/supabase-swift
     from: 2.0.0
+  # Google's own sign-in sheet. The browser round trip names the Supabase
+  # project ("continue to dosszkllkassvyprkhrg.supabase.co"); this names the
+  # app. Reads GIDClientID from Info.plist at launch -- until that key is set
+  # the app falls back to the browser flow (see GoogleAuth.swift).
+  GoogleSignIn:
+    url: https://github.com/google/GoogleSignIn-iOS
+    from: 7.1.0
 
 targets:
   ContentApp:
@@ -38,6 +45,8 @@ targets:
     dependencies:
       - package: Supabase
         product: Supabase
+      - package: GoogleSignIn
+        product: GoogleSignIn
     settings:
       base:
         # Registered on the Developer Portal under team TDMFXRJYN7 as an

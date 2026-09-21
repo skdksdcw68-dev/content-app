@@ -16,6 +16,14 @@ struct ContentAppApp: App {
             RootView()
                 .environment(session)
                 .task { await session.start() }
+                // Google hands its result back through the reversed-client-id
+                // scheme in Info.plist. Anything on our own `autocast` scheme
+                // is an OAuth callback the WebAuth sheet is already waiting
+                // for, so it is left alone.
+                .onOpenURL { url in
+                    guard url.scheme != Config.callbackScheme else { return }
+                    GoogleAuth.handle(url)
+                }
         }
     }
 }

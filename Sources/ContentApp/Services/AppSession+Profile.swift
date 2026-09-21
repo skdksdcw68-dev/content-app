@@ -41,12 +41,18 @@ extension AppSession {
             return .failed
         }
         let credentials = OpenIDConnectCredentials(provider: .apple, idToken: idToken, nonce: nonce)
+        // Apple returns the name on the first authorization ever, and never
+        // again -- so it is taken here rather than asked for on a screen.
+        let appleName = credential.fullName
+            .map { PersonNameComponentsFormatter().string(from: $0) }
+            .flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
 
         do {
             if isAnonymous {
                 do {
                     let linked = try await client.auth.linkIdentityWithIdToken(credentials: credentials)
                     readAccount(linked.user)
+                    await adoptName(appleName)
                     return .linked
                 } catch {
                     // Already someone's account: fall through to signing in as it.
@@ -58,6 +64,7 @@ extension AppSession {
             }
             _ = try await client.auth.signInWithIdToken(credentials: credentials)
             await restart()
+            await adoptName(appleName)
             return .switched
         } catch {
             lastError = readableMessage(error)
@@ -65,10 +72,19 @@ extension AppSession {
         }
     }
 
+    /// A name a provider handed over, taken only when there is none already:
+    /// what somebody typed themselves always wins.
+    func adoptName(_ provided: String?) async {
+        guard let provided, !provided.isEmpty, displayName?.isEmpty != false else { return }
+        await saveName(provided, promoting: "")
+    }
+
     /// Signs out, then opens again as a new empty anonymous account. The Apple
     /// account and everything in it is still there to sign back in to.
     func signOut() async {
         try? await client.auth.signOut()
+        // Or the next Google sign-in silently reuses the same account.
+        GoogleAuth.signOut()
         await restart()
     }
 

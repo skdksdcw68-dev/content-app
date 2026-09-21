@@ -24,6 +24,40 @@ extension AppSession {
     // MARK: - Google
 
     func signInWithGoogle() async -> SignUpOutcome {
+        // Google's own sheet when the app was built with a client id: it names
+        // Autocast, where the browser round trip names the Supabase project.
+        if GoogleAuth.isConfigured { return await signInWithGoogleNatively() }
+        return await signInWithGoogleInBrowser()
+    }
+
+    private func signInWithGoogleNatively() async -> SignUpOutcome {
+        let nonce = AppSession.appleNonce()
+        do {
+            let result = try await GoogleAuth.signIn(hashedNonce: nonce.hashed)
+            let credentials = OpenIDConnectCredentials(provider: .google, idToken: result.idToken, nonce: nonce.raw)
+            if isAnonymous {
+                do {
+                    let linked = try await client.auth.linkIdentityWithIdToken(credentials: credentials)
+                    readAccount(linked.user)
+                    await adoptName(result.name)
+                    await refreshSubscription()
+                    return .linked
+                } catch {
+                    guard Self.identityTaken(error) else { throw error }
+                }
+            }
+            _ = try await client.auth.signInWithIdToken(credentials: credentials)
+            await restart()
+            await adoptName(result.name)
+            return .switched
+        } catch GoogleAuth.Failure.cancelled {
+            return .failed("")
+        } catch {
+            return .failed(readableMessage(error))
+        }
+    }
+
+    private func signInWithGoogleInBrowser() async -> SignUpOutcome {
         do {
             if isAnonymous {
                 do {

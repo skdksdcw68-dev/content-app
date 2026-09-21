@@ -56,6 +56,12 @@ final class AppSession {
     /// Answers held in memory until the step is left, then written to the
     /// brand. Nothing here is a field of its own.
     private(set) var onboardingAnswers: [String: Set<String>] = [:]
+    /// Where Back goes from the email screen, which can be reached from two
+    /// places (Remi's `emailReturn`).
+    internal(set) var emailReturn: OnboardingStep = .account
+    /// Held between the email screen and the code screen.
+    internal(set) var pendingEmail = ""
+    internal(set) var pendingName = ""
 
     /// What is actually wrong with autopilot right now, worst first.
     ///
@@ -1291,32 +1297,72 @@ extension AppSession {
     func onboardingNext() {
         switch onboarding {
         case .welcome:
-            setOnboarding(.name)
-        case .name:
             setOnboarding(.question(0))
         case .question(let index):
-            Task { await saveAnswers() }
             let next = index + 1
-            setOnboarding(next < OnboardingQuestion.all.count ? .question(next) : .done)
-        case .done:
+            if next < OnboardingQuestion.all.count {
+                setOnboarding(.question(next))
+            } else {
+                // Everything answered: the ring screen covers the writing.
+                setOnboarding(.building)
+                Task { await saveAnswers() }
+            }
+        case .building:
+            setOnboarding(.included)
+        case .included:
+            setOnboarding(.account)
+        case .verified:
+            setOnboarding(.done)
+        // The account screen is left by choosing something on it: a provider,
+        // the email door, or Continue as Guest.
+        case .account, .email, .code, .done:
             break
         }
     }
+
+    /// Remi's guard: a choice screen advances itself a moment after a tap, and
+    /// a second tap inside that moment would otherwise skip a question nobody
+    /// saw.
+    func onboardingNext(from step: OnboardingStep) {
+        guard onboarding == step else { return }
+        onboardingNext()
+    }
+
+    /// Where the flow goes on the account screens, which are not a queue.
+    func onboarding(goTo step: OnboardingStep) { setOnboarding(step) }
+
+    /// Guest: in, with the answers already saved. Signing up stays one tap
+    /// away in Profile, and the setup sheet asks again tomorrow.
+    func continueAsGuest() { setOnboarding(.done) }
 
     func onboardingBack() {
         switch onboarding {
-        case .welcome, .done:
-            break
-        case .name:
-            setOnboarding(.welcome)
         case .question(let index):
-            setOnboarding(index == 0 ? .name : .question(index - 1))
+            setOnboarding(index == 0 ? .welcome : .question(index - 1))
+        case .included:
+            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
+        case .account:
+            setOnboarding(.included)
+        case .email:
+            // Back from the email door returns to wherever it was opened from:
+            // the account screen for a sign-up, the welcome screen for a log in.
+            setOnboarding(emailReturn)
+        case .code(let mode):
+            setOnboarding(.email(mode))
+        case .welcome, .building, .verified, .done:
+            break
         }
     }
 
-    /// Lets somebody run through it again from You, which is also the only way
-    /// to see it during development without deleting the app.
+    /// Lets somebody run through it again from Profile, which is also the only
+    /// way to see it during development without deleting the app.
     func restartOnboarding() { setOnboarding(.welcome) }
+
+    /// Opens the email door, remembering the screen to come back to.
+    func goToEmail(_ mode: OnboardingStep.Mode) {
+        emailReturn = mode == .login && onboarding == .welcome ? .welcome : .account
+        setOnboarding(.email(mode))
+    }
 
     private func setOnboarding(_ step: OnboardingStep) {
         onboarding = step

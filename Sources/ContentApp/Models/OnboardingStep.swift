@@ -133,34 +133,79 @@ extension OnboardingQuestion {
 /// step rather than starting over -- and rather than skipping setup entirely,
 /// which is what "finished unless proven otherwise" would do.
 enum OnboardingStep: Equatable, Hashable, Sendable {
+    /// Signing up, or coming back to an account that already exists.
+    enum Mode: String, Equatable, Hashable, Sendable { case signup, login }
+
+    /// How somebody arrived, which is all that Verified says differently.
+    enum Arrival: String, Equatable, Hashable, Sendable {
+        /// A new account was made.
+        case created
+        /// That address already had one, so their account was loaded.
+        case alreadyRegistered
+        /// They logged in on purpose.
+        case returning
+    }
+
     case welcome
-    /// "What should we call you?" -- the account is the person.
-    case name
     case question(Int)
+    /// The ring, while the answers are written to the brand.
+    case building
+    /// What Autocast does, before anybody is asked for anything.
+    case included
+    /// Apple, Google, email -- or Continue as Guest.
+    case account
+    case email(Mode)
+    case code(Mode)
+    case verified(Arrival)
     case done
 
     var storedValue: String {
         switch self {
-        case .welcome:          return "welcome"
-        case .name:             return "name"
-        case .question(let i):  return "question:\(i)"
-        case .done:             return "done"
+        case .welcome:            return "welcome"
+        case .question(let i):    return "question:\(i)"
+        case .building:           return "building"
+        case .included:           return "included"
+        case .account:            return "account"
+        case .email(let mode):    return "email:\(mode.rawValue)"
+        case .code(let mode):     return "code:\(mode.rawValue)"
+        case .verified(let how):  return "verified:\(how.rawValue)"
+        case .done:               return "done"
         }
     }
 
     init?(stored: String) {
         switch stored {
         case "welcome":   self = .welcome
-        case "name":      self = .name
-        // Steps that no longer exist: whoever was on one is finished.
-        case "account":   self = .done
-        case "generator": self = .done
+        case "building":  self = .building
+        case "included":  self = .included
+        case "account":   self = .account
         case "done":      self = .done
+        // Steps that no longer exist. "name" asked for a name before anybody
+        // had used anything, which App Review rejects; "generator" was the old
+        // connect-a-generator screen.
+        case "name":      self = .welcome
+        case "generator": self = .done
         default:
-            guard stored.hasPrefix("question:"),
-                  let index = Int(stored.dropFirst("question:".count))
-            else { return nil }
-            self = .question(index)
+            if stored.hasPrefix("question:"), let index = Int(stored.dropFirst("question:".count)) {
+                self = .question(index)
+            } else if stored.hasPrefix("email:"), let mode = Mode(rawValue: String(stored.dropFirst(6))) {
+                self = .email(mode)
+            } else if stored.hasPrefix("code:"), let mode = Mode(rawValue: String(stored.dropFirst(5))) {
+                self = .code(mode)
+            } else if stored.hasPrefix("verified:"), let how = Arrival(rawValue: String(stored.dropFirst(9))) {
+                self = .verified(how)
+            } else {
+                return nil
+            }
+        }
+    }
+
+    /// True where the back chevron belongs: everywhere somebody chose to go,
+    /// and nowhere they were sent (Remi's `canGoBack`).
+    var canGoBack: Bool {
+        switch self {
+        case .question, .included, .account, .email, .code: return true
+        case .welcome, .building, .verified, .done: return false
         }
     }
 
@@ -177,16 +222,17 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// fraction of the way there and only `done` is full. Five screens now
     /// read 17, 33, 50, 67, 83 — and the bar still has somewhere to go when
     /// the last one is on screen, which is what makes it worth having.
+    /// Only the part somebody is answering carries a bar: the welcome screen
+    /// has none, and neither do the account screens, which are a choice rather
+    /// than a queue to be got through.
     var progress: Double? {
-        // The name, then the questions. Nothing else is asked before
-        // somebody is in the app (Abel, 21 Sep 2026: "let the onboarding be
-        // clean which has no connection").
-        let steps = Double(OnboardingQuestion.all.count + 1)
+        let steps = Double(OnboardingQuestion.all.count + 2)
         switch self {
-        case .welcome:          return nil
-        case .name:             return 1 / (steps + 1)
-        case .question(let i):  return Double(i + 2) / (steps + 1)
+        case .question(let i):  return Double(i + 1) / (steps + 1)
+        case .building:         return Double(OnboardingQuestion.all.count + 1) / (steps + 1)
+        case .included:         return steps / (steps + 1)
         case .done:             return 1
+        case .welcome, .account, .email, .code, .verified: return nil
         }
     }
 }

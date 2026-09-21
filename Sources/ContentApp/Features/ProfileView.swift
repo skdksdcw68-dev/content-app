@@ -88,7 +88,7 @@ struct ProfileView: View {
         } message: {
             Text("This can’t be undone.")
         }
-        .sheet(isPresented: $signingUp) { AuthView(purpose: .save) }
+        .sheet(isPresented: $signingUp) { AuthSheet() }
     }
 
     // MARK: - Needs attention

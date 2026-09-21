@@ -19,13 +19,6 @@ extension AppSession {
         return (raw, hashed)
     }
 
-    enum AppleOutcome {
-        /// This anonymous account is now the Apple account. Nothing moved.
-        case linked
-        /// That Apple ID already had an account; the app is now that one.
-        case switched
-        case failed
-    }
 
     /// Makes this account permanent with the Apple ID just approved.
     ///
@@ -33,12 +26,11 @@ extension AppSession {
     /// If the Apple ID already belongs to an account -- signing back in after
     /// signing out, or a second phone -- linking is refused, and the right
     /// move is to become that account instead.
-    func signInWithApple(_ authorization: ASAuthorization, nonce: String) async -> AppleOutcome {
+    func signInWithApple(_ authorization: ASAuthorization, nonce: String) async -> SignUpOutcome {
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
               let tokenData = credential.identityToken,
               let idToken = String(data: tokenData, encoding: .utf8) else {
-            lastError = "Apple didn’t send a sign-in token. Try again."
-            return .failed
+            return .failed("Apple didn’t send a sign-in token. Try again.")
         }
         let credentials = OpenIDConnectCredentials(provider: .apple, idToken: idToken, nonce: nonce)
         // Apple returns the name on the first authorization ever, and never
@@ -67,8 +59,7 @@ extension AppSession {
             await adoptName(appleName)
             return .switched
         } catch {
-            lastError = readableMessage(error)
-            return .failed
+            return .failed(readableMessage(error))
         }
     }
 

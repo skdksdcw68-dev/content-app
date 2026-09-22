@@ -82,6 +82,50 @@ struct NewPlanSheet: View {
 
     private var total: Int { days * postsPerDay }
 
+    private var typedBrief: String {
+        brief.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var knowsTitle: String {
+        knownFacts < 4 ? "It doesn’t know much about you yet" : "Here’s what it goes on"
+    }
+
+    private var knowsSubtitle: String {
+        if knownFacts < 4 {
+            return "It will not invent anything, so with little to go on it writes in general terms. Four or five things makes a visible difference."
+        }
+        return "\(knownFacts) things about your account. Everything it writes comes from these."
+    }
+
+    private var lengthOptions: [OnboardingQuestion.Option] {
+        var out: [OnboardingQuestion.Option] = []
+        for length in PlanLength.allCases {
+            let detail: String = length.days > maxDays ? "Part of Autocast Pro" : length.detail
+            out.append(OnboardingQuestion.Option(
+                id: String(length.days),
+                label: length.label,
+                symbol: length.symbol,
+                detail: detail
+            ))
+        }
+        return out
+    }
+
+    private var cadenceOptions: [OnboardingQuestion.Option] {
+        var out: [OnboardingQuestion.Option] = []
+        for n in 1...3 {
+            let label: String = n == 1 ? "One a day" : "\(n) a day"
+            let detail: String = "\(days * n) posts in \(days) days"
+            out.append(OnboardingQuestion.Option(
+                id: String(n),
+                label: label,
+                symbol: "\(n).circle",
+                detail: detail
+            ))
+        }
+        return out
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -241,8 +285,8 @@ struct NewPlanSheet: View {
         PlanStep(
             title: "What are these weeks about?",
             subtitle: "Anything specific — a launch, a price change, a season. Your account description and themes are used either way.",
-            button: brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Nothing special" : "Continue",
-            tint: brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Theme.accent,
+            button: typedBrief.isEmpty ? "Nothing special" : "Continue",
+            tint: typedBrief.isEmpty ? Color.secondary : Theme.accent,
             action: { step = .focus }
         ) {
             TextField("We’re launching the redesign on the 14th…", text: $brief, axis: .vertical)
@@ -272,14 +316,7 @@ struct NewPlanSheet: View {
         PlanChoiceStep(
             title: "How long?",
             subtitle: "You can plan again whenever you like.",
-            options: PlanLength.allCases.map { length in
-                OnboardingQuestion.Option(
-                    id: String(length.days),
-                    label: length.label,
-                    symbol: length.symbol,
-                    detail: length.days > maxDays ? "Part of Autocast Pro" : length.detail
-                )
-            },
+            options: lengthOptions,
             chosen: String(days),
             locked: { Int($0).map { $0 > maxDays } ?? false },
             onLocked: { showingPaywall = true }
@@ -293,14 +330,7 @@ struct NewPlanSheet: View {
         PlanChoiceStep(
             title: "How often?",
             subtitle: "Spread across the hours you have not marked quiet.",
-            options: (1...3).map { n in
-                OnboardingQuestion.Option(
-                    id: String(n),
-                    label: n == 1 ? "One a day" : "\(n) a day",
-                    symbol: n == 1 ? "1.circle" : (n == 2 ? "2.circle" : "3.circle"),
-                    detail: "\(days * n) posts in \(days) days"
-                )
-            },
+            options: cadenceOptions,
             chosen: String(postsPerDay)
         ) { id in
             postsPerDay = Int(id) ?? 1
@@ -315,10 +345,8 @@ struct NewPlanSheet: View {
     /// badges, no streaks: here is the reason".
     private var knows: some View {
         PlanStep(
-            title: knownFacts < 4 ? "It doesn’t know much about you yet" : "Here’s what it goes on",
-            subtitle: knownFacts < 4
-                ? "It will not invent anything, so with little to go on it writes in general terms. Four or five things makes a visible difference."
-                : "\(knownFacts) things about your account. Everything it writes comes from these.",
+            title: knowsTitle,
+            subtitle: knowsSubtitle,
             button: "Continue",
             action: { step = .review }
         ) {
@@ -378,8 +406,8 @@ struct NewPlanSheet: View {
                 if let focus {
                     PlanSummaryRow(symbol: focus.option.symbol, label: "Goal", value: focus.option.label)
                 }
-                if !brief.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    PlanSummaryRow(symbol: "text.alignleft", label: "About", value: brief.trimmingCharacters(in: .whitespacesAndNewlines))
+                if !typedBrief.isEmpty {
+                    PlanSummaryRow(symbol: "text.alignleft", label: "About", value: typedBrief)
                 }
 
                 if let existing = session.plan, existing.isProposal {
@@ -479,7 +507,7 @@ struct NewPlanSheet: View {
     /// pretending otherwise would be inventing a feature.
     private var composedBrief: String {
         var parts: [String] = []
-        let typed = brief.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = typedBrief
         if !typed.isEmpty { parts.append(typed) }
         if let focus { parts.append(focus.sentence) }
         return parts.joined(separator: "\n")

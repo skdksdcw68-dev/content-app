@@ -89,7 +89,7 @@ struct AnalyticsCard<Content: View>: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(title)
-                        .font(.title3.bold())
+                        .font(.headline)
                     if let info {
                         InfoButton(text: info)
                     }
@@ -263,7 +263,7 @@ struct KeyTile: View {
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             Text(value)
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.system(size: 20, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .foregroundStyle(.primary)

@@ -167,6 +167,6 @@ private struct PillarEditor: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .toggleStyle(RemiSwitchStyle())
+        .toggleStyle(SwitchToggleStyle(tint: Color(uiColor: .systemGreen)))
     }
 }

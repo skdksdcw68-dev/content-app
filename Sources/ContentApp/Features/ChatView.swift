@@ -203,12 +203,9 @@ struct ChatView: View {
                     .padding(.top, 16)
                     .transition(.opacity)
                 } else if showsWordmark {
-                    EmptyChat { suggestion in
-                        draft = suggestion
-                        send()
-                    }
-                    .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
-                    .transition(.opacity)
+                    EmptyChat(name: session.displayName ?? session.brand?.name)
+                        .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
+                        .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.3), value: showsWordmark)
@@ -919,41 +916,34 @@ struct ChatView: View {
 
 /// The name, and a few things worth asking, centred above the bar.
 private struct EmptyChat: View {
-    let onPick: (String) -> Void
+    /// What to call them: the name they gave, else the brand, else nothing.
+    let name: String?
 
-    private static let openers = [
-        "What should I post about this week?",
-        "Write me three hooks for Monday",
-        "What do you actually know about my brand?",
-    ]
-
-    var body: some View {
-        VStack(spacing: 22) {
-            VStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(Theme.accent)
-                Text("Autocast")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-            }
-
-            VStack(spacing: 8) {
-                ForEach(Self.openers, id: \.self) { opener in
-                    Button { onPick(opener) } label: {
-                        Text(opener)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .background {
-                                Capsule().fill(Theme.surface)
-                            }
-                    }
-                    .buttonStyle(PressButtonStyle())
-                }
-            }
+    private var greeting: String {
+        let hour = Calendar.current.component(.hour, from: .now)
+        let time: String
+        switch hour {
+        case 5..<12:  time = "Good morning"
+        case 12..<18: time = "Good afternoon"
+        default:      time = "Good evening"
         }
-        .padding(.horizontal, 24)
+        let first = name?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: " ")
+            .first
+            .map(String.init)
+        if let first, !first.isEmpty { return "\(time), \(first)" }
+        return time
+    }
+
+    // One line, in the middle, nothing else (Abel, 22 Sep 2026: "on a new
+    // chat why do we need so much thing?? only a clean (name), Good morning").
+    var body: some View {
+        Text(greeting)
+            .font(.title2.weight(.semibold))
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

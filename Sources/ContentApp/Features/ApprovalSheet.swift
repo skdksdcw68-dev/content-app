@@ -47,7 +47,7 @@ struct ApprovalSheet: View {
             }
         }
         .task { await load() }
-        .toggleStyle(RemiSwitchStyle())
+        .toggleStyle(SwitchToggleStyle(tint: Color(uiColor: .systemGreen)))
     }
 
     private var loading: some View {

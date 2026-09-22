@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Supabase
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// The app's one connection to the backend, and everything it knows.
@@ -99,6 +100,27 @@ final class AppSession {
     internal(set) var subscription: MyPlan?
     /// Set when a Pro limit is reached anywhere; the root shows the paywall.
     var showingPaywall = false
+
+    /// The one navigation stack, around the tabs. A tab root goes somewhere
+    /// by appending a route here; see `AppRoute`.
+    var path = NavigationPath()
+
+    func push(_ route: AppRoute) {
+        path.append(route)
+    }
+
+    /// Videos on their way up from this phone right now, so Home can show
+    /// them as tiles that say "Uploading" instead of a spinner somewhere
+    /// else (Abel, 22 Sep 2026: "say uploading on the home... so on the home
+    /// it counts"). Added when Post is pressed, removed once the post exists.
+    var uploads: [LocalUpload] = []
+
+    struct LocalUpload: Identifiable, Equatable {
+        let id = UUID()
+        let poster: UIImage?
+        let caption: String
+        static func == (a: LocalUpload, b: LocalUpload) -> Bool { a.id == b.id }
+    }
 
     /// Surfaced by the root view and cleared when acknowledged. Not an error log.
     var lastError: String?

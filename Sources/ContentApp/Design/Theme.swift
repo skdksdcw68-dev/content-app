@@ -50,6 +50,21 @@ enum Theme {
     static let canvas = Color(.systemGroupedBackground)
     static let surface = Color(.secondarySystemGroupedBackground)
 
+    /// Drobe's Pro green, and the pale green behind its check marks. Abel,
+    /// 22 Sep 2026: the Pro sheet matches Drobe's "exactly", and these are
+    /// its two values (#388e3c on #e8f5e9), lifted for dark so the pale one
+    /// does not glow.
+    static let proGreen = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.42, green: 0.72, blue: 0.44, alpha: 1)
+            : UIColor(red: 0.22, green: 0.56, blue: 0.24, alpha: 1)
+    })
+    static let proGreenSoft = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.13, green: 0.22, blue: 0.14, alpha: 1)
+            : UIColor(red: 0.91, green: 0.96, blue: 0.91, alpha: 1)
+    })
+
     /// Corner radius shared by every card, so surfaces read as one system.
     /// Remi's control radius (`Style.card`).
     static let cornerRadius: CGFloat = Style.card

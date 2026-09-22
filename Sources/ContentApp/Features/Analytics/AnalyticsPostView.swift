@@ -409,7 +409,7 @@ struct AnalyticsPostView: View {
         let ink = Theme.onAccent
         return VStack(alignment: .leading, spacing: 12) {
             Label("What to post next", systemImage: "sparkles")
-                .font(.title3.bold())
+                .font(.headline)
             VStack(alignment: .leading, spacing: 4) {
                 Text(step.title)
                     .font(.headline)

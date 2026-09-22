@@ -45,7 +45,7 @@ struct ViewsHeroCard: View {
                 }
             }
             Text(reading.current.map { AnalyticsFormat.number($0) } ?? "—")
-                .font(.system(size: 48, weight: .heavy, design: .rounded))
+                .font(.system(size: 34, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
                 .lineLimit(1)
@@ -92,7 +92,7 @@ struct TopPostsPreview: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Top posts")
-                        .font(.title3.bold())
+                        .font(.headline)
                     Spacer()
                     Button("See all", action: seeAll)
                         .font(.subheadline.weight(.semibold))
@@ -132,7 +132,7 @@ struct LearningProgressCard: View {
         if videos < needed {
             VStack(alignment: .leading, spacing: 12) {
                 Label("What Autocast learned", systemImage: "sparkles")
-                    .font(.title3.bold())
+                    .font(.headline)
                 Text("Patterns start once Autocast has read \(needed) public videos. It never calls one video a pattern.")
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)

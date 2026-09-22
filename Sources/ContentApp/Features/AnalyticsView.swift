@@ -56,7 +56,6 @@ struct AnalyticsView: View {
     @State private var acting: UUID?
     @State private var planDraft: PlanDraft?
     @State private var proposed: PlanProposal?
-    @State private var showingPlan = false
     @State private var ask: AnalyticsAsk?
     @State private var applied = 0
     @State private var tips = TipGroup(.ordered) {
@@ -126,18 +125,19 @@ struct AnalyticsView: View {
             }
         }
         .background(Color.canvas.ignoresSafeArea())
-        .navigationTitle("Analytics")
-        .toolbar {
-            if hasAccount {
-                // Your posts, as a profile grid -- top left, where Abel asked.
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink { PostsLibraryView() } label: {
-                        Image(systemName: "square.grid.3x3")
-                    }
-                    .accessibilityLabel("Your posts")
-                    .popoverTip(tips.currentTip as? PostsLibraryTip, arrowEdge: .top)
+        // The bar items go to the shell (see `TabChrome`): your posts as a
+        // grid top left, where Abel asked; filter and export on the right.
+        .tabChrome(
+            title: "Analytics",
+            leading: hasAccount ? AnyView(
+                NavigationLink { PostsLibraryView() } label: {
+                    Image(systemName: "square.grid.3x3")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                .accessibilityLabel("Your posts")
+                .popoverTip(tips.currentTip as? PostsLibraryTip, arrowEdge: .top)
+            ) : nil,
+            trailing: hasAccount ? AnyView(
+                HStack(spacing: 16) {
                     AnalyticsFilterMenu(
                         platforms: connectedPlatforms,
                         filters: report?.filters,
@@ -147,13 +147,12 @@ struct AnalyticsView: View {
                         planId: $planId
                     )
                     .popoverTip(tips.currentTip as? FilterTip, arrowEdge: .top)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
+
                     exportMenu
                         .popoverTip(tips.currentTip as? ExportTip, arrowEdge: .top)
                 }
-            }
-        }
+            ) : nil
+        )
         // Saved numbers first, which is instant; then a fresh reading from
         // TikTok, after which every section reloads.
         .task(id: loadKey) { await loadReport() }
@@ -184,15 +183,16 @@ struct AnalyticsView: View {
             ExportedSheet(file: file)
         }
         .sheet(item: $planDraft, onDismiss: {
-            if proposed != nil { showingPlan = true }
+            if let proposed { session.push(.plan(proposed)) }
         }) { draft in
             NewPlanSheet(brief: draft.brief) { proposed = $0 }
         }
-        .navigationDestination(isPresented: $showingPlan) {
-            PlanView(notice: proposed)
-        }
-        .navigationDestination(item: $ask) { question in
-            ChatView(opening: question.text)
+        // Pushed by value on the shell's stack; a destination declared here,
+        // inside a tab, is never seen by it.
+        .onChange(of: ask) { _, question in
+            guard let question else { return }
+            ask = nil
+            session.push(.chatOpening(question.text))
         }
         .sensoryFeedback(.success, trigger: applied)
     }

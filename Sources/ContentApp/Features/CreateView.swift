@@ -17,7 +17,6 @@ struct CreateView: View {
 
     @State private var planning = false
     @State private var proposed: PlanProposal?
-    @State private var showingPlan = false
     @State private var pickerItem: PhotosPickerItem?
     @State private var caption = ""
     @State private var pendingVideo: (data: Data, filename: String)?
@@ -25,9 +24,6 @@ struct CreateView: View {
     @State private var pickingVideo = false
     /// What to make, in their words, and whether it has been sent.
     @State private var asked = ""
-    @State private var starting = false
-    @State private var chatting = false
-    @State private var browsing = false
     @State private var tips = TipGroup(.ordered) {
         PlanMonthTip()
         UploadTip()
@@ -47,8 +43,8 @@ struct CreateView: View {
                 HStack(spacing: 10) {
                     CreateTile(symbol: "calendar.badge.plus", title: "Plan a month") { planning = true }
                         .popoverTip(tips.currentTip as? PlanMonthTip, arrowEdge: .top)
-                    CreateTile(symbol: "sparkles", title: "Make with AI") { chatting = true }
-                    CreateTile(symbol: "square.grid.2x2.fill", title: "All posts") { browsing = true }
+                    CreateTile(symbol: "sparkles", title: "Make with AI") { session.push(.chat(nil)) }
+                    CreateTile(symbol: "square.grid.2x2.fill", title: "All posts") { session.push(.library) }
                 }
                 .entrance(0)
 
@@ -62,7 +58,9 @@ struct CreateView: View {
                 .padding(.top, 18)
                 .entrance(1)
 
-                AskBox(text: $asked) { starting = true }
+                AskBox(text: $asked) {
+                    session.push(.chatOpening(asked.trimmingCharacters(in: .whitespacesAndNewlines)))
+                }
                     .padding(.top, 18)
                     .entrance(2)
 
@@ -99,29 +97,19 @@ struct CreateView: View {
             .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        .navigationTitle("Create")
+        .tabChrome(title: "Create")
         .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await loadPicked() }
         .refreshable { await session.refreshPosts() }
+        // Pushes go by value on the shell's stack (`AppRoute`); a destination
+        // declared here, inside a tab, is never seen by it.
         .sheet(isPresented: $planning, onDismiss: {
-            if proposed != nil { showingPlan = true }
+            if let proposed { session.push(.plan(proposed)) }
         }) {
             NewPlanSheet(brief: "") { proposed = $0 }
         }
         .sheet(isPresented: $namingVideo) { captionSheet }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
-        .navigationDestination(isPresented: $showingPlan) {
-            PlanView(notice: proposed)
-        }
-        .navigationDestination(isPresented: $starting) {
-            ChatView(opening: asked.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        .navigationDestination(isPresented: $chatting) {
-            ChatView()
-        }
-        .navigationDestination(isPresented: $browsing) {
-            LibraryView()
-        }
     }
 
     private var captionSheet: some View {

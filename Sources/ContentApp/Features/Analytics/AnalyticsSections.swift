@@ -499,7 +499,7 @@ struct BestTimeCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline) {
                             Text(unit == .hours ? AnalyticsFormat.hourBlock(pick.slot) : "\(AnalyticsFormat.weekday(pick.slot))s")
-                                .font(.title2.bold())
+                                .font(.title3.bold())
                             Spacer(minLength: 8)
                             ConfidenceBadge(confidence: pick.confidence)
                         }
@@ -796,7 +796,7 @@ struct AutopilotSection: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .font(.system(size: 18, weight: .bold, design: .rounded))
                 .monospacedDigit()
             Text(caption)
                 .font(.caption2)

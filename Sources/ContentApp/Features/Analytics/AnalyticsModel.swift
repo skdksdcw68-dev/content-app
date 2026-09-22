@@ -328,7 +328,7 @@ struct AnalyticsSectionTitle<Trailing: View>: View {
         HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.title2.bold())
+                    .font(.title3.bold())
                 if let subtitle {
                     Text(subtitle)
                         .font(.footnote)

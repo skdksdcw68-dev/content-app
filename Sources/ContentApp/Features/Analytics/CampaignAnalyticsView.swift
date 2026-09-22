@@ -77,7 +77,7 @@ struct CampaignAnalyticsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(campaign.title)
-                .font(.title2.bold())
+                .font(.title3.bold())
                 .fixedSize(horizontal: false, vertical: true)
             Text("\(AnalyticsFormat.range(range.from, range.to)) · \(campaign.published) of \(campaign.posts) posts published · \(campaign.status.capitalized)")
                 .font(.footnote)

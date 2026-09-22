@@ -14,8 +14,6 @@ struct RootView: View {
     /// Named rather than positional, the way email-app does it. A selection
     /// binding is what lets anything outside the bar move between tabs -- an
     /// onboarding step finishing, a notification, a card on Home.
-    private enum AppTab: Hashable { case home, chat, analytics, you, create }
-
     @Environment(AppSession.self) private var session
     @State private var tab: AppTab = .home
     /// Light unless the person chose otherwise (Remi's default). Read here, at
@@ -52,7 +50,28 @@ struct RootView: View {
                     // anything: the bar simply stays on the screen it belongs
                     // to and slides with it, at UIKit's own parallax, under
                     // UIKit's own shadow.
-                    NavigationStack { tabs }
+                    //
+                    // Two things that stack cannot see from inside a tab, so
+                    // they are done out here: where a tab root can go by value
+                    // (`AppRoute`) and what each tab wants in the bar
+                    // (`TabChrome`). Build 72 lost both -- the chat stopped
+                    // opening and the Upgrade button vanished -- because they
+                    // were declared inside the tabs.
+                    NavigationStack(path: $session.path) {
+                        tabs
+                            .navigationDestination(for: AppRoute.self) { route in
+                                switch route {
+                                case .chat(let id):         ChatView(threadId: id)
+                                case .chatOpening(let text): ChatView(opening: text)
+                                case .plan(let proposal):   PlanView(notice: proposal)
+                                case .post(let id):         PostDetailView(postID: id)
+                                case .library:              LibraryView()
+                                }
+                            }
+                            .backgroundPreferenceValue(TabChromeKey.self) { chrome in
+                                TabShellChrome(chrome: chrome[tab] ?? TabChrome())
+                            }
+                    }
                 } else {
                     OnboardingFlowView()
                 }
@@ -61,15 +80,16 @@ struct RootView: View {
         .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
         .preferredColorScheme(appearance.colorScheme)
-        // Every switch in the app, Remi's way: visible in light and dark.
-        .toggleStyle(RemiSwitchStyle())
+        // Every switch in the app is the system's own, in the system's green.
+        // The drawn one read as "black and not native" (Abel, 22 Sep 2026).
+        .toggleStyle(SwitchToggleStyle(tint: Color(uiColor: .systemGreen)))
         .onReceive(NotificationCenter.default.publisher(for: .appearanceChanged)) { _ in
             appearance = AppAppearance.current
         }
         // A Pro limit anywhere opens Autocast Pro; the message that came with
-        // it is the paywall's reason, not a second alert. Full screen, with
-        // its own close button, the way a paywall is a page and not a card.
-        .fullScreenCover(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
+        // it is the paywall's reason, not a second alert. A sheet with its own
+        // title bar and an X, the way Drobe presents its Pro screen.
+        .sheet(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
             PaywallView()
         }
         .task { await session.listenForTransactions() }
@@ -92,7 +112,7 @@ struct RootView: View {
         // why every Apple app uses the filled ones here.
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                HomeView()
+                HomeView().environment(\.chromeTab, .home)
             }
 
             // The one tab that hides the bar it lives in.
@@ -114,20 +134,20 @@ struct RootView: View {
             // browsing, and a conversation is pushed over it -- over the bar
             // too, since the stack is outside the tabs.
             Tab("Chat", systemImage: "sparkles", value: AppTab.chat) {
-                ChatListView()
+                ChatListView().environment(\.chromeTab, .chat)
             }
 
             // Analytics took Library's place (Abel, 15 Sep 2026). The full post
             // list is still one tap away, at the bottom of Analytics.
             Tab("Analytics", systemImage: "chart.bar.fill", value: AppTab.analytics) {
-                AnalyticsView()
+                AnalyticsView().environment(\.chromeTab, .analytics)
             }
 
             // The badge is where Home's warnings went. A native count on the
             // tab, not a red box on the first screen -- and not nothing,
             // because a failure nobody sees is how September happened.
             Tab("You", systemImage: "person.crop.circle.fill", value: AppTab.you) {
-                ProfileView()
+                ProfileView().environment(\.chromeTab, .you)
             }
             .badge(session.attentionCount)
 
@@ -146,7 +166,7 @@ struct RootView: View {
             // the fallback is `.tabViewBottomAccessory` with a Create pill --
             // a different shape, same job, still native.
             Tab("Create", systemImage: "plus", value: AppTab.create, role: .search) {
-                CreateView()
+                CreateView().environment(\.chromeTab, .create)
             }
         }
         // 🔴 `.tabBarMinimizeBehavior(.onScrollDown)` was here, and it is gone
@@ -156,6 +176,26 @@ struct RootView: View {
         // move between the four things the product does, and a bar that
         // disappears while you scroll a status page makes you scroll back up
         // to reach it. Free from the system is not a reason to take it.
+    }
+}
+
+/// The selected tab's title and bar items, drawn on the shell where the
+/// stack around the tabs can see them. Sits behind the tabs, draws nothing.
+private struct TabShellChrome: View {
+    let chrome: TabChrome
+
+    var body: some View {
+        Color.clear
+            .navigationTitle(chrome.title)
+            .navigationBarTitleDisplayMode(chrome.large ? .large : .inline)
+            .toolbar {
+                if let leading = chrome.leading {
+                    ToolbarItem(placement: .topBarLeading) { leading }
+                }
+                if let trailing = chrome.trailing {
+                    ToolbarItem(placement: .topBarTrailing) { trailing }
+                }
+            }
     }
 }
 

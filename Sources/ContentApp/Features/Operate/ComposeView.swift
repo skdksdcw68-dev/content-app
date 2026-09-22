@@ -470,9 +470,17 @@ struct ComposeView: View {
     private func send(_ mode: Sending) async {
         guard let facts else { return }
         sending = mode
-        defer { sending = nil }
         problems = []
         let drafts = mode == .drafts
+
+        // On Home as a tile that says "Uploading" from this moment until the
+        // post exists (Abel, 22 Sep 2026), rather than a spinner in here.
+        let upload = AppSession.LocalUpload(poster: poster, caption: caption)
+        session.uploads.append(upload)
+        defer {
+            sending = nil
+            session.uploads.removeAll { $0.id == upload.id }
+        }
 
         do {
             if path == nil {

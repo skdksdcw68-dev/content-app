@@ -530,7 +530,7 @@ struct ReviewSheet: View {
             }
         }
         .task { await load() }
-        .toggleStyle(RemiSwitchStyle())
+        .toggleStyle(SwitchToggleStyle(tint: Color(uiColor: .systemGreen)))
     }
 
     private func form(_ info: CreatorInfo) -> some View {

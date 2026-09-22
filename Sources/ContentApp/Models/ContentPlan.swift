@@ -117,7 +117,7 @@ enum PostgresTimestamp {
 /// today's slot has already passed gives twenty-nine slots, and a model that
 /// skips one gives twenty-eight posts. Both numbers are shown rather than
 /// quietly rounded to what was asked for.
-struct PlanProposal: Decodable, Sendable {
+struct PlanProposal: Decodable, Sendable, Hashable {
     let planId: UUID
     let title: String
     let startsOn: String

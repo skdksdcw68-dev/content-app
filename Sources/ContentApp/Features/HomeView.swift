@@ -25,6 +25,10 @@ struct HomeView: View {
     @State private var deleting: BoardPost?
     /// The once-a-day reminder to save the account and connect somewhere.
     @State private var nudging = false
+    /// Planning a month, started from Home and finished on the plan screen.
+    @State private var planning = false
+    @State private var proposed: PlanProposal?
+    @State private var showingPlan = false
     /// First-time help, one at a time.
     @State private var tips = TipGroup(.ordered) {
         CreateTip()
@@ -55,32 +59,55 @@ struct HomeView: View {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
     }
 
-    /// What went out, newest first.
-    private var recent: [PendingPost] {
-        session.posts
-            .filter { $0.state == .published }
-            .sorted { ($0.publishedAt ?? .distantPast) > ($1.publishedAt ?? .distantPast) }
-            .prefix(5)
-            .map { $0 }
+    /// The three things that have to exist before Autocast can run itself,
+    /// each read from the account rather than remembered in a flag.
+    var setup: [SetupStep] {
+        [
+            SetupStep(
+                title: "Connect where it posts",
+                detail: "TikTok, YouTube or Instagram.",
+                symbol: "link",
+                isDone: !session.connections.isEmpty,
+                route: .profile
+            ),
+            SetupStep(
+                title: "Connect a video generator",
+                detail: "Your own key, so the frames are yours and we never bill you for them.",
+                symbol: "wand.and.stars",
+                isDone: session.hasWorkingGenerator,
+                route: .profile
+            ),
+            SetupStep(
+                title: "Plan your month",
+                detail: "One sentence in, a month of posts out.",
+                symbol: "calendar",
+                isDone: session.plan != nil,
+                route: .plan
+            ),
+        ]
     }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                HomeHeader()
-                    // Off the status bar: with the navigation bar hidden the
-                    // name and picture would sit right under the clock.
-                    .padding(.top, 18)
-
                 greeting
-                    .padding(.top, 22)
+                    .padding(.top, 4)
                     .entrance(0)
 
-                HeroCarousel(
-                    hasAccount: !session.connections.isEmpty,
-                    hasPlan: session.plan != nil
-                )
-                .padding(.top, 16)
+                // The headline. A month is the thing this app is for, so Home
+                // either offers to write one or shows the next post from the
+                // one there is -- and nothing else gets to be this big.
+                Group {
+                    if let next = nextUp {
+                        NavigationLink { PlanView().pushedPage() } label: {
+                            UpNextCard(post: next, timezone: brandTimeZone)
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    } else {
+                        PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
+                    }
+                }
+                .padding(.top, 14)
                 .entrance(1)
 
                 NavigationLink { CreateView().pushedPage() } label: {
@@ -91,15 +118,26 @@ struct HomeView: View {
                 .padding(.top, 14)
                 .entrance(2)
 
-                AutopilotLinkRow(brandName: session.brand?.name)
-                    .padding(.top, 12)
-                    .entrance(2)
-
-                if session.connections.isEmpty {
-                    ConnectCard()
+                // Three things, in the order they unblock each other, and gone
+                // the moment they are all done. It replaced a lone "connect an
+                // account" card that never mentioned the generator -- so
+                // nobody connected one (Abel, 22 Sep 2026).
+                if !setup.allSatisfy(\.isDone) {
+                    StartHereCard(steps: setup, onPlan: { planning = true })
                         .padding(.top, 16)
-                        .entrance(3)
+                        .entrance(2)
                 }
+
+                HeroCarousel(
+                    hasAccount: !session.connections.isEmpty,
+                    hasPlan: session.plan != nil
+                )
+                .padding(.top, 22)
+                .entrance(3)
+
+                AutopilotLinkRow(brandName: session.brand?.name)
+                    .padding(.top, 6)
+                    .entrance(3)
 
                 SectionHeader(title: "Your videos") {
                     if !videos.isEmpty {
@@ -112,7 +150,7 @@ struct HomeView: View {
 
                 Group {
                     if let videos = loadedVideos, !videos.isEmpty {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                             ForEach(videos) { video in
                                 NavigationLink { PostDetailView(postID: video.id) } label: {
                                     VideoTile(post: video, timezone: brandTimeZone)
@@ -128,10 +166,14 @@ struct HomeView: View {
                             }
                         }
                     } else if loadedVideos == nil {
-                        HStack(spacing: 12) {
-                            SkeletonCard(height: 250)
-                            SkeletonCard(height: 250)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+                            ForEach(0..<6, id: \.self) { _ in
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .fill(Color.track)
+                                    .aspectRatio(9 / 16, contentMode: .fit)
+                            }
                         }
+                        .breathing()
                     } else {
                         NavigationLink { StudioFlowView() } label: {
                             EmptyStackCard(
@@ -150,9 +192,22 @@ struct HomeView: View {
             .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        // Home draws its own top -- the mark, the name, the capsule -- so the
-        // bar is hidden here. Pushed pages show their own.
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle(timeOfDay)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            if session.subscription?.isPro != true {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Upgrade") { session.showingPaywall = true }
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { ProfileView().pushedPage() } label: {
+                    InitialAvatar(initial: session.initial, size: 30)
+                }
+                .accessibilityLabel("Your profile")
+            }
+        }
         .task {
             today = await session.todayTally()
             // A moment after the app is on screen, not over the top of it.
@@ -173,6 +228,14 @@ struct HomeView: View {
             today = await session.todayTally()
         }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
+        .sheet(isPresented: $planning, onDismiss: {
+            if proposed != nil { showingPlan = true }
+        }) {
+            NewPlanSheet(brief: "") { proposed = $0 }
+        }
+        .navigationDestination(isPresented: $showingPlan) {
+            PlanView(notice: proposed).pushedPage()
+        }
         .alert("Delete this video?", isPresented: Binding(
             get: { deleting != nil },
             set: { if !$0 { deleting = nil } }
@@ -197,17 +260,13 @@ struct HomeView: View {
 
 private extension HomeView {
     var greeting: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(timeOfDay)
-                .font(.title.bold())
-                .foregroundStyle(.primary)
-
-            Text(standing)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // The hello is the navigation bar's large title now; this is the one
+        // sentence underneath it.
+        Text(standing)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     var timeOfDay: String {
@@ -254,51 +313,6 @@ private extension HomeView {
     }
 }
 
-// MARK: - Top
-
-/// The mark and the name on the left; one capsule on the right holding your
-/// name and picture, which opens Profile. There is no app switcher: each
-/// account is one brand, described once in Profile → Brand.
-private struct HomeHeader: View {
-    @Environment(AppSession.self) private var session
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TowerMark()
-                .frame(width: 34, height: 34)
-            Text("Autocast")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
-
-            // Upgrade beside the circle, both big enough to hit: the way every
-            // app with a paid tier puts them there (Abel, 21 Sep 2026).
-            HStack(spacing: 10) {
-                if session.subscription?.isPro != true {
-                    Button { session.showingPaywall = true } label: {
-                        Text("Upgrade")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Theme.onAccent)
-                            .padding(.horizontal, 16)
-                            .frame(height: 38)
-                            .background(Theme.accent, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                NavigationLink { ProfileView().pushedPage() } label: {
-                    InitialAvatar(initial: session.initial, size: 38)
-                        .overlay(Circle().strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Your profile")
-            }
-        }
-    }
-}
-
 // MARK: - Sections
 
 private struct SectionHeader<Trailing: View>: View {
@@ -324,38 +338,183 @@ private extension SectionHeader where Trailing == EmptyView {
 
 // MARK: - Cards
 
-/// The one way into connecting, shaped like Remi's coach card: an invitation,
-/// not a warning.
-private struct ConnectCard: View {
+/// One of the three things that have to exist before Autopilot can run.
+struct SetupStep: Identifiable {
+    enum Route { case profile, plan }
+
+    var id: String { title }
+    let title: String
+    let detail: String
+    let symbol: String
+    let isDone: Bool
+    let route: Route
+}
+
+/// Start here: connect somewhere to post, connect a generator, plan a month.
+///
+/// It replaced a single "Connect an account" card. That card was honest and
+/// useless -- it named one of three things, so an account with a connection and
+/// nothing else looked finished while the app could not make a video or fill a
+/// day (Abel, 22 Sep 2026: "so they connect the generator thing").
+///
+/// Done steps stay, ticked, rather than vanishing one at a time: three of three
+/// is the only state worth celebrating, and it is the state that removes the
+/// whole card.
+private struct StartHereCard: View {
+    let steps: [SetupStep]
+    let onPlan: () -> Void
+
+    private var done: Int { steps.filter(\.isDone).count }
+
     var body: some View {
-        NavigationLink { ProfileView().pushedPage() } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "link")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: 38, height: 38)
-                    .background(Color.accentColor, in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Connect an account")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("Then Autocast can post for you")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Start here")
+                    .font(.headline)
                 Spacer(minLength: 8)
+                Text("\(done) of \(steps.count)")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
 
+            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
+                if index > 0 { Divider().padding(.leading, 56) }
+                row(step)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .raisedCard(radius: Style.bigCard)
+    }
+
+    @ViewBuilder
+    private func row(_ step: SetupStep) -> some View {
+        switch step.route {
+        case .profile:
+            NavigationLink { ProfileView().pushedPage() } label: { label(step) }
+                .buttonStyle(SoftPressStyle())
+                .disabled(step.isDone)
+        case .plan:
+            Button(action: onPlan) { label(step) }
+                .buttonStyle(SoftPressStyle())
+                .disabled(step.isDone)
+        }
+    }
+
+    private func label(_ step: SetupStep) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: step.isDone ? "checkmark.circle.fill" : step.symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(step.isDone ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.secondary))
+                .frame(width: 28, height: 28)
+                .background(step.isDone ? Color.clear : Color.track, in: Circle())
+                .contentTransition(.symbolEffect(.replace))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(step.isDone ? Color.secondary : Color.primary)
+                    .strikethrough(step.isDone, color: .secondary)
+                if !step.isDone {
+                    Text(step.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            if !step.isDone {
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .raisedCard(radius: Style.rowCard)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+}
+
+/// The offer Home leads with when there is nothing scheduled: a month of posts.
+///
+/// A picture that runs to the card's edges with the words over it, rather than
+/// a row with an icon -- Home's job is to make the best thing in the app look
+/// like the best thing in the app (Abel, 22 Sep 2026: "the ui on the home is
+/// the main thing actually").
+private struct PlanMonthCard: View {
+    /// A plan exists but has nothing left to go out: the words change, the
+    /// offer does not.
+    let hasPlan: Bool
+    let action: () -> Void
+
+    private var art: UIImage? {
+        ["hero-plan", "promo-plan"].lazy.compactMap { UIImage(named: $0) }.first
+    }
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                Group {
+                    if let art {
+                        Image(uiImage: art)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        LinearGradient(
+                            colors: [Color(red: 0.13, green: 0.13, blue: 0.15), .black],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 190)
+                .clipped()
+
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.8), location: 1),
+                    ],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(hasPlan ? "PLAN THE NEXT ONE" : "PLAN A MONTH")
+                        .font(.caption2.weight(.heavy))
+                        .kerning(1.4)
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    Text(hasPlan
+                         ? "Your month is done. Write the next one."
+                         : "A month of posts from one sentence")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Start")
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 7)
+                        .background(.white, in: Capsule())
+                        .padding(.top, 4)
+                }
+                .padding(16)
+            }
+            .frame(height: 190)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous))
         }
         .buttonStyle(SoftPressStyle())
+        .accessibilityLabel(hasPlan ? "Plan the next month" : "Plan a month of posts")
     }
 }
 
@@ -394,75 +553,6 @@ private struct UpNextCard: View {
         .clipShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
         .raisedCard(radius: Style.rowCard)
         .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-    }
-}
-
-/// A post that exists: waiting for approval, on its way, or already out.
-private struct PostCard: View {
-    enum Kind { case review, working, result }
-
-    let post: PendingPost
-    let kind: Kind
-
-    private var title: String {
-        post.caption.isEmpty ? post.post.hook : post.caption
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            DayTile(date: post.publishedAt ?? post.post.createdAt)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text(title.isEmpty ? "Untitled post" : title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-
-                switch kind {
-                case .review:
-                    Text(post.state == .needsReapproval ? "Changed · review it again" : "Ready · tap to review")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                case .working:
-                    HStack(spacing: 4) {
-                        BreathingDot(size: 8)
-                        Text(post.statusLine)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                case .result:
-                    HStack(spacing: 5) {
-                        Image(systemName: "eye.fill")
-                            .font(.footnote)
-                        Text(views)
-                            .font(.subheadline.weight(.semibold).monospacedDigit())
-                    }
-                    .foregroundStyle(.primary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if kind == .review {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .padding(.trailing, 14)
-            }
-        }
-        .frame(height: 96)
-        .clipShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-        .raisedCard(radius: Style.rowCard)
-        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-    }
-
-    /// TikTok reports numbers for public videos only, so a post can be out and
-    /// still have none. "Posted" then, never a zero.
-    private var views: String {
-        guard let count = post.metrics?.views else { return "Posted" }
-        return count == 1 ? "1 view" : "\(count.formatted(.number.notation(.compactName))) views"
     }
 }
 
@@ -571,34 +661,22 @@ private struct VideoTile: View {
     let post: BoardPost
     let timezone: TimeZone
 
-    private var when: String {
-        let date = post.publishedDate ?? post.when
-        guard let date else { return post.stage.title }
-        let formatter = DateFormatter()
-        formatter.timeZone = timezone
-        formatter.dateFormat = Calendar.current.isDate(date, equalTo: .now, toGranularity: .year) ? "d MMM, HH:mm" : "d MMM yyyy"
-        return formatter.string(from: date)
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { proxy in
-                PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
-            }
-            .aspectRatio(9 / 16, contentMode: .fit)
-            .overlay(alignment: .topLeading) {
+        GeometryReader { proxy in
+            PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
+        }
+        .aspectRatio(9 / 16, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            // Only what the picture cannot say: where this one has got to.
+            // Anything still on its way is worth a word; a published video is
+            // just a video.
+            if post.stage != .published {
                 StageChip(stage: post.stage, compact: true)
                     .background(.regularMaterial, in: Capsule())
-                    .padding(8)
+                    .padding(6)
             }
-            Text(post.hook)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            Text(when)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
+        .accessibilityLabel("\(post.stage.title): \(post.hook)")
     }
 }

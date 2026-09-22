@@ -11,8 +11,9 @@ struct SetupNudge: View {
     @Environment(\.dismiss) private var dismiss
     @State private var signingUp = false
 
-    /// When it was last shown, so it is a nudge rather than a wall.
-    @AppStorage("setupNudge.lastShown") private static var lastShownRaw = 0.0
+    /// Shown once, ever (Abel, 22 Sep 2026: "why does it always appear dude?
+    /// we want it only 1 time actually").
+    @AppStorage("setupNudge.shown") private static var alreadyShown = false
 
     private var needsAccount: Bool { session.isAnonymous }
     private var missing: [Platform] { Platform.allCases.filter { session.connection(for: $0) == nil } }
@@ -69,10 +70,11 @@ struct SetupNudge: View {
     /// Worth showing: something is still missing, and not today already.
     static func due(_ session: AppSession) -> Bool {
         guard session.onboarding == .done else { return false }
-        guard session.isAnonymous || session.connections.isEmpty else { return false }
-        let last = Date(timeIntervalSince1970: lastShownRaw)
-        return Date.now.timeIntervalSince(last) > 24 * 3600
+        // Signing up is part of first run now, so this is only ever about
+        // having somewhere to post.
+        guard session.connections.isEmpty else { return false }
+        return !alreadyShown
     }
 
-    static func markShown() { lastShownRaw = Date.now.timeIntervalSince1970 }
+    static func markShown() { alreadyShown = true }
 }

@@ -229,7 +229,7 @@ Deno.serve(async (request) => {
           {
             heading: "What Autocast learned",
             paragraphs: insights.length === 0
-              ? ["Not enough data yet. Autocast needs at least 10 public videos with numbers before it looks for patterns."]
+              ? ["Not enough data yet. Autocast needs at least 3 public videos with numbers before it looks for patterns."]
               : insights.map((i) => `${i.statement} Based on ${i.sample_size} posts, +${Math.round(Number(i.lift) * 100)}% median views. Confidence: ${i.confidence}.`),
           },
           {

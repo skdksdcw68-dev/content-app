@@ -181,7 +181,8 @@ struct SoftChips<Item: Hashable>: View {
                 }
             }
         }
-        .scrollClipDisabled()
+        // Clipped to whatever holds it: without this the chips scroll out over
+        // the card's edge, which is what Abel saw (22 Sep 2026).
         .sensoryFeedback(.selection, trigger: selection)
     }
 

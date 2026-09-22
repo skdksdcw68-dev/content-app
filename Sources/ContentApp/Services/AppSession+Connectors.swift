@@ -143,12 +143,36 @@ extension AppSession {
                 options: FunctionInvokeOptions(body: ["provider": slug, "scheme": "autocast"])
             )
 
-            guard let url = URL(string: start.url) else {
-                lastError = "That provider gave back something unusable."
-                return false
-            }
+            // An open server (no sign-in behind it) is connected by the
+            // server on the spot; there is no page to open.
+            if start.connected != true {
+                guard let raw = start.url, let url = URL(string: raw) else {
+                    lastError = "That provider gave back something unusable."
+                    return false
+                }
 
-            _ = try await WebAuth.run(url: url, scheme: "autocast")
+                let returned = try await WebAuth.run(url: url, scheme: "autocast")
+
+                // The callback says how it went. Before this the app dropped
+                // the answer and every failure read "That did not finish",
+                // which told nobody anything (22 Sep 2026).
+                let items = URLComponents(url: returned, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                let status = items.first { $0.name == "status" }?.value
+                let reason = items.first { $0.name == "reason" }?.value ?? ""
+                if status == "failed" {
+                    switch reason {
+                    case "cancelled", "access_denied":
+                        return false
+                    case "expired":
+                        lastError = "The sign-in took too long and was dropped. Try again."
+                    case "exchange_failed":
+                        lastError = "The sign-in came back, but the server refused to finish it. Try again in a moment."
+                    default:
+                        lastError = "The sign-in did not finish (\(reason)). Try again."
+                    }
+                    return false
+                }
+            }
 
             // The callback already exchanged, sealed and discovered before it
             // redirected here, so by this point the connection is either live
@@ -255,8 +279,11 @@ extension AppSession {
 }
 
 private struct ConnectorStart: Decodable {
-    let url: String
+    /// The page to sign in on. Nil when there was nothing to sign in to.
+    let url: String?
     let provider: String
+    /// True when the server connected an open endpoint on the spot.
+    let connected: Bool?
 }
 
 private struct DiscoveryResult: Decodable {

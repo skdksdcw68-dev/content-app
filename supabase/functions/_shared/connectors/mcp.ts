@@ -64,13 +64,16 @@ export class McpSession {
 
   private headers(): Record<string, string> {
     const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.token}`,
       "Content-Type": "application/json",
       // Both, because the server picks. Sending only one is how a client works
       // against the server it was written for and nothing else.
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": PROTOCOL_VERSION,
     };
+    // An open server (0055: added by address, answered without a token) has
+    // no token to send, and `Bearer ` with nothing after it is a malformed
+    // header some servers refuse.
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
     if (this.sessionId) headers["Mcp-Session-Id"] = this.sessionId;
     return headers;
   }

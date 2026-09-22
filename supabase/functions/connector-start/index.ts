@@ -21,12 +21,14 @@ import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { seal } from "../_shared/crypto.ts";
 import {
   authorizeUrl,
-  discoverResource,
-  discoverServer,
+  discoverAuthorization,
   needsRebranding,
   pkce,
+  probeResource,
   register,
 } from "../_shared/connectors/oauth.ts";
+import { mcpAdapter } from "../_shared/connectors/mcp.ts";
+import { storeDiscovery } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -72,20 +74,72 @@ Deno.serve(async (request) => {
 
     const redirectUri = `${PUBLIC_FUNCTIONS}/connector-callback`;
 
+    // One request without a token says which kind of server this is.
+    const probe = await probeResource(provider.mcp_url).catch((thrown) => {
+      console.error("connector-start probe", slug, thrown);
+      throw new PublicError("That server could not be reached. Check the address.", 502);
+    });
+
+    // An open server: it answered without a token, so there is no sign-in
+    // to do. It is connected on the spot and asked what it can make, and
+    // the app is told there is no page to open.
+    if (probe.open) {
+      const { data: connectionId, error: beginError } = await admin.rpc("begin_connection", {
+        p_user: auth.user.id,
+        p_provider_slug: slug,
+      });
+      if (beginError) throw beginError;
+
+      // A credential row with nothing in it, so the connection reads like
+      // every other one; the MCP session sends no header for an empty token.
+      await admin.rpc("store_connection_secret", {
+        p_connection: connectionId,
+        p_access_ct: await seal("", `${connectionId}:access`),
+        p_refresh_ct: null,
+        p_expires: null,
+        p_scope: "",
+      });
+
+      let label = provider.name;
+      try {
+        const discovery = await mcpAdapter(slug).discover({
+          connectionId,
+          secret: "",
+          endpoint: provider.mcp_url,
+        });
+        label = discovery.accountLabel || label;
+        await storeDiscovery(admin, connectionId, discovery);
+      } catch (thrown) {
+        console.error("connector-start open-server discovery", slug, thrown);
+      }
+
+      await admin.rpc("activate_connection", {
+        p_connection: connectionId,
+        p_label: label,
+        p_external: null,
+      });
+
+      console.log("connector-start", slug, "open server, connected", connectionId);
+      return json({ url: null, connected: true, provider: provider.name, connectionId });
+    }
+
     // What protects the endpoint, and who can authorize for it.
-    const resource = await discoverResource(provider.mcp_url);
-    const issuer = resource.authorization_servers?.[0];
-    if (!issuer) throw new PublicError("That provider did not say how to sign in.", 502);
+    let found;
+    try {
+      found = await discoverAuthorization(provider.mcp_url, probe);
+    } catch (thrown) {
+      console.error("connector-start discovery", slug, thrown);
+      throw new PublicError(
+        `That server answered ${probe.status} but did not say how to sign in to it. It may need an API key instead of a sign-in.`,
+        502,
+      );
+    }
+    const { resource, server } = found;
+    if (!server.registration_endpoint) {
+      throw new PublicError("That server does not let apps register themselves, so Autocast cannot sign in to it.", 502);
+    }
 
     const scope = (resource.scopes_supported ?? ["openid", "email", "offline_access"]).join(" ");
-
-    // The MCP endpoint itself is an authorization server here, and the one that
-    // supports dynamic registration. Its metadata is preferred; the issuer it
-    // named is the fallback for a provider that separates them.
-    let server = await discoverServer(provider.mcp_url).catch(() => null);
-    if (!server?.registration_endpoint) {
-      server = await discoverServer(issuer);
-    }
 
     // Registered once, then reused.
     const { data: known } = await admin.rpc("read_provider_client", { p_slug: slug });
@@ -133,7 +187,9 @@ Deno.serve(async (request) => {
       p_scheme: body.scheme ?? "",
     });
 
+    console.log("connector-start", slug, "authorize at", server.authorization_endpoint);
     return json({
+      connected: false,
       url: authorizeUrl(server, {
         clientId: client.client_id,
         redirectUri,

@@ -20,7 +20,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "../_shared/crypto.ts";
-import { discoverResource, discoverServer, exchange, sealTokens } from "../_shared/connectors/oauth.ts";
+import { discoverAuthorization, exchange, sealTokens } from "../_shared/connectors/oauth.ts";
 import { mcpAdapter } from "../_shared/connectors/mcp.ts";
 import { storeDiscovery } from "../_shared/connectors/discovery.ts";
 
@@ -99,9 +99,9 @@ Deno.serve(async (request) => {
     const provider = (providers ?? [])[0];
     if (!provider?.mcp_url) throw new Error("provider has no endpoint");
 
-    const resource = await discoverResource(provider.mcp_url);
-    let server = await discoverServer(provider.mcp_url).catch(() => null);
-    if (!server) server = await discoverServer(resource.authorization_servers[0]);
+    // The same pick as connector-start, so the code goes back to the server
+    // that issued it.
+    const { resource, server } = await discoverAuthorization(provider.mcp_url);
 
     const { data: known } = await admin.rpc("read_provider_client", { p_slug: provider.slug });
     const client = (known ?? [])[0] as

@@ -12,7 +12,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "../crypto.ts";
-import { discoverResource, discoverServer, refreshTokens, sealTokens } from "./oauth.ts";
+import { discoverAuthorization, refreshTokens, sealTokens } from "./oauth.ts";
 
 /** Refreshed when it has less than this left, so a token cannot expire between
  *  being read and being used on a slow provider call. */
@@ -75,9 +75,9 @@ export async function openConnection(admin: SupabaseClient, connectionId: string
 
   const refreshToken = await open(connection.refresh_ct, `${connectionId}:refresh`);
 
-  const resource = await discoverResource(endpoint);
-  let server = await discoverServer(endpoint).catch(() => null);
-  if (!server) server = await discoverServer(resource.authorization_servers[0]);
+  // The same pick as connector-start, so the refresh goes to the server that
+  // issued the token.
+  const { resource, server } = await discoverAuthorization(endpoint);
 
   const { data: known } = await admin.rpc("read_provider_client", { p_slug: connection.provider_slug });
   const client = (known ?? [])[0] as { client_id: string; client_secret_ct: string | null } | undefined;

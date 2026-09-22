@@ -36,43 +36,158 @@ export interface ServerMetadata {
   scopes_supported?: string[];
 }
 
+/** What one unauthenticated request to the MCP endpoint says about it. */
+export interface Probe {
+  /** 2xx without a token: the server is open and there is nothing to sign
+   *  in to. Anything else and OAuth is the way in. */
+  open: boolean;
+  status: number;
+  /** The metadata URL named in `WWW-Authenticate`, when the server names one
+   *  (RFC 9728 §5.1). The spec's own way; guessed paths are the fallback. */
+  resourceMetadataUrl: string | null;
+}
+
+/** Asks the MCP endpoint, without a token, what protects it.
+ *
+ *  `Accept` carries both types because a streamable-HTTP server refuses a
+ *  request without `text/event-stream` (406) before it ever gets to
+ *  authorization, and a 406 has no `WWW-Authenticate` on it. */
+export async function probeResource(mcpUrl: string): Promise<Probe> {
+  const response = await fetch(mcpUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2025-06-18",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "Autocast", version: "1" } },
+    }),
+  });
+  // Read and drop, so the connection is released.
+  await response.text().catch(() => "");
+  const challenge = response.headers.get("www-authenticate") ?? "";
+  return {
+    open: response.ok,
+    status: response.status,
+    resourceMetadataUrl: challenge.match(/resource_metadata="([^"]+)"/)?.[1] ?? null,
+  };
+}
+
+/** The well-known URLs RFC 9728 allows for a resource with a path: the
+ *  path-aware form first (`/.well-known/oauth-protected-resource/mcp` for a
+ *  server at `/mcp`), then the origin's. */
+function resourceMetadataCandidates(mcpUrl: string, named: string | null): string[] {
+  const url = new URL(mcpUrl);
+  const path = url.pathname.replace(/\/+$/, "");
+  const out: string[] = [];
+  if (named) out.push(named);
+  if (path && path !== "/") out.push(`${url.origin}/.well-known/oauth-protected-resource${path}`);
+  out.push(`${url.origin}/.well-known/oauth-protected-resource`);
+  return [...new Set(out)];
+}
+
 /** Reads the protected-resource document an MCP endpoint advertises.
  *
  *  The 401 is asked for rather than avoided: `www-authenticate` carries the
  *  exact metadata URL, and guessing the well-known path is how a client works
- *  against one server and not the next. */
-export async function discoverResource(mcpUrl: string): Promise<ResourceMetadata> {
-  const probe = await fetch(mcpUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-  });
-
-  const challenge = probe.headers.get("www-authenticate") ?? "";
-  const named = challenge.match(/resource_metadata="([^"]+)"/)?.[1];
-
-  const url = named ?? new URL("/.well-known/oauth-protected-resource", mcpUrl).toString();
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`resource metadata ${response.status} at ${url}`);
-  return await response.json() as ResourceMetadata;
+ *  against one server and not the next. The guesses come after it. */
+export async function discoverResource(mcpUrl: string, probe?: Probe): Promise<ResourceMetadata> {
+  const named = probe ? probe.resourceMetadataUrl : (await probeResource(mcpUrl)).resourceMetadataUrl;
+  let last = "";
+  for (const url of resourceMetadataCandidates(mcpUrl, named)) {
+    const response = await fetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
+    if (!response?.ok) {
+      last = `${response?.status ?? "unreachable"} at ${url}`;
+      continue;
+    }
+    const metadata = await response.json().catch(() => null) as ResourceMetadata | null;
+    if (metadata && Array.isArray(metadata.authorization_servers) && metadata.authorization_servers.length > 0) {
+      return metadata;
+    }
+    last = `no authorization_servers at ${url}`;
+  }
+  throw new Error(`resource metadata: ${last}`);
 }
 
-/** Reads an authorization server's own metadata, trying both well-known paths
- *  the specs disagree about. */
-export async function discoverServer(issuer: string): Promise<ServerMetadata> {
-  const candidates = [
-    new URL("/.well-known/oauth-authorization-server", issuer).toString(),
-    new URL("/.well-known/openid-configuration", issuer).toString(),
-  ];
+/** Every well-known URL RFC 8414 and OpenID Discovery allow for an issuer,
+ *  path-aware forms included (`/.well-known/oauth-authorization-server/tenant`
+ *  for an issuer at `/tenant`), in the order the specs say to try them. */
+function serverMetadataCandidates(issuer: string): string[] {
+  const url = new URL(issuer);
+  const path = url.pathname.replace(/\/+$/, "");
+  const out: string[] = [];
+  if (path && path !== "/") {
+    out.push(`${url.origin}/.well-known/oauth-authorization-server${path}`);
+    out.push(`${url.origin}/.well-known/openid-configuration${path}`);
+    out.push(`${url.origin}${path}/.well-known/openid-configuration`);
+  }
+  out.push(`${url.origin}/.well-known/oauth-authorization-server`);
+  out.push(`${url.origin}/.well-known/openid-configuration`);
+  return [...new Set(out)];
+}
 
-  for (const url of candidates) {
-    const response = await fetch(url).catch(() => null);
+/** Reads an authorization server's own metadata. */
+export async function discoverServer(issuer: string): Promise<ServerMetadata> {
+  for (const url of serverMetadataCandidates(issuer)) {
+    const response = await fetch(url, { headers: { Accept: "application/json" } }).catch(() => null);
     if (response?.ok) {
-      const metadata = await response.json() as ServerMetadata;
-      if (metadata.authorization_endpoint && metadata.token_endpoint) return metadata;
+      const metadata = await response.json().catch(() => null) as ServerMetadata | null;
+      if (metadata?.authorization_endpoint && metadata.token_endpoint) return metadata;
     }
   }
   throw new Error(`no authorization server metadata for ${issuer}`);
+}
+
+/** Everything needed to sign in to one MCP endpoint, found in one go. */
+export interface AuthorizationDiscovery {
+  resource: ResourceMetadata;
+  server: ServerMetadata;
+}
+
+/**
+ * Which authorization server to use for an MCP endpoint, and its metadata.
+ *
+ * The resource document may name several servers (RFC 9728 leaves the pick
+ * to the client), and an endpoint may also publish metadata at its own
+ * origin. The order here is the one that has worked: the endpoint's own
+ * origin first when it can register clients -- Higgsfield's proxies straight
+ * to its real server with the right hints -- then each named server in turn.
+ * A server with no registration endpoint is skipped when another has one,
+ * because without registration there is no client id and no way in.
+ *
+ * The same rule runs at sign-in, at the code exchange and at every refresh,
+ * so all three land on the one server that issued the client id. A second
+ * rule for later steps would be a way to exchange a code with the wrong
+ * server.
+ */
+export async function discoverAuthorization(
+  mcpUrl: string,
+  probe?: Probe,
+): Promise<AuthorizationDiscovery> {
+  const resource = await discoverResource(mcpUrl, probe);
+
+  const issuers = [new URL(mcpUrl).origin, ...resource.authorization_servers];
+  let fallback: ServerMetadata | null = null;
+  const failures: string[] = [];
+
+  for (const issuer of [...new Set(issuers)]) {
+    let server: ServerMetadata;
+    try {
+      server = await discoverServer(issuer);
+    } catch (thrown) {
+      failures.push(thrown instanceof Error ? thrown.message : String(thrown));
+      continue;
+    }
+    if (server.registration_endpoint) return { resource, server };
+    fallback ??= server;
+  }
+
+  if (fallback) return { resource, server: fallback };
+  throw new Error(`no usable authorization server: ${failures.join("; ")}`);
 }
 
 export interface Registration {

@@ -224,8 +224,8 @@ struct ProfileView: View {
             NavigationLink { AutopilotView() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
             }
-            NavigationLink { GeneratorsView().pushedPage() } label: {
-                SettingsValueLabel("AI generators", symbol: "wand.and.stars",
+            NavigationLink { GeneratorsView() } label: {
+                SettingsValueLabel("Video generators", symbol: "wand.and.stars",
                                    value: session.hasWorkingGenerator ? "Connected" : nil)
             }
             NavigationLink { PostDefaultsView().pushedPage() } label: {

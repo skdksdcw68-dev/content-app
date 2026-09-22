@@ -53,11 +53,14 @@ Deno.serve(async (request) => {
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
+    // Catalogue rows belong to everyone; a server somebody added themselves
+    // (0055) is theirs alone, and nobody else can start a sign-in to it.
     const { data: providers } = await admin
       .from("providers")
-      .select("id, slug, name, auth_kind, mcp_url")
+      .select("id, slug, name, auth_kind, mcp_url, owner_id")
       .eq("slug", slug)
       .eq("enabled", true)
+      .or(`owner_id.is.null,owner_id.eq.${auth.user.id}`)
       .limit(1);
 
     const provider = (providers ?? [])[0];

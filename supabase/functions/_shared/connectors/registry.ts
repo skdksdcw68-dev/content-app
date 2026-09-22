@@ -33,10 +33,13 @@ const ADAPTERS: Record<string, Adapter> = {
 
 export function adapterFor(providerSlug: string, authKind: string): Adapter {
   const adapter = ADAPTERS[`${providerSlug}:${authKind}`];
-  if (!adapter) {
-    throw new Error(`no adapter for ${providerSlug} over ${authKind}`);
-  }
-  return adapter;
+  if (adapter) return adapter;
+  // A server somebody added by address (0055) has no line here and never
+  // will; MCP is a protocol, and the adapter shapes every call from the
+  // tools the server declares. This is the one door that is generic by
+  // design, so it is the one fallback. A pasted key still needs real code.
+  if (authKind === "mcp_oauth") return mcpAdapter(providerSlug);
+  throw new Error(`no adapter for ${providerSlug} over ${authKind}`);
 }
 
 /** What this build can actually talk to. Used by the connect list so a provider

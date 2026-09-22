@@ -299,7 +299,8 @@ private struct AskBox: View {
 /// Remi's coach card shape: an invitation, not a warning.
 private struct ConnectGeneratorRow: View {
     var body: some View {
-        NavigationLink { ProfileView().pushedPage() } label: {
+        // Straight to the generators, not to Profile and a hunt from there.
+        NavigationLink { GeneratorsView() } label: {
             HStack(spacing: 12) {
                 Image(systemName: "wand.and.stars")
                     .font(.system(size: 17, weight: .semibold))

@@ -68,6 +68,15 @@ struct ConnectableProvider: Identifiable, Decodable, Hashable, Sendable {
     /// The person has a pasted key for this provider, which signing in will
     /// replace. Said on the button, because that is what pressing it does.
     let replacesKey: Bool?
+    /// The one the app leads with. Read from the row, never decided here.
+    let featured: Bool?
+    /// A sentence about it, from the row.
+    let tagline: String?
+    /// An MCP server this person added by address (0055).
+    let mine: Bool?
+
+    var isFeatured: Bool { featured == true }
+    var isMine: Bool { mine == true }
 
     /// The button's words.
     var action: String {
@@ -81,7 +90,7 @@ struct ConnectableProvider: Identifiable, Decodable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case slug, name
+        case slug, name, featured, tagline, mine
         case authKind = "auth_kind"
         case docsUrl = "docs_url"
         case replacesKey = "replaces_key"
@@ -168,6 +177,38 @@ extension AppSession {
         } catch {
             lastError = readableMessage(error)
             return false
+        }
+    }
+
+    /// Adds an MCP server by address and signs in to it.
+    ///
+    /// The address becomes a provider row only this person can see (0055),
+    /// and from there it is the same door as any catalogue provider: the app
+    /// opens a URL and waits. Returns true once the server is connected.
+    @discardableResult
+    func addMCPServer(name: String, url: String) async -> Bool {
+        let slug: String
+        do {
+            slug = try await client
+                .rpc("add_mcp_server", params: ["p_name": name, "p_url": url])
+                .execute()
+                .value
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+        await refreshConnectable()
+        return await connectProvider(slug)
+    }
+
+    /// Takes one of this person's own servers off the list.
+    func removeMCPServer(_ slug: String) async {
+        do {
+            try await client.rpc("remove_mcp_server", params: ["p_slug": slug]).execute()
+            await refreshConnectedProviders()
+            await refreshConnectable()
+        } catch {
+            lastError = readableMessage(error)
         }
     }
 

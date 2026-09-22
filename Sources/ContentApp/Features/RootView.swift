@@ -38,7 +38,21 @@ struct RootView: View {
                 // read from UserDefaults before any query resolves, so nobody
                 // sees the tabs flash past on the way to the welcome screen.
                 if session.onboarding == .done {
-                    tabs
+                    // ONE stack, around the tabs, not one inside each.
+                    //
+                    // Telegram is the reference (Abel, 22 Sep 2026): a page
+                    // opens OVER the tab bar, and when you drag it back the
+                    // screen underneath is still wearing its bar. With a stack
+                    // inside each tab, the bar belonged to the pushed page's
+                    // own hierarchy and the only thing SwiftUI could do with
+                    // it was switch it off -- it vanished on the push and
+                    // popped back before the swipe had finished, which is what
+                    // he saw. Here the pushed page is pushed on top of the
+                    // whole TabView, bar included, so nothing has to hide
+                    // anything: the bar simply stays on the screen it belongs
+                    // to and slides with it, at UIKit's own parallax, under
+                    // UIKit's own shadow.
+                    NavigationStack { tabs }
                 } else {
                     OnboardingFlowView()
                 }
@@ -53,8 +67,9 @@ struct RootView: View {
             appearance = AppAppearance.current
         }
         // A Pro limit anywhere opens Autocast Pro; the message that came with
-        // it is the paywall's reason, not a second alert.
-        .sheet(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
+        // it is the paywall's reason, not a second alert. Full screen, with
+        // its own close button, the way a paywall is a page and not a card.
+        .fullScreenCover(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
             PaywallView()
         }
         .task { await session.listenForTransactions() }
@@ -77,7 +92,7 @@ struct RootView: View {
         // why every Apple app uses the filled ones here.
         TabView(selection: $tab) {
             Tab("Home", systemImage: "house.fill", value: AppTab.home) {
-                NavigationStack { HomeView() }
+                HomeView()
             }
 
             // The one tab that hides the bar it lives in.
@@ -96,23 +111,23 @@ struct RootView: View {
             // back to an earlier one and no obvious way to start a fresh one.
             //
             // So the tab is the list, where the bar belongs because browsing is
-            // browsing, and a conversation is presented over it. The bar hides
-            // only once you are inside one.
+            // browsing, and a conversation is pushed over it -- over the bar
+            // too, since the stack is outside the tabs.
             Tab("Chat", systemImage: "sparkles", value: AppTab.chat) {
-                NavigationStack { ChatListView() }
+                ChatListView()
             }
 
             // Analytics took Library's place (Abel, 15 Sep 2026). The full post
             // list is still one tap away, at the bottom of Analytics.
             Tab("Analytics", systemImage: "chart.bar.fill", value: AppTab.analytics) {
-                NavigationStack { AnalyticsView() }
+                AnalyticsView()
             }
 
             // The badge is where Home's warnings went. A native count on the
             // tab, not a red box on the first screen -- and not nothing,
             // because a failure nobody sees is how September happened.
             Tab("You", systemImage: "person.crop.circle.fill", value: AppTab.you) {
-                NavigationStack { ProfileView() }
+                ProfileView()
             }
             .badge(session.attentionCount)
 
@@ -131,7 +146,7 @@ struct RootView: View {
             // the fallback is `.tabViewBottomAccessory` with a Create pill --
             // a different shape, same job, still native.
             Tab("Create", systemImage: "plus", value: AppTab.create, role: .search) {
-                NavigationStack { CreateView() }
+                CreateView()
             }
         }
         // 🔴 `.tabBarMinimizeBehavior(.onScrollDown)` was here, and it is gone

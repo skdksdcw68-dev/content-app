@@ -4,19 +4,15 @@ import UIKit
 
 /// Autocast Pro.
 ///
-/// Rebuilt from nothing on 22 Sep 2026 (Abel: "the pro sheet, change it
-/// completely no mercy"). The old one was a picture in a rounded box, a list of
-/// four good things, and two stacked rows of prices -- the layout every app
-/// ships, which is why it persuaded nobody.
+/// Rebuilt again on 22 Sep 2026, this time to a reference Abel sent (a
+/// wardrobe app's paywall): a title, a lineup picture, two small cards that
+/// each say one thing and offer "Compare", a yearly plan wearing a MOST
+/// POPULAR band, a monthly one under it, Continue, and the three links.
+/// The comparison lives in its own sheet -- Free against Pro, ticks and
+/// numbers -- so the paywall itself stays short enough to read whole.
 ///
-/// This one argues instead of announcing. The picture runs to the edges and
-/// under the status bar; the middle is a Free-against-Pro table, because the
-/// difference is the only thing worth showing and a list of benefits hides it;
-/// the two prices sit side by side where they can be compared at a glance; and
-/// the button never leaves the bottom of the screen.
-///
-/// Every number in the table is a limit the server enforces (plans_catalog,
-/// migrations 0002 and 0051). Nothing here promises a result.
+/// Every number here is a limit the server enforces (plans_catalog,
+/// migrations 0002 and 0051). Nothing promises a result.
 struct PaywallView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -28,6 +24,7 @@ struct PaywallView: View {
     @State private var loading = true
     @State private var buying = false
     @State private var restoring = false
+    @State private var comparing = false
 
     /// Set when shown as an onboarding step rather than a sheet.
     private let onClose: (() -> Void)?
@@ -44,15 +41,6 @@ struct PaywallView: View {
     private var monthly: Product? { products.first { $0.id == "autocast.pro.monthly" } }
     private var choice: Product? { products.first { $0.id == selected } }
 
-    /// "Save 44%": the yearly price against twelve months, from real prices.
-    private var saving: Int? {
-        guard let yearly, let monthly, monthly.price > 0 else { return nil }
-        let twelve = monthly.price * 12
-        let fraction = (twelve - yearly.price) / twelve
-        let percent = Int((NSDecimalNumber(decimal: fraction).doubleValue * 100).rounded(.down))
-        return percent >= 5 ? percent : nil
-    }
-
     private func hasTrial(_ product: Product) -> Bool {
         trialEligible && product.subscription?.introductoryOffer?.paymentMode == .freeTrial
     }
@@ -60,164 +48,90 @@ struct PaywallView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                hero
+                Text("Post every day")
+                    .font(.system(size: 30, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 10)
+                    .padding(.horizontal, 60)
 
-                comparison
-                    .padding(.horizontal, 16)
-                    .padding(.top, 24)
+                lineup
+                    .padding(.top, 18)
+
+                HStack(spacing: 12) {
+                    StatCard(top: .text("30"), label: "days planned ahead") { comparing = true }
+                    StatCard(top: .symbol("lock.open"), label: "All features") { comparing = true }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 22)
 
                 plans
-                    .padding(.horizontal, 16)
-                    .padding(.top, 18)
-
-                Text("AI video generation stays bring-your-own: connect your own generator and Autocast never bills you for frames.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 30)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
             }
-            .padding(.bottom, 20)
+            .padding(.bottom, 12)
         }
         .scrollIndicators(.hidden)
-        .ignoresSafeArea(edges: .top)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .background(Color(uiColor: .systemBackground).ignoresSafeArea())
         .safeAreaInset(edge: .bottom) { footer }
         .overlay(alignment: .topTrailing) { closeButton }
+        .sheet(isPresented: $comparing) { CompareSheet() }
         .task { await load() }
     }
 
-    // MARK: - The picture
+    // MARK: - The lineup
 
-    /// Edge to edge and under the clock, fading into the page. A picture inside
-    /// a rounded box reads as an illustration; a picture the screen starts with
-    /// reads as the product.
-    private var hero: some View {
-        ZStack(alignment: .bottomLeading) {
-            Group {
-                if let art = UIImage(named: "pro-hero") {
-                    Image(uiImage: art)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    LinearGradient(
-                        colors: [Color(red: 0.11, green: 0.11, blue: 0.13), Color.black],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
-            }
-            .frame(height: 360)
-            .frame(maxWidth: .infinity)
-            .clipped()
-
-            // Dark at the bottom so the words hold on any picture, and fading
-            // into the page colour so the photo has no edge.
-            LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: .black.opacity(0.75), location: 0.55),
-                    .init(color: .black.opacity(0.92), location: 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(height: 360)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("AUTOCAST PRO")
-                    .font(.caption.weight(.heavy))
-                    .kerning(1.6)
-                    .foregroundStyle(.white.opacity(0.7))
-
-                Text("A month of posts,\nwritten and posted for you")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .minimumScaleFactor(0.8)
-            }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 22)
+    /// A row of made videos, edge to edge, under the title. The picture is
+    /// Abel's (asset `pro-lineup`); until it exists, six video-shaped tiles in
+    /// six colours stand in, which is not a placeholder so much as the same
+    /// idea drawn with shapes.
+    @ViewBuilder
+    private var lineup: some View {
+        if let art = UIImage(named: "pro-lineup") {
+            Image(uiImage: art)
+                .resizable()
+                .scaledToFill()
+                .frame(height: 300)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .accessibilityHidden(true)
+        } else {
+            LineupTiles()
+                .frame(height: 230)
+                .padding(.horizontal, 20)
+                .accessibilityHidden(true)
         }
-        .frame(height: 360)
-        .accessibilityElement(children: .combine)
     }
-
-    // MARK: - Free against Pro
-
-    private var comparison: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Text("")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Free")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 62)
-                Text("Pro")
-                    .font(.footnote.weight(.heavy))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: 62)
-                    .padding(.vertical, 4)
-                    .background(Theme.accent, in: Capsule())
-            }
-            .padding(.horizontal, 18)
-            .padding(.top, 16)
-            .padding(.bottom, 10)
-
-            ForEach(Array(Self.rows.enumerated()), id: \.element.title) { index, row in
-                if index > 0 { Divider().padding(.leading, 18) }
-                ComparisonRow(row: row)
-            }
-        }
-        .padding(.bottom, 8)
-        .background(Color(uiColor: .secondarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-    }
-
-    /// The four enforced differences, in the order they are felt.
-    private static let rows: [ComparisonRow.Row] = [
-        .init(title: "How far ahead you can plan", free: "7 days", pro: "30 days"),
-        .init(title: "Captions and posts written for you", free: "5 / mo", pro: "500 / mo"),
-        .init(title: "Chat messages", free: "20 / mo", pro: "1,000 / mo"),
-        .init(title: "Accounts it posts to", free: "1", pro: "5"),
-    ]
 
     // MARK: - The two prices
 
     @ViewBuilder
     private var plans: some View {
         if loading {
-            ProgressView().frame(height: 150).frame(maxWidth: .infinity)
+            ProgressView().frame(height: 170).frame(maxWidth: .infinity)
         } else if products.isEmpty {
             Text("Plans couldn’t load. Check your connection and try again.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
-                .frame(height: 150)
+                .frame(height: 170)
         } else {
-            // Side by side: a year and a month are a comparison, and stacking
-            // them turns the comparison into scrolling.
-            HStack(alignment: .top, spacing: 12) {
+            VStack(spacing: 12) {
                 if let yearly {
-                    PriceCard(
-                        title: "Yearly",
-                        price: yearly.displayPrice,
-                        period: "a year",
-                        detail: perMonth(yearly),
-                        ribbon: hasTrial(yearly) ? trialText(yearly) : saving.map { "SAVE \($0)%" },
+                    PlanCard(
+                        band: hasTrial(yearly) ? trialText(yearly).uppercased() : "MOST POPULAR",
+                        title: "Yearly plan",
+                        subtitle: "\(yearly.displayPrice) billed annually",
+                        trailing: "\(perMonth(yearly)) / mo",
                         chosen: selected == yearly.id
                     ) { selected = yearly.id }
                 }
                 if let monthly {
-                    PriceCard(
+                    PlanCard(
+                        band: nil,
                         title: "Monthly",
-                        price: monthly.displayPrice,
-                        period: "a month",
-                        detail: "Cancel anytime",
-                        ribbon: nil,
+                        subtitle: nil,
+                        trailing: "\(monthly.displayPrice) / mo",
                         chosen: selected == monthly.id
                     ) { selected = monthly.id }
                 }
@@ -238,7 +152,7 @@ struct PaywallView: View {
                     } else if let choice, hasTrial(choice) {
                         Text("Start \(trialText(choice).lowercased())")
                     } else {
-                        Text("Get Autocast Pro")
+                        Text("Continue")
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: 30)
@@ -247,25 +161,30 @@ struct PaywallView: View {
             .controlSize(.large)
             .disabled(choice == nil || buying)
 
-            Text(renewalTerms)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 18) {
-                Button(restoring ? "Restoring…" : "Restore") { Task { await restore() } }
-                    .disabled(restoring)
-                Button("Terms") { openURL(AutocastLinks.terms) }
-                Button("Privacy") { openURL(AutocastLinks.privacy) }
+            if !renewalTerms.isEmpty {
+                Text(renewalTerms)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.caption.weight(.medium))
+
+            HStack {
+                Button(restoring ? "Restoring…" : "Restore purchase") { Task { await restore() } }
+                    .disabled(restoring)
+                Spacer()
+                Button("Terms of service") { openURL(AutocastLinks.terms) }
+                Spacer()
+                Button("Privacy policy") { openURL(AutocastLinks.privacy) }
+            }
+            .font(.footnote)
             .tint(.secondary)
+            .padding(.top, 2)
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .padding(.bottom, 8)
-        .background(.bar)
+        .background(Color(uiColor: .systemBackground))
     }
 
     private var closeButton: some View {
@@ -274,13 +193,12 @@ struct PaywallView: View {
         } label: {
             Image(systemName: "xmark")
                 .font(.footnote.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(.black.opacity(0.35), in: Circle())
-                .background(.ultraThinMaterial, in: Circle())
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 34)
+                .background(Color(uiColor: .secondarySystemBackground), in: Circle())
         }
         .buttonStyle(.plain)
-        .padding(.top, 14)
+        .padding(.top, 10)
         .padding(.trailing, 18)
         .accessibilityLabel("Close")
     }
@@ -289,8 +207,7 @@ struct PaywallView: View {
 
     private func perMonth(_ yearly: Product) -> String {
         let monthlyEquivalent = yearly.price / 12
-        let formatted = monthlyEquivalent.formatted(yearly.priceFormatStyle)
-        return "\(formatted) a month"
+        return monthlyEquivalent.formatted(yearly.priceFormatStyle)
     }
 
     private func trialText(_ product: Product) -> String {
@@ -369,100 +286,276 @@ struct PaywallView: View {
 
 // MARK: - Pieces
 
-/// One line of the table: what it is, what Free gets, what Pro gets.
-private struct ComparisonRow: View {
-    struct Row {
-        let title: String
-        let free: String
-        let pro: String
-    }
-
-    let row: Row
+/// Six videos standing in a row, each its own colour, at slightly different
+/// heights so it reads as a lineup and not a bar chart.
+private struct LineupTiles: View {
+    private let tiles: [(Color, String, CGFloat)] = [
+        (.indigo, "calendar", -10),
+        (.orange, "sparkles", 8),
+        (.teal, "play.fill", -4),
+        (.pink, "paperplane.fill", 10),
+        (.green, "chart.bar.fill", -8),
+        (.purple, "wand.and.stars", 4),
+    ]
 
     var body: some View {
-        HStack(spacing: 0) {
-            Text(row.title)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Text(row.free)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(width: 62)
-
-            Text(row.pro)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(.primary)
-                .frame(width: 62)
+        HStack(alignment: .center, spacing: 8) {
+            ForEach(Array(tiles.enumerated()), id: \.offset) { _, tile in
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(tile.0.gradient)
+                    .aspectRatio(9 / 16, contentMode: .fit)
+                    .overlay {
+                        Image(systemName: tile.1)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .offset(y: tile.2)
+            }
         }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 13)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(row.title). Free: \(row.free). Pro: \(row.pro).")
+        .frame(maxWidth: .infinity)
     }
 }
 
-/// One price, as a card tall enough to read from across the room.
-private struct PriceCard: View {
+/// One fact in a small card, with the way to the full comparison under it.
+private struct StatCard: View {
+    enum Top {
+        case text(String)
+        case symbol(String)
+    }
+
+    let top: Top
+    let label: String
+    let compare: () -> Void
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Group {
+                switch top {
+                case .text(let text):
+                    Text(text)
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                case .symbol(let name):
+                    Image(systemName: name)
+                        .font(.system(size: 26, weight: .semibold))
+                }
+            }
+            .foregroundStyle(.primary)
+            .frame(height: 36)
+
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.center)
+
+            Button(action: compare) {
+                Text("Compare")
+                    .font(.caption)
+                    .underline()
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+        .padding(.horizontal, 8)
+        .background(Color(uiColor: .secondarySystemBackground),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One plan: a band across the top when it is the one to pick, the name and
+/// the yearly total on the left, the monthly figure and a check on the right.
+private struct PlanCard: View {
+    let band: String?
     let title: String
-    let price: String
-    let period: String
-    let detail: String
-    let ribbon: String?
+    let subtitle: String?
+    let trailing: String
     let chosen: Bool
     let tap: () -> Void
 
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+    }
+
     var body: some View {
         Button(action: tap) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-
-                Text(price)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-
-                Text(period)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
-            .padding(16)
-            .padding(.top, ribbon == nil ? 0 : 8)
-            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .strokeBorder(chosen ? Theme.accent : Color.clear, lineWidth: 2)
-            )
-            .overlay(alignment: .top) {
-                if let ribbon {
-                    Text(ribbon.uppercased())
-                        .font(.caption2.weight(.heavy))
-                        .kerning(0.5)
+            VStack(spacing: 0) {
+                if let band {
+                    Text(band)
+                        .font(.caption.weight(.bold))
+                        .kerning(1)
                         .foregroundStyle(Theme.onAccent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Theme.accent, in: Capsule())
-                        .offset(y: -9)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background(Theme.accent)
                 }
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(band == nil ? .headline : .title2.bold())
+                            .foregroundStyle(.primary)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Text(trailing)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+
+                    Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(chosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color(uiColor: .systemGray3)))
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .padding(16)
             }
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .background(chosen ? Color(uiColor: .secondarySystemBackground) : Color(uiColor: .systemBackground))
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(chosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color(uiColor: .systemGray4)),
+                                   lineWidth: chosen ? 2 : 1.5)
+            }
+            .contentShape(shape)
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(chosen ? .isSelected : [])
+    }
+}
+
+// MARK: - Free against Pro
+
+/// The comparison, on its own sheet: what both get, what only Pro gets.
+private struct CompareSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    enum Cell {
+        case check
+        case value(String)
+        case blank
+    }
+
+    struct Row {
+        let title: String
+        let free: Cell
+        let pro: Cell
+    }
+
+    private static let rows: [Row] = [
+        .init(title: "Post to TikTok, YouTube and Instagram", free: .check, pro: .check),
+        .init(title: "Approve every post before it goes out", free: .check, pro: .check),
+        .init(title: "Make videos with your own generator", free: .check, pro: .check),
+        .init(title: "Days planned ahead", free: .value("7"), pro: .value("30")),
+        .init(title: "Captions and posts written for you each month", free: .value("5"), pro: .value("500")),
+        .init(title: "Chat messages each month", free: .value("20"), pro: .value("1,000")),
+        .init(title: "Accounts it posts to", free: .value("1"), pro: .value("5")),
+        .init(title: "Support the development of Autocast and new features", free: .blank, pro: .check),
+    ]
+
+    private let freeWidth: CGFloat = 60
+    private let proWidth: CGFloat = 72
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("Why should I get Autocast Pro?")
+                .font(.headline)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+
+            Divider()
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Text("Compare")
+                            .font(.title2.bold())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Free")
+                            .font(.headline)
+                            .frame(width: freeWidth)
+                        Text("Pro")
+                            .font(.headline)
+                            .frame(width: proWidth)
+                    }
+                    .padding(.vertical, 16)
+
+                    ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, row in
+                        Divider()
+                        HStack(spacing: 0) {
+                            Text(row.title)
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.trailing, 8)
+                            cell(row.free)
+                                .frame(width: freeWidth)
+                            cell(row.pro)
+                                .frame(width: proWidth)
+                        }
+                        .padding(.vertical, 15)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel("\(row.title). Free: \(spoken(row.free)). Pro: \(spoken(row.pro)).")
+                        .id(index)
+                    }
+                }
+                // The Pro column, tinted the whole way down.
+                .background(alignment: .trailing) {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.track)
+                        .frame(width: proWidth)
+                        .padding(.vertical, 4)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+            }
+
+            Button {
+                dismiss()
+            } label: {
+                Text("Got it 👌")
+                    .frame(maxWidth: .infinity, minHeight: 30)
+            }
+            .buttonStyle(RemiFilledButtonStyle())
+            .controlSize(.large)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .background(Color(uiColor: .systemBackground))
+        .presentationDetents([.fraction(0.8), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+
+    @ViewBuilder
+    private func cell(_ cell: Cell) -> some View {
+        switch cell {
+        case .check:
+            Image(systemName: "checkmark")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+        case .value(let text):
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+        case .blank:
+            Text("")
+        }
+    }
+
+    private func spoken(_ cell: Cell) -> String {
+        switch cell {
+        case .check: "yes"
+        case .value(let text): text
+        case .blank: "no"
+        }
     }
 }

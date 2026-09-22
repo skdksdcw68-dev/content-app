@@ -74,9 +74,11 @@ secret = ""
 
 # Sign in with Google: the browser round trip lands back on autocast://auth.
 # The same Web client as YouTube's connect flow, so one client id serves both.
+# Two client ids, web first (Supabase's rule): the web one backs the browser
+# round trip, the iOS one signs the token Google's own sheet returns.
 [auth.external.google]
 enabled = true
-client_id = "env(GOOGLE_CLIENT_ID)"
+client_id = "env(GOOGLE_CLIENT_IDS)"
 secret = "env(GOOGLE_CLIENT_SECRET)"
 
 [auth.email]

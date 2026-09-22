@@ -111,11 +111,17 @@ targets:
         # The session does not strictly require this declaration, but anything
         # else that wants to open the app -- a push, an email, the approval link
         # in a notification -- does.
+        # Google Sign-In reads this at launch; the URL scheme below is the same
+        # client id reversed, and is how Google hands the result back.
+        GIDClientID: 22542320026-fvvrgj9jc2rdgcugl7r6erpr18g0s0o6.apps.googleusercontent.com
         CFBundleURLTypes:
           - CFBundleURLName: com.abelamare.autocast.oauth
             CFBundleTypeRole: Editor
             CFBundleURLSchemes:
               - autocast
+          - CFBundleTypeRole: Editor
+            CFBundleURLSchemes:
+              - com.googleusercontent.apps.22542320026-fvvrgj9jc2rdgcugl7r6erpr18g0s0o6
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         # Shown verbatim in the system prompt. An app that reaches the photo

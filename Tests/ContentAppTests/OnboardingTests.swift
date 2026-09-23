@@ -60,11 +60,31 @@ final class OnboardingTests: XCTestCase {
     /// The questions onboarding asks are the Brand page's own, so answering
     /// them once fills the page somebody edits later.
     func testQuestionsAreTheBrandPageQuestions() {
-        XCTAssertEqual(OnboardingQuestion.all.count, 6)
-        XCTAssertEqual(OnboardingQuestion.all.map(\.id), ["category", "goal", "audience", "styles", "voice", "cta"])
+        XCTAssertEqual(OnboardingQuestion.all.count, 12)
+        XCTAssertEqual(OnboardingQuestion.all.map(\.id), [
+            "category", "goal", "audience", "platforms", "styles", "formats",
+            "length", "cadence", "camera", "voice", "cta", "avoid",
+        ])
+        // The ids are what the plan and the questionnaire look up, so no two
+        // questions may share one.
+        XCTAssertEqual(Set(OnboardingQuestion.all.map(\.id)).count, OnboardingQuestion.all.count)
         for question in OnboardingQuestion.all {
             XCTAssertFalse(question.options.isEmpty, "\(question.id) has no options")
             XCTAssertFalse(OnboardingPrompt.title(for: question).isEmpty)
         }
+    }
+
+    /// Anyone who answered the original six questions before the list grew
+    /// still counts as onboarded; a fresh profile does not.
+    func testTheOriginalSixAnswersStillCountAsOnboarded() {
+        var brand = Brand(
+            id: UUID(), name: "Remi", audience: "", niche: "", timezone: "Europe/Paris",
+            usesMemory: true, profile: [:]
+        )
+        XCTAssertFalse(brand.answeredOnboarding)
+        for id in ["category", "goal", "audience", "styles", "voice", "cta"] {
+            brand.profile?[id] = BrandAnswer(title: id, answers: ["x"])
+        }
+        XCTAssertTrue(brand.answeredOnboarding)
     }
 }

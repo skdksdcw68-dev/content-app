@@ -36,6 +36,8 @@ struct HomeView: View {
     /// Starting a series, and the plan it made, pushed once the sheet is gone.
     @State private var startingSeries = false
     @State private var series: PlanProposal?
+    /// Connecting where it posts, as a sheet over Home.
+    @State private var connecting = false
 
     private var videos: [BoardPost] { loadedVideos ?? [] }
 
@@ -154,7 +156,7 @@ struct HomeView: View {
                     .buttonStyle(SoftPressStyle())
 
                     if session.connections.isEmpty {
-                        NavigationLink { ProfileView() } label: {
+                        Button { connecting = true } label: {
                             ToolTile(title: "Connect\nan account", art: "tool-post", symbol: "link")
                         }
                         .buttonStyle(SoftPressStyle())
@@ -254,6 +256,7 @@ struct HomeView: View {
         .fullScreenCover(item: $reviewing) { post in
             VideoReviewView(post: post)
         }
+        .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
         .sheet(isPresented: $startingSeries, onDismiss: {
             // Pushed once the sheet is gone; a push during the dismissal is
             // dropped often enough to look like a dead button.

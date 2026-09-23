@@ -286,6 +286,12 @@ enum OnboardingPrompt {
         case "styles": return "What kind of videos?"
         case "voice": return "What’s your voice?"
         case "cta": return "What should viewers do?"
+        case "platforms": return "Where do you post?"
+        case "formats": return "How are your videos made?"
+        case "length": return "How long should they be?"
+        case "cadence": return "How often should it post?"
+        case "camera": return "Are you on camera?"
+        case "avoid": return "Anything it should never do?"
         default: return question.title
         }
     }

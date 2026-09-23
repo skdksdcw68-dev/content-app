@@ -18,6 +18,7 @@ struct CreateView: View {
     @State private var planning = false
     @State private var proposed: PlanProposal?
     @State private var pickerItem: PhotosPickerItem?
+    @State private var connecting = false
     @State private var caption = ""
     @State private var pendingVideo: (data: Data, filename: String)?
     @State private var namingVideo = false
@@ -49,12 +50,22 @@ struct CreateView: View {
                 .entrance(0)
 
                 // TikTok-style: your video, your words, Write with AI, Post.
-                NavigationLink { StudioFlowView() } label: {
-                    PrimaryButtonLabel(title: "Upload", systemImage: "plus")
+                // With nowhere to post, the button opens the connect sheet
+                // rather than sitting disabled.
+                Group {
+                    if session.connections.isEmpty {
+                        Button { connecting = true } label: {
+                            PrimaryButtonLabel(title: "Connect an account to upload", systemImage: "link")
+                        }
+                        .primaryButtonStyle()
+                    } else {
+                        NavigationLink { StudioFlowView() } label: {
+                            PrimaryButtonLabel(title: "Upload", systemImage: "plus")
+                        }
+                        .primaryButtonStyle()
+                        .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
+                    }
                 }
-                .primaryButtonStyle()
-                .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
-                .disabled(session.connections.isEmpty)
                 .padding(.top, 18)
                 .entrance(1)
 
@@ -110,6 +121,7 @@ struct CreateView: View {
         }
         .sheet(isPresented: $namingVideo) { captionSheet }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
+        .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
     }
 
     private var captionSheet: some View {

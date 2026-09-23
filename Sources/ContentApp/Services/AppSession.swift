@@ -158,21 +158,16 @@ final class AppSession {
                 UserDefaults.standard.set(user.id.uuidString, forKey: Self.lastUserKey)
                 if remembered != nil { setOnboarding(.welcome) }
             }
-            await refreshName()
+            // Only what decides which screen comes first is waited for: the
+            // person, the brand, and the accounts. Everything else loads
+            // behind the first screen, all at once -- ten reads in a row
+            // were the whole reason the mark sat there so long (Abel,
+            // 23 Sep 2026: "the splash is taking much time, make the app
+            // load in the back").
+            async let name: Void = refreshName()
+            async let connections: Void = refreshConnections()
             try await loadBrand(for: user.id)
-            await refreshConnections()
-            await refreshPosts()
-            await refreshPlan()
-            await refreshGenerators()
-            // Signed-in providers, loaded at launch alongside pasted keys --
-            // otherwise `hasWorkingGenerator` reads false until something
-            // happens to refresh them, and the Autopilot switch sits disabled
-            // for somebody who is connected.
-            await refreshConnectedProviders()
-            await refreshConnectable()
-            await refreshSettings()
-            await refreshHealth()
-            await refreshSubscription()
+            _ = await (name, connections)
             // An account is how somebody gets in (Abel, 21 Sep 2026:
             // "registration and onboarding completion is must"). Anyone who
             // finished setup before that rule, or whose session lapsed into a
@@ -184,8 +179,27 @@ final class AppSession {
             // door, or from before this rule -- answers them now.
             if onboarding == .done, let brand, !brand.answeredOnboarding { setOnboarding(.question(0)) }
             state = .ready
-            // Anything bought on another device, or renewed while closed.
-            Task { await syncPurchases() }
+
+            // The rest, together, behind the screen that is already up.
+            // Every screen that needs one of these draws its skeleton until
+            // it lands, and refreshes it again on its own.
+            Task {
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { await self.refreshPosts() }
+                    group.addTask { await self.refreshPlan() }
+                    group.addTask { await self.refreshGenerators() }
+                    // Signed-in providers alongside pasted keys -- otherwise
+                    // `hasWorkingGenerator` reads false until something
+                    // happens to refresh them.
+                    group.addTask { await self.refreshConnectedProviders() }
+                    group.addTask { await self.refreshConnectable() }
+                    group.addTask { await self.refreshSettings() }
+                    group.addTask { await self.refreshHealth() }
+                    group.addTask { await self.refreshSubscription() }
+                    // Anything bought on another device, or renewed while closed.
+                    group.addTask { await self.syncPurchases() }
+                }
+            }
         } catch {
             state = .failed(readableMessage(error))
         }

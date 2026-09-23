@@ -112,6 +112,60 @@ enum BrandQuestions {
         ]
     )
 
+    /// Asked on day one as well, because a series cannot be planned without
+    /// them (Abel, 23 Sep 2026: "for the content auto generation the
+    /// onboarding isn't enough, ask them more things").
+    static let cadence = OnboardingQuestion(
+        id: "cadence",
+        title: "Posting rhythm",
+        subtitle: "How often it should post for you.",
+        selection: .single,
+        options: [
+            .init(id: "3week", label: "Three a week", symbol: "calendar"),
+            .init(id: "daily", label: "Every day", symbol: "sun.max"),
+            .init(id: "twice", label: "Twice a day", symbol: "sun.max.fill"),
+        ]
+    )
+
+    static let platforms = OnboardingQuestion(
+        id: "platforms",
+        title: "Where you post",
+        subtitle: "Pick every one. You connect them later.",
+        selection: .multiple,
+        options: [
+            .init(id: "tiktok", label: "TikTok", symbol: "music.note"),
+            .init(id: "reels", label: "Instagram Reels", symbol: "play.square.stack"),
+            .init(id: "shorts", label: "YouTube Shorts", symbol: "play.rectangle.on.rectangle"),
+        ]
+    )
+
+    static let camera = OnboardingQuestion(
+        id: "camera",
+        title: "On camera",
+        subtitle: "Whether you appear in the videos.",
+        selection: .single,
+        options: [
+            .init(id: "face", label: "Yes, talking to camera", symbol: "person.crop.square"),
+            .init(id: "voice", label: "Voice only, no face", symbol: "waveform"),
+            .init(id: "none", label: "No voice, just footage", symbol: "eye.slash"),
+        ]
+    )
+
+    static let avoid = OnboardingQuestion(
+        id: "avoid",
+        title: "Never do this",
+        subtitle: "Things it must leave out. Pick as many as you like.",
+        selection: .multiple,
+        options: [
+            .init(id: "politics", label: "Politics and religion", symbol: "hand.raised"),
+            .init(id: "slang", label: "Memes and slang", symbol: "face.smiling"),
+            .init(id: "money", label: "Talking about money", symbol: "dollarsign.circle"),
+            .init(id: "competitors", label: "Naming competitors", symbol: "building.2"),
+            .init(id: "personal", label: "My personal life", symbol: "lock"),
+            .init(id: "hype", label: "Hype words", symbol: "flame"),
+        ]
+    )
+
     static let cta = OnboardingQuestion(
         id: "cta",
         title: "Call to action",
@@ -169,9 +223,9 @@ enum BrandQuestions {
     )
 
     /// In the order the page shows them, grouped.
-    static let audienceGroup: [OnboardingQuestion] = [category, goal, audience, ages]
-    static let contentGroup: [OnboardingQuestion] = [styles, formats, length]
-    static let writingGroup: [OnboardingQuestion] = [cta, emoji, hashtags, language]
+    static let audienceGroup: [OnboardingQuestion] = [category, goal, audience, ages, platforms]
+    static let contentGroup: [OnboardingQuestion] = [styles, formats, length, cadence, camera]
+    static let writingGroup: [OnboardingQuestion] = [cta, emoji, hashtags, language, avoid]
 
     /// Free-text answers, saved into the same profile.
     struct TextQuestion: Identifiable, Hashable {

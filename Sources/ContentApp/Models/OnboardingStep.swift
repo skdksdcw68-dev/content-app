@@ -39,8 +39,15 @@ extension OnboardingQuestion {
     /// the two never disagree (Abel, 19 Sep 2026: "selections and questions,
     /// like onboarding").
     static var all: [OnboardingQuestion] {
+        // Twelve now, not six: a series needs the rhythm, the platforms,
+        // the length, whether they are on camera and what to leave out
+        // before it can plan a month (Abel, 23 Sep 2026). Anyone who
+        // answered the original six still counts as done -- see
+        // `Brand.answeredOnboarding`, which asks for half.
         [BrandQuestions.category, BrandQuestions.goal, BrandQuestions.audience,
-         BrandQuestions.styles, BrandQuestions.voice, BrandQuestions.cta]
+         BrandQuestions.platforms, BrandQuestions.styles, BrandQuestions.formats,
+         BrandQuestions.length, BrandQuestions.cadence, BrandQuestions.camera,
+         BrandQuestions.voice, BrandQuestions.cta, BrandQuestions.avoid]
     }
 
     /// Writes `brands.niche`. The reference calls this "What did you build?"

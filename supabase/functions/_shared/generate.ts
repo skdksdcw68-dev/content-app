@@ -80,6 +80,8 @@ export async function startJob(
     brandId: string;
     prompt: string;
     webhookBase: string;
+    /** Model settings to send along, such as `duration`. */
+    options?: Record<string, unknown>;
   },
 ): Promise<{ jobId: string; requestId: string }> {
   // Which provider, if any, is now a question rather than an import. The old
@@ -102,7 +104,7 @@ export async function startJob(
       // wrong is worse than a row that briefly says nothing.
       provider: "pending",
       status: "queued",
-      input: { prompt: args.prompt },
+      input: { prompt: args.prompt, ...(args.options ? { options: args.options } : {}) },
     })
     .select("id, webhook_token")
     .single();
@@ -119,6 +121,7 @@ export async function startJob(
       // Even so the body is never believed -- see finishJob.
       webhookUrl: `${args.webhookBase}/hf-webhook/${job.webhook_token}`,
       preferModel: lastGoodModel ?? undefined,
+      options: args.options,
     });
 
     const submitted = routed.submitted;

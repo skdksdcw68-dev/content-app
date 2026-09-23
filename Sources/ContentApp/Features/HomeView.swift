@@ -33,6 +33,9 @@ struct HomeView: View {
     @State private var proposed: PlanProposal?
     /// Typed into the field at the top.
     @State private var ask = ""
+    /// Starting a series, and the plan it made, pushed once the sheet is gone.
+    @State private var startingSeries = false
+    @State private var series: PlanProposal?
 
     private var videos: [BoardPost] { loadedVideos ?? [] }
 
@@ -76,6 +79,23 @@ struct HomeView: View {
                 askField
                     .padding(.top, 4)
                     .entrance(1)
+
+                // The thing worth pushing, Fresha's gift-card card: a series.
+                Group {
+                    if let plan = session.plan, plan.isSeries, !plan.isProposal {
+                        NavigationLink { PlanView() } label: {
+                            SeriesCard(title: plan.title, line: "Running. Each video is made the day before and waits for your tap.", action: "Open")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    } else {
+                        Button { startingSeries = true } label: {
+                            SeriesCard(title: "Start a series", line: "Pick a style. It writes the month and makes a video a day.", action: "Pick a style")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    }
+                }
+                .padding(.top, 16)
+                .entrance(1)
 
                 SectionHeader(title: "Keep creating", chevron: !videos.isEmpty) {
                     session.push(.library)
@@ -207,6 +227,16 @@ struct HomeView: View {
         }
         .fullScreenCover(item: $reviewing) { post in
             VideoReviewView(post: post)
+        }
+        .sheet(isPresented: $startingSeries, onDismiss: {
+            // Pushed once the sheet is gone; a push during the dismissal is
+            // dropped often enough to look like a dead button.
+            if let series {
+                self.series = nil
+                session.push(.plan(series))
+            }
+        }) {
+            SeriesFlowView { series = $0 }
         }
         .alert("Delete this video?", isPresented: Binding(
             get: { deleting != nil },
@@ -450,6 +480,61 @@ private struct ToolTile: View {
         .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
+    }
+}
+
+/// A series, as the black card at the top: the words on the left, the
+/// picture (asset `home-series`) bleeding off the right, the one line of
+/// action with an arrow. Fresha's "Send a special gift card", in ink.
+private struct SeriesCard: View {
+    let title: String
+    let line: String
+    let action: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(line)
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Text(action)
+                    Image(systemName: "arrow.right")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 4)
+            }
+            .padding(.leading, 20)
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Group {
+                if let image = UIImage(named: "home-series") {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 40, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.25))
+                }
+            }
+            .frame(width: 150)
+            .frame(maxHeight: .infinity)
+            .clipped()
+        }
+        .frame(height: 164)
+        .background(Color.black)
+        .clipShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title). \(line)")
     }
 }
 

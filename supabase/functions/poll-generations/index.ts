@@ -123,6 +123,7 @@ async function startDueRenders(admin: ReturnType<typeof createClient>): Promise<
     user_id: string;
     brand_id: string;
     prompt: string;
+    duration_s: number | null;
   }>;
 
   let started = 0;
@@ -135,6 +136,9 @@ async function startDueRenders(admin: ReturnType<typeof createClient>): Promise<
         brandId: row.brand_id,
         prompt: row.prompt,
         webhookBase: WEBHOOK_BASE,
+        // The length the series asked for (0057); the model's own default
+        // otherwise.
+        options: row.duration_s ? { duration: row.duration_s } : undefined,
       });
       started += 1;
     } catch (thrown) {

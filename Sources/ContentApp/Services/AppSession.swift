@@ -804,7 +804,7 @@ extension AppSession {
             // showed, so Drobe could open Remi Snap's month.
             let plans: [ContentPlan] = try await client
                 .from("content_plans")
-                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms")
+                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms,template_slug,duration_s")
                 .eq("brand_id", value: brand.id.uuidString)
                 .in("status", values: ["draft", "proposed", "active", "paused"])
                 .order("created_at", ascending: false)
@@ -842,7 +842,30 @@ extension AppSession {
     /// result is a proposal: rows exist, nothing is scheduled, and the person
     /// has not agreed to anything yet.
     @discardableResult
-    func proposePlan(brief: String, days: Int, postsPerDay: Int, platforms: [String] = []) async -> PlanProposal? {
+    /// The content styles on offer, in the catalogue's order.
+    func templates() async -> [ContentTemplate] {
+        do {
+            return try await client
+                .from("content_templates")
+                .select("slug,name,tagline,category,symbol,art,pillars,visual_style")
+                .eq("enabled", value: true)
+                .order("sort")
+                .execute()
+                .value
+        } catch {
+            report("templates", error)
+            return []
+        }
+    }
+
+    func proposePlan(
+        brief: String,
+        days: Int,
+        postsPerDay: Int,
+        platforms: [String] = [],
+        template: String? = nil,
+        durationSeconds: Int? = nil
+    ) async -> PlanProposal? {
         guard !isPlanning else { return nil }
         isPlanning = true
         defer { isPlanning = false }
@@ -855,7 +878,9 @@ extension AppSession {
                     days: days,
                     postsPerDay: postsPerDay,
                     brandId: brand?.id.uuidString,
-                    platforms: platforms.isEmpty ? nil : platforms
+                    platforms: platforms.isEmpty ? nil : platforms,
+                    template: template,
+                    durationSeconds: durationSeconds
                 ))
             )
             await refreshSettings()
@@ -979,11 +1004,16 @@ private struct PlanRequest: Encodable {
     let brandId: String?
     /// Where the posts go: "tiktok", "reels", "shorts".
     let platforms: [String]?
+    /// A content style (content_templates.slug), for a series.
+    let template: String?
+    /// How long each video should be. Nil lets the model decide.
+    let durationSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
-        case brief, days, platforms
+        case brief, days, platforms, template
         case postsPerDay = "posts_per_day"
         case brandId = "brand_id"
+        case durationSeconds = "duration_s"
     }
 }
 

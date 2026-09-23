@@ -21,6 +21,10 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
     /// What the plan is for. Empty on plans written before 0043.
     var objective: String? = nil
     var platforms: [String]? = nil
+    /// The content style this plan was made from, when it is a series (0057).
+    var templateSlug: String? = nil
+    /// How long each video should be, when the series said.
+    var durationSeconds: Int? = nil
 
     enum Status: String, Decodable, Sendable {
         case draft, proposed, approved, active, paused, archived
@@ -31,7 +35,12 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
         case startsOn = "starts_on"
         case postsPerDay = "posts_per_day"
         case approvedAt = "approved_at"
+        case templateSlug = "template_slug"
+        case durationSeconds = "duration_s"
     }
+
+    /// A plan made from a style: a series.
+    var isSeries: Bool { templateSlug != nil }
 
     /// Waiting on a person: written, costed, and doing nothing yet.
     var isProposal: Bool { status == .draft || status == .proposed }

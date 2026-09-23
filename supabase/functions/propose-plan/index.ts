@@ -60,6 +60,19 @@ interface Body {
   /** Where the posts go: "tiktok", "reels", "shorts". Asked in the plan
    *  sheet (Abel, 23 Sep 2026); the scheduler reads it from brand_settings. */
   platforms?: string[];
+  /** A content style from content_templates (0057): its brief and themes
+   *  drive the month, its look drives every video. */
+  template?: string;
+  /** How long each video should be, in seconds. Nil lets the model decide. */
+  duration_s?: number;
+}
+
+interface Template {
+  slug: string;
+  name: string;
+  brief: string;
+  pillars: Array<{ name: string; detail: string }>;
+  visual_style: string;
 }
 
 const PLATFORMS = new Set(["tiktok", "reels", "shorts"]);
@@ -98,10 +111,28 @@ Deno.serve(async (request) => {
     if (!auth.user) throw new PublicError("Sign in first.", 401);
 
     const body = (await request.json().catch(() => ({}))) as Body;
-    const brief = (body.brief ?? "").trim();
     const days = clamp(body.days ?? 30, 1, 60);
     const perDay = clamp(body.posts_per_day ?? 1, 1, 6);
     const platforms = [...new Set((body.platforms ?? []).filter((p) => PLATFORMS.has(p)))];
+    const durationS = typeof body.duration_s === "number" && body.duration_s >= 5 && body.duration_s <= 180
+      ? Math.round(body.duration_s)
+      : null;
+
+    // The style, when one was chosen. Its brief leads the month; the
+    // person's own words come after it.
+    let template: Template | null = null;
+    if (typeof body.template === "string" && body.template.trim()) {
+      const { data: found } = await createClient(SUPABASE_URL, SERVICE_KEY)
+        .from("content_templates")
+        .select("slug, name, brief, pillars, visual_style")
+        .eq("slug", body.template.trim())
+        .eq("enabled", true)
+        .maybeSingle();
+      if (!found) throw new PublicError("That style is not available.", 404);
+      template = found as Template;
+    }
+
+    const brief = [template?.brief, (body.brief ?? "").trim()].filter(Boolean).join("\n");
 
     // Free and trial plans write a week at a time; Pro writes the month.
     const allowedDays = await maxPlanDays(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
@@ -125,6 +156,31 @@ Deno.serve(async (request) => {
     ).limit(1).maybeSingle();
 
     if (!brand) throw new PublicError("Set up your brand first.", 400);
+
+    // A style brings its themes with it: they become the brand's pillars so
+    // the slots rotate through them, added beside whatever is already there
+    // (the same name is not added twice).
+    if (template && Array.isArray(template.pillars) && template.pillars.length > 0) {
+      const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+      const { data: existing } = await admin
+        .from("content_pillars")
+        .select("name")
+        .eq("brand_id", brand.id);
+      const have = new Set((existing ?? []).map((p: { name: string }) => p.name.trim().toLowerCase()));
+      const missing = template.pillars
+        .filter((p) => p?.name && !have.has(p.name.trim().toLowerCase()))
+        .map((p) => ({
+          user_id: auth.user.id,
+          brand_id: brand.id,
+          name: p.name.trim().slice(0, 80),
+          detail: (p.detail ?? "").trim().slice(0, 300),
+          is_enabled: true,
+        }));
+      if (missing.length > 0) {
+        const { error: pillarError } = await admin.from("content_pillars").insert(missing);
+        if (pillarError) console.error("template pillars", pillarError.message);
+      }
+    }
 
     const { data: pillars } = await asUser
       .from("content_pillars")
@@ -231,6 +287,7 @@ Deno.serve(async (request) => {
         slots: laidOut.slice(start, start + BATCH),
         offset: start,
         avoid: [...used].slice(0, 40),
+        style: template?.visual_style ?? "",
       });
 
       tokensIn += result.tokensIn;
@@ -252,7 +309,9 @@ Deno.serve(async (request) => {
       .insert({
         user_id: auth.user.id,
         brand_id: brand.id,
-        title: brief ? brief.slice(0, 80) : `${days} days for ${brand.name}`,
+        title: template
+          ? `${template.name} · ${days} days`
+          : (brief ? brief.slice(0, 80) : `${days} days for ${brand.name}`),
         status: "proposed",
         starts_on: startsOn,
         days,
@@ -260,6 +319,8 @@ Deno.serve(async (request) => {
         brief,
         objective: (body.objective ?? brief).trim().slice(0, 300),
         platforms: platforms.length > 0 ? platforms : ["tiktok"],
+        template_slug: template?.slug ?? null,
+        duration_s: durationS,
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
@@ -325,6 +386,7 @@ Deno.serve(async (request) => {
         offset: 0,
         avoid: [...used].slice(0, 40),
         strict: true,
+        style: template?.visual_style ?? "",
       }).catch((thrown) => {
         console.error("propose-plan second pass", thrown instanceof Error ? thrown.message : thrown);
         return { posts: [] as Written[], tokensIn: 0, tokensOut: 0 };
@@ -482,8 +544,10 @@ async function writeBatch(args: {
   /** The second pass: these slots failed once for inventing or for coming
    *  back empty, and the prompt says so. */
   strict?: boolean;
+  /** How every video should look (a style's visual_style, 0057). */
+  style?: string;
 }): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number }> {
-  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict } = args;
+  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict, style } = args;
 
   const system = [
     "You plan short-form video content for one social account.",
@@ -514,6 +578,9 @@ async function writeBatch(args: {
     "Hooks: no two may begin with the same three words, and none may repeat an opening in the avoid list. Vary the grammatical form -- some questions, some statements, some instructions, some observations.",
     strict
       ? "SECOND ATTEMPT. A first draft of these exact slots was rejected because it quoted a person, claimed something was recently changed or shipped, or came back empty. Write each one again from FACTS only: show how the thing works today, ask the audience a question, name a common mistake, argue for a belief, or compare two approaches. Every slot must come back filled."
+      : "",
+    style
+      ? `VISUAL STYLE: every concept describes its shot in this style -- ${style}. Name the setting, the light and the camera move in the concept itself, so whoever makes the video does not have to guess.`
       : "",
   ].filter(Boolean).join("\n");
 

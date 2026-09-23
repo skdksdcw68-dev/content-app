@@ -187,7 +187,7 @@ struct HomeView: View {
             .screenGutter()
             .padding(.bottom, 32)
         }
-        .background(Color.canvas.ignoresSafeArea())
+        .background(Color.canvas.ignoresSafeArea().dismissesKeyboardOnTap())
         // The top is the system's: the greeting as an inline-large title,
         // Upgrade and the profile circle beside it, nothing else (Abel,
         // 23 Sep 2026: "keep the home top things native... the pro and

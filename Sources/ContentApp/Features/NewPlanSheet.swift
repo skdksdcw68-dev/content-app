@@ -148,7 +148,7 @@ struct NewPlanSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.canvas)
+            .background(Theme.canvas.dismissesKeyboardOnTap())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -932,7 +932,7 @@ private struct PastePlanView: View {
             }
             .padding(Style.gutter)
         }
-        .background(Color.canvas.ignoresSafeArea())
+        .background(Color.canvas.ignoresSafeArea().dismissesKeyboardOnTap())
         .onAppear { focused = text.isEmpty }
     }
 }

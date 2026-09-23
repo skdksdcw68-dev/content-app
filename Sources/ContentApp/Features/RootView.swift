@@ -79,13 +79,22 @@ struct RootView: View {
         }
         .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
-        // A tap on empty space puts the keyboard away, everywhere; so does
-        // dragging a list (Abel, 23 Sep 2026). Simultaneous, so buttons
-        // under the finger still get their tap.
+        // Dragging any list puts the keyboard away. This one is safe: it is a
+        // scroll behaviour, not a gesture recogniser, so it competes with
+        // nothing.
+        //
+        // 🔴 There was a `.simultaneousGesture(TapGesture())` here to close the
+        // keyboard on a tap anywhere. It made the app unusable (Abel, 23 Sep
+        // 2026: "you cannot click the settings, the chats and anything, only
+        // few works and others doesnt even responds"). "Simultaneous" does not
+        // mean "passive": the recogniser still joins gesture arbitration for
+        // every touch in the app, and against a List row, a NavigationLink, a
+        // toolbar button or the tab bar it sometimes wins -- so a tap that
+        // should have opened a page only dismissed a keyboard that was not up.
+        // Tap-to-dismiss belongs on the screens that actually have a field,
+        // behind their content, where it cannot take a control's touch. See
+        // `dismissesKeyboardOnBackgroundTap()`.
         .scrollDismissesKeyboard(.interactively)
-        .simultaneousGesture(TapGesture().onEnded {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        })
         .preferredColorScheme(appearance.colorScheme)
         // Every switch in the app is the system's own, in the system's green.
         // The drawn one read as "black and not native" (Abel, 22 Sep 2026).

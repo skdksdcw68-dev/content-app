@@ -38,7 +38,7 @@ struct OnboardingFlowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.canvas)
+            .background(Theme.canvas.dismissesKeyboardOnTap())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // The conditional lives inside the item, not around it:

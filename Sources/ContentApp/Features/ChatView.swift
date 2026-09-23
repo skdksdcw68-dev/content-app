@@ -238,8 +238,12 @@ struct ChatView: View {
                     }
                     .animation(.easeOut(duration: 0.2), value: showsJump)
             }
+            // Dragging closes the keyboard. The tap that used to do it lived
+            // on this ScrollView as a `simultaneousGesture` and could take a
+            // touch meant for a bubble, a link or a button inside it; the
+            // screen's background does the same job from behind, where it
+            // cannot. See `KeyboardDismiss`.
             .scrollDismissesKeyboard(.interactively)
-            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
             .onChange(of: turns.count) { old, _ in
                 if scrollsToPinned, let pinned {
                     // Just sent: that message to the top, its reply to come
@@ -285,7 +289,7 @@ struct ChatView: View {
                 .ignoresSafeArea()
             }
         }
-        .background(Theme.canvas)
+        .background(Theme.canvas.dismissesKeyboardOnTap())
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId

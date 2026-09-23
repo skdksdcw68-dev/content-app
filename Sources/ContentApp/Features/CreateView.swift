@@ -107,7 +107,7 @@ struct CreateView: View {
             .padding(.top, 8)
             .padding(.bottom, 32)
         }
-        .background(Color.canvas.ignoresSafeArea())
+        .background(Color.canvas.ignoresSafeArea().dismissesKeyboardOnTap())
         .tabChrome(title: "Create")
         .photosPicker(isPresented: $pickingVideo, selection: $pickerItem, matching: .videos)
         .task(id: pickerItem) { await loadPicked() }

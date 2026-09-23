@@ -73,6 +73,49 @@ interface Template {
   brief: string;
   pillars: Array<{ name: string; detail: string }>;
   visual_style: string;
+  /** How its videos get made (0058): format, beats, shots, voice, text,
+   *  hook patterns, default length. */
+  workflow?: {
+    format?: string;
+    structure?: string[];
+    shots?: number;
+    voice?: string;
+    text?: string;
+    music?: string;
+    hooks?: string[];
+    duration_s?: number;
+  } | null;
+}
+
+/** The writer's instructions for a style's workflow, as prompt lines. */
+function workflowLines(template: Template | null): string {
+  const w = template?.workflow;
+  if (!w) return "";
+  const lines: string[] = [];
+  const formats: Record<string, string> = {
+    narrated: "a narrated video: a voice-over speaks while shots play, so the caption field is the voice-over script",
+    text_on_screen: "a text-on-screen video: no voice, the words are read on screen, so keep every line short",
+    talking_head: "a talking-head video: one person speaks to camera, so the caption field is what they say",
+    b_roll: "a b-roll video: shots carry it, with short on-screen text",
+    demo: "a demo: the thing is shown being done, step by step",
+    slideshow: "a slideshow: still frames with text",
+  };
+  if (w.format && formats[w.format]) lines.push(`FORMAT: ${formats[w.format]}.`);
+  if (Array.isArray(w.structure) && w.structure.length > 0) {
+    lines.push(`STRUCTURE every post follows, in order: ${w.structure.join(" -> ")}.`);
+  }
+  if (typeof w.shots === "number" && w.shots > 0) {
+    lines.push(`The concept lists exactly ${w.shots} shots, numbered, each one sentence: what is in frame, the light, the camera move.`);
+  }
+  if (w.voice === "none") lines.push("No voice-over: the caption is the on-screen text only.");
+  if (w.text === "big_text") lines.push("On-screen text is one big line per beat; put those lines in the concept as TEXT: ...");
+  if (Array.isArray(w.hooks)) {
+    const patterns = w.hooks.filter((h) => typeof h === "string" && h.trim());
+    if (patterns.length > 0) {
+      lines.push(`Hook patterns to rotate through (fill the blanks with FACTS, never invent): ${patterns.map((h) => `"${h}"`).join(", ")}.`);
+    }
+  }
+  return lines.join("\n");
 }
 
 const PLATFORMS = new Set(["tiktok", "reels", "shorts"]);
@@ -124,13 +167,17 @@ Deno.serve(async (request) => {
     if (typeof body.template === "string" && body.template.trim()) {
       const { data: found } = await createClient(SUPABASE_URL, SERVICE_KEY)
         .from("content_templates")
-        .select("slug, name, brief, pillars, visual_style")
+        .select("slug, name, brief, pillars, visual_style, workflow")
         .eq("slug", body.template.trim())
         .eq("enabled", true)
         .maybeSingle();
       if (!found) throw new PublicError("That style is not available.", 404);
       template = found as Template;
     }
+
+    // "Decide for me" on a style means the style's own length.
+    const durationDefault = template?.workflow?.duration_s;
+    const durationChosen = durationS ?? (typeof durationDefault === "number" ? durationDefault : null);
 
     const brief = [template?.brief, (body.brief ?? "").trim()].filter(Boolean).join("\n");
 
@@ -288,6 +335,7 @@ Deno.serve(async (request) => {
         offset: start,
         avoid: [...used].slice(0, 40),
         style: template?.visual_style ?? "",
+        workflow: workflowLines(template),
       });
 
       tokensIn += result.tokensIn;
@@ -320,7 +368,7 @@ Deno.serve(async (request) => {
         objective: (body.objective ?? brief).trim().slice(0, 300),
         platforms: platforms.length > 0 ? platforms : ["tiktok"],
         template_slug: template?.slug ?? null,
-        duration_s: durationS,
+        duration_s: durationChosen,
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
@@ -387,6 +435,7 @@ Deno.serve(async (request) => {
         avoid: [...used].slice(0, 40),
         strict: true,
         style: template?.visual_style ?? "",
+        workflow: workflowLines(template),
       }).catch((thrown) => {
         console.error("propose-plan second pass", thrown instanceof Error ? thrown.message : thrown);
         return { posts: [] as Written[], tokensIn: 0, tokensOut: 0 };
@@ -546,8 +595,10 @@ async function writeBatch(args: {
   strict?: boolean;
   /** How every video should look (a style's visual_style, 0057). */
   style?: string;
+  /** How every video gets made (a style's workflow, 0058), as prompt lines. */
+  workflow?: string;
 }): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number }> {
-  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict, style } = args;
+  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict, style, workflow } = args;
 
   const system = [
     "You plan short-form video content for one social account.",
@@ -582,6 +633,7 @@ async function writeBatch(args: {
     style
       ? `VISUAL STYLE: every concept describes its shot in this style -- ${style}. Name the setting, the light and the camera move in the concept itself, so whoever makes the video does not have to guess.`
       : "",
+    workflow,
   ].filter(Boolean).join("\n");
 
   // Everything under FACTS is something a person wrote down. Nothing else is

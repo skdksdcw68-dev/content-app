@@ -91,8 +91,8 @@ struct EditorView: View {
     var body: some View {
         VStack(spacing: 14) {
             preview
-            scrubber
-            clipStrip
+            transport
+            strip
         }
         .padding(.top, 8)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -164,20 +164,23 @@ struct EditorView: View {
             .padding(.horizontal, Style.gutter)
     }
 
-    private var scrubber: some View {
-        HStack(spacing: 12) {
+    /// Play, the time, add clips, undo. The scrubbing itself is the strip.
+    private var transport: some View {
+        HStack(spacing: 14) {
             Button { playback.toggle(duration: project.duration) } label: {
                 Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
                     .font(.title3)
                     .frame(width: 32)
             }
-            Slider(value: Binding(
-                get: { min(playback.time, project.duration) },
-                set: { playback.seek($0) }
-            ), in: 0...max(0.1, project.duration))
             Text("\(Clock.format(playback.time)) / \(Clock.format(project.duration))")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+            PhotosPicker(selection: $adding, maxSelectionCount: 10, selectionBehavior: .ordered,
+                         matching: .any(of: [.videos, .images])) {
+                Image(systemName: "plus.circle").font(.title3)
+            }
+            .accessibilityLabel("Add clips")
             Menu {
                 Button { undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
                     .disabled(!history.canUndo)
@@ -191,37 +194,31 @@ struct EditorView: View {
         .padding(.horizontal, Style.gutter)
     }
 
-    private var clipStrip: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(Array(project.clips.enumerated()), id: \.element.id) { index, clip in
-                    ClipThumb(clip: clip, selected: selected == clip.id)
-                        .onTapGesture {
-                            selected = clip.id
-                            playback.seek(project.start(of: index) + 0.01)
-                        }
-                        .contextMenu {
-                            Button { selected = clip.id; tool = .clip } label: { Label("Edit clip", systemImage: "slider.horizontal.below.rectangle") }
-                            Button { change { $0.move(clip.id, by: -1) } } label: { Label("Move left", systemImage: "arrow.left") }
-                            Button { change { $0.move(clip.id, by: 1) } } label: { Label("Move right", systemImage: "arrow.right") }
-                            if project.clips.count > 1 {
-                                Button(role: .destructive) { change { $0.remove(clip.id) } } label: { Label("Delete", systemImage: "trash") }
-                            }
-                        }
-                }
-                PhotosPicker(selection: $adding, maxSelectionCount: 10, selectionBehavior: .ordered,
-                             matching: .any(of: [.videos, .images])) {
-                    Image(systemName: "plus")
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 58, height: 84)
-                        .background(Color.raised, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .foregroundStyle(.primary)
-                }
-                .accessibilityLabel("Add clips")
-            }
-            .padding(.horizontal, Style.gutter)
-            .padding(.vertical, 2)
-        }
+    /// The whole project in one row that always fits the width: every
+    /// clip's full source, dimmed outside its trimmed part, the bracket with
+    /// handles on the clip being worked on, and the playhead you drag.
+    private var strip: some View {
+        ProjectStrip(
+            project: project,
+            selected: selected ?? currentClipID,
+            time: playback.time,
+            onSelect: { id, index in
+                selected = id
+                playback.seek(project.start(of: index) + 0.01)
+            },
+            onScrub: { seconds in
+                playback.player.pause()
+                playback.seek(seconds)
+            },
+            onTrim: { id, start, end in
+                change { $0.trim(id, start: start, end: end) }
+            },
+            onEdit: { id in selected = id; tool = .clip },
+            onMove: { id, by in change { $0.move(id, by: by) } },
+            onDelete: { id in change { $0.remove(id) } }
+        )
+        .frame(height: 92)
+        .padding(.horizontal, Style.gutter)
     }
 
     @ViewBuilder
@@ -351,50 +348,7 @@ struct PlayerSurface: UIViewRepresentable {
     }
 }
 
-/// One clip in the strip: its first frame, its length, its speed.
-private struct ClipThumb: View {
-    let clip: StudioClip
-    let selected: Bool
-    @State private var thumb: UIImage?
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            Color.track
-            if let thumb {
-                Image(uiImage: thumb).resizable().scaledToFill()
-            }
-            LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .center, endPoint: .bottom)
-            HStack(spacing: 3) {
-                Text(Clock.format(clip.duration))
-                if clip.speed != 1 { Text(String(format: "· %gx", clip.speed)) }
-            }
-            .font(.caption2.weight(.semibold).monospacedDigit())
-            .foregroundStyle(.white)
-            .padding(5)
-        }
-        .frame(width: 58, height: 84)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(selected ? Color.accentColor : Color.clear, lineWidth: 3)
-        }
-        .task(id: clip.url) {
-            if clip.kind == .photo {
-                thumb = UIImage(contentsOfFile: clip.url.path)
-            } else {
-                let generator = AVAssetImageGenerator(asset: AVURLAsset(url: clip.url))
-                generator.appliesPreferredTrackTransform = true
-                generator.maximumSize = CGSize(width: 200, height: 200)
-                if let image = try? await generator.image(at: StudioComposer.seconds(clip.trimStart + 0.1)).image {
-                    thumb = UIImage(cgImage: image)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Sheets
-
+/// The Clip tool: trim, speed, volume, split, move, delete for one clip.
 private struct ClipSheet: View {
     let project: StudioProject
     let clipID: UUID?
@@ -721,5 +675,229 @@ private struct ToolLabelStyle: LabelStyle {
             configuration.title.font(.caption2.weight(.medium))
         }
         .frame(minWidth: 52)
+    }
+}
+
+// MARK: - The strip
+
+/// Every clip's full source side by side, the whole project fitting the
+/// width whatever its length; the trimmed part of each clip bright and the
+/// rest dimmed; a white bracket with handles on the clip being worked on;
+/// and the playhead, dragged anywhere on the frames.
+///
+/// Trims are drawn live from a local drag and written once, when the
+/// finger lifts -- every write rebuilds the player, and rebuilding five
+/// times a second while dragging is what made the old sliders stutter.
+private struct ProjectStrip: View {
+    let project: StudioProject
+    let selected: UUID?
+    let time: Double
+    let onSelect: (UUID, Int) -> Void
+    let onScrub: (Double) -> Void
+    let onTrim: (UUID, Double, Double) -> Void
+    let onEdit: (UUID) -> Void
+    let onMove: (UUID, Int) -> Void
+    let onDelete: (UUID) -> Void
+
+    private struct Drag: Equatable {
+        var id: UUID
+        var start: Double
+        var end: Double
+    }
+
+    @State private var drag: Drag?
+
+    private let gap: CGFloat = 2
+    private let handleWidth: CGFloat = 22
+
+    /// How long each clip's whole source is on the timeline, at its speed.
+    private func sourceLength(_ clip: StudioClip) -> Double {
+        max(0.01, clip.sourceDuration / clip.speed)
+    }
+
+    private var total: Double {
+        project.clips.reduce(0) { $0 + sourceLength($1) }
+    }
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+            let usable = max(1, width - gap * CGFloat(max(0, project.clips.count - 1)))
+            let scale = total > 0 ? usable / total : 0
+            let lefts = segmentLefts(scale: scale)
+
+            ZStack(alignment: .leading) {
+                HStack(spacing: gap) {
+                    ForEach(Array(project.clips.enumerated()), id: \.element.id) { index, clip in
+                        let segment = CGFloat(sourceLength(clip)) * scale
+                        let (start, end) = trim(of: clip)
+                        let startX = CGFloat(start / clip.speed) * scale
+                        let endX = CGFloat(end / clip.speed) * scale
+                        let shape = RoundedRectangle(
+                            cornerRadius: project.clips.count == 1 ? height / 2 : 12,
+                            style: .continuous
+                        )
+
+                        SegmentFrames(clip: clip, width: segment, height: height)
+                            .overlay(alignment: .leading) {
+                                Rectangle().fill(.black.opacity(0.55)).frame(width: max(0, startX))
+                            }
+                            .overlay(alignment: .leading) {
+                                Rectangle().fill(.black.opacity(0.55))
+                                    .frame(width: max(0, segment - endX))
+                                    .offset(x: endX)
+                            }
+                            .clipShape(shape)
+                            .contentShape(shape)
+                            .onTapGesture { onSelect(clip.id, index) }
+                            .contextMenu {
+                                Button { onEdit(clip.id) } label: { Label("Edit clip", systemImage: "slider.horizontal.below.rectangle") }
+                                Button { onMove(clip.id, -1) } label: { Label("Move left", systemImage: "arrow.left") }
+                                Button { onMove(clip.id, 1) } label: { Label("Move right", systemImage: "arrow.right") }
+                                if project.clips.count > 1 {
+                                    Button(role: .destructive) { onDelete(clip.id) } label: { Label("Delete", systemImage: "trash") }
+                                }
+                            }
+                    }
+                }
+                // The playhead: a drag on the frames scrubs.
+                .gesture(scrubGesture(lefts: lefts, scale: scale, width: width))
+
+                if let index = project.clips.firstIndex(where: { $0.id == selected }) {
+                    let clip = project.clips[index]
+                    let (start, end) = trim(of: clip)
+                    let left = lefts[index] + CGFloat(start / clip.speed) * scale
+                    let right = lefts[index] + CGFloat(end / clip.speed) * scale
+                    let radius = project.clips.count == 1 ? height / 2 : 12
+
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .strokeBorder(.white, lineWidth: 4)
+                        .frame(width: max(handleWidth * 2, right - left))
+                        .offset(x: left)
+                        .allowsHitTesting(false)
+
+                    handle(height: height, radius: radius, leading: true)
+                        .offset(x: left)
+                        .gesture(trimGesture(clip: clip, left: lefts[index], scale: scale, leading: true))
+                    handle(height: height, radius: radius, leading: false)
+                        .offset(x: right - handleWidth)
+                        .gesture(trimGesture(clip: clip, left: lefts[index], scale: scale, leading: false))
+                }
+
+                if total > 0 {
+                    Playhead(height: height + 8)
+                        .offset(x: playheadX(lefts: lefts, scale: scale) - 1.5)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Timeline")
+    }
+
+    // MARK: - Geometry
+
+    private func segmentLefts(scale: CGFloat) -> [CGFloat] {
+        var out: [CGFloat] = []
+        var x: CGFloat = 0
+        for clip in project.clips {
+            out.append(x)
+            x += CGFloat(sourceLength(clip)) * scale + gap
+        }
+        return out
+    }
+
+    /// The clip's trim, or the one being dragged.
+    private func trim(of clip: StudioClip) -> (Double, Double) {
+        if let drag, drag.id == clip.id { return (drag.start, drag.end) }
+        return (clip.trimStart, clip.trimEnd)
+    }
+
+    /// Where the playhead sits for the current project time.
+    private func playheadX(lefts: [CGFloat], scale: CGFloat) -> CGFloat {
+        guard let hit = project.clip(at: time), hit.index < lefts.count else {
+            return lefts.last.map { $0 + CGFloat(sourceLength(project.clips[project.clips.count - 1])) * scale } ?? 0
+        }
+        let clip = project.clips[hit.index]
+        return lefts[hit.index] + CGFloat(clip.trimStart / clip.speed + hit.offset) * scale
+    }
+
+    private func handle(height: CGFloat, radius: CGFloat, leading: Bool) -> some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: leading ? radius : 0,
+            bottomLeadingRadius: leading ? radius : 0,
+            bottomTrailingRadius: leading ? 0 : radius,
+            topTrailingRadius: leading ? 0 : radius,
+            style: .continuous
+        )
+        .fill(.white)
+        .frame(width: handleWidth)
+        .overlay {
+            Capsule()
+                .fill(Color(white: 0.3))
+                .frame(width: 3, height: 26)
+        }
+        .contentShape(Rectangle().inset(by: -12))
+    }
+
+    // MARK: - Gestures
+
+    private func trimGesture(clip: StudioClip, left: CGFloat, scale: CGFloat, leading: Bool) -> some Gesture {
+        DragGesture(minimumDistance: 1)
+            .onChanged { value in
+                guard scale > 0 else { return }
+                let seconds = Double((value.location.x - left) / scale) * clip.speed
+                var current = drag ?? Drag(id: clip.id, start: clip.trimStart, end: clip.trimEnd)
+                if leading {
+                    current.start = min(max(0, seconds), current.end - StudioProject.shortest)
+                } else {
+                    current.end = max(min(clip.sourceDuration, seconds), current.start + StudioProject.shortest)
+                }
+                drag = current
+            }
+            .onEnded { _ in
+                guard let done = drag else { return }
+                drag = nil
+                onTrim(done.id, done.start, done.end)
+            }
+    }
+
+    private func scrubGesture(lefts: [CGFloat], scale: CGFloat, width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                guard scale > 0, !project.clips.isEmpty else { return }
+                let x = min(max(value.location.x, 0), width)
+                // Which clip is under the finger, then the time inside it.
+                var index = 0
+                for (i, left) in lefts.enumerated() where x >= left { index = i }
+                let clip = project.clips[index]
+                let inSource = Double((x - lefts[index]) / scale) * clip.speed
+                let source = min(max(inSource, clip.trimStart), clip.trimEnd)
+                let seconds = project.start(of: index) + (source - clip.trimStart) / clip.speed
+                onScrub(min(max(0, seconds), project.duration))
+            }
+    }
+}
+
+/// One clip's frames, as many as fit its width, across its whole source.
+private struct SegmentFrames: View {
+    let clip: StudioClip
+    let width: CGFloat
+    let height: CGFloat
+
+    @State private var frames: [UIImage] = []
+
+    private var count: Int { max(1, Int(width / 44)) }
+
+    var body: some View {
+        FrameRow(frames: frames, width: width, height: height)
+            .task(id: "\(clip.url.path)|\(count)") {
+                if clip.kind == .photo {
+                    frames = [UIImage(contentsOfFile: clip.url.path)].compactMap { $0 }
+                } else {
+                    frames = await TrimStrip.frames(of: AVURLAsset(url: clip.url), count: count)
+                }
+            }
     }
 }

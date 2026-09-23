@@ -132,18 +132,32 @@ struct SeriesFlowView: View {
             subtitle: "A style is the brief, the themes and the look. Your account is still yours."
         ) {
             if let templates {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(templates) { template in
-                        StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
-                            chosen = template
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            if destinations.isEmpty {
-                                destinations = Set(session.connections.map { $0.platform.rawValue })
-                                if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
-                            }
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(400))
-                                if chosen?.slug == template.slug, step == .style { step = .destinations }
+                // Grouped by what they are for, in the catalogue's order.
+                let groups = Self.grouped(templates)
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(groups, id: \.category) { group in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(group.category)
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            LazyVGrid(columns: columns, spacing: 10) {
+                                ForEach(group.templates) { template in
+                                    StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
+                                        chosen = template
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                        if destinations.isEmpty {
+                                            destinations = Set(session.connections.map { $0.platform.rawValue })
+                                            if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
+                                        }
+                                        if let seconds = template.workflow?.durationSeconds, !decideLength {
+                                            length = seconds
+                                        }
+                                        Task {
+                                            try? await Task.sleep(for: .milliseconds(400))
+                                            if chosen?.slug == template.slug, step == .style { step = .destinations }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -221,6 +235,22 @@ struct SeriesFlowView: View {
             action: { step = .goal }
         ) {
             VStack(spacing: 10) {
+                if let suggested = chosen?.workflow?.durationSeconds, ![15, 30, 60].contains(suggested) {
+                    DetailedOption(
+                        option: OnboardingQuestion.Option(
+                            id: "\(suggested)",
+                            label: "\(suggested) seconds",
+                            symbol: "timer",
+                            detail: "What this style is written for"
+                        ),
+                        isChosen: !decideLength && length == suggested
+                    ) {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            decideLength = false
+                            length = suggested
+                        }
+                    }
+                }
                 ForEach([15, 30, 60], id: \.self) { seconds in
                     DetailedOption(
                         option: OnboardingQuestion.Option(
@@ -288,12 +318,51 @@ struct SeriesFlowView: View {
             VStack(spacing: 10) {
                 ReviewRow(label: "Style", value: chosen?.name ?? "—")
                 ReviewRow(label: "Posts to", value: destinations.sorted().compactMap { Platform(rawValue: $0)?.networkName }.joined(separator: ", "))
-                ReviewRow(label: "Length", value: decideLength ? "Decided per post" : "\(length ?? 30) seconds")
+                ReviewRow(label: "Length", value: decideLength
+                          ? "\(chosen?.workflow?.durationSeconds ?? 30) seconds, the style's own"
+                          : "\(length ?? 30) seconds")
                 ReviewRow(label: "Goal", value: Self.goals.first { $0.id == goal }?.label ?? "—")
                 ReviewRow(label: "Videos", value: session.hasWorkingGenerator ? "Made with your generator" : "Needs a generator")
+
+                // The style's workflow, as the plan every video follows.
+                if let steps = chosen?.workflow?.steps, !steps.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("How every video gets made")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        ForEach(Array(steps.enumerated()), id: \.offset) { index, stepText in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 18, alignment: .trailing)
+                                Text(stepText)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.top, 6)
+                }
             }
             .padding(.horizontal, 20)
         }
+    }
+
+    /// Styles by category, keeping the catalogue's order inside and across
+    /// groups (a group appears where its first style does).
+    private static func grouped(_ templates: [ContentTemplate]) -> [(category: String, templates: [ContentTemplate])] {
+        var order: [String] = []
+        var byCategory: [String: [ContentTemplate]] = [:]
+        for template in templates {
+            if byCategory[template.category] == nil { order.append(template.category) }
+            byCategory[template.category, default: []].append(template)
+        }
+        return order.map { ($0, byCategory[$0] ?? []) }
     }
 
     // MARK: - Moving

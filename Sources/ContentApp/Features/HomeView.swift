@@ -76,8 +76,18 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // The heading is the page's, so it scrolls away while the
+                // bar's items stay (Abel, 23 Sep 2026: "just say Home, and
+                // when they scroll it disappears but Upgrade and profile
+                // stay").
+                Text("Home")
+                    .font(.largeTitle.bold())
+                    .foregroundStyle(.primary)
+                    .padding(.top, 2)
+                    .entrance(0)
+
                 askField
-                    .padding(.top, 4)
+                    .padding(.top, 22)
                     .entrance(1)
 
                 // The thing worth pushing, Fresha's gift-card card: a series.
@@ -97,14 +107,30 @@ struct HomeView: View {
                 .padding(.top, 16)
                 .entrance(1)
 
-                SectionHeader(title: "Keep creating", chevron: !videos.isEmpty) {
-                    session.push(.library)
+                // What you made: one card into the library once there is
+                // anything, the row while something is on its way up, and
+                // the invitation before that (Abel, 23 Sep 2026: "right
+                // after you have generated videos, make a card that says
+                // manage library").
+                Group {
+                    if loadedVideos == nil {
+                        RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
+                            .fill(Color.track)
+                            .frame(height: 96)
+                            .breathing()
+                    } else if !session.uploads.isEmpty {
+                        keepCreating
+                    } else if videos.isEmpty {
+                        keepCreating
+                    } else {
+                        Button { session.push(.library) } label: {
+                            ManageLibraryCard(posts: videos)
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    }
                 }
                 .padding(.top, 26)
-
-                keepCreating
-                    .padding(.top, 12)
-                    .entrance(2)
+                .entrance(2)
 
                 SectionHeader(title: "Start with a tool", chevron: false) {}
                     .padding(.top, 26)
@@ -176,8 +202,8 @@ struct HomeView: View {
         // 23 Sep 2026: "keep the home top things native... the pro and
         // profile thing with native is enough").
         .tabChrome(
-            title: timeOfDay,
-            mode: .inlineLarge,
+            title: "",
+            mode: .bare,
             trailing: AnyView(
                 HStack(spacing: 14) {
                     if session.subscription?.isPro != true {
@@ -259,13 +285,14 @@ struct HomeView: View {
 
     // MARK: - The field
 
-    /// One field. Whatever goes in opens the chat with it.
+    /// One field: describe a video, and the chat makes it (Abel, 23 Sep
+    /// 2026: "let's make it something people make videos from").
     private var askField: some View {
         HStack(spacing: 10) {
-            Image(systemName: "sparkles")
+            Image(systemName: "wand.and.stars")
                 .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.secondary)
-            TextField("Ask Autocast anything", text: $ask)
+                .foregroundStyle(Theme.accent)
+            TextField("Describe a video to make", text: $ask)
                 .submitLabel(.send)
                 .onSubmit {
                     let text = ask.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -377,6 +404,54 @@ private struct SectionHeader: View {
         }
         .buttonStyle(.plain)
         .disabled(!chevron)
+    }
+}
+
+/// Into the library: the three newest frames fanned, the count, one line.
+private struct ManageLibraryCard: View {
+    let posts: [BoardPost]
+
+    private var waiting: Int { posts.filter { $0.stage == .readyForReview || $0.stage == .needsAttention }.count }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            ZStack {
+                ForEach(Array(posts.prefix(3).enumerated().reversed()), id: \.element.id) { index, post in
+                    PostThumb(media: post.media, stage: post.stage, width: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .strokeBorder(Color.raised, lineWidth: 2)
+                        }
+                        .rotationEffect(.degrees(Double(index - 1) * 8))
+                        .offset(x: CGFloat(index - 1) * 14, y: CGFloat(abs(index - 1)) * 3)
+                }
+            }
+            .frame(width: 92, height: 84)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Manage library")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(waiting > 0
+                     ? (waiting == 1 ? "\(posts.count) videos · 1 waiting for you" : "\(posts.count) videos · \(waiting) waiting for you")
+                     : (posts.count == 1 ? "1 video" : "\(posts.count) videos"))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity)
+        .raisedCard(radius: Style.rowCard)
+        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }
 

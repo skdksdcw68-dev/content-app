@@ -980,6 +980,26 @@ extension AppSession {
             return false
         }
     }
+
+    /// Deletes the current plan whatever its state (0059). What already went
+    /// out stays; everything still to come goes with it.
+    func deletePlan() async -> Bool {
+        guard let planID = plan?.id else { return false }
+        isWorking = true
+        defer { isWorking = false }
+
+        do {
+            _ = try await client
+                .rpc("delete_plan", params: ["p_plan": planID.uuidString])
+                .execute()
+            await refreshPlan()
+            await refreshPosts()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
 }
 
 private struct ImportRequest: Encodable {

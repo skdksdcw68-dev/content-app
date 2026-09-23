@@ -79,6 +79,13 @@ struct RootView: View {
         }
         .animation(.snappy(duration: 0.3), value: session.onboarding == .done)
         .tint(Theme.accent)
+        // A tap on empty space puts the keyboard away, everywhere; so does
+        // dragging a list (Abel, 23 Sep 2026). Simultaneous, so buttons
+        // under the finger still get their tap.
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(TapGesture().onEnded {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        })
         .preferredColorScheme(appearance.colorScheme)
         // Every switch in the app is the system's own, in the system's green.
         // The drawn one read as "black and not native" (Abel, 22 Sep 2026).
@@ -192,6 +199,10 @@ private struct TabShellChrome: View {
             // Home draws its own header row (Photoroom's shape), so the
             // system bar steps aside there and comes back on the other tabs.
             .toolbar(chrome.mode == .hidden ? .hidden : .visible, for: .navigationBar)
+            // No "wall" behind the bar on Home: the items float, the heading
+            // is the page's own and scrolls away (Abel, 23 Sep 2026: "make
+            // sure it doesn't have a background wall").
+            .toolbarBackground(chrome.mode == .bare ? .hidden : .automatic, for: .navigationBar)
             .toolbar {
                 if let leading = chrome.leading {
                     ToolbarItem(placement: .topBarLeading) { leading }

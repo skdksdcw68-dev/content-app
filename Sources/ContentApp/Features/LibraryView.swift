@@ -17,55 +17,154 @@ struct LibraryView: View {
     @State private var pendingVideo: (data: Data, filename: String)?
     @State private var approving: PendingPost?
 
-    var body: some View {
-        Group {
-            if session.connections.isEmpty {
-                ComingSoon(
-                    symbol: "link",
-                    title: "Connect an account first",
-                    detail: "Autocast needs somewhere to post before it can hold anything for you. Profile → Accounts."
-                )
-            } else if session.posts.isEmpty {
-                ComingSoon(
-                    symbol: "square.grid.2x2",
-                    title: "Nothing here yet",
-                    detail: "Add a video and it becomes a post waiting for your approval. Nothing goes anywhere until you say so."
-                )
-            } else {
-                list
+    /// Every video made for this brand, newest first. Nil until loaded.
+    @State private var loadedVideos: [BoardPost]?
+    @State private var reviewing: BoardPost?
+    @State private var deleting: BoardPost?
+    @State private var filter: Shelf = .all
+
+    /// The shelves: where a video is on its way.
+    enum Shelf: String, CaseIterable, Identifiable {
+        case all, waiting, scheduled, posted
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all:       "All"
+            case .waiting:   "Needs you"
+            case .scheduled: "Scheduled"
+            case .posted:    "Posted"
             }
         }
-        .navigationTitle("All posts")
+        func holds(_ post: BoardPost) -> Bool {
+            switch self {
+            case .all:       true
+            case .waiting:   post.stage == .readyForReview || post.stage == .needsAttention || post.stage == .draft || post.stage == .inDrafts
+            case .scheduled: post.stage == .approved || post.stage == .scheduled || post.stage == .generating || post.stage == .readyToPublish || post.stage == .publishing || post.stage == .verifying
+            case .posted:    post.stage == .published
+            }
+        }
+    }
+
+    private var videos: [BoardPost] { loadedVideos ?? [] }
+    private var shown: [BoardPost] { videos.filter { filter.holds($0) } }
+
+    private let grid = Array(repeating: GridItem(.flexible(), spacing: 3), count: 3)
+
+    /// The library: every video as a tall tile, three across, shelved by
+    /// where it is. Tap one to watch, trim and take it on; hold for the
+    /// details or to delete (Abel, 23 Sep 2026: "the library should be
+    /// looking so good").
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    if loadedVideos == nil {
+                        LazyVGrid(columns: grid, spacing: 3) {
+                            ForEach(0..<9, id: \.self) { _ in
+                                Rectangle()
+                                    .fill(Color.track)
+                                    .aspectRatio(9 / 16, contentMode: .fit)
+                            }
+                        }
+                        .breathing()
+                    } else if shown.isEmpty {
+                        empty
+                            .padding(.top, 40)
+                    } else {
+                        LazyVGrid(columns: grid, spacing: 3) {
+                            ForEach(shown) { video in
+                                Button { reviewing = video } label: {
+                                    LibraryTile(post: video)
+                                }
+                                .buttonStyle(SoftPressStyle())
+                                .contextMenu {
+                                    Button { session.push(.post(video.id)) } label: {
+                                        Label("Details", systemImage: "info.circle")
+                                    }
+                                    if video.stage != .publishing && video.stage != .verifying {
+                                        Button(role: .destructive) { deleting = video } label: {
+                                            Label("Delete", systemImage: "trash")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Picker("Shelf", selection: $filter) {
+                        ForEach(Shelf.allCases) { shelf in
+                            Text(shelf.title).tag(shelf)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal, Style.gutter)
+                    .padding(.vertical, 10)
+                    .background(Color.canvas)
+                }
+            }
+            .padding(.bottom, 32)
+        }
+        .background(Color.canvas.ignoresSafeArea())
+        .navigationTitle("Library")
+        .navigationBarTitleDisplayMode(.large)
         .pushedPage()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PhotosPicker(selection: $pickerItem, matching: .videos) {
-                    Label("Add", systemImage: "plus")
+                    Image(systemName: "plus")
                 }
+                .accessibilityLabel("Add a video")
                 .disabled(session.connections.isEmpty || session.isWorking)
             }
         }
+        .task(id: session.brand?.id) { loadedVideos = try? await session.videos() }
         .task(id: pickerItem) { await loadPicked() }
-        .refreshable { await session.refreshPosts() }
+        .refreshable {
+            await session.refreshPosts()
+            loadedVideos = try? await session.videos()
+        }
         .sheet(isPresented: $showingCaption) { captionSheet }
         .sheet(item: $approving) { post in
             ApprovalSheet(post: post)
         }
+        .fullScreenCover(item: $reviewing) { post in
+            VideoReviewView(post: post)
+        }
+        .alert("Delete this video?", isPresented: Binding(
+            get: { deleting != nil },
+            set: { if !$0 { deleting = nil } }
+        )) {
+            Button("Cancel", role: .cancel) { deleting = nil }
+            Button("Delete", role: .destructive) {
+                guard let video = deleting else { return }
+                deleting = nil
+                Task {
+                    if await session.deletePost(video.id) {
+                        loadedVideos?.removeAll { $0.id == video.id }
+                    }
+                }
+            }
+        } message: {
+            Text("It’s removed from Autocast. Anything already on TikTok stays there.")
+        }
     }
 
-    private var list: some View {
-        List {
-            ForEach(session.posts) { post in
-                Button {
-                    approving = post
-                } label: {
-                    PostRow(post: post)
-                }
-                .buttonStyle(.plain)
-                .disabled(post.isBusy)
-            }
+    private var empty: some View {
+        VStack(spacing: 10) {
+            Image(systemName: filter == .all ? "video.badge.plus" : "tray")
+                .font(.system(size: 30, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(filter == .all ? "Nothing here yet" : "Nothing on this shelf")
+                .font(.headline)
+            Text(filter == .all
+                 ? "Videos you make and post show up here."
+                 : "Videos move here as they go out.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
-        .listStyle(.insetGrouped)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
     }
 
     private var captionSheet: some View {
@@ -125,44 +224,6 @@ struct LibraryView: View {
     }
 }
 
-private struct PostRow: View {
-    let post: PendingPost
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: post.post.status.symbolName)
-                .font(.system(size: 15))
-                .foregroundStyle(StatusBadge.tint(for: post.post.status))
-                .frame(width: 34, height: 34)
-                .background(StatusBadge.tint(for: post.post.status).opacity(0.12), in: Circle())
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(post.caption.isEmpty ? post.post.hook : post.caption)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-
-                Text(post.statusLine)
-                    .font(.caption)
-                    .foregroundStyle(post.state == .failed ? Color.red : Color.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-
-            Spacer(minLength: 8)
-
-            if post.isBusy {
-                BreathingDot(size: 8)
-            } else if post.needsYou {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
-    }
-}
 
 /// Pulls a video out of the photo library as a file rather than as bytes in
 /// memory, so a long clip does not have to be materialised twice.
@@ -179,5 +240,35 @@ struct Movie: Transferable {
             try FileManager.default.copyItem(at: received.file, to: copy)
             return Movie(url: copy)
         }
+    }
+}
+
+/// One video on the shelf: its frame, edge to edge, and where it is.
+private struct LibraryTile: View {
+    let post: BoardPost
+
+    var body: some View {
+        GeometryReader { proxy in
+            PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
+        }
+        .aspectRatio(9 / 16, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            if post.stage != .published {
+                StageChip(stage: post.stage, compact: true)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(5)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if post.stage == .published {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 2)
+                    .padding(6)
+            }
+        }
+        .accessibilityLabel("\(post.stage.title): \(post.hook)")
     }
 }

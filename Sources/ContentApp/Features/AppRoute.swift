@@ -41,7 +41,9 @@ struct TabChrome {
     /// How the title sits. `inlineLarge` is iOS 26's large title on the SAME
     /// line as the bar items -- Abel, 23 Sep 2026: "the good morning and the
     /// profile thing is not on the same line."
-    enum Mode { case large, inline, inlineLarge, hidden }
+    /// `bare` is a bar with no title and no background: only the items
+    /// float, and the screen draws its own heading that scrolls away.
+    enum Mode { case large, inline, inlineLarge, hidden, bare }
 
     var title: String = ""
     var mode: Mode = .large
@@ -91,6 +93,7 @@ extension TabChrome.Mode {
         case .inline:      .inline
         case .inlineLarge: .inlineLarge
         case .hidden:      .inline
+        case .bare:        .inline
         }
     }
 }

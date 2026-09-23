@@ -7,24 +7,20 @@ import SwiftUI
 /// screen. Both tokens live here so re-branding is one file rather than a
 /// search through every view.
 enum Theme {
-    /// Near-black in light, near-white in dark. Also the asset-catalog
+    /// Fresha's violet (#5C4DE6, lighter in the dark), the asset-catalog
     /// AccentColor, so unstyled system controls pick it up for free.
     ///
-    /// It was #6C5CE7 and it was on everything -- every icon, every chip,
-    /// every button. The apps this one is measured against do the opposite:
-    /// the interface is neutral and the only colour on screen belongs to the
-    /// content. A purple chevron competes with a thumbnail; a black one does
-    /// not. So the accent is now ink, and colour is something a post earns by
-    /// having a state worth reporting.
+    /// The accent has been round the block: #6C5CE7 on everything, then ink
+    /// for a fortnight because a purple chevron competed with the content.
+    /// On 23 Sep 2026 Abel sent Fresha's icon: "I like that colour, to be
+    /// honest." So it is back, on the controls -- buttons, links, the chosen
+    /// state -- and nowhere on the surfaces.
     static let accent = Color.accentColor
 
-    /// What goes ON an accent-filled surface.
-    ///
-    /// Not `.white`. The accent flips to near-white in dark mode, so white text
-    /// on it is white on white -- a filled button with nothing readable in it.
-    /// It is the accent's exact inverse: white on the black accent, near-black
-    /// on the white one. Anything drawn on top of Theme.accent uses this and
-    /// never a literal colour.
+    /// What goes ON an accent-filled surface: white, in both appearances now
+    /// that the accent is violet in both. Kept as an asset so a future accent
+    /// that flips can flip this with it. Anything drawn on top of Theme.accent
+    /// uses this and never a literal colour.
     ///
     /// An asset, not `Color(.systemBackground)`: a UIKit colour resolves from
     /// the window, not from SwiftUI's environment, so on any view that set its

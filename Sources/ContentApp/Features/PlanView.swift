@@ -42,6 +42,7 @@ struct PlanView: View {
     @State private var loaded = false
     @State private var filter: Filter = .all
     @State private var confirmingDiscard = false
+    @State private var confirmingDelete = false
     @State private var uploading = false
     @State private var approvingPlan = false
 
@@ -90,6 +91,27 @@ struct PlanView: View {
                 .accessibilityLabel("Upload a video")
                 .disabled(plan?.isProposal == true)
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button(role: .destructive) { confirmingDelete = true } label: {
+                        Label("Delete plan", systemImage: "trash")
+                    }
+                    .disabled(plan == nil)
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More")
+            }
+        }
+        .alert("Delete this plan?", isPresented: $confirmingDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                Task {
+                    if await session.deletePlan() { await reload() }
+                }
+            }
+        } message: {
+            Text("Posts that already went out stay where they are. Everything still to come is dropped, and nothing more is made or posted.")
         }
         .navigationDestination(isPresented: $uploading) { UploadFlowView() }
         .refreshable { await reload() }

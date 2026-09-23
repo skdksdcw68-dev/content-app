@@ -96,7 +96,8 @@ struct RootView: View {
         .alert(
             "That did not work",
             isPresented: Binding(
-                get: { session.lastError != nil && !session.showingPaywall },
+                // An empty message is a cancelled request, not a failure.
+                get: { !(session.lastError ?? "").isEmpty && !session.showingPaywall },
                 set: { if !$0 { session.lastError = nil } }
             )
         ) {
@@ -188,6 +189,9 @@ private struct TabShellChrome: View {
         Color.clear
             .navigationTitle(chrome.title)
             .toolbarTitleDisplayMode(chrome.mode.system)
+            // Home draws its own header row (Photoroom's shape), so the
+            // system bar steps aside there and comes back on the other tabs.
+            .toolbar(chrome.mode == .hidden ? .hidden : .visible, for: .navigationBar)
             .toolbar {
                 if let leading = chrome.leading {
                     ToolbarItem(placement: .topBarLeading) { leading }

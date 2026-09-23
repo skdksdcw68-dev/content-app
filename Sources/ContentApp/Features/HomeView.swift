@@ -1,54 +1,46 @@
 import AVKit
 import SwiftUI
 
-/// Home: what is next, the three things you do, the generator, and what has
-/// been made. White cards on the grey canvas, Remi's way, no pictures.
+/// Home, in Photoroom's shape -- the reference Abel picked on 23 Sep 2026
+/// ("the 2nd looks the best fit for us"). Its order, not its screen:
 ///
-/// Rebuilt twice on 22 Sep 2026. The carousel of pictures went first ("there
-/// is repetitively used pictures"); then the four coloured tiles that replaced
-/// it went too ("honestly looking childish... the most thing I hate from home
-/// is the colours"). So: black and white, the next post leading, and nothing
-/// on the page that is not a thing you can do or a thing you made.
+///   a header row that is yours (the brand, a bell, Pro)
+///   one field to type into
+///   "Keep creating" -- what you made, in a row
+///   "Start with a tool" -- the four things, two by two, a picture on each
+///   one big card for the thing worth pushing
 ///
-/// It promotes and never warns (his call, 15 Sep 2026). What is wrong reaches
-/// him as a badge on the You tab.
+/// The pictures on the tiles and the big card are his (asset names in the
+/// tiles below); until each exists the tile shows its symbol on a soft
+/// circle, and nothing pretends to be art.
+///
+/// It promotes and never warns (his call, 15 Sep 2026). What is wrong
+/// reaches him as a badge on the bell and on the You tab.
 ///
 /// Every number here is read from the database. There is no sample data.
 struct HomeView: View {
     @Environment(AppSession.self) private var session
-    /// What was made today, read once when the page appears.
-    @State private var today: AppSession.DayTally?
     /// Every video made for this brand, newest first. Nil until loaded.
     @State private var loadedVideos: [BoardPost]?
     /// A video long-pressed for deletion, waiting for the confirm.
     @State private var deleting: BoardPost?
-    /// A video tapped, playing full screen.
-    @State private var watching: BoardPost?
+    /// A video tapped, opened to trim and take further.
+    @State private var reviewing: BoardPost?
     /// The once-ever reminder to connect somewhere.
     @State private var nudging = false
     /// Planning a month, started from Home and finished on the plan screen.
     @State private var planning = false
     @State private var proposed: PlanProposal?
+    /// Typed into the field at the top.
+    @State private var ask = ""
 
     private var videos: [BoardPost] { loadedVideos ?? [] }
-    private var needsYou: [PendingPost] { session.posts.filter(\.needsYou) }
-    private var inFlight: [PendingPost] { session.posts.filter(\.isBusy) }
 
     /// The next thing due that has not gone out yet.
     private var nextUp: PlannedPost? {
         session.planPosts
             .filter { ($0.scheduledFor ?? .distantPast) > .now }
             .min { ($0.scheduledFor ?? .distantFuture) < ($1.scheduledFor ?? .distantFuture) }
-    }
-
-    private var scheduledThisWeek: Int {
-        var calendar = Calendar.current
-        calendar.timeZone = brandTimeZone
-        guard let week = calendar.dateInterval(of: .weekOfYear, for: .now) else { return 0 }
-        return session.planPosts.filter { post in
-            guard let at = post.scheduledFor else { return false }
-            return week.contains(at) && at > .now
-        }.count
     }
 
     private var brandTimeZone: TimeZone {
@@ -61,21 +53,90 @@ struct HomeView: View {
             ?? session.connectedProviders.first(where: \.isHealthy)
     }
 
-    /// Everything on the grid counts, uploads included.
-    private var videoCount: Int { videos.count + session.uploads.count }
+    private var hasGenerator: Bool {
+        generator != nil || session.generators.contains(where: \.isWorking)
+    }
 
-    private let grid = Array(repeating: GridItem(.flexible(), spacing: 6), count: 3)
+    private var brandName: String {
+        let name = session.brand?.name ?? ""
+        return name.isEmpty || name == "My brand" ? (session.displayName ?? "Your brand") : name
+    }
+
+    private let pair = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+    ]
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                greeting
-                    .padding(.top, 4)
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                    .padding(.top, 8)
                     .entrance(0)
 
-                // The headline: the next post, or the offer of a month.
+                askField
+                    .padding(.top, 16)
+                    .entrance(1)
+
+                SectionHeader(title: "Keep creating", chevron: !videos.isEmpty) {
+                    session.push(.library)
+                }
+                .padding(.top, 26)
+
+                keepCreating
+                    .padding(.top, 12)
+                    .entrance(2)
+
+                SectionHeader(title: "Start with a tool", chevron: false) {}
+                    .padding(.top, 26)
+
+                LazyVGrid(columns: pair, spacing: 12) {
+                    if session.plan != nil {
+                        NavigationLink { PlanView() } label: {
+                            ToolTile(title: "Your\nmonth", art: "tool-plan", symbol: "calendar")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    } else {
+                        Button { planning = true } label: {
+                            ToolTile(title: "Plan a\nmonth", art: "tool-plan", symbol: "calendar")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    }
+
+                    NavigationLink { ChatView() } label: {
+                        ToolTile(title: "Make\nwith AI", art: "tool-make", symbol: "sparkles")
+                    }
+                    .buttonStyle(SoftPressStyle())
+
+                    if session.connections.isEmpty {
+                        NavigationLink { ProfileView() } label: {
+                            ToolTile(title: "Connect\nan account", art: "tool-post", symbol: "link")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    } else {
+                        NavigationLink { StudioFlowView() } label: {
+                            ToolTile(title: "Post a\nvideo", art: "tool-post", symbol: "arrow.up.circle.fill")
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    }
+
+                    NavigationLink { AutopilotView() } label: {
+                        ToolTile(title: "Autopilot", art: "tool-autopilot", symbol: "paperplane.fill")
+                    }
+                    .buttonStyle(SoftPressStyle())
+                }
+                .padding(.top, 12)
+                .entrance(3)
+
+                // The one big card: the generator until there is one, then
+                // the next post.
                 Group {
-                    if let next = nextUp {
+                    if !hasGenerator {
+                        NavigationLink { GeneratorsView() } label: {
+                            GeneratorPromo(offer: session.connectable.first(where: \.isFeatured) ?? session.connectable.first)
+                        }
+                        .buttonStyle(SoftPressStyle())
+                    } else if let next = nextUp {
                         NavigationLink { PlanView() } label: {
                             UpNextCard(post: next, timezone: brandTimeZone)
                         }
@@ -84,121 +145,16 @@ struct HomeView: View {
                         PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
                     }
                 }
-                .padding(.top, 14)
-                .entrance(1)
-
-                HStack(spacing: 10) {
-                    NavigationLink { ChatView() } label: {
-                        HomeTile(symbol: "sparkles", title: "Make with AI")
-                    }
-                    .buttonStyle(SoftPressStyle())
-
-                    if session.connections.isEmpty {
-                        NavigationLink { ProfileView() } label: {
-                            HomeTile(symbol: "link", title: "Connect")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
-                        NavigationLink { StudioFlowView() } label: {
-                            HomeTile(symbol: "arrow.up.circle.fill", title: "Post a video")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    }
-
-                    NavigationLink { AutopilotView() } label: {
-                        HomeTile(symbol: "paperplane.fill", title: "Autopilot")
-                    }
-                    .buttonStyle(SoftPressStyle())
-                }
-                .padding(.top, 14)
-                .entrance(2)
-
-                GeneratorRow(
-                    connected: generator,
-                    key: session.generators.first(where: \.isWorking),
-                    offer: session.connectable.first(where: \.isFeatured) ?? session.connectable.first
-                )
-                .padding(.top, 12)
-                .entrance(2)
-
-                SectionHeader(title: "Your videos") {
-                    if videoCount > 0 {
-                        Text("\(videoCount)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.top, 28)
-
-                Group {
-                    if loadedVideos == nil {
-                        LazyVGrid(columns: grid, spacing: 6) {
-                            ForEach(0..<6, id: \.self) { _ in
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .fill(Color.track)
-                                    .aspectRatio(9 / 16, contentMode: .fit)
-                            }
-                        }
-                        .breathing()
-                    } else if videoCount == 0 {
-                        NavigationLink { StudioFlowView() } label: {
-                            NoVideosCard()
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
-                        LazyVGrid(columns: grid, spacing: 6) {
-                            // On their way up from this phone, first, saying so.
-                            ForEach(session.uploads) { upload in
-                                UploadTile(upload: upload)
-                            }
-                            ForEach(videos) { video in
-                                Button { watching = video } label: {
-                                    VideoTile(post: video, timezone: brandTimeZone)
-                                }
-                                .buttonStyle(SoftPressStyle())
-                                .contextMenu {
-                                    Button {
-                                        session.push(.post(video.id))
-                                    } label: {
-                                        Label("Details", systemImage: "info.circle")
-                                    }
-                                    if video.stage != .publishing && video.stage != .verifying {
-                                        Button(role: .destructive) { deleting = video } label: {
-                                            Label("Delete", systemImage: "trash")
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(.top, 12)
-                .entrance(3)
+                .padding(.top, 26)
+                .entrance(4)
             }
             .screenGutter()
             .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        // The title and the two things top right go to the shell's bar, on
-        // one line: iOS 26's inline-large title.
-        .tabChrome(
-            title: timeOfDay,
-            mode: .inlineLarge,
-            trailing: AnyView(
-                HStack(spacing: 14) {
-                    if session.subscription?.isPro != true {
-                        Button("Upgrade") { session.showingPaywall = true }
-                            .font(.subheadline.weight(.semibold))
-                    }
-                    NavigationLink { ProfileView() } label: {
-                        InitialAvatar(initial: session.initial, size: 30)
-                    }
-                    .accessibilityLabel("Your profile")
-                }
-            )
-        )
+        // The header row above is the bar; the system's steps aside here.
+        .tabChrome(title: "", mode: .hidden)
         .task {
-            today = await session.todayTally()
             await session.refreshConnectedProviders()
             await session.refreshConnectable()
             // A moment after the app is on screen, not over the top of it.
@@ -225,7 +181,6 @@ struct HomeView: View {
             await session.refreshHealth()
             await session.refreshConnectedProviders()
             await session.refreshConnectable()
-            today = await session.todayTally()
         }
         .sheet(isPresented: $planning, onDismiss: {
             // Pushed by value on the shell's stack, after the sheet is gone.
@@ -233,8 +188,8 @@ struct HomeView: View {
         }) {
             NewPlanSheet(brief: "") { proposed = $0 }
         }
-        .fullScreenCover(item: $watching) { post in
-            VideoFullScreen(post: post)
+        .fullScreenCover(item: $reviewing) { post in
+            VideoReviewView(post: post)
         }
         .alert("Delete this video?", isPresented: Binding(
             get: { deleting != nil },
@@ -254,91 +209,353 @@ struct HomeView: View {
             Text("It’s removed from Autocast. Anything already on TikTok stays there.")
         }
     }
+
+    // MARK: - Header
+
+    /// Yours, on one line: the brand on the left, the bell and Pro on the
+    /// right, each on its own soft pill.
+    private var header: some View {
+        HStack(spacing: 10) {
+            NavigationLink { ProfileView() } label: {
+                HStack(spacing: 8) {
+                    InitialAvatar(initial: session.initial, size: 28)
+                    Text(brandName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                .padding(.leading, 6)
+                .padding(.trailing, 14)
+                .padding(.vertical, 6)
+                .background(Color.raised, in: Capsule())
+            }
+            .buttonStyle(SoftPressStyle())
+            .accessibilityLabel("Your profile")
+
+            Spacer(minLength: 8)
+
+            NavigationLink { ProfileView() } label: {
+                Image(systemName: "bell")
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.raised, in: Circle())
+                    .overlay(alignment: .topTrailing) {
+                        if session.attentionCount > 0 {
+                            Text("\(session.attentionCount)")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(Color.red, in: Capsule())
+                                .offset(x: 4, y: -2)
+                        }
+                    }
+            }
+            .buttonStyle(SoftPressStyle())
+            .accessibilityLabel(session.attentionCount > 0 ? "\(session.attentionCount) things need you" : "Nothing needs you")
+
+            if session.subscription?.isPro == true {
+                HStack(spacing: 4) {
+                    Text("Pro")
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .background(Color.raised, in: Capsule())
+            } else {
+                Button { session.showingPaywall = true } label: {
+                    Text("Upgrade")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .padding(.horizontal, 14)
+                        .frame(height: 40)
+                        .background(Theme.accent, in: Capsule())
+                }
+                .buttonStyle(SoftPressStyle())
+            }
+        }
+    }
+
+    /// One field. Whatever goes in opens the chat with it.
+    private var askField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.secondary)
+            TextField("Ask Autocast anything", text: $ask)
+                .submitLabel(.send)
+                .onSubmit {
+                    let text = ask.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { return }
+                    ask = ""
+                    session.push(.chatOpening(text))
+                }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .background(Color.raised, in: Capsule())
+    }
+
+    // MARK: - Keep creating
+
+    @ViewBuilder
+    private var keepCreating: some View {
+        if loadedVideos == nil {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.track)
+                            .frame(width: 118, height: 210)
+                    }
+                }
+            }
+            .breathing()
+        } else if videos.isEmpty && session.uploads.isEmpty {
+            NavigationLink { StudioFlowView() } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: "video.badge.plus")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 46, height: 46)
+                        .background(Color.track, in: Circle())
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Post your first video")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        Text("Videos you make and post show up here.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(16)
+                .raisedCard(radius: Style.rowCard)
+            }
+            .buttonStyle(SoftPressStyle())
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(session.uploads) { upload in
+                        UploadCard(upload: upload)
+                    }
+                    ForEach(videos) { video in
+                        Button { reviewing = video } label: {
+                            RecentVideoCard(post: video)
+                        }
+                        .buttonStyle(SoftPressStyle())
+                        .contextMenu {
+                            Button {
+                                session.push(.post(video.id))
+                            } label: {
+                                Label("Details", systemImage: "info.circle")
+                            }
+                            if video.stage != .publishing && video.stage != .verifying {
+                                Button(role: .destructive) { deleting = video } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                        }
+                    }
+                }
+                // Lets the row run to the screen's edges while the gutter
+                // stays on everything else.
+                .padding(.horizontal, Style.gutter)
+            }
+            .padding(.horizontal, -Style.gutter)
+        }
+    }
 }
 
-// MARK: - The greeting
+// MARK: - Pieces
 
-private extension HomeView {
-    var greeting: some View {
-        // The hello is the navigation bar's large title; this is the one
-        // sentence underneath it.
-        Text(standing)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    var timeOfDay: String {
-        switch Calendar.current.component(.hour, from: .now) {
-        case 5..<12:  "Good morning"
-        case 12..<18: "Good afternoon"
-        default:      "Good evening"
-        }
-    }
-
-    /// One sentence, and never a failure's title.
-    ///
-    /// It also never claims what is not true. When something is blocked,
-    /// "3 posts go out this week" would be the exact reassurance that stopped
-    /// anyone looking in September -- so that line is withheld, and the
-    /// sentence points calmly at where the problem now lives.
-    var standing: String {
-        if !session.uploads.isEmpty {
-            return session.uploads.count == 1 ? "Uploading your video." : "Uploading \(session.uploads.count) videos."
-        }
-        if !needsYou.isEmpty {
-            return needsYou.count == 1
-                ? "One post is ready for you to approve."
-                : "\(needsYou.count) posts are ready for you to approve."
-        }
-        if !inFlight.isEmpty {
-            return "Your next posts are on their way."
-        }
-        if session.connections.isEmpty {
-            return "Connect an account and Autocast posts for you."
-        }
-        if session.health.contains(where: \.isBlocked) {
-            return "One thing needs you in You."
-        }
-        if scheduledThisWeek > 0 {
-            return scheduledThisWeek == 1
-                ? "1 post goes out this week."
-                : "\(scheduledThisWeek) posts go out this week."
-        }
-        if let tally = today, !tally.isEmpty {
-            var parts: [String] = []
-            if tally.made > 0 { parts.append(tally.made == 1 ? "1 made" : "\(tally.made) made") }
-            if tally.written > 0 { parts.append(tally.written == 1 ? "1 written up" : "\(tally.written) written up") }
-            return "Today: \(parts.joined(separator: ", "))."
-        }
-        return "Tell Autocast what to post next."
-    }
-}
-
-// MARK: - Sections
-
-private struct SectionHeader<Trailing: View>: View {
+private struct SectionHeader: View {
     let title: String
-    @ViewBuilder var trailing: () -> Trailing
+    let chevron: Bool
+    let open: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(.title3.bold())
-                .foregroundStyle(.primary)
-            Spacer(minLength: 8)
-            trailing()
+        Button(action: open) {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.title3.bold())
+                    .foregroundStyle(.primary)
+                if chevron {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(!chevron)
     }
 }
 
-// MARK: - The headline
+/// One made video in the row: its frame, and its words under it.
+private struct RecentVideoCard: View {
+    let post: BoardPost
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            PostThumb(media: post.media, stage: post.stage, width: 118)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(alignment: .bottomLeading) {
+                    if post.stage != .published {
+                        StageChip(stage: post.stage, compact: true)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(6)
+                    }
+                }
+            Text(post.hook.isEmpty ? "Untitled" : post.hook)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(width: 118, alignment: .leading)
+        }
+        .accessibilityLabel("\(post.stage.title): \(post.hook)")
+    }
+}
+
+/// A video on its way up from this phone.
+private struct UploadCard: View {
+    let upload: AppSession.LocalUpload
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack {
+                if let poster = upload.poster {
+                    Image(uiImage: poster).resizable().scaledToFill()
+                } else {
+                    Color.track
+                }
+            }
+            .frame(width: 118, height: 210)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .bottomLeading) {
+                Text("Uploading")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(6)
+            }
+            .breathing()
+            Text(upload.caption.isEmpty ? "New video" : upload.caption)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .frame(width: 118, alignment: .leading)
+        }
+        .accessibilityLabel("Uploading: \(upload.caption)")
+    }
+}
+
+/// One tool: the words on the left, the picture on the right, Photoroom's
+/// tile. The picture is Abel's, by the asset name; until it exists, the
+/// symbol sits on a soft circle where the picture will go.
+private struct ToolTile: View {
+    let title: String
+    let art: String
+    let symbol: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text(title)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Group {
+                if let image = UIImage(named: art) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 84, height: 84)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                } else {
+                    Image(systemName: symbol)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 60, height: 60)
+                        .background(Color.track, in: Circle())
+                }
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .raisedCard(radius: Style.rowCard)
+        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
+    }
+}
+
+/// The big card: the generator, until there is one. A picture across the
+/// top (asset `home-generator`), the words, and the one button.
+private struct GeneratorPromo: View {
+    let offer: ConnectableProvider?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image = UIImage(named: "home-generator") {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    ZStack {
+                        Color.track
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 34, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 150)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Let Autocast make the videos")
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(offer.map { "Sign in to \($0.name) once. Every post in your plan gets its video made ahead of time." }
+                         ?? "Connect a generator once. Every post in your plan gets its video made ahead of time.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                PrimaryButtonLabel(title: offer.map { "Sign in to \($0.name)" } ?? "Connect a generator")
+                    .padding(.vertical, 10)
+                    .background(Theme.accent, in: Capsule())
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+        .raisedCard(radius: Style.bigCard)
+        .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+    }
+}
 
 /// The next post in the plan, made to be looked at: the day on a tile, the
 /// theme and the time on one line, the hook as the headline, and underneath
-/// where the post has got to -- so it reads as a thing that is happening,
-/// not a row in a table.
+/// where the post has got to.
 private struct UpNextCard: View {
     let post: PlannedPost
     let timezone: TimeZone
@@ -442,10 +659,9 @@ private struct UpNextCard: View {
     }
 }
 
-/// The offer Home leads with when nothing is scheduled: a month of posts.
-/// A white card, the calendar, two lines, and the one black button.
+/// The offer when nothing is scheduled and the generator is in place: a
+/// month of posts. A white card, the calendar, two lines, the one button.
 private struct PlanMonthCard: View {
-    /// A plan exists but has nothing left to go out: the words change.
     let hasPlan: Bool
     let action: () -> Void
 
@@ -479,235 +695,5 @@ private struct PlanMonthCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .raisedCard(radius: Style.bigCard)
-    }
-}
-
-// MARK: - The three things
-
-/// One thing you do, Studio's shape: the symbol on a white card, the word
-/// under it. Same as Create's tiles, so the two screens agree.
-private struct HomeTile: View {
-    let symbol: String
-    let title: String
-
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity)
-                .frame(height: 70)
-                .raisedCard(radius: Style.rowCard)
-
-            Text(title)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-    }
-}
-
-/// The generator: the one thing asked for by name of what it is, because
-/// nothing else on the screen works without it.
-private struct GeneratorRow: View {
-    let connected: ProviderConnection?
-    let key: Generator?
-    let offer: ConnectableProvider?
-
-    private var title: String {
-        if let connected { return connected.providerName }
-        if let key { return key.name }
-        return "Connect a video generator"
-    }
-
-    private var detail: String {
-        if let connected { return connected.summary }
-        if let key { return key.statusLine }
-        if let offer { return "Sign in to \(offer.name) and Autocast makes the videos itself" }
-        return "So Autocast can make the videos itself"
-    }
-
-    var body: some View {
-        NavigationLink { GeneratorsView() } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
-                    .background(Color.track, in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .raisedCard(radius: Style.rowCard)
-            .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-        }
-        .buttonStyle(SoftPressStyle())
-    }
-}
-
-// MARK: - Videos
-
-/// Nothing made yet. One quiet card, no picture.
-private struct NoVideosCard: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "video.badge.plus")
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text("Videos you make show up here")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-            Text("Drafts, scheduled and posted.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 30)
-        .raisedCard(radius: Style.bigCard)
-        .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
-    }
-}
-
-/// One made video on Home: its frame, where it is, and its words.
-private struct VideoTile: View {
-    let post: BoardPost
-    let timezone: TimeZone
-
-    var body: some View {
-        GeometryReader { proxy in
-            PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
-        }
-        .aspectRatio(9 / 16, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            // Only what the picture cannot say: where this one has got to.
-            // Anything still on its way is worth a word; a published video is
-            // just a video.
-            if post.stage != .published {
-                StageChip(stage: post.stage, compact: true)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(6)
-            }
-        }
-        .accessibilityLabel("\(post.stage.title): \(post.hook)")
-    }
-}
-
-/// A video on its way up from this phone: its first frame, and the word.
-private struct UploadTile: View {
-    let upload: AppSession.LocalUpload
-
-    var body: some View {
-        ZStack {
-            if let poster = upload.poster {
-                Image(uiImage: poster)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Color.track
-            }
-        }
-        .aspectRatio(9 / 16, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(alignment: .bottomLeading) {
-            Text("Uploading")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(.regularMaterial, in: Capsule())
-                .padding(6)
-        }
-        .breathing()
-        .accessibilityLabel("Uploading: \(upload.caption)")
-    }
-}
-
-/// The video, full screen, from a tap on its tile. Black, the system's own
-/// player, an X top left, the hook at the bottom.
-private struct VideoFullScreen: View {
-    let post: BoardPost
-
-    @Environment(AppSession.self) private var session
-    @Environment(\.dismiss) private var dismiss
-    @State private var player: AVPlayer?
-    @State private var missing = false
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            if let player {
-                VideoPlayer(player: player)
-                    .ignoresSafeArea()
-            } else if missing {
-                VStack(spacing: 10) {
-                    Image(systemName: "film")
-                        .font(.system(size: 30, weight: .light))
-                    Text("No video yet")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(.white)
-            } else {
-                ProgressView().tint(.white)
-            }
-        }
-        .overlay(alignment: .topLeading) {
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(.white.opacity(0.18), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 8)
-            .padding(.leading, 16)
-            .accessibilityLabel("Close")
-        }
-        .overlay(alignment: .bottomLeading) {
-            if !post.hook.isEmpty {
-                Text(post.hook)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(3)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 20)
-                    .shadow(color: .black.opacity(0.6), radius: 4)
-            }
-        }
-        .statusBarHidden()
-        .task {
-            guard let media = post.media, let url = await session.mediaURL(media) else {
-                missing = true
-                return
-            }
-            let next = AVPlayer(url: url)
-            player = next
-            next.play()
-        }
-        .onDisappear { player?.pause() }
     }
 }

@@ -437,6 +437,15 @@ final class AppSession {
                 return message
             }
         }
+        // A request cancelled because its screen went away is not an error
+        // and must not become an alert. Switching tabs quickly cancelled the
+        // last tab's loads and every one of them said "No connection" (Abel,
+        // 23 Sep 2026: "switching fast from page to page says connection or
+        // this did not work"). Empty means "nothing to show"; the root's
+        // alert ignores it.
+        if error is CancellationError { return "" }
+        if let url = error as? URLError, url.code == .cancelled { return "" }
+        if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorCancelled { return "" }
         if (error as NSError).domain == NSURLErrorDomain {
             return "No connection. Check your network and try again."
         }

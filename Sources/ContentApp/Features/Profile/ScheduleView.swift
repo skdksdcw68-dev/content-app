@@ -21,21 +21,23 @@ struct ScheduleView: View {
 
     var body: some View {
         Form {
+            // The system's own controls, not values written out as text
+            // (Abel, 23 Sep 2026: "listed as text and looks so bad"). A
+            // segmented picker for the count, time wheels for the hours.
             Section {
-                Stepper(value: $perDay, in: 1...3) {
-                    LabeledContent("Posts a day", value: "\(perDay)")
+                Picker("Posts a day", selection: $perDay) {
+                    ForEach(1...3, id: \.self) { Text("\($0)").tag($0) }
                 }
+                .pickerStyle(.segmented)
+            } header: {
+                Text("Posts a day")
             } footer: {
                 Text("TikTok limits how often an account can post, so three is the most Autocast will plan.")
             }
 
             Section {
-                Picker("Quiet from", selection: $quietStart) {
-                    ForEach(0..<24, id: \.self) { Text(Self.hour($0)).tag($0) }
-                }
-                Picker("Until", selection: $quietEnd) {
-                    ForEach(0..<24, id: \.self) { Text(Self.hour($0)).tag($0) }
-                }
+                DatePicker("Quiet from", selection: hourBinding($quietStart), displayedComponents: .hourAndMinute)
+                DatePicker("Until", selection: hourBinding($quietEnd), displayedComponents: .hourAndMinute)
             } header: {
                 Text("Quiet hours")
             } footer: {
@@ -85,6 +87,22 @@ struct ScheduleView: View {
             timezone = session.brand?.timezone ?? TimeZone.current.identifier
             loaded = true
         }
+    }
+
+    /// An hour of the day as a date the time wheel can show, and back. The
+    /// minutes are dropped on the way back: the scheduler thinks in hours.
+    private func hourBinding(_ hour: Binding<Int>) -> Binding<Date> {
+        Binding(
+            get: {
+                var parts = DateComponents()
+                parts.hour = hour.wrappedValue
+                parts.minute = 0
+                return Calendar.current.date(from: parts) ?? .now
+            },
+            set: { date in
+                hour.wrappedValue = Calendar.current.component(.hour, from: date)
+            }
+        )
     }
 
     static func hour(_ value: Int) -> String {

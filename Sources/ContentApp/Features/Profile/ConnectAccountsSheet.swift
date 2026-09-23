@@ -20,10 +20,10 @@ struct ConnectAccountsSheet: View {
     /// Which one is opening its sign-in right now, so only that tile spins.
     @State private var opening: Platform?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-    ]
+    /// The networks, two to a row.
+    private static let rows: [[Platform]] = stride(from: 0, to: Platform.allCases.count, by: 2).map {
+        Array(Platform.allCases[$0..<min($0 + 2, Platform.allCases.count)])
+    }
 
     private var connectedCount: Int {
         Platform.allCases.filter { session.connection(for: $0) != nil }.count
@@ -48,14 +48,22 @@ struct ConnectAccountsSheet: View {
                 .padding(.bottom, 14)
 
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(Platform.allCases) { platform in
-                            PlatformTile(
-                                platform: platform,
-                                connection: session.connection(for: platform),
-                                isOpening: opening == platform
-                            ) {
-                                connect(platform)
+                    // Two to a row, and an odd last one takes the whole row
+                    // rather than sitting next to a hole. There are three
+                    // networks, so this is not hypothetical -- it is the same
+                    // stranded tile Abel objected to in the questions.
+                    VStack(spacing: 10) {
+                        ForEach(Self.rows, id: \.self) { row in
+                            HStack(spacing: 10) {
+                                ForEach(row) { platform in
+                                    PlatformTile(
+                                        platform: platform,
+                                        connection: session.connection(for: platform),
+                                        isOpening: opening == platform
+                                    ) {
+                                        connect(platform)
+                                    }
+                                }
                             }
                         }
                     }

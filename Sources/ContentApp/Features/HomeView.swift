@@ -4,7 +4,7 @@ import SwiftUI
 /// Home, in Photoroom's shape -- the reference Abel picked on 23 Sep 2026
 /// ("the 2nd looks the best fit for us"). Its order, not its screen:
 ///
-///   a header row that is yours (the brand, a bell, Pro)
+///   the system's own bar: the greeting, Upgrade, the profile circle
 ///   one field to type into
 ///   "Keep creating" -- what you made, in a row
 ///   "Start with a tool" -- the four things, two by two, a picture on each
@@ -15,7 +15,7 @@ import SwiftUI
 /// circle, and nothing pretends to be art.
 ///
 /// It promotes and never warns (his call, 15 Sep 2026). What is wrong
-/// reaches him as a badge on the bell and on the You tab.
+/// reaches him as a badge on the You tab.
 ///
 /// Every number here is read from the database. There is no sample data.
 struct HomeView: View {
@@ -57,25 +57,24 @@ struct HomeView: View {
         generator != nil || session.generators.contains(where: \.isWorking)
     }
 
-    private var brandName: String {
-        let name = session.brand?.name ?? ""
-        return name.isEmpty || name == "My brand" ? (session.displayName ?? "Your brand") : name
-    }
-
     private let pair = [
         GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12),
     ]
 
+    private var timeOfDay: String {
+        switch Calendar.current.component(.hour, from: .now) {
+        case 5..<12:  "Good morning"
+        case 12..<18: "Good afternoon"
+        default:      "Good evening"
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                header
-                    .padding(.top, 8)
-                    .entrance(0)
-
                 askField
-                    .padding(.top, 16)
+                    .padding(.top, 4)
                     .entrance(1)
 
                 SectionHeader(title: "Keep creating", chevron: !videos.isEmpty) {
@@ -152,8 +151,26 @@ struct HomeView: View {
             .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        // The header row above is the bar; the system's steps aside here.
-        .tabChrome(title: "", mode: .hidden)
+        // The top is the system's: the greeting as an inline-large title,
+        // Upgrade and the profile circle beside it, nothing else (Abel,
+        // 23 Sep 2026: "keep the home top things native... the pro and
+        // profile thing with native is enough").
+        .tabChrome(
+            title: timeOfDay,
+            mode: .inlineLarge,
+            trailing: AnyView(
+                HStack(spacing: 14) {
+                    if session.subscription?.isPro != true {
+                        Button("Upgrade") { session.showingPaywall = true }
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    NavigationLink { ProfileView() } label: {
+                        InitialAvatar(initial: session.initial, size: 30)
+                    }
+                    .accessibilityLabel("Your profile")
+                }
+            )
+        )
         .task {
             await session.refreshConnectedProviders()
             await session.refreshConnectable()
@@ -210,75 +227,7 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - Header
-
-    /// Yours, on one line: the brand on the left, the bell and Pro on the
-    /// right, each on its own soft pill.
-    private var header: some View {
-        HStack(spacing: 10) {
-            NavigationLink { ProfileView() } label: {
-                HStack(spacing: 8) {
-                    InitialAvatar(initial: session.initial, size: 28)
-                    Text(brandName)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-                .padding(.leading, 6)
-                .padding(.trailing, 14)
-                .padding(.vertical, 6)
-                .background(Color.raised, in: Capsule())
-            }
-            .buttonStyle(SoftPressStyle())
-            .accessibilityLabel("Your profile")
-
-            Spacer(minLength: 8)
-
-            NavigationLink { ProfileView() } label: {
-                Image(systemName: "bell")
-                    .font(.system(size: 17, weight: .medium))
-                    .foregroundStyle(.primary)
-                    .frame(width: 40, height: 40)
-                    .background(Color.raised, in: Circle())
-                    .overlay(alignment: .topTrailing) {
-                        if session.attentionCount > 0 {
-                            Text("\(session.attentionCount)")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(Color.red, in: Capsule())
-                                .offset(x: 4, y: -2)
-                        }
-                    }
-            }
-            .buttonStyle(SoftPressStyle())
-            .accessibilityLabel(session.attentionCount > 0 ? "\(session.attentionCount) things need you" : "Nothing needs you")
-
-            if session.subscription?.isPro == true {
-                HStack(spacing: 4) {
-                    Text("Pro")
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.bold))
-                }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 14)
-                .frame(height: 40)
-                .background(Color.raised, in: Capsule())
-            } else {
-                Button { session.showingPaywall = true } label: {
-                    Text("Upgrade")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Theme.onAccent)
-                        .padding(.horizontal, 14)
-                        .frame(height: 40)
-                        .background(Theme.accent, in: Capsule())
-                }
-                .buttonStyle(SoftPressStyle())
-            }
-        }
-    }
+    // MARK: - The field
 
     /// One field. Whatever goes in opens the chat with it.
     private var askField: some View {

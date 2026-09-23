@@ -46,7 +46,8 @@ struct VideoReviewView: View {
                     end: $trimEnd,
                     position: position
                 )
-                .frame(height: 64)
+                // Google Photos' size: a strip you can actually hold.
+                .frame(height: 92)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .onChange(of: trimStart) { _, at in seek(to: at) }
@@ -223,62 +224,65 @@ private struct TrimStrip: View {
     @Binding var end: Double
     let position: Double
 
-    private let handleWidth: CGFloat = 16
+    private let handleWidth: CGFloat = 22
     private let minimumSeconds: Double = 1
 
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
+            let height = proxy.size.height
             let scale = duration > 0 ? width / duration : 0
             let left = CGFloat(start) * scale
             let right = CGFloat(end) * scale
+            let pill = RoundedRectangle(cornerRadius: height / 2, style: .continuous)
 
             ZStack(alignment: .leading) {
                 // Frames, dimmed outside the chosen part.
                 HStack(spacing: 0) {
                     if frames.isEmpty {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color(white: 0.2))
+                        Rectangle().fill(Color(white: 0.2))
                     } else {
                         ForEach(Array(frames.enumerated()), id: \.offset) { _, frame in
                             Image(uiImage: frame)
                                 .resizable()
                                 .scaledToFill()
-                                .frame(width: width / CGFloat(frames.count), height: proxy.size.height)
+                                .frame(width: width / CGFloat(frames.count), height: height)
                                 .clipped()
                         }
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .clipShape(pill)
 
                 Rectangle()
                     .fill(.black.opacity(0.55))
                     .frame(width: max(0, left))
+                    .clipShape(pill)
                 Rectangle()
                     .fill(.black.opacity(0.55))
                     .frame(width: max(0, width - right))
                     .offset(x: right)
+                    .clipShape(pill)
 
-                // The bracket.
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(.white, lineWidth: 3)
+                // The bracket: a thick white frame with rounded ends, the
+                // handles being its two ends.
+                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                    .strokeBorder(.white, lineWidth: 4)
                     .frame(width: max(handleWidth * 2, right - left))
                     .offset(x: left)
 
-                // Handles.
-                handle
+                handle(height: height, leading: true)
                     .offset(x: left)
                     .gesture(drag(scale: scale, width: width, leading: true))
-                handle
+                handle(height: height, leading: false)
                     .offset(x: right - handleWidth)
                     .gesture(drag(scale: scale, width: width, leading: false))
 
                 // Playhead.
                 if duration > 0 {
-                    RoundedRectangle(cornerRadius: 1)
+                    RoundedRectangle(cornerRadius: 1.5)
                         .fill(.white)
-                        .frame(width: 2)
-                        .offset(x: min(max(CGFloat(position) * scale, left), right))
+                        .frame(width: 3, height: height + 8)
+                        .offset(x: min(max(CGFloat(position) * scale, left + handleWidth), right - handleWidth) - 1.5)
                         .shadow(color: .black.opacity(0.6), radius: 2)
                 }
             }
@@ -287,16 +291,22 @@ private struct TrimStrip: View {
         .accessibilityLabel("Trim, from \(Int(start)) to \(Int(end)) seconds")
     }
 
-    private var handle: some View {
-        RoundedRectangle(cornerRadius: 6, style: .continuous)
-            .fill(.white)
-            .frame(width: handleWidth)
-            .overlay {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(Color(white: 0.25))
-                    .frame(width: 2, height: 18)
-            }
-            .contentShape(Rectangle().inset(by: -10))
+    private func handle(height: CGFloat, leading: Bool) -> some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: leading ? height / 2 : 0,
+            bottomLeadingRadius: leading ? height / 2 : 0,
+            bottomTrailingRadius: leading ? 0 : height / 2,
+            topTrailingRadius: leading ? 0 : height / 2,
+            style: .continuous
+        )
+        .fill(.white)
+        .frame(width: handleWidth)
+        .overlay {
+            Capsule()
+                .fill(Color(white: 0.3))
+                .frame(width: 3, height: 26)
+        }
+        .contentShape(Rectangle().inset(by: -12))
     }
 
     private func drag(scale: CGFloat, width: CGFloat, leading: Bool) -> some Gesture {

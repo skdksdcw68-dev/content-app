@@ -106,6 +106,11 @@ struct EditorView: View {
                     .buttonStyle(RemiFilledButtonStyle())
                     .controlSize(.small)
             }
+            // The filled button stands on its own: iOS 26 otherwise puts its
+            // own glass behind every bar item, and a black button on a glass
+            // pill read as two buttons (Abel, 23 Sep 2026: "it has a
+            // background glass, why?").
+            .sharedBackgroundVisibility(.hidden)
             ToolbarItemGroup(placement: .bottomBar) {
                 ForEach(Tool.allCases) { item in
                     Button {

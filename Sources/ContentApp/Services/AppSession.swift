@@ -1463,8 +1463,8 @@ extension AppSession {
                 // rather than flashing a question that is about to be
                 // answered for them.
                 Task {
-                    await carryAnswersToThisAccount()
-                    setOnboarding(self.brand?.answeredOnboarding == true ? .done : .question(0))
+                    await self.carryAnswersToThisAccount()
+                    self.setOnboarding(self.brand?.answeredOnboarding == true ? .done : .question(0))
                 }
             } else {
                 setOnboarding(.done)

@@ -74,6 +74,11 @@ struct AnalyticsView: View {
         let query: AnalyticsQuery
         let brand: UUID?
         let reloads: Int
+        /// Connecting an account is the one thing that turns this page from
+        /// empty into full, and every load refuses to run without one. Without
+        /// it in the key, connecting from the sheet left the empty state on
+        /// screen until you switched tabs and came back.
+        let accounts: Int
     }
 
     private var query: AnalyticsQuery {
@@ -93,7 +98,7 @@ struct AnalyticsView: View {
     }
 
     private var loadKey: LoadKey {
-        LoadKey(query: query, brand: session.brand?.id, reloads: reloads)
+        LoadKey(query: query, brand: session.brand?.id, reloads: reloads, accounts: session.connections.count)
     }
 
     private var customLabel: String? {

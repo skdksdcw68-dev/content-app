@@ -4,7 +4,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 for (const line of fs.readFileSync(".env", "utf8").split(/\r?\n/)) {
   const m = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  const [, key, raw] = m ?? [];
+  if (key && raw !== undefined && !process.env[key]) process.env[key] = raw.replace(/^["']|["']$/g, "");
 }
 const { ASC_KEY_ID: kid, ASC_ISSUER_ID: iss, ASC_KEY_PATH: keyPath } = process.env;
 const tok = () => {

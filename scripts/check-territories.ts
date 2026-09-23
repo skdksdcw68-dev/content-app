@@ -3,7 +3,8 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 for (const line of fs.readFileSync(".env", "utf8").split(/\r?\n/)) {
   const m = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  const [, key, raw] = m ?? [];
+  if (key && raw !== undefined && !process.env[key]) process.env[key] = raw.replace(/^["']|["']$/g, "");
 }
 const { ASC_KEY_ID: kid, ASC_ISSUER_ID: iss, ASC_KEY_PATH: keyPath } = process.env;
 const tok = () => {
@@ -12,7 +13,8 @@ const tok = () => {
   const input = `${e({ alg: "ES256", kid, typ: "JWT" })}.${e({ iss, iat: now, exp: now + 900, aud: "appstoreconnect-v1" })}`;
   return `${input}.${crypto.createSign("SHA256").update(input).sign({ key: fs.readFileSync(keyPath!, "utf8"), dsaEncoding: "ieee-p1363" }, "base64url")}`;
 };
-const get = async (p: string) => (await fetch(`https://api.appstoreconnect.apple.com${p}`, { headers: { Authorization: `Bearer ${tok()}` } })).json();
+const get = async (p: string): Promise<any> =>
+  (await fetch(`https://api.appstoreconnect.apple.com${p}`, { headers: { Authorization: `Bearer ${tok()}` } })).json();
 for (const id of ["6813777379", "6813777306"]) {
   const prices = await get(`/v1/subscriptions/${id}/prices?include=subscriptionPricePoint,territory&limit=200`);
   const points = new Map((prices.included ?? []).filter((i: any) => i.type === "subscriptionPricePoints").map((p: any) => [p.id, p.attributes.customerPrice]));

@@ -135,6 +135,7 @@ struct AutopilotCard: View {
 
     @Environment(AppSession.self) private var session
     @State private var turningOn = false
+    @State private var connecting = false
 
     var body: some View {
         Card("Autopilot", systemImage: "airplane") {
@@ -153,6 +154,7 @@ struct AutopilotCard: View {
 
             action
         }
+        .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
     }
 
     @ViewBuilder
@@ -180,8 +182,10 @@ struct AutopilotCard: View {
 
         case .blocked(let found):
             switch found.route.flatMap(HealthRoute.init(rawValue:)) {
-            case .generator, .connections:
-                link(found.action ?? "Fix it") { ProfileView() }
+            case .connections:
+                button(found.action ?? "Connect an account") { connecting = true }
+            case .generator:
+                link(found.action ?? "Connect a generator") { GeneratorsView() }
             case .plan:
                 link(found.action ?? "Open the plan") { PlanView() }
             case nil:
@@ -189,7 +193,7 @@ struct AutopilotCard: View {
             }
 
         case .needsGenerator:
-            link("Connect a generator") { ProfileView() }
+            link("Connect a generator") { GeneratorsView() }
 
         case .needsPlan, .finished:
             link("Plan a month") { PlanView() }
@@ -207,13 +211,25 @@ struct AutopilotCard: View {
         @ViewBuilder destination: @escaping () -> Destination
     ) -> some View {
         NavigationLink { destination().pushedPage() } label: {
-            HStack(spacing: 4) {
-                Text(title)
-                Image(systemName: "arrow.right")
-            }
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(Theme.accent)
+            linkLabel(title)
         }
         .buttonStyle(.plain)
+    }
+
+    /// The same link, for somewhere that opens over the page instead of
+    /// pushing. Connecting an account is a sheet everywhere now, not a trip
+    /// to Profile (Abel, 23 Sep 2026).
+    private func button(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { linkLabel(title) }
+            .buttonStyle(.plain)
+    }
+
+    private func linkLabel(_ title: String) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Image(systemName: "arrow.right")
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(Theme.accent)
     }
 }

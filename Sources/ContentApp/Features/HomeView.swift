@@ -67,29 +67,18 @@ struct HomeView: View {
         GridItem(.flexible(), spacing: 12),
     ]
 
-    private var timeOfDay: String {
-        switch Calendar.current.component(.hour, from: .now) {
-        case 5..<12:  "Good morning"
-        case 12..<18: "Good afternoon"
-        default:      "Good evening"
-        }
-    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                // The heading is the page's, so it scrolls away while the
-                // bar's items stay (Abel, 23 Sep 2026: "just say Home, and
-                // when they scroll it disappears but Upgrade and profile
-                // stay").
-                Text("Home")
-                    .font(.largeTitle.bold())
-                    .foregroundStyle(.primary)
-                    .padding(.top, 2)
-                    .entrance(0)
-
+                // No heading drawn here any more. "Home" is the navigation
+                // bar's own title in iOS 26's inlineLarge mode, which puts it
+                // on the SAME LINE as Upgrade and the profile circle (Abel,
+                // 23 Sep 2026: "i want the Home and profile thing on the home
+                // page to be the same line") and still shrinks away as the
+                // page scrolls, which is what he asked for before it.
                 askField
-                    .padding(.top, 22)
+                    .padding(.top, 6)
                     .entrance(1)
 
                 // The thing worth pushing, Fresha's gift-card card: a series.
@@ -204,8 +193,8 @@ struct HomeView: View {
         // 23 Sep 2026: "keep the home top things native... the pro and
         // profile thing with native is enough").
         .tabChrome(
-            title: "",
-            mode: .bare,
+            title: "Home",
+            mode: .inlineLarge,
             trailing: AnyView(
                 HStack(spacing: 14) {
                     if session.subscription?.isPro != true {

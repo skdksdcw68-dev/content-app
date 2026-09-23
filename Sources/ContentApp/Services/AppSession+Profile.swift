@@ -39,6 +39,10 @@ extension AppSession {
             .map { PersonNameComponentsFormatter().string(from: $0) }
             .flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
 
+        /// Kept so that if signing in fails too, the reason reported is the
+        /// one that actually started the trouble.
+        var linkFailure: Error?
+
         do {
             if isAnonymous {
                 do {
@@ -47,19 +51,22 @@ extension AppSession {
                     await adoptName(appleName)
                     return .linked
                 } catch {
-                    // Already someone's account: fall through to signing in as it.
-                    let text = "\(error)".lowercased()
-                    guard text.contains("already") || text.contains("identity_exists") || text.contains("exists") else {
-                        throw error
-                    }
+                    // Whatever went wrong, the token in hand is still a valid
+                    // Apple sign-in, so signing in as that Apple ID is tried
+                    // next and only its failure is reported. Matching on the
+                    // words in the error meant any wording Supabase did not
+                    // use -- linking refused, a rate limit, a network blip --
+                    // came out as a dead button (Abel, 23 Sep 2026: "the
+                    // apple sign in doesn't even work").
+                    linkFailure = error
                 }
             }
             _ = try await client.auth.signInWithIdToken(credentials: credentials)
-            await restart()
+            await restart(signingIn: true)
             await adoptName(appleName)
             return .switched
         } catch {
-            return .failed(readableMessage(error))
+            return .failed(readableMessage(linkFailure ?? error))
         }
     }
 
@@ -73,9 +80,24 @@ extension AppSession {
     /// Signs out, then opens again as a new empty anonymous account. The Apple
     /// account and everything in it is still there to sign back in to.
     func signOut() async {
-        try? await client.auth.signOut()
+        // The default scope revokes the refresh token on the server, which
+        // needs the network and fails on a bad one. Swallowing that left the
+        // session on the phone and nothing happened at all (Abel, 23 Sep
+        // 2026: "i cannot signout"). Local always follows, so the phone
+        // forgets the account whether or not the server was reachable.
+        do {
+            try await client.auth.signOut()
+        } catch {
+            try? await client.auth.signOut(scope: .local)
+        }
         // Or the next Google sign-in silently reuses the same account.
         GoogleAuth.signOut()
+        // Setup belongs to a person, so signing out starts it again -- said
+        // here rather than inferred from the id changing, which is the rule
+        // that used to fire on every sign-in too.
+        restartOnboarding()
+        UserDefaults.standard.removeObject(forKey: Self.lastUserKey)
+        onboardingAnswers = [:]
         await restart()
     }
 

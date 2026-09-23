@@ -132,32 +132,26 @@ struct SeriesFlowView: View {
             subtitle: "A style is the brief, the themes and the look. Your account is still yours."
         ) {
             if let templates {
-                // Grouped by what they are for, in the catalogue's order.
-                let groups = Self.grouped(templates)
-                VStack(alignment: .leading, spacing: 18) {
-                    ForEach(groups, id: \.category) { group in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(group.category)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            LazyVGrid(columns: columns, spacing: 10) {
-                                ForEach(group.templates) { template in
-                                    StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
-                                        chosen = template
-                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        if destinations.isEmpty {
-                                            destinations = Set(session.connections.map { $0.platform.rawValue })
-                                            if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
-                                        }
-                                        if let seconds = template.workflow?.durationSeconds, !decideLength {
-                                            length = seconds
-                                        }
-                                        Task {
-                                            try? await Task.sleep(for: .milliseconds(400))
-                                            if chosen?.slug == template.slug, step == .style { step = .destinations }
-                                        }
-                                    }
-                                }
+                // One field of styles, not a stack of labelled shelves. The
+                // headings broke it into little grids that each ended on a
+                // ragged row, and the eye never got a run at it (Abel, 23 Sep
+                // 2026: "the way you did it is honestly bad, like you
+                // separated it"). What a style is FOR is on the tile itself.
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(templates) { template in
+                        StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
+                            chosen = template
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            if destinations.isEmpty {
+                                destinations = Set(session.connections.map { $0.platform.rawValue })
+                                if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
+                            }
+                            if let seconds = template.workflow?.durationSeconds, !decideLength {
+                                length = seconds
+                            }
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(400))
+                                if chosen?.slug == template.slug, step == .style { step = .destinations }
                             }
                         }
                     }
@@ -353,18 +347,6 @@ struct SeriesFlowView: View {
         }
     }
 
-    /// Styles by category, keeping the catalogue's order inside and across
-    /// groups (a group appears where its first style does).
-    private static func grouped(_ templates: [ContentTemplate]) -> [(category: String, templates: [ContentTemplate])] {
-        var order: [String] = []
-        var byCategory: [String: [ContentTemplate]] = [:]
-        for template in templates {
-            if byCategory[template.category] == nil { order.append(template.category) }
-            byCategory[template.category, default: []].append(template)
-        }
-        return order.map { ($0, byCategory[$0] ?? []) }
-    }
-
     // MARK: - Moving
 
     private func back() {
@@ -464,6 +446,44 @@ private struct FlowStep<Content: View>: View {
 
 /// A style on the grid: its picture (or its symbol until there is one),
 /// its name, and one line.
+/// The cover a style wears until its photograph exists.
+///
+/// Not a placeholder: a deliberate two-tone wash with the style's own symbol
+/// cut out of it, coloured from the slug so the same style is always the same
+/// colour and no two neighbours collide. Black and white surfaces everywhere
+/// else in the app, so this stays low and desaturated rather than becoming the
+/// coloured tiles Abel called childish on 22 Sep.
+private struct StyleCover: View {
+    let slug: String
+    let symbol: String
+
+    /// Stable across launches: `hashValue` is seeded per process and would
+    /// repaint every style a different colour each time the app opened.
+    private var hue: Double {
+        var total = 0
+        for byte in slug.utf8 { total = (total &* 31 &+ Int(byte)) % 3600 }
+        return Double(total) / 3600
+    }
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(hue: hue, saturation: 0.30, brightness: 0.34),
+                    Color(hue: (hue + 0.08).truncatingRemainder(dividingBy: 1), saturation: 0.42, brightness: 0.18),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Image(systemName: symbol)
+                .font(.system(size: 30, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.92))
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+        }
+    }
+}
+
 private struct StyleTile: View {
     let template: ContentTemplate
     let isChosen: Bool
@@ -478,12 +498,12 @@ private struct StyleTile: View {
                             .resizable()
                             .scaledToFill()
                     } else {
-                        ZStack {
-                            Color.track
-                            Image(systemName: template.symbol)
-                                .font(.system(size: 26, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                        }
+                        // A cover of its own rather than a grey hole. The
+                        // photograph is better and is coming, but a style
+                        // without one still has to look like somebody meant
+                        // it (Abel, 23 Sep 2026: "why does some of them
+                        // doesn't have images").
+                        StyleCover(slug: template.slug, symbol: template.symbol)
                     }
                 }
                 .frame(maxWidth: .infinity)
@@ -494,6 +514,13 @@ private struct StyleTile: View {
                     Text(template.name)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    // What it is for, on the tile, now that the shelf label
+                    // above it is gone.
+                    Text(template.category.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .tracking(0.6)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                     Text(template.tagline)
                         .font(.caption)

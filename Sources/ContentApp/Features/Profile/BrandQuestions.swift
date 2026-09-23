@@ -25,6 +25,7 @@ enum BrandQuestions {
             .init(id: "awareness", label: "Getting known", symbol: "megaphone"),
             .init(id: "community", label: "Community", symbol: "bubble.left.and.bubble.right"),
             .init(id: "traffic", label: "Website visits", symbol: "safari"),
+            .init(id: "leads", label: "Leads and enquiries", symbol: "tray.and.arrow.down"),
         ]
     )
 
@@ -45,6 +46,7 @@ enum BrandQuestions {
             .init(id: "fitness", label: "Fitness and health", symbol: "figure.run"),
             .init(id: "fashion", label: "Fashion lovers", symbol: "tshirt"),
             .init(id: "foodies", label: "Food lovers", symbol: "fork.knife"),
+            .init(id: "travellers", label: "Travellers", symbol: "airplane"),
         ]
     )
 
@@ -58,7 +60,8 @@ enum BrandQuestions {
             .init(id: "18-24", label: "18–24", symbol: "person"),
             .init(id: "25-34", label: "25–34", symbol: "person"),
             .init(id: "35-44", label: "35–44", symbol: "person"),
-            .init(id: "45+", label: "45 and over", symbol: "person"),
+            .init(id: "45-54", label: "45–54", symbol: "person"),
+            .init(id: "55+", label: "55 and over", symbol: "person"),
         ]
     )
 
@@ -96,6 +99,7 @@ enum BrandQuestions {
             .init(id: "slideshow", label: "Photo slideshow", symbol: "photo.on.rectangle"),
             .init(id: "faceless", label: "No face, visuals only", symbol: "eye.slash"),
             .init(id: "ai", label: "AI-made visuals", symbol: "wand.and.stars"),
+            .init(id: "ugc", label: "UGC-style clips", symbol: "person.crop.rectangle"),
         ]
     )
 
@@ -121,6 +125,7 @@ enum BrandQuestions {
         subtitle: "How often it should post for you.",
         selection: .single,
         options: [
+            .init(id: "2week", label: "Twice a week", symbol: "calendar.day.timeline.left"),
             .init(id: "3week", label: "Three a week", symbol: "calendar"),
             .init(id: "daily", label: "Every day", symbol: "sun.max"),
             .init(id: "twice", label: "Twice a day", symbol: "sun.max.fill"),
@@ -136,6 +141,10 @@ enum BrandQuestions {
             .init(id: "tiktok", label: "TikTok", symbol: "music.note"),
             .init(id: "reels", label: "Instagram Reels", symbol: "play.square.stack"),
             .init(id: "shorts", label: "YouTube Shorts", symbol: "play.rectangle.on.rectangle"),
+            // Honest fourth rather than a platform that does not exist here:
+            // starting from nothing is a real answer, and the planner reads it
+            // as "no audience yet, write for discovery".
+            .init(id: "starting", label: "Nowhere yet, I'm starting", symbol: "sparkles"),
         ]
     )
 
@@ -148,6 +157,7 @@ enum BrandQuestions {
             .init(id: "face", label: "Yes, talking to camera", symbol: "person.crop.square"),
             .init(id: "voice", label: "Voice only, no face", symbol: "waveform"),
             .init(id: "none", label: "No voice, just footage", symbol: "eye.slash"),
+            .init(id: "sometimes", label: "Sometimes, a mix", symbol: "shuffle"),
         ]
     )
 
@@ -188,6 +198,7 @@ enum BrandQuestions {
         selection: .single,
         options: [
             .init(id: "none", label: "None", symbol: "circle.slash"),
+            .init(id: "one", label: "One, at the end", symbol: "hand.thumbsup"),
             .init(id: "few", label: "A few", symbol: "face.smiling"),
             .init(id: "lots", label: "Lots", symbol: "sparkles"),
         ]
@@ -202,6 +213,7 @@ enum BrandQuestions {
             .init(id: "none", label: "None", symbol: "circle.slash"),
             .init(id: "few", label: "2–3", symbol: "number"),
             .init(id: "more", label: "4–6", symbol: "number.square"),
+            .init(id: "many", label: "7 or more", symbol: "number.square.fill"),
         ]
     )
 

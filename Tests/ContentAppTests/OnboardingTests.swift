@@ -74,6 +74,35 @@ final class OnboardingTests: XCTestCase {
         }
     }
 
+    /// Every question onboarding asks has a page written for it: its own
+    /// question-shaped title, not the Brand page's noun. A question added
+    /// without one would silently fall back and read like a form field.
+    func testEveryOnboardingQuestionHasItsOwnPage() {
+        for question in OnboardingQuestion.all {
+            let title = OnboardingPrompt.title(for: question)
+            XCTAssertFalse(title.isEmpty, "\(question.id) has no page title")
+            XCTAssertNotEqual(title, question.title, "\(question.id) falls back to its Brand page label")
+            XCTAssertFalse(question.subtitle.isEmpty, "\(question.id) has no subtitle")
+        }
+    }
+
+    /// Every list of choices is even, so the two-column grid never ends on a
+    /// single stranded tile (Abel, 23 Sep 2026: "make sure the onboarding
+    /// choices are not kind of 3, or 5, make sure they can be divided by 2").
+    func testEveryQuestionHasAnEvenNumberOfChoices() {
+        let everyQuestion = OnboardingQuestion.all
+            + BrandQuestions.audienceGroup + BrandQuestions.contentGroup + BrandQuestions.writingGroup
+        for question in everyQuestion {
+            XCTAssertEqual(
+                question.options.count % 2, 0,
+                "\(question.id) offers \(question.options.count) choices, which leaves a gap in the grid"
+            )
+            // And no duplicate ids inside one question, which would make two
+            // tiles toggle as one.
+            XCTAssertEqual(Set(question.options.map(\.id)).count, question.options.count, "\(question.id) repeats an option id")
+        }
+    }
+
     /// Anyone who answered the original six questions before the list grew
     /// still counts as onboarded; a fresh profile does not.
     func testTheOriginalSixAnswersStillCountAsOnboarded() {

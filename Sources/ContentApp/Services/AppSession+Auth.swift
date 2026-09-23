@@ -32,6 +32,7 @@ extension AppSession {
 
     private func signInWithGoogleNatively() async -> SignUpOutcome {
         let nonce = AppSession.appleNonce()
+        var linkFailure: Error?
         do {
             let result = try await GoogleAuth.signIn(hashedNonce: nonce.hashed)
             let credentials = OpenIDConnectCredentials(provider: .google, idToken: result.idToken, nonce: nonce.raw)
@@ -43,21 +44,25 @@ extension AppSession {
                     await refreshSubscription()
                     return .linked
                 } catch {
-                    guard Self.identityTaken(error) else { throw error }
+                    // Signing in as that Google account is tried next whatever
+                    // the reason was; only its failure is worth showing. See
+                    // the same note in `signInWithApple`.
+                    linkFailure = error
                 }
             }
             _ = try await client.auth.signInWithIdToken(credentials: credentials)
-            await restart()
+            await restart(signingIn: true)
             await adoptName(result.name)
             return .switched
         } catch GoogleAuth.Failure.cancelled {
             return .failed("")
         } catch {
-            return .failed(readableMessage(error))
+            return .failed(readableMessage(linkFailure ?? error))
         }
     }
 
     private func signInWithGoogleInBrowser() async -> SignUpOutcome {
+        var linkFailure: Error?
         do {
             if isAnonymous {
                 do {
@@ -65,21 +70,23 @@ extension AppSession {
                     await refreshAccount()
                     return .linked
                 } catch {
-                    guard Self.identityTaken(error) else { throw error }
-                    // Already somebody's account: become it.
+                    // Already somebody's account, or something else entirely:
+                    // either way, become that account and report only if that
+                    // fails too.
+                    linkFailure = error
                 }
             }
             _ = try await client.auth.signInWithOAuth(provider: .google, redirectTo: callbackURL) { session in
                 session.prefersEphemeralWebBrowserSession = false
             }
-            await restart()
+            await restart(signingIn: true)
             return .switched
         } catch is CancellationError {
             return .failed("")
         } catch let error as WebAuth.Failure where error == .cancelled {
             return .failed("")
         } catch {
-            return .failed(readableMessage(error))
+            return .failed(readableMessage(linkFailure ?? error))
         }
     }
 
@@ -139,7 +146,7 @@ extension AppSession {
                 return .linked
             }
             _ = try await client.auth.verifyOTP(email: email, token: token, type: .email)
-            await restart()
+            await restart(signingIn: true)
             return .switched
         } catch {
             // The address turned out to belong to an existing account, so the
@@ -147,7 +154,7 @@ extension AppSession {
             if wasAnonymous,
                let result = try? await client.auth.verifyOTP(email: email, token: token, type: .email) {
                 _ = result
-                await restart()
+                await restart(signingIn: true)
                 return .switched
             }
             return .failed(readableMessage(error))

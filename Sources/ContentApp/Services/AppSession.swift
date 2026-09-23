@@ -56,7 +56,7 @@ final class AppSession {
     private(set) var onboarding: OnboardingStep = AppSession.storedOnboarding()
     /// Answers held in memory until the step is left, then written to the
     /// brand. Nothing here is a field of its own.
-    private(set) var onboardingAnswers: [String: Set<String>] = [:]
+    internal(set) var onboardingAnswers: [String: Set<String>] = [:]
     /// Where Back goes from the email screen, which can be reached from two
     /// places (Remi's `emailReturn`).
     internal(set) var emailReturn: OnboardingStep = .account
@@ -156,7 +156,16 @@ final class AppSession {
             let remembered = UserDefaults.standard.string(forKey: Self.lastUserKey)
             if remembered != user.id.uuidString {
                 UserDefaults.standard.set(user.id.uuidString, forKey: Self.lastUserKey)
-                if remembered != nil { setOnboarding(.welcome) }
+                // ...but signing in is not "a different person". It is this
+                // person finishing, and the id changes because their identity
+                // already had an account. Resetting here sent them back to
+                // question one every single time they signed in, forever
+                // (Abel, 23 Sep 2026: "with google it redirects me to the
+                // onboarding, i did that, then it redirects me to the
+                // onboarding again"). Only an unasked-for change of user --
+                // signing out, or a session that lapsed into a fresh
+                // anonymous one -- starts setup again.
+                if remembered != nil, !isSigningIn { setOnboarding(.welcome) }
             }
             // Only what decides which screen comes first is waited for: the
             // person, the brand, and the accounts. Everything else loads
@@ -176,8 +185,13 @@ final class AppSession {
             if isAnonymous, onboarding == .done { setOnboarding(.account) }
             // And the questions are not optional either. An account that
             // reached the app without answering them -- through the Log in
-            // door, or from before this rule -- answers them now.
-            if onboarding == .done, let brand, !brand.answeredOnboarding { setOnboarding(.question(0)) }
+            // door, or from before this rule -- answers them now. Unless they
+            // were answered a moment ago on the way in, in which case they
+            // are written to this account rather than asked twice.
+            if onboarding == .done, let brand, !brand.answeredOnboarding {
+                await carryAnswersToThisAccount()
+                if self.brand?.answeredOnboarding != true { setOnboarding(.question(0)) }
+            }
             state = .ready
 
             // The rest, together, behind the screen that is already up.
@@ -220,11 +234,21 @@ final class AppSession {
         accountEmail = user.email?.isEmpty == false ? user.email : nil
     }
 
+    /// True only while a sign-in somebody asked for is changing the user id
+    /// underneath us. `start()` reads it to tell "they signed in" apart from
+    /// "they are not who they were last launch".
+    private(set) var isSigningIn = false
+
     /// Starts over as whoever is signed in now -- after signing out, deleting
     /// the account, or signing in to an Apple ID that already had one.
     /// Everything on screen belonged to the previous user, so all of it goes
     /// before the next one is read.
-    func restart() async {
+    ///
+    /// - Parameter signingIn: set by the sign-in paths, so the change of user
+    ///   is not mistaken for somebody new arriving and setup is not restarted.
+    func restart(signingIn: Bool = false) async {
+        isSigningIn = signingIn
+        defer { isSigningIn = false }
         state = .starting
         userID = nil
         brand = nil
@@ -295,7 +319,7 @@ final class AppSession {
     /// Which brand everything else is about, between launches.
     private static let chosenBrandKey = "autocast.brand"
     /// Who was signed in last launch, to notice when it is somebody else.
-    private static let lastUserKey = "autocast.lastUser"
+    static let lastUserKey = "autocast.lastUser"
 
     /// Look at another one. Everything brand-shaped is read again: leaving one
     /// app's posts on screen under another app's name is worse than a moment
@@ -1431,9 +1455,17 @@ extension AppSession {
         case .verified:
             // Into the app only if this account has answered the questions.
             // Somebody who came in through Log in with an account that never
-            // did gets them now, with the account already theirs.
+            // did gets them now, with the account already theirs -- but
+            // answers given on the way in are carried over first, so nobody
+            // is asked the same twelve questions twice.
             if let brand, !brand.answeredOnboarding {
-                setOnboarding(.question(0))
+                // The screen they are on stays up for the moment this takes,
+                // rather than flashing a question that is about to be
+                // answered for them.
+                Task {
+                    await carryAnswersToThisAccount()
+                    setOnboarding(self.brand?.answeredOnboarding == true ? .done : .question(0))
+                }
             } else {
                 setOnboarding(.done)
             }
@@ -1512,7 +1544,29 @@ extension AppSession {
     /// `brand_settings.tone`. Coming back to You → Your brand afterwards shows
     /// exactly what was answered here, editable, which is what stops the two
     /// screens disagreeing about which one is true.
+    /// How many of the twelve are answered in memory right now.
+    ///
+    /// The questions are answered before there is an account to save them to.
+    /// If signing in then lands on an account that already existed, the answers
+    /// are still here -- so they are written to that account rather than asked
+    /// for a second time (Abel, 23 Sep 2026: "it redirects me to the onboarding
+    /// again").
+    private var answersHeldInMemory: Int {
+        OnboardingQuestion.all.filter { !(onboardingAnswers[$0.id] ?? []).isEmpty }.count
+    }
+
+    func carryAnswersToThisAccount() async {
+        guard let brand, !brand.answeredOnboarding else { return }
+        // The same bar `Brand.answeredOnboarding` uses, so carrying them over
+        // always clears the gate that sent us here.
+        guard answersHeldInMemory >= max(1, OnboardingQuestion.all.count / 2) else { return }
+        await saveAnswers()
+    }
+
     private func saveAnswers() async {
+        // A brand that has not loaded yet is not a reason to throw the answers
+        // away: they were the whole point of the last two minutes.
+        if brand == nil, let userID { try? await loadBrand(for: userID) }
         guard let brand else { return }
 
         let labels = { (question: OnboardingQuestion) -> [String] in

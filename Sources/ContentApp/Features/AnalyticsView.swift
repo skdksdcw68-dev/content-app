@@ -57,6 +57,11 @@ struct AnalyticsView: View {
     @State private var planDraft: PlanDraft?
     @State private var proposed: PlanProposal?
     @State private var ask: AnalyticsAsk?
+    /// The connect sheet, opened over whatever screen asked for it rather
+    /// than pushing Profile and making somebody hunt (Abel, 23 Sep 2026:
+    /// "clicking the connect acc doesn't open a sheet to connect, why? it
+    /// redirects to the page where the profile is").
+    @State private var connecting = false
     @State private var applied = 0
     @State private var tips = TipGroup(.ordered) {
         PostsLibraryTip()
@@ -169,6 +174,7 @@ struct AnalyticsView: View {
             pillarId = nil
             planId = nil
         }
+        .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
         .sheet(isPresented: $showingCustom) {
             CustomRangeSheet(
                 start: customFrom > 0 ? Date(timeIntervalSince1970: customFrom) : query.from,
@@ -271,18 +277,16 @@ struct AnalyticsView: View {
 
     @ViewBuilder
     private func viewers(_ report: AnalyticsReport) -> some View {
-        BusinessOnlyCard(
-            title: "Total and new viewers",
-            detail: "How many different people watched, and how many had never seen you before."
-        )
-        .entrance(0)
+        // What is real leads. The locked things are one card at the bottom,
+        // not three in a row -- a page that opens on three padlocks reads as
+        // a page with nothing on it.
         BestTimeCard(bestTime: report.bestTime, timezone: report.timezone)
-            .entrance(1)
+            .entrance(0)
         BusinessOnlyCard(
-            title: "Viewer insights",
-            detail: "Gender, age and locations of the people who watched."
+            title: "Who watched",
+            detail: "How many different people watched, how many were new, and their age, gender and countries."
         )
-        .entrance(2)
+        .entrance(1)
     }
 
     @ViewBuilder
@@ -294,16 +298,11 @@ struct AnalyticsView: View {
         )
         .entrance(0)
         BusinessOnlyCard(
-            title: "Follower insights",
-            detail: "Gender, age and locations of your followers.",
+            title: "Who follows you",
+            detail: "Age, gender and countries of your followers, and the hours they are on TikTok.",
             needsFollowers: true
         )
         .entrance(1)
-        BusinessOnlyCard(
-            title: "When followers are online",
-            detail: "The hours of the day your followers are on TikTok."
-        )
-        .entrance(2)
     }
 
     @ViewBuilder
@@ -389,7 +388,7 @@ struct AnalyticsView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            NavigationLink { ProfileView().pushedPage() } label: {
+            Button { connecting = true } label: {
                 PrimaryButtonLabel(title: "Connect an account")
             }
             .primaryButtonStyle()

@@ -179,9 +179,11 @@ struct HomeView: View {
             .padding(.bottom, 32)
         }
         .background(Color.canvas.ignoresSafeArea())
-        // The title and the two things top right go to the shell's bar.
+        // The title and the two things top right go to the shell's bar, on
+        // one line: iOS 26's inline-large title.
         .tabChrome(
             title: timeOfDay,
+            mode: .inlineLarge,
             trailing: AnyView(
                 HStack(spacing: 14) {
                     if session.subscription?.isPro != true {

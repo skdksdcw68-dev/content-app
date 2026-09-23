@@ -57,7 +57,12 @@ interface Body {
   starts_on?: string;
   /** What the plan is for, in the person's words. Defaults to the brief. */
   objective?: string;
+  /** Where the posts go: "tiktok", "reels", "shorts". Asked in the plan
+   *  sheet (Abel, 23 Sep 2026); the scheduler reads it from brand_settings. */
+  platforms?: string[];
 }
+
+const PLATFORMS = new Set(["tiktok", "reels", "shorts"]);
 
 interface Slot {
   slot_at: string;
@@ -96,6 +101,7 @@ Deno.serve(async (request) => {
     const brief = (body.brief ?? "").trim();
     const days = clamp(body.days ?? 30, 1, 60);
     const perDay = clamp(body.posts_per_day ?? 1, 1, 6);
+    const platforms = [...new Set((body.platforms ?? []).filter((p) => PLATFORMS.has(p)))];
 
     // Free and trial plans write a week at a time; Pro writes the month.
     const allowedDays = await maxPlanDays(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
@@ -253,12 +259,19 @@ Deno.serve(async (request) => {
         posts_per_day: perDay,
         brief,
         objective: (body.objective ?? brief).trim().slice(0, 300),
-        platforms: ["tiktok"],
+        platforms: platforms.length > 0 ? platforms : ["tiktok"],
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
 
     if (planError) throw planError;
+
+    // The scheduler posts to brand_settings.platforms, so the plan's choice
+    // becomes the brand's -- otherwise "post to Shorts too" would be recorded
+    // on the plan and ignored on the day.
+    if (platforms.length > 0) {
+      await admin.from("brand_settings").update({ platforms }).eq("brand_id", brand.id);
+    }
 
     // A post without a rationale is dropped rather than given an invented one.
     // The line saying why this exists is the part a person reads before handing
@@ -286,6 +299,52 @@ Deno.serve(async (request) => {
     const factsMentionRecentWork =
       /\b(this week|this month|today|yesterday|recently|just (shipped|launched|added|released)|shipped|launched|released|added|rebuilt|redesigned)\b/i
         .test(facts.join(" "));
+
+    // A second pass for whatever the first could not fill honestly. The month
+    // used to come back short and annotated ("3 posts were thrown away");
+    // Abel, 23 Sep 2026: "it should take its time and generate a good thing."
+    // So the slots that failed are written again, once, with the reason
+    // spelled out, and only what still fails is dropped.
+    const unfilled: number[] = [];
+    for (const [i] of laidOut.entries()) {
+      const post = byIndex.get(i + 1);
+      const written = `${(post?.hook ?? "").trim()} ${post?.caption ?? ""}`;
+      const empty = !(post?.hook ?? "").trim() || !(post?.rationale ?? "").trim();
+      const invents = (!factsMentionPeople && inventsAPerson(written)) ||
+        (!factsMentionRecentWork && claimsRecentWork(written));
+      if (empty || invents) unfilled.push(i);
+    }
+    if (unfilled.length > 0) {
+      const retry = await writeBatch({
+        brand,
+        brief,
+        memory,
+        pillars: pillars ?? [],
+        pillarName,
+        slots: unfilled.map((i) => laidOut[i]),
+        offset: 0,
+        avoid: [...used].slice(0, 40),
+        strict: true,
+      }).catch((thrown) => {
+        console.error("propose-plan second pass", thrown instanceof Error ? thrown.message : thrown);
+        return { posts: [] as Written[], tokensIn: 0, tokensOut: 0 };
+      });
+      tokensIn += retry.tokensIn;
+      tokensOut += retry.tokensOut;
+      // The retry numbered its slots 1..k in the order given; map them back.
+      for (const post of retry.posts) {
+        if (typeof post.n !== "number") continue;
+        const original = unfilled[post.n - 1];
+        if (original === undefined) continue;
+        const hook = (post.hook ?? "").trim();
+        const written = `${hook} ${post.caption ?? ""}`;
+        const invents = (!factsMentionPeople && inventsAPerson(written)) ||
+          (!factsMentionRecentWork && claimsRecentWork(written));
+        if (!hook || !(post.rationale ?? "").trim() || invents) continue;
+        byIndex.set(original + 1, post);
+        used.add(hook.toLowerCase());
+      }
+    }
 
     for (const [i, slot] of laidOut.entries()) {
       const post = byIndex.get(i + 1);
@@ -420,8 +479,11 @@ async function writeBatch(args: {
   slots: Slot[];
   offset: number;
   avoid: string[];
+  /** The second pass: these slots failed once for inventing or for coming
+   *  back empty, and the prompt says so. */
+  strict?: boolean;
 }): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number }> {
-  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid } = args;
+  const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict } = args;
 
   const system = [
     "You plan short-form video content for one social account.",
@@ -450,7 +512,10 @@ async function writeBatch(args: {
     "NEVER invent a number, a price, a date, a rating, a milestone, or a person. NEVER write a customer quote, a testimonial, or \"one user told me\". You have never met a user of this account.",
     "If a theme asks for something you have no fact for, cover the same subject WITHOUT the claim: show how the thing already works, ask what the audience does today, name a mistake common in this field, argue for a belief, or compare two approaches.",
     "Hooks: no two may begin with the same three words, and none may repeat an opening in the avoid list. Vary the grammatical form -- some questions, some statements, some instructions, some observations.",
-  ].join("\n");
+    strict
+      ? "SECOND ATTEMPT. A first draft of these exact slots was rejected because it quoted a person, claimed something was recently changed or shipped, or came back empty. Write each one again from FACTS only: show how the thing works today, ask the audience a question, name a common mistake, argue for a belief, or compare two approaches. Every slot must come back filled."
+      : "",
+  ].filter(Boolean).join("\n");
 
   // Everything under FACTS is something a person wrote down. Nothing else is
   // available to the model, and the system prompt says so -- which is what

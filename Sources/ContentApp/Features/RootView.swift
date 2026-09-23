@@ -187,7 +187,7 @@ private struct TabShellChrome: View {
     var body: some View {
         Color.clear
             .navigationTitle(chrome.title)
-            .navigationBarTitleDisplayMode(chrome.large ? .large : .inline)
+            .toolbarTitleDisplayMode(chrome.mode.system)
             .toolbar {
                 if let leading = chrome.leading {
                     ToolbarItem(placement: .topBarLeading) { leading }

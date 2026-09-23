@@ -17,6 +17,9 @@ struct BrandSettings: Decodable, Hashable, Sendable {
     /// thirty videos up front spends money on posts that may be discarded, and
     /// provider outputs expire in about a week.
     var renderLeadHours: Int
+    /// What the owner told the chat about how to talk to them (0056). Read
+    /// into every reply's system prompt. Nil until they write something.
+    var chatInstructions: String?
 
     enum CodingKeys: String, CodingKey {
         case isOn = "is_on"
@@ -25,6 +28,7 @@ struct BrandSettings: Decodable, Hashable, Sendable {
         case quietHoursStart = "quiet_hours_start"
         case quietHoursEnd = "quiet_hours_end"
         case renderLeadHours = "render_lead_hours"
+        case chatInstructions = "chat_instructions"
     }
 
     /// Ported from the one piece of the first version that was unambiguously

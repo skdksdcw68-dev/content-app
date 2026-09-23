@@ -46,7 +46,7 @@ struct ProfileView: View {
             signOutAndDelete
         }
         .listStyle(.insetGrouped)
-        .tabChrome(title: "Profile", large: false)
+        .tabChrome(title: "Profile", mode: .inline)
         .refreshable {
             await session.refreshConnections()
             await session.refreshSettings()

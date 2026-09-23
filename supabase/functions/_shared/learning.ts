@@ -241,6 +241,52 @@ function evaluate(test: Test, rows: Row[], topVideo: string | null): Finding | n
   };
 }
 
+interface Drift {
+  statement: string;
+  because: string;
+  sample: number;
+  evidence: Record<string, unknown>;
+  from: string | null;
+  to: string | null;
+  platforms: string[];
+}
+
+const DRIFT_WINDOW = 6;
+const DRIFT_MIN = 5;
+
+/** The last few posts, and whether any theme came back. A theme is the
+ *  post's pillar when it has one, else its format -- never a guess from the
+ *  words. Nothing is said until enough posts carry one. */
+function driftFinding(rows: Row[]): Drift | null {
+  const recent = rows
+    .filter((r) => r.posted_at)
+    .sort((x, y) => (y.posted_at ?? "").localeCompare(x.posted_at ?? ""))
+    .slice(0, DRIFT_WINDOW);
+  const themed = recent
+    .map((r) => ({ row: r, theme: (r.pillar || r.format || "").trim().toLowerCase() }))
+    .filter((t) => t.theme);
+  if (themed.length < DRIFT_MIN) return null;
+
+  const counts = new Map<string, number>();
+  for (const t of themed) counts.set(t.theme, (counts.get(t.theme) ?? 0) + 1);
+  const distinct = counts.size;
+  // Every post its own direction, or all but one: that is what "changing
+  // your content constantly" looks like in the data.
+  if (distinct < themed.length - 1) return null;
+
+  const posted = themed.map((t) => t.row.posted_at as string).sort();
+  const names = [...counts.keys()];
+  return {
+    statement: `Your last ${themed.length} posts went ${distinct} different directions.`,
+    because: `Of your last ${themed.length} posts, ${distinct} had a different theme (${names.join(", ")}). Viewers who like one post cannot tell what the next will be, so fewer of them follow.`,
+    sample: themed.length,
+    evidence: { window: themed.length, distinct_themes: distinct, themes: names, rule: `Last ${DRIFT_WINDOW} posts with a theme; flagged when at most one theme repeats.` },
+    from: posted[0] ?? null,
+    to: posted[posted.length - 1] ?? null,
+    platforms: [...new Set(themed.map((t) => t.row.platform))],
+  };
+}
+
 /** Recomputes a brand's findings and recommendations. Safe to run often. */
 export async function learn(admin: SupabaseClient, brandId: string, userId: string): Promise<LearnResult> {
   const { data, error } = await admin.rpc("learning_input", { p_brand: brandId });
@@ -263,6 +309,64 @@ export async function learn(admin: SupabaseClient, brandId: string, userId: stri
 
   const keptInsights: string[] = [];
   const keptRecs: string[] = [];
+
+  // Consistency, from fewer videos than the lift tests need. Abel,
+  // 23 Sep 2026: "it should understand your content from your few videos...
+  // if you are changing your content constantly, it should tell you
+  // directly." Deterministic: the last six posts with a theme, and whether
+  // any theme repeats. Six different directions in six posts is a fact, not
+  // a judgement about performance.
+  const drift = driftFinding(rows);
+  if (drift) {
+    const { data: saved, error: driftError } = await admin
+      .from("insights")
+      .upsert({
+        user_id: userId,
+        brand_id: brandId,
+        key: "consistency",
+        statement: drift.statement,
+        metric: "themes per post",
+        // Not a lift test; the column is not null, so zero says "none".
+        lift: 0,
+        sample_size: drift.sample,
+        confidence: "medium",
+        evidence: drift.evidence,
+        period_start: drift.from,
+        period_end: drift.to,
+        platforms: drift.platforms,
+        content_types: ["video"],
+        status: "active",
+        computed_at: new Date().toISOString(),
+      }, { onConflict: "brand_id,key" })
+      .select("id")
+      .single();
+    if (driftError) {
+      console.error("learn: consistency", driftError.message);
+    } else {
+      keptInsights.push("consistency");
+      const recKey = "consistency:focus";
+      keptRecs.push(recKey);
+      const status = recStatus.get(recKey);
+      if (status !== "applied" && status !== "planned" && status !== "ignored") {
+        const { error: recError } = await admin.from("recommendations").upsert({
+          user_id: userId,
+          brand_id: brandId,
+          insight_id: (saved as { id: string }).id,
+          key: recKey,
+          title: "Stay on two themes for the next two weeks",
+          because: drift.because,
+          confidence: "medium",
+          action: {
+            fact: `Measured on this account: ${drift.statement}`,
+            brief: "Keep the next two weeks to two themes, so viewers learn what this account is for.",
+          },
+          status: "open",
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "brand_id,key" });
+        if (recError) console.error("learn: consistency rec", recError.message);
+      }
+    }
+  }
 
   if (rows.length >= MIN_VIDEOS) {
     const top = [...rows].sort((x, y) => y.views - x.views)[0]?.video_id ?? null;

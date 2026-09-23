@@ -21,6 +21,8 @@ struct BrandView: View {
     @State private var texts: [String: String] = [:]
     @State private var saved: Snapshot?
     @State private var saving = false
+    /// The questions as a run-through, onboarding's way.
+    @State private var runningQuestions = false
 
     private struct Snapshot: Equatable {
         var name: String
@@ -38,6 +40,19 @@ struct BrandView: View {
 
     var body: some View {
         Form {
+            // The whole questionnaire as screens, one question at a time --
+            // Abel, 23 Sep 2026: "I wish the brand thing is like onboarding."
+            // The rows below stay for changing one answer.
+            Section {
+                Button {
+                    runningQuestions = true
+                } label: {
+                    SettingsRow("Go through the questions", symbol: "list.bullet.rectangle", accessory: .chevron)
+                }
+            } footer: {
+                Text("Every question, one screen at a time. Your current answers are already filled in.")
+            }
+
             Section {
                 TextField("Name", text: $name)
                 TextField("What it is, in a sentence or two", text: $niche, axis: .vertical)
@@ -95,6 +110,9 @@ struct BrandView: View {
             } footer: {
                 Text("Facts are the only specifics it will ever state: features, prices, numbers. Add what’s true and it gets specific.")
             }
+        }
+        .fullScreenCover(isPresented: $runningQuestions, onDismiss: load) {
+            BrandFlowView()
         }
         .navigationTitle("Brand")
         .navigationBarTitleDisplayMode(.inline)

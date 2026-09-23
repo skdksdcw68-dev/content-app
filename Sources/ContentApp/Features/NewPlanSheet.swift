@@ -21,20 +21,21 @@ struct NewPlanSheet: View {
     /// branches off `.start` and never rejoins it.
     private enum Step: Hashable {
         case start
-        case about, focus, length, cadence, knows, review
+        case about, focus, length, cadence, destinations, knows, review
         case bring, paste
 
         /// How far along the writing path, for the one bar at the top. The
         /// import path has no bar: it is two taps, not a run of questions.
         var progress: Double? {
             switch self {
-            case .about:   1.0 / 6
-            case .focus:   2.0 / 6
-            case .length:  3.0 / 6
-            case .cadence: 4.0 / 6
-            case .knows:   5.0 / 6
-            case .review:  1
-            default:       nil
+            case .about:        1.0 / 7
+            case .focus:        2.0 / 7
+            case .length:       3.0 / 7
+            case .cadence:      4.0 / 7
+            case .destinations: 5.0 / 7
+            case .knows:        6.0 / 7
+            case .review:       1
+            default:            nil
             }
         }
     }
@@ -48,6 +49,9 @@ struct NewPlanSheet: View {
     @State private var focus: PlanFocus?
     @State private var days = 30
     @State private var postsPerDay = 1
+    /// Where the posts go. Asked in the plan, not assumed (Abel, 23 Sep 2026:
+    /// "make sure to ask the user where to post right after the plan").
+    @State private var destinations: Set<String> = []
     @State private var showingPaywall = false
 
     @State private var pasted = ""
@@ -223,10 +227,11 @@ struct NewPlanSheet: View {
         case .about:   about
         case .focus:   focusStep
         case .length:  length
-        case .cadence: cadence
-        case .knows:   knows
-        case .review:  review
-        case .bring:   bring
+        case .cadence:      cadence
+        case .destinations: whereTo
+        case .knows:        knows
+        case .review:       review
+        case .bring:        bring
         case .paste:
             PastePlanView(text: $pasted) {
                 Task { await importPlan(text: pasted) }
@@ -334,7 +339,51 @@ struct NewPlanSheet: View {
             chosen: String(postsPerDay)
         ) { id in
             postsPerDay = Int(id) ?? 1
-            step = .knows
+            // Starts from what is connected; anything can be added.
+            if destinations.isEmpty {
+                destinations = Set(session.connections.map { $0.platform.rawValue })
+                if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
+            }
+            step = .destinations
+        }
+    }
+
+    /// Which accounts the month posts to. Every platform is offered; the ones
+    /// not connected yet say so, and can still be chosen -- connecting is a
+    /// tap in You → Accounts, and a plan should not have to wait for it.
+    private var whereTo: some View {
+        PlanStep(
+            title: "Where should these go?",
+            subtitle: "Pick every account the month posts to. Each post is prepared for each one.",
+            button: destinations.isEmpty ? "Pick at least one" : "Continue",
+            tint: destinations.isEmpty ? Color.secondary : Theme.accent,
+            action: { if !destinations.isEmpty { step = .knows } }
+        ) {
+            VStack(spacing: 10) {
+                ForEach(Platform.allCases) { platform in
+                    let connected = session.connection(for: platform) != nil
+                    DetailedOption(
+                        option: OnboardingQuestion.Option(
+                            id: platform.rawValue,
+                            label: "\(platform.networkName) · \(platform.displayName)",
+                            symbol: platform.symbolName,
+                            detail: connected
+                                ? "Connected"
+                                : "Not connected yet — connect it in You → Accounts before the first post"
+                        ),
+                        isChosen: destinations.contains(platform.rawValue)
+                    ) {
+                        withAnimation(.snappy(duration: 0.18)) {
+                            if destinations.contains(platform.rawValue) {
+                                destinations.remove(platform.rawValue)
+                            } else {
+                                destinations.insert(platform.rawValue)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
         }
     }
 
@@ -469,9 +518,10 @@ struct NewPlanSheet: View {
             case .about:   step = .start
             case .focus:   step = .about
             case .length:  step = .focus
-            case .cadence: step = .length
-            case .knows:   step = .cadence
-            case .review:  step = .knows
+            case .cadence:      step = .length
+            case .destinations: step = .cadence
+            case .knows:        step = .destinations
+            case .review:       step = .knows
             case .bring:   step = .start
             case .paste:   step = .bring
             case .start:   break
@@ -517,7 +567,8 @@ struct NewPlanSheet: View {
         guard let proposal = await session.proposePlan(
             brief: composedBrief,
             days: days,
-            postsPerDay: postsPerDay
+            postsPerDay: postsPerDay,
+            platforms: Array(destinations).sorted()
         ) else { return }
 
         // Reported before dismissing, so the caller can act on it once the

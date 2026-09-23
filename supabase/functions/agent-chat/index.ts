@@ -45,7 +45,11 @@ const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
  *  for -- the conversation IS the product, so this is where quality is spent.
  *  The router and the classification around it stay cheaper; see `MODELS` in
  *  _shared/route.ts. */
-const MODEL = MODELS.deep;
+// The chat tier, not the deep one: replies were the whole AI bill and read
+// no differently on the smaller model (Abel, 23 Sep 2026: "reduce our cost
+// from AI"). Strategy drafting below still uses MODELS.deep, where depth
+// is the point.
+const MODEL = MODELS.chat;
 
 /** How much conversation goes back to the model. Past this the cost grows for
  *  context nobody refers to; a chat that has run longer keeps its most recent
@@ -1679,6 +1683,22 @@ itself.</good>
             ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
             : "";
 
+          // What the owner wrote under Chat settings (0056): how to talk to
+          // them. Their words, verbatim, after the rules -- it shapes tone
+          // and length; it cannot turn the honesty rules off.
+          let ownerBlock = "";
+          if (brand) {
+            const { data: settingsRow } = await asUser
+              .from("brand_settings")
+              .select("chat_instructions")
+              .eq("brand_id", brand.id)
+              .maybeSingle();
+            const instructions = (settingsRow?.chat_instructions ?? "").trim();
+            if (instructions) {
+              ownerBlock = `OWNER'S INSTRUCTIONS (how they want you to talk to them; follow these unless they conflict with the honesty rules):\n${instructions}`;
+            }
+          }
+
           const stateBlock = [
             routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState,
             await accountLines(brand?.id ?? null),
@@ -1722,7 +1742,7 @@ itself.</good>
               stream_options: { include_usage: true },
               messages: [
                 { role: "system", content: system },
-                { role: "system", content: [brief, factBlock, stateBlock, avoid].filter(Boolean).join("\n\n") },
+                { role: "system", content: [brief, factBlock, stateBlock, avoid, ownerBlock].filter(Boolean).join("\n\n") },
                 ...turns,
               ],
             }),

@@ -38,8 +38,13 @@ enum AppRoute: Hashable {
 /// root publishes its title and its bar items through this preference; the
 /// shell reads the selected tab's entry and draws them where they belong.
 struct TabChrome {
+    /// How the title sits. `inlineLarge` is iOS 26's large title on the SAME
+    /// line as the bar items -- Abel, 23 Sep 2026: "the good morning and the
+    /// profile thing is not on the same line."
+    enum Mode { case large, inline, inlineLarge }
+
     var title: String = ""
-    var large = true
+    var mode: Mode = .large
     var leading: AnyView?
     var trailing: AnyView?
 }
@@ -69,13 +74,23 @@ extension View {
     /// glass on iOS 26.
     func tabChrome(
         title: String,
-        large: Bool = true,
+        mode: TabChrome.Mode = .large,
         leading: AnyView? = nil,
         trailing: AnyView? = nil
     ) -> some View {
         modifier(TabChromeModifier(
-            chrome: TabChrome(title: title, large: large, leading: leading, trailing: trailing)
+            chrome: TabChrome(title: title, mode: mode, leading: leading, trailing: trailing)
         ))
+    }
+}
+
+extension TabChrome.Mode {
+    var system: ToolbarTitleDisplayMode {
+        switch self {
+        case .large:       .large
+        case .inline:      .inline
+        case .inlineLarge: .inlineLarge
+        }
     }
 }
 
@@ -88,7 +103,7 @@ private struct TabChromeModifier: ViewModifier {
             // Also set directly, for the case where the system does carry
             // them through; the shell's copy wins when it does not.
             .navigationTitle(chrome.title)
-            .navigationBarTitleDisplayMode(chrome.large ? .large : .inline)
+            .toolbarTitleDisplayMode(chrome.mode.system)
             .preference(key: TabChromeKey.self, value: tab.map { [$0: chrome] } ?? [:])
     }
 }

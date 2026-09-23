@@ -43,6 +43,46 @@ extension AppSession {
     /// Read from the server rather than kept in the view, which is what makes a
     /// conversation survive the app being closed -- and what lets a long job
     /// finishing while you were away be there when you come back.
+    /// What the owner wants the chat to know about talking to them. Saved on
+    /// the brand's settings and read into every reply (0056).
+    @discardableResult
+    func setChatInstructions(_ text: String) async -> Bool {
+        guard let brandID = brand?.id else { return false }
+        struct Params: Encodable { let p_brand: String; let p_text: String }
+        do {
+            try await client
+                .rpc("set_chat_instructions", params: Params(p_brand: brandID.uuidString, p_text: text))
+                .execute()
+            await refreshSettings()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    /// One conversation, gone.
+    func deleteThread(_ thread: UUID) async {
+        do {
+            try await client.rpc("delete_thread", params: ["p_thread": thread.uuidString]).execute()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Every conversation for this brand, gone.
+    @discardableResult
+    func clearThreads() async -> Bool {
+        struct Params: Encodable { let p_brand: String? }
+        do {
+            try await client.rpc("clear_my_threads", params: Params(p_brand: brand?.id.uuidString)).execute()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
     func messages(in thread: UUID) async -> [ChatMessage] {
         do {
             let rows: [StoredMessage] = try await client

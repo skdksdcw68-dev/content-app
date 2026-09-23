@@ -30,6 +30,17 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
             && !niche.trimmingCharacters(in: .whitespaces).isEmpty
             && !audience.trimmingCharacters(in: .whitespaces).isEmpty
     }
+
+    /// Whether this brand went through the questions. A server fact, not a
+    /// flag on the phone: the flag let somebody tap Log in, create an account
+    /// with Apple, and land in the app having answered nothing (Abel,
+    /// 23 Sep 2026: "there should be no way to bypass the onboarding").
+    var answeredOnboarding: Bool {
+        let ids = OnboardingQuestion.all.map(\.id)
+        guard !ids.isEmpty else { return true }
+        let answered = ids.filter { profile?[$0] != nil }.count
+        return answered >= max(1, ids.count / 2)
+    }
 }
 
 /// One answered question, stored with its title and the chosen labels so the

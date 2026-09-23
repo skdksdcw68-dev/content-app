@@ -32,6 +32,7 @@ struct ChatListView: View {
     /// Nil until the first read comes back, so the list can show its shape
     /// while it waits instead of an empty section.
     @State private var threads: [ChatThread]?
+    @State private var showingSettings = false
     private let startTip = ChatStartTip()
 
     var body: some View {
@@ -77,6 +78,16 @@ struct ChatListView: View {
                                 }
                                 .padding(.vertical, 2)
                             }
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await session.deleteThread(thread.id)
+                                        self.threads?.removeAll { $0.id == thread.id }
+                                    }
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     } header: {
                         Text("Recent chats")
@@ -92,7 +103,20 @@ struct ChatListView: View {
                 }
             }
         }
-        .tabChrome(title: "Chat")
+        .tabChrome(
+            title: "Chat",
+            trailing: AnyView(
+                Button { showingSettings = true } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .accessibilityLabel("Chat settings")
+            )
+        )
+        .sheet(isPresented: $showingSettings, onDismiss: {
+            Task { threads = await session.threads() }
+        }) {
+            ChatSettingsView()
+        }
         // Reloaded whenever the list comes back into view, so a conversation
         // that just gained a reply -- or one started a moment ago -- is here
         // on the pop rather than after a pull-to-refresh.

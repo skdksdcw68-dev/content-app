@@ -113,7 +113,12 @@ struct PlanView: View {
             LazyVStack(alignment: .leading, spacing: 14) {
                 PlanHeader(plan: plan, board: board, timezone: timezone)
 
-                if let notice, notice.needsAttention {
+                // Only the import note. The warnings that used to sit here
+                // ("asking for something you have not written down", "posts
+                // thrown away") are gone: the writer now takes a second pass
+                // at any slot it could not fill honestly, so the month comes
+                // back whole instead of annotated (Abel, 23 Sep 2026).
+                if let notice, notice.imported == true {
                     WritingNotice(notice: notice)
                 }
 

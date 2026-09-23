@@ -179,6 +179,10 @@ final class AppSession {
             // fresh anonymous one, lands on the account screen with their
             // answers intact rather than in a half-owned app.
             if isAnonymous, onboarding == .done { setOnboarding(.account) }
+            // And the questions are not optional either. An account that
+            // reached the app without answering them -- through the Log in
+            // door, or from before this rule -- answers them now.
+            if onboarding == .done, let brand, !brand.answeredOnboarding { setOnboarding(.question(0)) }
             state = .ready
             // Anything bought on another device, or renewed while closed.
             Task { await syncPurchases() }
@@ -829,7 +833,7 @@ extension AppSession {
     /// result is a proposal: rows exist, nothing is scheduled, and the person
     /// has not agreed to anything yet.
     @discardableResult
-    func proposePlan(brief: String, days: Int, postsPerDay: Int) async -> PlanProposal? {
+    func proposePlan(brief: String, days: Int, postsPerDay: Int, platforms: [String] = []) async -> PlanProposal? {
         guard !isPlanning else { return nil }
         isPlanning = true
         defer { isPlanning = false }
@@ -841,9 +845,11 @@ extension AppSession {
                     brief: brief,
                     days: days,
                     postsPerDay: postsPerDay,
-                    brandId: brand?.id.uuidString
+                    brandId: brand?.id.uuidString,
+                    platforms: platforms.isEmpty ? nil : platforms
                 ))
             )
+            await refreshSettings()
             await refreshPlan()
             return proposal
         } catch {
@@ -962,9 +968,11 @@ private struct PlanRequest: Encodable {
     /// The brand on screen. Without it the planner took the first brand, so a
     /// plan asked for from one app could be written for another.
     let brandId: String?
+    /// Where the posts go: "tiktok", "reels", "shorts".
+    let platforms: [String]?
 
     enum CodingKeys: String, CodingKey {
-        case brief, days
+        case brief, days, platforms
         case postsPerDay = "posts_per_day"
         case brandId = "brand_id"
     }
@@ -1092,7 +1100,7 @@ extension AppSession {
         do {
             let rows: [BrandSettings] = try await client
                 .from("brand_settings")
-                .select("is_on,posts_per_day,requires_approval,quiet_hours_start,quiet_hours_end,render_lead_hours")
+                .select("is_on,posts_per_day,requires_approval,quiet_hours_start,quiet_hours_end,render_lead_hours,chat_instructions")
                 .eq("brand_id", value: brandID.uuidString)
                 .execute()
                 .value
@@ -1348,7 +1356,14 @@ extension AppSession {
         case .included:
             setOnboarding(.account)
         case .verified:
-            setOnboarding(.done)
+            // Into the app only if this account has answered the questions.
+            // Somebody who came in through Log in with an account that never
+            // did gets them now, with the account already theirs.
+            if let brand, !brand.answeredOnboarding {
+                setOnboarding(.question(0))
+            } else {
+                setOnboarding(.done)
+            }
         // The account screen is left by choosing something on it: a provider,
         // the email door, or Continue as Guest.
         case .account, .email, .code, .done:

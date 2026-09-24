@@ -564,6 +564,30 @@ struct ChatView: View {
 
     /// Sends what is in the composer -- with `action` when a button said
     /// exactly what it wants, so the router does not have to read it back.
+    /// Stores a pasted key and says so, in the conversation, masked.
+    ///
+    /// Both turns are local. Nothing about a key is written to the thread on
+    /// the server -- the whole point is that it exists in one sealed place and
+    /// nowhere else.
+    private func saveKey(_ key: PastedKey) {
+        turns.append(.user("\(key.preamble.isEmpty ? "" : key.preamble + "\n")\(key.maskedSecret)"))
+        let replyIndex = turns.count
+        turns.append(.thinking)
+        isWorking = true
+
+        Task {
+            defer { isWorking = false }
+            let ok = await session.connectGenerator(keyID: key.id, keySecret: key.secret)
+            guard replyIndex < turns.count else { return }
+            turns[replyIndex] = ChatMessage(
+                role: .assistant,
+                text: ok
+                ? "Saved. That key is encrypted and I can't read it back — you'll only ever see \(key.maskedSecret). I'll use it to make your videos. Ask me for one whenever you like."
+                : "That key didn't work when I tried it against the provider. Nothing was saved. Check it was copied whole, and that it's the pair — the id and the secret, not just one of them."
+            )
+        }
+    }
+
     /// The video's own choices, above the field: how long, and what goes in
     /// it. Only on the video page; the chat composer is unchanged.
     private var videoControls: some View {
@@ -608,6 +632,18 @@ struct ChatView: View {
 
     private func send(action: AppSession.ChatAction? = nil) {
         var asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // A provider key pasted into the field never becomes a message. It is
+        // taken here, verified and sealed by the server, and only its masked
+        // form is shown -- so it never reaches the model and never sits in a
+        // transcript (Abel, 24 Sep 2026).
+        if action == nil, let key = PastedKey.find(in: asked) {
+            draft = ""
+            composerReset += 1
+            saveKey(key)
+            return
+        }
+
         // The video page's choices travel with the request.
         if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(videoSpec)" }
         // A photo on its own is a message: it says "here, do something with

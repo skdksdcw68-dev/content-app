@@ -230,3 +230,8 @@ verify_jwt = false
 
 [functions.instagram-callback]
 verify_jwt = false
+
+# Read-only probe of one connection: opens a session, lists tools, asks for
+# every model list, reads the balance. Never generates, so it can never cost.
+[functions.connection-check]
+verify_jwt = true

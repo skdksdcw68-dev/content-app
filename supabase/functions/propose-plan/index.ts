@@ -115,6 +115,21 @@ function workflowLines(template: Template | null): string {
       lines.push(`Hook patterns to rotate through (fill the blanks with FACTS, never invent): ${patterns.map((h) => `"${h}"`).join(", ")}.`);
     }
   }
+  // How this style goes wrong, and the rule that stops it. Written by the
+  // producer who planned the style (24 Sep 2026) and worth more than any
+  // general instruction: it names the mistake THIS format actually makes.
+  const failures = Array.isArray(w.failure_modes) ? w.failure_modes : [];
+  const rules = failures
+    .map((f) => {
+      const entry = f as { problem?: unknown; rule?: unknown };
+      return typeof entry?.rule === "string" && entry.rule.trim()
+        ? `${typeof entry.problem === "string" ? `${entry.problem}: ` : ""}${entry.rule}`
+        : null;
+    })
+    .filter((r): r is string => Boolean(r));
+  if (rules.length > 0) {
+    lines.push(`This style fails in known ways. Obey each rule: ${rules.join(" | ")}`);
+  }
   return lines.join("\n");
 }
 

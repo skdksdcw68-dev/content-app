@@ -189,9 +189,11 @@ verify_jwt = false
 [functions.hf-webhook]
 verify_jwt = false
 
-# TikTok signs its webhooks; the function verifies that signature before acting.
-[functions.tiktok-webhook]
-verify_jwt = false
+# NOTE: there is no `tiktok-webhook` function. Its block used to sit here and
+# broke `supabase functions deploy` for EVERY function -- the CLI walks the
+# config, cannot find the directory, and fails the whole batch with a 500
+# (24 Sep 2026). A config entry for a function that does not exist is not
+# harmless. Put it back the same commit the function is written.
 
 # App Store Server Notifications V2 arrive as a signed JWS whose certificate
 # chain is verified back to Apple's root.

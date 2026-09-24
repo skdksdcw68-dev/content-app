@@ -292,6 +292,36 @@ function itemsFrom(payload: unknown): Array<Record<string, unknown>> {
 }
 
 /**
+ * Which known provider a server BELONGS to, read from its address.
+ *
+ * 🔴 The two tables above were keyed by our own provider slug, and that is not
+ * what a hand-added server has. "Add your own MCP server" mints a slug like
+ * `mcp-82f9e48b...`, so a person who pasted `https://mcp.higgsfield.ai/mcp`
+ * got a connection that matched no catalogue: instead of Higgsfield's forty
+ * video models it discovered one placeholder per capability, and every
+ * generation against it died with `no_models`. Seventeen of Abel's posts
+ * failed that way and not one video was ever made (24 Sep 2026).
+ *
+ * The address is the honest key. Two rows pointing at the same host ARE the
+ * same provider, whichever way they were added.
+ */
+const FAMILY_HOSTS: Record<string, string> = {
+  "mcp.higgsfield.ai": "higgsfield",
+  "higgsfield.ai": "higgsfield",
+};
+
+export function providerFamily(slug: string, endpoint?: string): string {
+  if (TOOL_CAPABILITIES[slug] || MODEL_CATALOGUE[slug]) return slug;
+  if (!endpoint) return slug;
+  try {
+    const host = new URL(endpoint).hostname.toLowerCase().replace(/^www\./, "");
+    return FAMILY_HOSTS[host] ?? slug;
+  } catch {
+    return slug;
+  }
+}
+
+/**
  * Builds an adapter for one MCP-backed provider.
  *
  * The provider slug only picks the two lookup tables above; everything else is
@@ -306,18 +336,20 @@ export function mcpAdapter(slug: string): Adapter {
       const session = new McpSession(auth.endpoint, auth.secret);
       const info = await session.open();
 
+      // Read the tables by what the server IS, not by what we called it.
+      const family = providerFamily(slug, auth.endpoint);
       const server = (info.serverInfo as { name?: string })?.name ?? slug;
       const tools = await session.tools();
 
-      const map = TOOL_CAPABILITIES[slug] ?? {};
+      const map = TOOL_CAPABILITIES[family] ?? {};
       // Table first, then read the name -- in two passes, so the table's
       // choice wins regardless of the order the server listed its tools in.
       // See `primaryTools`.
       const found = new Map<Capability, string>();
-      for (const [capability, tool] of primaryTools(tools, slug)) found.set(capability, tool.name);
+      for (const [capability, tool] of primaryTools(tools, family)) found.set(capability, tool.name);
 
       const models: ModelDescriptor[] = [];
-      const catalogue = MODEL_CATALOGUE[slug];
+      const catalogue = MODEL_CATALOGUE[family];
 
       // Each catalogue slice is asked for once, and each model recorded once.
       // Audio and voice both read the "audio" slice, so without this the same
@@ -438,7 +470,7 @@ export function mcpAdapter(slug: string): Adapter {
       await session.open();
       const tools = await session.tools();
 
-      const tool = toolFor(tools, request, slug);
+      const tool = toolFor(tools, request, providerFamily(slug, auth.endpoint));
       if (!tool) throw new McpError(404, `no tool for ${request.capability}`);
 
       const medias = await importReferences(session, tools, request);
@@ -519,7 +551,7 @@ export function mcpAdapter(slug: string): Adapter {
       await session.open();
       const tools = await session.tools();
 
-      const tool = toolFor(tools, request, slug);
+      const tool = toolFor(tools, request, providerFamily(slug, auth.endpoint));
       // A provider whose tool has no dry-run flag cannot be asked the price
       // without being asked to do the work. Null, not a guess.
       if (!tool || !hasProperty(tool, "get_cost")) return null;

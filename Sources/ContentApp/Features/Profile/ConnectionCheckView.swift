@@ -37,10 +37,14 @@ struct ConnectionCheckView: View {
                     .padding(.vertical, 2)
                 }
 
-                Section("What was tried") {
+                // A string title and a footer are not one initialiser: with
+                // both, the title goes in `header:`.
+                Section {
                     ForEach(report.steps) { step in
                         StepRow(step: step)
                     }
+                } header: {
+                    Text("What was tried")
                 } footer: {
                     Text("Each line is a request made when you tapped the button, with how long it took. Nothing here is remembered from last time.")
                 }

@@ -20,6 +20,9 @@ struct BrandSettings: Decodable, Hashable, Sendable {
     /// What the owner told the chat about how to talk to them (0056). Read
     /// into every reply's system prompt. Nil until they write something.
     var chatInstructions: String?
+    /// The content style chosen during onboarding (0060). A hint for what to
+    /// offer first, never what a plan was written from.
+    var styleSlug: String?
 
     enum CodingKeys: String, CodingKey {
         case isOn = "is_on"
@@ -29,6 +32,7 @@ struct BrandSettings: Decodable, Hashable, Sendable {
         case quietHoursEnd = "quiet_hours_end"
         case renderLeadHours = "render_lead_hours"
         case chatInstructions = "chat_instructions"
+        case styleSlug = "style_slug"
     }
 
     /// Ported from the one piece of the first version that was unambiguously

@@ -155,6 +155,11 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
 
     case welcome
     case question(Int)
+    /// Which of the 37 content styles this account makes (Abel, 24 Sep 2026:
+    /// "make the onboarding of choosing a content"). The decision the whole
+    /// product turns on, so it is made on day one rather than the first time
+    /// somebody opens the series flow.
+    case contentStyle
     /// The ring, while the answers are written to the brand.
     case building
     /// What Autocast does, before anybody is asked for anything.
@@ -170,6 +175,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         switch self {
         case .welcome:            return "welcome"
         case .question(let i):    return "question:\(i)"
+        case .contentStyle:       return "contentStyle"
         case .building:           return "building"
         case .included:           return "included"
         case .account:            return "account"
@@ -182,7 +188,8 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
 
     init?(stored: String) {
         switch stored {
-        case "welcome":   self = .welcome
+        case "welcome":      self = .welcome
+        case "contentStyle": self = .contentStyle
         case "building":  self = .building
         case "included":  self = .included
         case "account":   self = .account
@@ -211,7 +218,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// and nowhere they were sent (Remi's `canGoBack`).
     var canGoBack: Bool {
         switch self {
-        case .question, .included, .account, .email, .code: return true
+        case .question, .contentStyle, .included, .account, .email, .code: return true
         case .welcome, .building, .verified, .done: return false
         }
     }
@@ -232,9 +239,16 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// Only the part somebody is answering carries a bar: the welcome screen
     /// has none, and neither do the account screens, which are a choice rather
     /// than a queue to be got through.
+    /// Screens somebody answers: the questions, then the style.
+    static var queueLength: Int { OnboardingQuestion.all.count + 1 }
+
     var progress: Double? {
         switch self {
-        case .question(let i):  return Double(i + 1) / Double(OnboardingQuestion.all.count)
+        // The questions plus the style screen are the queue. The denominator
+        // is one more than that, so the last screen somebody still has to act
+        // on -- picking a style -- does not sit under a full bar.
+        case .question(let i):  return Double(i + 1) / Double(Self.queueLength + 1)
+        case .contentStyle:     return Double(Self.queueLength) / Double(Self.queueLength + 1)
         case .done:             return 1
         // The ring and everything after it are not a queue being got through,
         // so they carry no bar at all.

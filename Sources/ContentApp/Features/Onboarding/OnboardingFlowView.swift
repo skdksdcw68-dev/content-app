@@ -72,6 +72,9 @@ struct OnboardingFlowView: View {
                 Color.clear.task { session.onboardingNext() }
             }
 
+        case .contentStyle:
+            OnboardingContentStyle()
+
         case .building:
             OnboardingBuilding()
 

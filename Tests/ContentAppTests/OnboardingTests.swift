@@ -8,7 +8,7 @@ import XCTest
 final class OnboardingTests: XCTestCase {
     private var everyStep: [OnboardingStep] {
         [.welcome, .question(0), .question(OnboardingQuestion.all.count - 1),
-         .building, .included, .account,
+         .contentStyle, .building, .included, .account,
          .email(.signup), .email(.login), .code(.signup), .code(.login),
          .verified(.created), .verified(.alreadyRegistered), .verified(.returning), .done]
     }
@@ -28,10 +28,14 @@ final class OnboardingTests: XCTestCase {
         XCTAssertNil(OnboardingStep(stored: "nonsense"))
     }
 
-    /// The bar belongs to the questions and finishes on the last one (Abel,
-    /// 21 Sep 2026: "it should end on... what should viewers do"). Everything
-    /// after that is a choice, not a queue, and carries no bar.
-    func testProgressCoversOnlyTheQuestionsAndFinishesOnTheLastOne() {
+    /// The bar belongs to what somebody answers -- the questions, then the
+    /// content style -- and rises across all of it. Everything after that is a
+    /// choice, not a queue, and carries no bar.
+    ///
+    /// 🔴 It must never read full while a screen still needs answering. The
+    /// style screen is now the last of those, so it is the one the bar stops
+    /// short of, and only `.done` is 1.
+    func testProgressCoversWhatIsAnsweredAndNeverReadsFullEarly() {
         XCTAssertNil(OnboardingStep.welcome.progress)
         XCTAssertNil(OnboardingStep.building.progress)
         XCTAssertNil(OnboardingStep.included.progress)
@@ -41,10 +45,15 @@ final class OnboardingTests: XCTestCase {
         XCTAssertNil(OnboardingStep.verified(.created).progress)
 
         let first = OnboardingStep.question(0).progress
-        let last = OnboardingStep.question(OnboardingQuestion.all.count - 1).progress
+        let lastQuestion = OnboardingStep.question(OnboardingQuestion.all.count - 1).progress
+        let style = OnboardingStep.contentStyle.progress
+
         XCTAssertNotNil(first)
-        XCTAssertLessThan(first ?? 1, last ?? 0)
-        XCTAssertEqual(last, 1)
+        XCTAssertLessThan(first ?? 1, lastQuestion ?? 0)
+        // The style screen comes after every question and before the end.
+        XCTAssertLessThan(lastQuestion ?? 1, style ?? 0)
+        XCTAssertLessThan(style ?? 1, 1)
+        XCTAssertEqual(OnboardingStep.done.progress, 1)
     }
 
     func testBackBelongsOnlyWhereSomebodyChoseToGo() {
@@ -53,6 +62,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(OnboardingStep.building.canGoBack)
         XCTAssertFalse(OnboardingStep.verified(.created).canGoBack)
         XCTAssertTrue(OnboardingStep.question(2).canGoBack)
+        XCTAssertTrue(OnboardingStep.contentStyle.canGoBack)
         XCTAssertTrue(OnboardingStep.account.canGoBack)
         XCTAssertTrue(OnboardingStep.code(.signup).canGoBack)
     }

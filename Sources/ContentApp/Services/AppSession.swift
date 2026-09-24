@@ -57,6 +57,10 @@ final class AppSession {
     /// Answers held in memory until the step is left, then written to the
     /// brand. Nothing here is a field of its own.
     internal(set) var onboardingAnswers: [String: Set<String>] = [:]
+    /// The content style picked during onboarding, held with the answers and
+    /// written to `brand_settings.style_slug` alongside them. Carried the same
+    /// way, so signing in to another account takes it too.
+    internal(set) var onboardingStyle: ContentTemplate?
     /// Where Back goes from the email screen, which can be reached from two
     /// places (Remi's `emailReturn`).
     internal(set) var emailReturn: OnboardingStep = .account
@@ -1197,7 +1201,7 @@ extension AppSession {
         do {
             let rows: [BrandSettings] = try await client
                 .from("brand_settings")
-                .select("is_on,posts_per_day,requires_approval,quiet_hours_start,quiet_hours_end,render_lead_hours,chat_instructions")
+                .select("is_on,posts_per_day,requires_approval,quiet_hours_start,quiet_hours_end,render_lead_hours,chat_instructions,style_slug")
                 .eq("brand_id", value: brandID.uuidString)
                 .execute()
                 .value
@@ -1444,10 +1448,13 @@ extension AppSession {
             if next < OnboardingQuestion.all.count {
                 setOnboarding(.question(next))
             } else {
-                // Everything answered: the ring screen covers the writing.
-                setOnboarding(.building)
-                Task { await saveAnswers() }
+                // The questions are done; the style is the last thing asked.
+                setOnboarding(.contentStyle)
             }
+        case .contentStyle:
+            // Everything answered: the ring screen covers the writing.
+            setOnboarding(.building)
+            Task { await saveAnswers() }
         case .building:
             setOnboarding(.included)
         case .included:
@@ -1493,8 +1500,10 @@ extension AppSession {
         switch onboarding {
         case .question(let index):
             setOnboarding(index == 0 ? .welcome : .question(index - 1))
-        case .included:
+        case .contentStyle:
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
+        case .included:
+            setOnboarding(.contentStyle)
         case .account:
             setOnboarding(.included)
         case .email:
@@ -1555,7 +1564,15 @@ extension AppSession {
         OnboardingQuestion.all.filter { !(onboardingAnswers[$0.id] ?? []).isEmpty }.count
     }
 
+    /// The style chosen on the way in belongs to whichever account they end up
+    /// on, the same as the answers.
+    private func carryStyleToThisAccount() async {
+        guard let slug = onboardingStyle?.slug, settings?.styleSlug == nil else { return }
+        await saveStyleSlug(slug)
+    }
+
     func carryAnswersToThisAccount() async {
+        await carryStyleToThisAccount()
         guard let brand, !brand.answeredOnboarding else { return }
         // The same bar `Brand.answeredOnboarding` uses, so carrying them over
         // always clears the gate that sent us here.
@@ -1592,10 +1609,29 @@ extension AppSession {
         let voice = BrandQuestions.voice.options.first { (onboardingAnswers["voice"] ?? []).contains($0.id) }
         let tone = voice.map { "\($0.label). \($0.detail ?? "")".trimmingCharacters(in: .whitespaces) }
 
+        // The style reads as an answer on the Brand page like the rest, and
+        // the slug it came from goes where the series flow can find it.
+        if let style = onboardingStyle {
+            profile["content_style"] = BrandAnswer(title: "Content style", answers: [style.name])
+        }
+
         // Silent on failure: a lost answer is a slightly worse plan later,
         // not a broken app now, and an alert would land on a moved-on screen.
         _ = await saveBrandProfile(name: brand.name, niche: niche, audience: who, profile: profile, tone: tone)
+        if let slug = onboardingStyle?.slug { await saveStyleSlug(slug) }
         lastError = nil
         await refreshSettings()
+    }
+
+    /// Remembers the chosen style on the brand (0060), so the series flow
+    /// opens on it and a reinstall does not lose it.
+    func saveStyleSlug(_ slug: String) async {
+        guard let brandID = brand?.id else { return }
+        struct Fields: Encodable, Sendable { let style_slug: String }
+        _ = try? await client
+            .from("brand_settings")
+            .update(Fields(style_slug: slug))
+            .eq("brand_id", value: brandID.uuidString)
+            .execute()
     }
 }

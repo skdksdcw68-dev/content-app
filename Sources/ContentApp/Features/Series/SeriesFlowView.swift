@@ -52,7 +52,7 @@ struct SeriesFlowView: View {
 
     /// What every video in the series must carry. Even, like every other set
     /// of choices in the app.
-    private static let includes = OnboardingQuestion(
+    private static let includeQuestion = OnboardingQuestion(
         id: "series_include",
         title: "Every video has",
         subtitle: "Pick what each one must carry. It goes into every brief.",
@@ -71,7 +71,7 @@ struct SeriesFlowView: View {
 
     /// What it must never do. Separate from the brand-wide answer because a
     /// series can be stricter than the account.
-    private static let avoids = OnboardingQuestion(
+    private static let avoidQuestion = OnboardingQuestion(
         id: "series_avoid",
         title: "Never do this",
         subtitle: "Anything picked here is forbidden in every video of the series.",
@@ -192,11 +192,11 @@ struct SeriesFlowView: View {
     }
 
     private var mustInclude: some View {
-        picker(Self.includes, chosen: $includes, next: .avoid, skippable: true)
+        picker(Self.includeQuestion, chosen: $includes, next: .avoid, skippable: true)
     }
 
     private var mustAvoid: some View {
-        picker(Self.avoids, chosen: $avoids, next: .goal, skippable: true)
+        picker(Self.avoidQuestion, chosen: $avoids, next: .goal, skippable: true)
     }
 
     /// A multi-select screen in the questions' own shape, so the series asks
@@ -522,10 +522,10 @@ struct SeriesFlowView: View {
         chips.append("Daily")
         if let label = Self.goals.first(where: { $0.id == goal })?.label { chips.append(label) }
         chips.append(contentsOf: includes.compactMap { id in
-            Self.includes.options.first { $0.id == id }?.label
+            Self.includeQuestion.options.first { $0.id == id }?.label
         }.sorted())
         chips.append(contentsOf: avoids.compactMap { id in
-            Self.avoids.options.first { $0.id == id }.map { "No \($0.label.lowercased())" }
+            Self.avoidQuestion.options.first { $0.id == id }.map { "No \($0.label.lowercased())" }
         }.sorted())
         return chips
     }
@@ -552,8 +552,8 @@ struct SeriesFlowView: View {
         defer { starting = false }
 
         var brief = Self.goals.first { $0.id == goal }?.sentence ?? ""
-        let musts = includes.compactMap { id in Self.includes.options.first { $0.id == id }?.label }.sorted()
-        let nevers = avoids.compactMap { id in Self.avoids.options.first { $0.id == id }?.label }.sorted()
+        let musts = includes.compactMap { id in Self.includeQuestion.options.first { $0.id == id }?.label }.sorted()
+        let nevers = avoids.compactMap { id in Self.avoidQuestion.options.first { $0.id == id }?.label }.sorted()
         if !musts.isEmpty { brief += " Every video must have: \(musts.joined(separator: ", "))." }
         if !nevers.isEmpty { brief += " Never: \(nevers.joined(separator: ", "))." }
 
@@ -653,51 +653,26 @@ private struct FlowStep<Content: View>: View {
 struct FlowChips: View {
     let items: [String]
 
-    @State private var height: CGFloat = 40
+    /// The system's own wrapping. An adaptive grid sizes and wraps its cells
+    /// on its own and reports its height honestly, where a hand-rolled flow
+    /// layout has to measure itself inside a GeometryReader that fills the
+    /// space it is trying to measure.
+    private let columns = [GridItem(.adaptive(minimum: 92), spacing: 8, alignment: .leading)]
 
     var body: some View {
-        GeometryReader { proxy in
-            content(width: proxy.size.width)
-                .background(
-                    GeometryReader { inner in
-                        Color.clear
-                            .onAppear { height = inner.size.height }
-                            .onChange(of: inner.size.height) { _, new in height = new }
-                    }
-                )
-        }
-        .frame(height: height)
-    }
-
-    private func content(width: CGFloat) -> some View {
-        var x: CGFloat = 0
-        var y: CGFloat = 0
-
-        return ZStack(alignment: .topLeading) {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                chip(item)
-                    .alignmentGuide(.leading) { size in
-                        if x - size.width < -width {
-                            x = 0
-                            y -= size.height + 8
-                        }
-                        let result = x
-                        x -= size.width + 8
-                        return result
-                    }
-                    .alignmentGuide(.top) { _ in y }
+                Text(item)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(Theme.accent.opacity(0.10), in: Capsule())
             }
         }
-        .frame(width: width, alignment: .topLeading)
-    }
-
-    private func chip(_ text: String) -> some View {
-        Text(text)
-            .font(.caption.weight(.medium))
-            .foregroundStyle(.primary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Theme.accent.opacity(0.10), in: Capsule())
     }
 }
 

@@ -89,12 +89,12 @@ struct HomeView: View {
                 Group {
                     if let plan = session.plan, plan.isSeries, !plan.isProposal {
                         NavigationLink { PlanView() } label: {
-                            SeriesCard(title: plan.title, line: "Running. Each video is made the day before and waits for your tap.", action: "Open")
+                            SeriesCard(title: plan.title, line: "Running. The next video is made and waits for your tap; the one after is written once it is out.", action: "Open")
                         }
                         .buttonStyle(SoftPressStyle())
                     } else {
                         Button { startingSeries = true } label: {
-                            SeriesCard(title: "Start a series", line: "Pick a style. It writes the month and makes a video a day.", action: "Pick a style")
+                            SeriesCard(title: "Start a series", line: "Pick a style. It writes the next post, makes its video, and keeps going.", action: "Pick a style")
                         }
                         .buttonStyle(SoftPressStyle())
                     }
@@ -294,7 +294,7 @@ struct HomeView: View {
                     let text = ask.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return }
                     ask = ""
-                    session.push(.chatOpening(text))
+                    session.push(.makeVideo(text))
                 }
         }
         .padding(.horizontal, 16)

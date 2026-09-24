@@ -26,6 +26,12 @@ struct ChatView: View {
     /// turn of a new conversation, so starting a job and talking about it are
     /// the same place rather than two.
     var opening: String? = nil
+    /// Opened from Home's "Describe a video to make" field. Same conversation,
+    /// same agent, same artifacts -- but the field asks for a video and the
+    /// strip above it carries the video's own choices (Abel, 24 Sep 2026:
+    /// "similar as the chat but different text input video, which included
+    /// video things instead of a text").
+    var makingVideo = false
 
     @Environment(AppSession.self) private var session
 
@@ -36,6 +42,10 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var isWorking = false
     @State private var showsOptions = false
+    /// The video page's choices.
+    @State private var videoLength = 30
+    @State private var videoVoiceover = true
+    @State private var videoCaptions = true
     @State private var planning = false
     @State private var proposed: PlanProposal?
     @State private var showingPlan = false
@@ -276,6 +286,8 @@ struct ChatView: View {
                         resetToken: composerReset,
                         focusToken: composerFocus,
                         attachments: pending,
+                        placeholder: makingVideo ? "Describe the video to make" : "Ask Autocast",
+                        accessory: makingVideo ? AnyView(videoControls) : nil,
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
@@ -552,8 +564,52 @@ struct ChatView: View {
 
     /// Sends what is in the composer -- with `action` when a button said
     /// exactly what it wants, so the router does not have to read it back.
+    /// The video's own choices, above the field: how long, and what goes in
+    /// it. Only on the video page; the chat composer is unchanged.
+    private var videoControls: some View {
+        HStack(spacing: 8) {
+            ForEach([15, 30, 60], id: \.self) { seconds in
+                chip("\(seconds)s", on: videoLength == seconds) {
+                    videoLength = seconds
+                }
+            }
+            Divider().frame(height: 18)
+            chip("Voiceover", on: videoVoiceover) { videoVoiceover.toggle() }
+            chip("Captions", on: videoCaptions) { videoCaptions.toggle() }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 4)
+    }
+
+    private func chip(_ title: String, on: Bool, tap: @escaping () -> Void) -> some View {
+        Button {
+            withAnimation(.snappy(duration: 0.15)) { tap() }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(on ? Theme.onAccent : Color.primary)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 6)
+                .background(on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
+    }
+
+    /// What the choices say, appended to the request so the agent reads them
+    /// and the person can see what they asked for.
+    private var videoSpec: String {
+        var parts = ["\(videoLength) seconds"]
+        parts.append(videoVoiceover ? "with a voiceover" : "no voiceover")
+        if videoCaptions { parts.append("with captions") }
+        return "(\(parts.joined(separator: ", ")))"
+    }
+
     private func send(action: AppSession.ChatAction? = nil) {
-        let asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        var asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        // The video page's choices travel with the request.
+        if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(videoSpec)" }
         // A photo on its own is a message: it says "here, do something with
         // this", and the agent answers with what it could do.
         let photosOnly = asked.isEmpty && action == nil && !pending.isEmpty

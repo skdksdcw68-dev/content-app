@@ -63,6 +63,7 @@ struct RootView: View {
                                 switch route {
                                 case .chat(let id):         ChatView(threadId: id)
                                 case .chatOpening(let text): ChatView(opening: text)
+                                case .makeVideo(let text):  ChatView(opening: text, makingVideo: true)
                                 case .plan(let proposal):   PlanView(notice: proposal)
                                 case .post(let id):         PostDetailView(postID: id)
                                 case .library:              LibraryView()

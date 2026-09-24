@@ -20,6 +20,9 @@ enum AppRoute: Hashable {
     case chat(UUID?)
     /// A fresh conversation that starts by sending these words.
     case chatOpening(String)
+    /// Making a video, from Home's field: the same conversation with a
+    /// composer that asks for a video and carries its choices.
+    case makeVideo(String)
     /// The plan, with the proposal that just made it when there is one.
     case plan(PlanProposal?)
     /// One post's detail page.

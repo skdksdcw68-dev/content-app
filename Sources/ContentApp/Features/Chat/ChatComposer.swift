@@ -33,6 +33,12 @@ struct ChatComposer: View {
     /// image, not fetched: this view is hosted by UIKit outside the SwiftUI
     /// environment, and a thumbnail should not wait on a network round trip.
     var attachments: [PendingAttachment] = []
+    /// What the empty field says. The video page asks for a video, not a
+    /// question (Abel, 24 Sep 2026).
+    var placeholder = "Ask Autocast"
+    /// A strip of controls above the field, used by the video page for length
+    /// and style. Nothing is drawn when it is nil.
+    var accessory: AnyView?
     var onRemoveAttachment: (UUID) -> Void = { _ in }
     let onSend: () -> Void
     let onStop: () -> Void
@@ -69,6 +75,7 @@ struct ChatComposer: View {
 
     private var capsule: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let accessory { accessory }
             if !attachments.isEmpty {
                 pendingStrip
             }
@@ -76,7 +83,7 @@ struct ChatComposer: View {
             HStack(alignment: .bottom, spacing: 6) {
                 plusButton
 
-                TextField(attachments.isEmpty ? "Ask Autocast" : "Say what to do with it", text: $text, axis: .vertical)
+                TextField(attachments.isEmpty ? placeholder : "Say what to do with it", text: $text, axis: .vertical)
                     .font(.system(size: 16))
                     .lineSpacing(3)
                     // One line at rest, growing to six, then scrolling inside

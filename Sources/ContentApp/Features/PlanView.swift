@@ -492,7 +492,7 @@ private struct NoPlanYet: View {
                 .padding(.horizontal, 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+        .background(Theme.canvas.ignoresSafeArea())
     }
 }
 

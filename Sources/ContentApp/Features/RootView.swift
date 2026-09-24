@@ -271,6 +271,6 @@ private struct StartupFailedView: View {
                 .buttonStyle(RemiFilledButtonStyle())
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Theme.canvas)
+        .background(Theme.canvas.ignoresSafeArea())
     }
 }

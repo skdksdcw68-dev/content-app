@@ -90,7 +90,7 @@ struct ConnectAccountsSheet: View {
             }
             .padding(.top, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Theme.canvas)
+            .background(Theme.canvas.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -116,13 +116,24 @@ struct ConnectAccountsSheet: View {
 
 /// One network, shaped exactly like an onboarding answer: symbol, name, and
 /// the accent border once it is yours.
-private struct PlatformTile: View {
+///
+/// Shared with the series flow's "where should it post?" step, which used to
+/// draw a row with a separate Connect pill beside it and looked like a form
+/// (Abel, 24 Sep 2026: "on the connect page, bro i hate that"). One tile does
+/// both jobs: not connected, tapping opens the network's sign-in; connected,
+/// tapping picks it.
+struct PlatformTile: View {
     let platform: Platform
     let connection: PlatformConnection?
     let isOpening: Bool
+    /// Nil on the plain connect sheet, where there is nothing to choose. Set
+    /// in the series flow, where a connected account is also picked or not.
+    var isChosen: Bool?
     let choose: () -> Void
 
     private var isConnected: Bool { connection != nil }
+    /// Filled in when it is yours, or when it is yours AND picked.
+    private var isLit: Bool { isChosen ?? isConnected }
 
     var body: some View {
         Button(action: choose) {
@@ -131,14 +142,14 @@ private struct PlatformTile: View {
                     Image(systemName: platform.symbolName)
                         .font(.system(size: 20, weight: .semibold))
                         .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(isConnected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                        .foregroundStyle(isLit ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
                         .frame(width: 26, alignment: .leading)
 
                     Spacer(minLength: 0)
 
                     if isOpening {
                         ProgressView()
-                    } else if isConnected {
+                    } else if isLit {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.title3)
                             .foregroundStyle(Theme.accent)
@@ -152,7 +163,7 @@ private struct PlatformTile: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 // The handle once it is connected, the invitation before.
-                Text(connection?.label ?? "Tap to connect")
+                Text(connection?.label ?? (isOpening ? "Opening…" : "Tap to connect"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -164,10 +175,10 @@ private struct PlatformTile: View {
             .frame(maxWidth: .infinity, minHeight: 116, alignment: .topLeading)
             .background {
                 let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-                shape.fill(isConnected ? AnyShapeStyle(Theme.accent.opacity(0.10)) : AnyShapeStyle(Theme.surface))
-                    .overlay(shape.strokeBorder(isConnected ? Theme.accent : .clear, lineWidth: 1.5))
+                shape.fill(isLit ? AnyShapeStyle(Theme.accent.opacity(0.10)) : AnyShapeStyle(Theme.surface))
+                    .overlay(shape.strokeBorder(isLit ? Theme.accent : .clear, lineWidth: 1.5))
             }
-            .scaleEffect(isConnected ? 0.98 : 1)
+            .scaleEffect(isLit ? 0.98 : 1)
         }
         .buttonStyle(.plain)
         .disabled(isConnected || isOpening)

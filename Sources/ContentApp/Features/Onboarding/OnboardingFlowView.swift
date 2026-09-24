@@ -38,7 +38,7 @@ struct OnboardingFlowView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.canvas.dismissesKeyboardOnTap())
+            .background(Theme.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // The conditional lives inside the item, not around it:
@@ -71,9 +71,6 @@ struct OnboardingFlowView: View {
             } else {
                 Color.clear.task { session.onboardingNext() }
             }
-
-        case .contentStyle:
-            OnboardingContentStyle()
 
         case .building:
             OnboardingBuilding()

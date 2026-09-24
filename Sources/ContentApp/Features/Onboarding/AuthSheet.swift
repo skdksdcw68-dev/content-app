@@ -28,7 +28,7 @@ struct AuthSheet: View {
     var body: some View {
         NavigationStack {
             content
-                .background(Theme.canvas)
+                .background(Theme.canvas.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {

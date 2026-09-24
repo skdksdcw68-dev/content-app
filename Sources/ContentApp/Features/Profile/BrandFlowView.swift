@@ -98,7 +98,7 @@ struct BrandFlowView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Theme.canvas)
+            .background(Theme.canvas.ignoresSafeArea())
             .navigationTitle("Your brand")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

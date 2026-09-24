@@ -148,7 +148,7 @@ struct NewPlanSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Theme.canvas.dismissesKeyboardOnTap())
+            .background(Theme.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

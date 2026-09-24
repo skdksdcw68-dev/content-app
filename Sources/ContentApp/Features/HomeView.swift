@@ -77,8 +77,12 @@ struct HomeView: View {
                 // 23 Sep 2026: "i want the Home and profile thing on the home
                 // page to be the same line") and still shrinks away as the
                 // page scrolls, which is what he asked for before it.
+                // Room between the bar and the field. At 6 they touched
+                // (Abel, 24 Sep 2026: "there is no gap b/n describe video and
+                // the home and profile thing"), and the title still shares
+                // the bar's line, which is the part he wanted kept.
                 askField
-                    .padding(.top, 6)
+                    .padding(.top, 20)
                     .entrance(1)
 
                 // The thing worth pushing, Fresha's gift-card card: a series.

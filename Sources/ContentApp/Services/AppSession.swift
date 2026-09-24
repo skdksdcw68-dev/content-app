@@ -57,10 +57,6 @@ final class AppSession {
     /// Answers held in memory until the step is left, then written to the
     /// brand. Nothing here is a field of its own.
     internal(set) var onboardingAnswers: [String: Set<String>] = [:]
-    /// The content style picked during onboarding, held with the answers and
-    /// written to `brand_settings.style_slug` alongside them. Carried the same
-    /// way, so signing in to another account takes it too.
-    internal(set) var onboardingStyle: ContentTemplate?
     /// Where Back goes from the email screen, which can be reached from two
     /// places (Remi's `emailReturn`).
     internal(set) var emailReturn: OnboardingStep = .account
@@ -204,7 +200,12 @@ final class AppSession {
             Task {
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask { await self.refreshPosts() }
-                    group.addTask { await self.refreshPlan() }
+                    // The plan, and then the next post of a running series if
+                    // the last one has been and gone.
+                    group.addTask {
+                        await self.refreshPlan()
+                        await self.extendSeriesIfNeeded()
+                    }
                     group.addTask { await self.refreshGenerators() }
                     // Signed-in providers alongside pasted keys -- otherwise
                     // `hasWorkingGenerator` reads false until something
@@ -1448,13 +1449,10 @@ extension AppSession {
             if next < OnboardingQuestion.all.count {
                 setOnboarding(.question(next))
             } else {
-                // The questions are done; the style is the last thing asked.
-                setOnboarding(.contentStyle)
+                // Everything answered: the ring screen covers the writing.
+                setOnboarding(.building)
+                Task { await saveAnswers() }
             }
-        case .contentStyle:
-            // Everything answered: the ring screen covers the writing.
-            setOnboarding(.building)
-            Task { await saveAnswers() }
         case .building:
             setOnboarding(.included)
         case .included:
@@ -1500,10 +1498,8 @@ extension AppSession {
         switch onboarding {
         case .question(let index):
             setOnboarding(index == 0 ? .welcome : .question(index - 1))
-        case .contentStyle:
-            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .included:
-            setOnboarding(.contentStyle)
+            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .account:
             setOnboarding(.included)
         case .email:
@@ -1564,15 +1560,7 @@ extension AppSession {
         OnboardingQuestion.all.filter { !(onboardingAnswers[$0.id] ?? []).isEmpty }.count
     }
 
-    /// The style chosen on the way in belongs to whichever account they end up
-    /// on, the same as the answers.
-    private func carryStyleToThisAccount() async {
-        guard let slug = onboardingStyle?.slug, settings?.styleSlug == nil else { return }
-        await saveStyleSlug(slug)
-    }
-
     func carryAnswersToThisAccount() async {
-        await carryStyleToThisAccount()
         guard let brand, !brand.answeredOnboarding else { return }
         // The same bar `Brand.answeredOnboarding` uses, so carrying them over
         // always clears the gate that sent us here.
@@ -1609,18 +1597,47 @@ extension AppSession {
         let voice = BrandQuestions.voice.options.first { (onboardingAnswers["voice"] ?? []).contains($0.id) }
         let tone = voice.map { "\($0.label). \($0.detail ?? "")".trimmingCharacters(in: .whitespaces) }
 
-        // The style reads as an answer on the Brand page like the rest, and
-        // the slug it came from goes where the series flow can find it.
-        if let style = onboardingStyle {
-            profile["content_style"] = BrandAnswer(title: "Content style", answers: [style.name])
-        }
-
         // Silent on failure: a lost answer is a slightly worse plan later,
         // not a broken app now, and an alert would land on a moved-on screen.
         _ = await saveBrandProfile(name: brand.name, niche: niche, audience: who, profile: profile, tone: tone)
-        if let slug = onboardingStyle?.slug { await saveStyleSlug(slug) }
         lastError = nil
         await refreshSettings()
+    }
+
+    /// Writes the next post of a running series, once the last one is out.
+    ///
+    /// A series plans ONE post at a time (Abel, 24 Sep 2026: "always let it
+    /// plan only 1 befor it posts and it will post it once done"). So when the
+    /// current one has gone out, something has to write the next, and this is
+    /// it: same style, same places, same length, same brief.
+    ///
+    /// Done from the app rather than from a cron loop on purpose. TikTok
+    /// requires the owner to confirm each post, so the app is opened for every
+    /// one anyway -- and a writer that only runs while somebody is looking can
+    /// never quietly spend money in a loop, which is the whole point of
+    /// writing one at a time.
+    ///
+    /// - Returns: true when a new post was written.
+    @discardableResult
+    func extendSeriesIfNeeded() async -> Bool {
+        guard let plan, plan.isSeries, plan.isRunning, !isPlanning else { return false }
+        guard settings?.isOn == true else { return false }
+        // Only once everything already written is finished with. An upcoming
+        // slot, or one waiting for his tap, means there is nothing to do.
+        guard !planPosts.isEmpty, planPosts.allSatisfy(\.status.isTerminal) else { return false }
+
+        let proposal = await proposePlan(
+            brief: plan.brief,
+            days: 1,
+            postsPerDay: 1,
+            platforms: plan.platforms ?? [],
+            template: plan.templateSlug,
+            durationSeconds: plan.durationSeconds
+        )
+        guard proposal != nil else { return false }
+        await refreshPlan()
+        _ = await activatePlan()
+        return true
     }
 
     /// Remembers the chosen style on the brand (0060), so the series flow

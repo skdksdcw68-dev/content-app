@@ -289,7 +289,7 @@ struct ChatView: View {
                 .ignoresSafeArea()
             }
         }
-        .background(Theme.canvas.dismissesKeyboardOnTap())
+        .background(Theme.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId

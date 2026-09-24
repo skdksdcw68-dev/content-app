@@ -291,3 +291,52 @@ private struct DiscoveryResult: Decodable {
     let capabilities: [String]
     let tools: [String]?
 }
+
+// MARK: - Checking a connection, honestly
+
+/// One thing that was tried against the live provider, and what it said.
+struct ConnectionStep: Decodable, Hashable, Sendable, Identifiable {
+    var id: String { step }
+    let step: String
+    let ok: Bool
+    let detail: String
+    let ms: Int
+}
+
+/// What `connection-check` found. Every line is a round trip made just now,
+/// never a stored flag (Abel, 24 Sep 2026: "tell a corrected and a verified
+/// answer... when it can hit, and when it can't").
+struct ConnectionReport: Decodable, Hashable, Sendable {
+    let provider: String
+    let endpoint: String?
+    /// Which built-in table the server was read with, once its address is
+    /// recognised. Differs from `provider` for a hand-added server.
+    let family: String?
+    let models: [String: Int]
+    let steps: [ConnectionStep]
+    let summary: String
+
+    var videoModels: Int { models["video"] ?? 0 }
+    var canMakeVideo: Bool { videoModels > 0 }
+}
+
+extension AppSession {
+    /// Hits every endpoint of one connection and reports what answered.
+    ///
+    /// Read-only on the server: it lists and reads, never generates, so it can
+    /// be run as often as somebody likes and can never cost a credit.
+    func checkConnection(_ connectionID: UUID?) async -> ConnectionReport? {
+        do {
+            var body: [String: String] = [:]
+            if let connectionID { body["connection_id"] = connectionID.uuidString }
+            let report: ConnectionReport = try await client.functions.invoke(
+                "connection-check",
+                options: FunctionInvokeOptions(body: body)
+            )
+            return report
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+}

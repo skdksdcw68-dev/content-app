@@ -45,9 +45,18 @@ struct GeneratorsView: View {
             }
 
             if hasConnected {
-                Section("Connected") {
+                Section {
                     ForEach(session.connectedProviders) { provider in
-                        ProviderRow(provider: provider)
+                        // The row says what it believes; the check says what
+                        // is true right now. A connection that reports itself
+                        // connected and makes nothing is exactly the state
+                        // this product spent two weeks in.
+                        NavigationLink {
+                            ConnectionCheckView(connectionID: provider.id, title: provider.providerName)
+                                .pushedPage()
+                        } label: {
+                            ProviderRow(provider: provider)
+                        }
                     }
 
                     // Keys pasted before sign-in existed, and only those not
@@ -58,6 +67,10 @@ struct GeneratorsView: View {
                             Task { await session.forgetGenerator(generator.id) }
                         }
                     }
+                } header: {
+                    Text("Connected")
+                } footer: {
+                    Text("Tap one to hit every endpoint it has and see exactly what answers. It makes nothing, so checking is free.")
                 }
             }
 

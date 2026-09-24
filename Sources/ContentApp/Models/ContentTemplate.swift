@@ -45,6 +45,17 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
     /// convention `style-<slug>`, whichever exists.
     var artName: String { art ?? "style-\(slug)" }
 
+    /// Whether somebody has to point a camera at themselves for this.
+    ///
+    /// A `talking_head` style cannot be made by a generator: it is a person
+    /// speaking, and that person is the owner. The series still works -- it
+    /// writes the script and schedules the slot -- but the video is filmed,
+    /// not generated, so the flow says so before it is chosen rather than
+    /// leaving somebody waiting for a video that will never appear
+    /// (24 Sep 2026, when Founder diary, Fitness and Hot takes became
+    /// talking-head styles).
+    var needsFilming: Bool { workflow?.format == "talking_head" }
+
     private enum CodingKeys: String, CodingKey {
         case slug, name, tagline, category, symbol, art, pillars, workflow
         case visualStyle = "visual_style"

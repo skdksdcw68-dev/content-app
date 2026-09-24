@@ -501,7 +501,18 @@ struct SeriesFlowView: View {
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
 
-                if !session.hasWorkingGenerator {
+                if chosen?.needsFilming == true {
+                    // Said here, not discovered later: this style is a person
+                    // talking, and no generator can be that person.
+                    Label(
+                        "This style is you on camera. Autocast writes the script and books the slot; you film it and tap Post.",
+                        systemImage: "video.badge.checkmark"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                } else if !session.hasWorkingGenerator {
                     Label("Needs a generator to make the videos", systemImage: "exclamationmark.circle")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -583,7 +594,9 @@ struct SeriesFlowView: View {
         // maker with it, so the first video is made without another visit.
         await session.refreshPlan()
         _ = await session.activatePlan()
-        if session.hasWorkingGenerator {
+        // A filmed style needs no generator, so not having one is not a
+        // problem worth stopping for.
+        if session.hasWorkingGenerator || chosen.needsFilming {
             _ = await session.setAutopilot(true)
             onStarted(proposal)
             dismiss()

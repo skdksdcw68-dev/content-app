@@ -478,12 +478,21 @@ export async function canAffordVideo(
 
   const seen = new Set<string>();
   let answered = 0;
+  // 🔴 A deadline, not just a count. The old code capped this at four
+  // connections and called that "must not become its own wait" -- but four
+  // MCP round trips to a provider having a slow morning is a minute, and this
+  // runs inside `propose-plan`, which the phone is waiting on. Abel, 25 Sep
+  // 2026, starting a series: "That didn't start. No connection. Check your
+  // network" -- on full LTE, because the request outlived the client's patience
+  // rather than the network's.
+  //
+  // Whatever has not answered by the deadline counts as "would not say", which
+  // this function already treats as permission to continue.
+  const deadline = Date.now() + 6_000;
   for (const candidate of candidates) {
     if (seen.has(candidate.connectionId)) continue;
     seen.add(candidate.connectionId);
-    // A handful, not all of them: this runs before a plan is written and must
-    // not become its own wait.
-    if (seen.size > 4) break;
+    if (seen.size > 4 || Date.now() > deadline) break;
 
     const balance = await balanceFor(admin, candidate.connectionId);
     if (!balance) continue;

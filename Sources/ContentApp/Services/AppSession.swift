@@ -515,8 +515,25 @@ final class AppSession {
         if error is CancellationError { return "" }
         if let url = error as? URLError, url.code == .cancelled { return "" }
         if (error as NSError).domain == NSURLErrorDomain, (error as NSError).code == NSURLErrorCancelled { return "" }
+        // 🔴 Not every URL error is a dead network, and telling somebody on
+        // full LTE to "check your network" is both wrong and unhelpful (Abel,
+        // 25 Sep 2026, starting a series on LTE: "That didn't start. No
+        // connection. Check your network and try again.").
+        //
+        // The distinction matters beyond the wording. Offline means nothing
+        // left the phone. A timeout or a dropped connection means the request
+        // was sent and the answer never came back -- the work may well have
+        // happened, so "try again" is the wrong advice: it makes duplicates.
         if (error as NSError).domain == NSURLErrorDomain {
-            return "No connection. Check your network and try again."
+            switch (error as NSError).code {
+            case NSURLErrorNotConnectedToInternet, NSURLErrorDataNotAllowed,
+                 NSURLErrorInternationalRoamingOff:
+                return "You're offline. Nothing was sent."
+            case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost:
+                return "That took longer than expected. It may still be going through — pull down to refresh in a moment before trying again."
+            default:
+                return "The connection failed. Try again in a moment."
+            }
         }
         return error.localizedDescription
     }

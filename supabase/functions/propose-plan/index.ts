@@ -340,9 +340,31 @@ Deno.serve(async (request) => {
       throw slotError;
     }
 
-    const laidOut = (slots ?? []) as Slot[];
+    let laidOut = (slots ?? []) as Slot[];
+
+    // 🔴 Nothing today is not the same as nowhere to put it.
+    //
+    // A series asks for one post on one day. Started late enough that every
+    // posting hour has gone, the day comes back empty and the old code told
+    // Abel the range was "already taken or in the past" -- which is true of
+    // TODAY and says nothing about tomorrow. A series is open-ended; refusing
+    // to start one because it is the evening is not a rule anybody chose.
+    //
+    // So a short request that finds nothing looks a week ahead and takes the
+    // first slots going. A month plan is left alone: if thirty days are full,
+    // widening is a decision for the person, not for this function.
+    if (laidOut.length === 0 && days <= 7) {
+      const { data: later } = await admin.rpc("allocate_slots", {
+        p_brand_id: brand.id,
+        p_starts_on: startsOn,
+        p_days: days + 7,
+        p_posts_per_day: perDay,
+      });
+      laidOut = ((later ?? []) as Slot[]).slice(0, days * perDay);
+    }
+
     if (laidOut.length === 0) {
-      throw new PublicError("Every slot in that range is already taken or in the past.", 409);
+      throw new PublicError("Every slot in the next week is already taken. Free one up, or widen your quiet hours.", 409);
     }
 
     // What it has written before, so a second plan does not repeat the first.

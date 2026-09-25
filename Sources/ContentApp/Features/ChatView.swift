@@ -213,9 +213,19 @@ struct ChatView: View {
                     .padding(.top, 16)
                     .transition(.opacity)
                 } else if showsWordmark {
-                    EmptyChat(name: session.displayName ?? session.brand?.name)
-                        .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
-                        .transition(.opacity)
+                    // The greeting alone is right for chat and wrong here.
+                    // This page's only job is one video, and it was showing
+                    // "Good afternoon, Abel" over an empty screen (Abel,
+                    // 25 Sep 2026: "this is what the video thing looks like").
+                    Group {
+                        if makingVideo {
+                            EmptyVideoStart { draft = $0 }
+                        } else {
+                            EmptyChat(name: session.displayName ?? session.brand?.name)
+                        }
+                    }
+                    .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
+                    .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.3), value: showsWordmark)
@@ -323,6 +333,13 @@ struct ChatView: View {
             }
             draft = opening
             send()
+        }
+        .task {
+            // The video page offers the account's own ideas as starting
+            // points, so they have to be there when it opens cold rather than
+            // only after Home has been looked at.
+            guard makingVideo else { return }
+            await session.refreshInspiration()
         }
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way
@@ -1037,6 +1054,128 @@ struct ChatView: View {
 // MARK: - The empty page
 
 /// The name, and a few things worth asking, centred above the bar.
+/// The video page before anything is typed into it.
+///
+/// Chat's greeting is a whole screen of nothing on a page whose single job is
+/// making one video, and a blank field with a blank page above it gives
+/// somebody no idea what to write. This says what the page makes and offers
+/// real starting points -- the account's own ideas where there are any,
+/// because they are already there, and three shapes of video where there are
+/// not.
+///
+/// A tap fills the field rather than sending. The length, the voiceover and
+/// the captions are chosen on the bar underneath, and sending before somebody
+/// has looked at those makes the choices pointless.
+private struct EmptyVideoStart: View {
+    let use: (String) -> Void
+
+    @Environment(AppSession.self) private var session
+
+    /// One way to open a video. A struct rather than a tuple because Swift has
+    /// no key paths into tuples, and `ForEach` wants one for the id.
+    private struct Shape: Identifiable {
+        let symbol: String
+        let title: String
+        let start: String
+        var id: String { title }
+    }
+
+    /// Shapes rather than subjects. A suggestion about coffee is wrong for
+    /// most people; "show it being used" is wrong for nobody, and leaves the
+    /// subject where it belongs -- with them.
+    private static let shapes = [
+        Shape(symbol: "hand.raised.fill", title: "Show it being used", start: "Show "),
+        Shape(symbol: "list.number", title: "Three things people get wrong", start: "Three things people get wrong about "),
+        Shape(symbol: "arrow.left.arrow.right", title: "Before and after", start: "Before and after: "),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Spacer(minLength: 0)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Make a video")
+                    .font(.title2.weight(.semibold))
+                Text(session.inspiration.isEmpty
+                     ? "Describe it below, or start from one of these."
+                     : "Describe it below, or start from one of your ideas.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.bottom, 6)
+
+            if session.inspiration.isEmpty {
+                ForEach(Self.shapes) { shape in
+                    StartRow(symbol: shape.symbol, title: shape.title, detail: nil) {
+                        use(shape.start)
+                    }
+                }
+            } else {
+                ForEach(session.inspiration.prefix(3)) { idea in
+                    StartRow(
+                        symbol: idea.measured ? "chart.line.uptrend.xyaxis" : "sparkles",
+                        title: idea.hook,
+                        detail: idea.angle
+                    ) {
+                        use(idea.brief)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// One tappable way to begin.
+private struct StartRow: View {
+    let symbol: String
+    let title: String
+    let detail: String?
+    let tap: () -> Void
+
+    var body: some View {
+        Button(action: tap) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 26, height: 26)
+                    .background(Theme.accent.opacity(0.12), in: Circle())
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "arrow.up.left")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .raisedCard(radius: Style.rowCard)
+        }
+        .buttonStyle(SoftPressStyle())
+    }
+}
+
 private struct EmptyChat: View {
     /// What to call them: the name they gave, else the brand, else nothing.
     let name: String?

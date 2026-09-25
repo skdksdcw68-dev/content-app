@@ -67,6 +67,7 @@ struct RootView: View {
                                 case .plan(let proposal):   PlanView(notice: proposal)
                                 case .post(let id):         PostDetailView(postID: id)
                                 case .library:              LibraryView()
+                                case .inspiration:          InspirationView()
                                 }
                             }
                             .backgroundPreferenceValue(TabChromeKey.self) { chrome in

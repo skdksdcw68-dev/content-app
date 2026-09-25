@@ -76,6 +76,12 @@ final class AppSession {
     /// came out, not whether the machine turned.
     private(set) var health: [HealthFinding] = []
 
+    /// Videos worth making next, written from this account's own numbers.
+    /// See `AppSession+Inspiration.swift`.
+    internal(set) var inspiration: [InspirationIdea] = []
+    /// True while the writer is being paid to think of more.
+    internal(set) var isFindingIdeas = false
+
     // NOTE: `internal(set)` rather than `private(set)`. Swift scopes
     // `private(set)` to the FILE, and AppSession is now legitimately split --
     // connectors and chat live in their own extensions. The intent is

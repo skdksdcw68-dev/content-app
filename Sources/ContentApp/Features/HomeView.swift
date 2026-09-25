@@ -166,6 +166,28 @@ struct HomeView: View {
                 .padding(.top, 12)
                 .entrance(3)
 
+                // Ideas for the next video, from this account's own numbers
+                // (Abel, 25 Sep 2026: "understand what videos he's making and
+                // give the user inspirational videos to post, like VidIQ").
+                // Nothing is drawn until there is something to draw -- an
+                // empty shelf under a heading is worse than no heading.
+                if !session.inspiration.isEmpty || session.isFindingIdeas {
+                    SectionHeader(title: "Ideas for you", chevron: true) {
+                        session.push(.inspiration)
+                    }
+                    .padding(.top, 26)
+
+                    Group {
+                        if session.inspiration.isEmpty {
+                            InspirationSkeleton()
+                        } else {
+                            InspirationShelf()
+                        }
+                    }
+                    .padding(.top, 12)
+                    .entrance(4)
+                }
+
                 // The one big card: the generator until there is one, then
                 // the next post.
                 Group {
@@ -221,7 +243,12 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $nudging) { SetupNudge() }
-        .task(id: session.brand?.id) { loadedVideos = try? await session.videos() }
+        .task(id: session.brand?.id) {
+            loadedVideos = try? await session.videos()
+            // Reads the table first and only pays the writer when there is
+            // nothing standing, so opening Home is free after the first time.
+            await session.refreshInspiration()
+        }
         // An upload finishing means a new row on the board.
         .onChange(of: session.uploads.count) { _, _ in
             Task {
@@ -237,6 +264,7 @@ struct HomeView: View {
             await session.refreshHealth()
             await session.refreshConnectedProviders()
             await session.refreshConnectable()
+            await session.refreshInspiration(force: true)
         }
         .sheet(isPresented: $planning, onDismiss: {
             // Pushed by value on the shell's stack, after the sheet is gone.

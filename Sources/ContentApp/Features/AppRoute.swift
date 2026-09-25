@@ -29,6 +29,8 @@ enum AppRoute: Hashable {
     case post(UUID)
     /// Every post, as a list.
     case library
+    /// Ideas for the next video, drawn from this account's own numbers.
+    case inspiration
 }
 
 // MARK: - Chrome from inside a tab

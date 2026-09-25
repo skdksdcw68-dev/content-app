@@ -354,7 +354,11 @@ struct ChatView: View {
                 showsPhotoPicker = true
             }
         }) {
-            ChatOptionsSheet { action in
+            // 🔴 The sheet has taken a `makingVideo` flag all along and nobody
+            // ever passed it, so the video page's plus button opened the full
+            // chat menu -- "Plan 30 days", "Look into something" -- on a
+            // screen whose only job is one video.
+            ChatOptionsSheet(makingVideo: makingVideo) { action in
                 showsOptions = false
                 switch action {
                 case .planMonth:

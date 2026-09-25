@@ -29,7 +29,12 @@ struct ProfileView: View {
     @State private var signingUp = false
     @State private var managingSubscription = false
 
+    /// Where a "connect an account" finding sends somebody: the Accounts
+    /// group, further down this same screen.
+    private static let accountsAnchor = "accounts"
+
     var body: some View {
+        ScrollViewReader { scroll in
         List {
             Section {
                 ProfileHeader()
@@ -37,11 +42,11 @@ struct ProfileView: View {
                     .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             }
 
-            attention
+            attention(scroll)
             pro
             account
             brandSection
-            accounts
+            accounts.id(Self.accountsAnchor)
             autopilot
             insights
             app
@@ -98,16 +103,19 @@ struct ProfileView: View {
             Text("This can’t be undone.")
         }
         .sheet(isPresented: $signingUp) { AuthSheet() }
+        }
     }
 
     // MARK: - Needs attention
 
     @ViewBuilder
-    private var attention: some View {
+    private func attention(_ scroll: ScrollViewProxy) -> some View {
         if !session.health.isEmpty || !session.failedRecently.isEmpty {
             Section {
                 ForEach(session.health) { finding in
-                    AttentionRow(finding: finding)
+                    AttentionRow(finding: finding) {
+                        withAnimation { scroll.scrollTo(Self.accountsAnchor, anchor: .top) }
+                    }
                 }
                 ForEach(session.failedRecently.prefix(5)) { post in
                     Button { approving = post } label: {
@@ -258,6 +266,8 @@ struct ProfileView: View {
             NavigationLink { ActivityHistoryView().pushedPage() } label: {
                 SettingsLabel("Activity", symbol: "list.bullet.rectangle")
             }
+        } header: {
+            Text("Your activity")
         }
     }
 
@@ -280,6 +290,10 @@ struct ProfileView: View {
             Button { confirmingSetup = true } label: {
                 SettingsRow("Show setup again", symbol: "arrow.counterclockwise")
             }
+        } header: {
+            // Two unlabelled blocks ran together here, so "Usage this month"
+            // and "Appearance" read as one long list of unrelated rows.
+            Text("App")
         }
     }
 
@@ -350,10 +364,20 @@ struct WebPage: Identifiable {
 
 // MARK: - Needs attention rows
 
-/// One finding from `autopilot_health`, with its one action when the fix lives
-/// on another screen.
+/// One finding from `autopilot_health`, and the one tap that fixes it.
+///
+/// 🔴 Only `.plan` findings were ever tappable. A finding that said the
+/// generator was not connected, or that nothing was connected to post to,
+/// rendered as an inert row under a heading that says "Needs attention" --
+/// telling somebody something is wrong and then giving them no way to act on
+/// it. Every route leads somewhere now: the generator to its own screen, the
+/// connections to the Accounts group further down this same page.
 private struct AttentionRow: View {
     let finding: HealthFinding
+    /// Takes them to Accounts, which is on this screen rather than another.
+    let showAccounts: () -> Void
+
+    private var route: HealthRoute? { finding.route.flatMap(HealthRoute.init(rawValue:)) }
 
     var body: some View {
         let row = Label {
@@ -369,9 +393,24 @@ private struct AttentionRow: View {
                 .foregroundStyle(finding.isBlocked ? Color.orange : Color.secondary)
         }
 
-        if finding.route.flatMap(HealthRoute.init(rawValue:)) == .plan {
+        switch route {
+        case .plan:
             NavigationLink { PlanView() } label: { row }
-        } else {
+        case .generator:
+            NavigationLink { GeneratorsView() } label: { row }
+        case .connections:
+            Button(action: showAccounts) {
+                HStack(spacing: 8) {
+                    row
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.down")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        case nil:
             row
         }
     }

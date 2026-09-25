@@ -235,3 +235,9 @@ verify_jwt = false
 # every model list, reads the balance. Never generates, so it can never cost.
 [functions.connection-check]
 verify_jwt = true
+
+# Ideas for the next video, written from this account's own posts. A user
+# session: the brand is read under RLS so a caller cannot ask for ideas about
+# somebody else's account.
+[functions.inspiration]
+verify_jwt = true

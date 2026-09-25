@@ -13,13 +13,24 @@ export const NEEDS_PRO = 402;
 export async function requireQuota(
   admin: SupabaseClient,
   userId: string,
-  kind: "ai_write" | "chat",
+  kind: "ai_write" | "chat" | "video_gen" | "image_gen",
   message: string,
 ): Promise<void> {
   const { data, error } = await admin.rpc("consume_quota", { p_user: userId, p_kind: kind, p_units: 1 });
   if (error) {
-    // A broken counter must not take the product down with it.
     console.error("consume_quota", error.message);
+    // A broken counter must not take the product down with it -- but that is
+    // only true while the cost is the person's own. On the house generator
+    // (migration 0068) an uncounted call is our money, and failing open would
+    // turn one bad minute in the database into an unbounded bill.
+    if (kind === "video_gen" || kind === "image_gen") {
+      throw new PublicError(
+        "We couldn't check your allowance just now. Try again in a moment.",
+        503,
+        true,
+        "quota_unreadable",
+      );
+    }
     return;
   }
   if (data !== true) throw new PublicError(message, NEEDS_PRO, false, "needs_pro");

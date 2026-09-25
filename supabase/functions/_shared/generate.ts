@@ -14,6 +14,7 @@ import { PublicError } from "./http.ts";
 import { inspect } from "./media.ts";
 import { type Credential, parseCredential, poll, Refused } from "./higgsfield.ts";
 import { canAffordVideo, NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
+import { requireQuota } from "./quota.ts";
 
 /**
  * The model that worked last time for this person, whatever provider it was on.
@@ -98,6 +99,27 @@ export async function startJob(
   // It answers `ok` when nothing will say, so a provider that will not report
   // a balance can never block the product -- only a provider that answered
   // zero does.
+  // On our money or theirs? Asked before anything is spent, because that is
+  // the only moment at which the answer can still change what happens.
+  //
+  // Somebody who connected their own Higgsfield is paying for it and is not
+  // metered against our plan caps. Everybody else runs on the house generator
+  // (migration 0068), and that is Autocast's bill -- so the allowance is
+  // spent HERE, before the job row and before the submission. A job that runs
+  // and then discovers it was over budget has already cost the money.
+  const { data: onOurMoney } = await admin.rpc("uses_house_generator", {
+    p_user: args.userId,
+    p_capability: "video_generation",
+  });
+  if (onOurMoney === true) {
+    await requireQuota(
+      admin,
+      args.userId,
+      "video_gen",
+      "You've used every video on your plan this month. Autocast Pro raises it.",
+    );
+  }
+
   const funds = await canAffordVideo(admin, args.userId);
   if (!funds.ok) {
     throw new PublicError(

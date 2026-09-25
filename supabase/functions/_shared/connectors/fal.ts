@@ -303,7 +303,14 @@ export const falAdapter: Adapter = {
 
     return {
       ref,
-      statusUrl: typeof body?.status_url === "string" ? body.status_url : undefined,
+      // 🔴 Always set, never left to a fallback. fal's status path is scoped
+      // to the MODEL -- `/{model}/requests/{id}/status`, not
+      // `/requests/{id}/status` -- so a generic fallback 404s and the job
+      // polls forever. fal returns `status_url`; this builds the same thing if
+      // it ever stops.
+      statusUrl: typeof body?.status_url === "string"
+        ? body.status_url
+        : `${QUEUE}/${endpoint}/requests/${ref}/status`,
       state: "queued",
       capability: request.capability,
       charged: {

@@ -67,6 +67,10 @@ struct EditorView: View {
     @State private var history = EditHistory<StudioProject>()
     @State private var playback = EditorPlayback()
     @State private var tool: Tool?
+    /// The tool the bar shows as chosen. Separate from `tool`, which is the
+    /// SHEET binding and is cleared the moment a sheet closes -- which is why
+    /// the old bar could never show where you were.
+    @State private var lastTool: Tool?
     @State private var selected: UUID?
     @State private var wantsTikTokSound = false
     @State private var rebuild = 0
@@ -93,6 +97,12 @@ struct EditorView: View {
             preview
             transport
             strip
+            Spacer(minLength: 0)
+            EditorToolBar(tools: Tool.allCases, active: $lastTool) { item in
+                if item == .clip, selected == nil { selected = currentClipID }
+                lastTool = item
+                tool = item
+            }
         }
         .padding(.top, 8)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -122,20 +132,8 @@ struct EditorView: View {
             // pill read as two buttons (Abel, 23 Sep 2026: "it has a
             // background glass, why?").
             .sharedBackgroundVisibility(.hidden)
-            ToolbarItemGroup(placement: .bottomBar) {
-                ForEach(Tool.allCases) { item in
-                    Button {
-                        if item == .clip && selected == nil { selected = currentClipID }
-                        tool = item
-                    } label: {
-                        Label(item.rawValue, systemImage: item.symbol)
-                            .labelStyle(ToolLabelStyle())
-                    }
-                    if item != Tool.allCases.last { Spacer() }
-                }
-            }
+
         }
-        .toolbar(.visible, for: .bottomBar)
         .task(id: rebuild) { await rebuildPlayer() }
         .task(id: adding) { await addPicked() }
         // 🔴 Without this the editor is silent, and it looks like the import
@@ -692,15 +690,6 @@ extension UIColor {
 }
 
 /// A bottom-toolbar tool: the symbol over a small title.
-private struct ToolLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(spacing: 3) {
-            configuration.icon.font(.system(size: 18, weight: .medium))
-            configuration.title.font(.caption2.weight(.medium))
-        }
-        .frame(minWidth: 52)
-    }
-}
 
 // MARK: - The strip
 

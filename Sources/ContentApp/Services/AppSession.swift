@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import StoreKit
 import Supabase
 import SwiftUI
 import UniformTypeIdentifiers
@@ -98,6 +99,9 @@ final class AppSession {
 
     /// Autocast Pro, as the server decided it. Nil until first read.
     internal(set) var subscription: MyPlan?
+    /// The Pro products, fetched once at launch so the paywall opens on
+    /// prices instead of the words "Loading plans…".
+    internal(set) var storeProducts: [Product] = []
     /// Set when a Pro limit is reached anywhere; the root shows the paywall.
     var showingPaywall = false
 
@@ -217,6 +221,8 @@ final class AppSession {
                     group.addTask { await self.refreshSubscription() }
                     // Anything bought on another device, or renewed while closed.
                     group.addTask { await self.syncPurchases() }
+                    // So the paywall has prices before it is ever opened.
+                    group.addTask { await self.loadProducts() }
                 }
             }
         } catch {

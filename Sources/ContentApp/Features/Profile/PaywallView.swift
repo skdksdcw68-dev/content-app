@@ -66,6 +66,14 @@ struct PaywallView: View {
         trialEligible && product.subscription?.introductoryOffer?.paymentMode == .freeTrial
     }
 
+    /// The free trial when this person can have one, otherwise the saving.
+    /// Works from the remembered saving too, so the badge is there on the
+    /// first frame along with the price.
+    private func yearlyBadge(saving: Int?) -> String? {
+        if let yearly, hasTrial(yearly) { return trialText(yearly).uppercased() }
+        return saving.map { "SAVE \($0)%" }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -174,14 +182,68 @@ struct PaywallView: View {
         }
     }
 
+    /// What to print on the two cards: the live prices when StoreKit has
+    /// answered, otherwise the ones it gave last time on this phone.
+    ///
+    /// 🔴 There is no "loading" state left while anything is known. The words
+    /// "Loading plans…" were shown on EVERY open, because the products lived in
+    /// a `@State` that a re-presented sheet is born without (Abel, 25 Sep 2026:
+    /// "it always says that it's loading the plans"). The products are held on
+    /// the session now and fetched at launch, so the usual case is that they
+    /// are simply there.
+    private var shown: (monthly: String, yearly: String, saving: Int?)? {
+        if let monthly, let yearly {
+            return (monthly.displayPrice, yearly.displayPrice, saving)
+        }
+        // First run on a new phone, or StoreKit still answering.
+        if let remembered = RememberedPricing.saved {
+            return (remembered.monthly, remembered.yearly, remembered.saving)
+        }
+        return nil
+    }
+
+    /// Only a live `Product` can be bought, so the cards are tappable a moment
+    /// after they are readable. Prices first, then the button: the opposite of
+    /// making somebody wait for both.
+    private var canChoose: Bool { !products.isEmpty }
+
     @ViewBuilder
     private var pricing: some View {
-        if loading {
-            Text("Loading plans…")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
+        if let shown {
+            HStack(alignment: .top, spacing: 12) {
+                PlanCard(
+                    label: "Monthly",
+                    labelIsGreen: false,
+                    badge: nil,
+                    price: shown.monthly,
+                    period: "/mo",
+                    footnote: "Perfect to test the waters",
+                    footnoteStrong: false,
+                    emphasised: false,
+                    chosen: selected != nil && selected == monthly?.id
+                ) { if let monthly { selected = monthly.id } }
+                .disabled(!canChoose)
+
+                PlanCard(
+                    label: "Annual",
+                    labelIsGreen: true,
+                    badge: yearlyBadge(saving: shown.saving),
+                    price: shown.yearly,
+                    period: "/yr",
+                    footnote: "Billed once a year",
+                    footnoteStrong: true,
+                    emphasised: true,
+                    chosen: selected != nil && selected == yearly?.id
+                ) { if let yearly { selected = yearly.id } }
+                .disabled(!canChoose)
+            }
+            .animation(.snappy(duration: 0.2), value: canChoose)
+        } else if loading {
+            // Nothing known at all: first launch, offline, before any fetch.
+            HStack(alignment: .top, spacing: 12) {
+                SkeletonCard(height: 132)
+                SkeletonCard(height: 132)
+            }
         } else if products.isEmpty {
             Text("Plans aren’t available right now. Please check your connection and try again.")
                 .font(.subheadline.weight(.medium))
@@ -189,35 +251,6 @@ struct PaywallView: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 32)
-        } else {
-            HStack(alignment: .top, spacing: 12) {
-                if let monthly {
-                    PlanCard(
-                        label: "Monthly",
-                        labelIsGreen: false,
-                        badge: nil,
-                        price: monthly.displayPrice,
-                        period: "/mo",
-                        footnote: "Perfect to test the waters",
-                        footnoteStrong: false,
-                        emphasised: false,
-                        chosen: selected == monthly.id
-                    ) { selected = monthly.id }
-                }
-                if let yearly {
-                    PlanCard(
-                        label: "Annual",
-                        labelIsGreen: true,
-                        badge: hasTrial(yearly) ? trialText(yearly).uppercased() : saving.map { "SAVE \($0)%" },
-                        price: yearly.displayPrice,
-                        period: "/yr",
-                        footnote: "Billed once a year",
-                        footnoteStrong: true,
-                        emphasised: true,
-                        chosen: selected == yearly.id
-                    ) { selected = yearly.id }
-                }
-            }
         }
     }
 
@@ -313,17 +346,28 @@ struct PaywallView: View {
     // MARK: - StoreKit
 
     private func load() async {
-        defer { loading = false }
-        do {
-            let loaded = try await Product.products(for: AppSession.proProductIDs)
-            products = loaded.sorted { $0.price > $1.price }
+        // Whatever the session already fetched at launch, which is the usual
+        // case and costs nothing.
+        if !session.storeProducts.isEmpty {
+            products = session.storeProducts
             selected = (yearly ?? monthly)?.id
-            if let group = yearly?.subscription?.subscriptionGroupID ?? monthly?.subscription?.subscriptionGroupID {
-                trialEligible = await Product.SubscriptionInfo.isEligibleForIntroOffer(for: group)
-            }
-        } catch {
-            products = []
+            loading = false
         }
+
+        if products.isEmpty {
+            await session.loadProducts()
+            products = session.storeProducts
+            selected = (yearly ?? monthly)?.id
+            loading = false
+        }
+
+        // 🔴 Deliberately after `loading = false`. Trial eligibility is a
+        // second round trip, and holding the prices behind it meant the sheet
+        // said "Loading plans…" for both. The badge can arrive late; the price
+        // cannot.
+        guard let group = yearly?.subscription?.subscriptionGroupID
+            ?? monthly?.subscription?.subscriptionGroupID else { return }
+        trialEligible = await Product.SubscriptionInfo.isEligibleForIntroOffer(for: group)
     }
 
     private func buy() async {

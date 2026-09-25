@@ -9,8 +9,72 @@ import Supabase
 /// then reads the answer back through `my_plan()`. Every purchase carries the
 /// user's id as its appAccountToken, so a receipt only ever counts for the
 /// account that bought it.
+/// The last prices StoreKit gave us, kept so the paywall opens on numbers.
+///
+/// Abel, 25 Sep 2026: "when you go to the upgrade place it always says it's
+/// loading the plans -- instead we need it hardcoded already, so it doesn't
+/// require any time for the users."
+///
+/// Not hardcoded, though: a hardcoded "$29.99" is a lie in every storefront
+/// that is not the US, and it would go stale the day a price changes. What is
+/// remembered is what Apple last said **on this phone, in this storefront**,
+/// which is right the first time and right after that. The live fetch still
+/// runs and still wins; this only decides what is on screen for the second it
+/// takes. The currency code is stored with it, so a person who travels does
+/// not see yesterday's currency against today's.
+struct RememberedPricing: Codable, Equatable {
+    var monthly: String
+    var yearly: String
+    var saving: Int?
+    var currency: String
+
+    private static let key = "store.pricing"
+
+    static var saved: RememberedPricing? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(RememberedPricing.self, from: data)
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        UserDefaults.standard.set(data, forKey: Self.key)
+    }
+}
+
 extension AppSession {
     static let proProductIDs = ["autocast.pro.yearly", "autocast.pro.monthly"]
+
+    /// Fetched once at launch so the paywall never has to wait for StoreKit.
+    ///
+    /// Held here rather than on the view because a `@State` in a sheet is born
+    /// empty every time the sheet is presented -- which is exactly why the
+    /// words "Loading plans…" appeared on every single open, even the tenth.
+    func loadProducts() async {
+        guard storeProducts.isEmpty else { return }
+        guard let loaded = try? await Product.products(for: Self.proProductIDs) else { return }
+        storeProducts = loaded.sorted { $0.price > $1.price }
+        rememberPricing()
+    }
+
+    /// Writes down what was just fetched, for the next cold start.
+    private func rememberPricing() {
+        guard
+            let yearly = storeProducts.first(where: { $0.id == "autocast.pro.yearly" }),
+            let monthly = storeProducts.first(where: { $0.id == "autocast.pro.monthly" }),
+            monthly.price > 0
+        else { return }
+
+        let twelve = monthly.price * 12
+        let fraction = (twelve - yearly.price) / twelve
+        let percent = Int((NSDecimalNumber(decimal: fraction).doubleValue * 100).rounded())
+
+        RememberedPricing(
+            monthly: monthly.displayPrice,
+            yearly: yearly.displayPrice,
+            saving: percent > 0 ? percent : nil,
+            currency: monthly.priceFormatStyle.currencyCode
+        ).save()
+    }
 
     func refreshSubscription() async {
         do {

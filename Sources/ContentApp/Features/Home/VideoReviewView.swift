@@ -30,6 +30,9 @@ struct VideoReviewView: View {
     @State private var playing = false
     @State private var position: Double = 0
     @State private var editing: EditSession?
+    /// How the download is going, when there is one.
+    @State private var received: Int64 = 0
+    @State private var expected: Int64?
 
     struct EditSession: Identifiable, Hashable {
         let id = UUID()
@@ -39,6 +42,12 @@ struct VideoReviewView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                // 🔴 Only once there is something to trim. It used to sit
+                // there, empty, above a downloading video -- and the 92pt it
+                // took was 92pt the video did not get (Abel, 25 Sep 2026:
+                // "before showing the timeline while loading the video I
+                // don't really need it to be at the top").
+                if file != nil {
                 TrimStrip(
                     frames: frames,
                     duration: duration,
@@ -53,6 +62,8 @@ struct VideoReviewView: View {
                 .padding(.top, 8)
                 .onChange(of: trimStart) { _, at in seek(to: at) }
                 .onChange(of: trimEnd) { _, at in seek(to: at) }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
                 ZStack {
                     if let player {
@@ -67,9 +78,12 @@ struct VideoReviewView: View {
                         }
                         .foregroundStyle(.white)
                     } else {
-                        ProgressView("Getting the video…")
-                            .tint(.white)
-                            .foregroundStyle(.white)
+                        DownloadProgressView(
+                            fraction: expected.map { Double(received) / Double(max($0, 1)) },
+                            received: received,
+                            title: "Getting your video",
+                            onDark: true
+                        )
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -129,41 +143,58 @@ struct VideoReviewView: View {
     // MARK: - The file
 
     private func load() async {
-        guard let media = post.media, let signed = await session.mediaURL(media) else {
+        guard let media = post.media else {
             missing = true
             return
         }
-        do {
-            let (downloaded, _) = try await URLSession.shared.download(from: signed)
-            let ext = (media.mime ?? "").contains("quicktime") ? "mov" : "mp4"
-            let local = FileManager.default.temporaryDirectory
-                .appendingPathComponent("review-\(post.id.uuidString).\(ext)")
-            try? FileManager.default.removeItem(at: local)
-            try FileManager.default.moveItem(at: downloaded, to: local)
-            file = local
 
-            let asset = AVURLAsset(url: local)
-            let seconds = (try? await asset.load(.duration).seconds) ?? 0
-            duration = seconds.isFinite ? seconds : 0
-            trimStart = 0
-            trimEnd = duration
+        // Already here: no network, no spinner, no percentage. This is the
+        // whole point of keeping it (Abel, 25 Sep 2026).
+        if let here = session.cachedVideo(of: media) {
+            MediaCache.shared.touch(here)
+            await open(here)
+            return
+        }
 
-            let made = AVPlayer(url: local)
-            made.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { time in
-                MainActor.assumeIsolated {
-                    position = time.seconds
-                    // Loop inside the chosen range, so what is being trimmed
-                    // is what plays.
-                    if time.seconds >= trimEnd, trimEnd > trimStart {
-                        made.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
-                    }
+        for await step in session.videoStream(of: media) {
+            switch step {
+            case .progress(let got, let total):
+                received = got
+                expected = total
+            case .done(let url):
+                await open(url)
+                return
+            case .failed:
+                missing = true
+                return
+            }
+        }
+        if file == nil { missing = true }
+    }
+
+    /// Builds the player and the strip from a file already on the phone.
+    private func open(_ local: URL) async {
+        withAnimation(.snappy(duration: 0.3)) { file = local }
+
+        let asset = AVURLAsset(url: local)
+        let seconds = (try? await asset.load(.duration).seconds) ?? 0
+        duration = seconds.isFinite ? seconds : 0
+        trimStart = 0
+        trimEnd = duration
+
+        let made = AVPlayer(url: local)
+        made.addPeriodicTimeObserver(forInterval: CMTime(seconds: 0.1, preferredTimescale: 600), queue: .main) { time in
+            MainActor.assumeIsolated {
+                position = time.seconds
+                // Loop inside the chosen range, so what is being trimmed
+                // is what plays.
+                if time.seconds >= trimEnd, trimEnd > trimStart {
+                    made.seek(to: CMTime(seconds: trimStart, preferredTimescale: 600))
                 }
             }
-            player = made
-            frames = await TrimStrip.frames(of: asset, count: 10)
-        } catch {
-            missing = true
         }
+        player = made
+        frames = await TrimStrip.frames(of: asset, count: 10)
     }
 
     // MARK: - Playing

@@ -139,6 +139,9 @@ struct LibraryView: View {
                 guard let video = deleting else { return }
                 deleting = nil
                 Task {
+                    // The copy on the phone goes with it: a video of a post
+                    // that no longer exists is space nobody can reach.
+                    if let media = video.media { session.forgetVideo(of: media) }
                     if await session.deletePost(video.id) {
                         loadedVideos?.removeAll { $0.id == video.id }
                     }

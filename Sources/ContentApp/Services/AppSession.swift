@@ -224,6 +224,9 @@ final class AppSession {
                     // So the paywall has prices before it is ever opened.
                     group.addTask { await self.loadProducts() }
                 }
+                // Kept videos are ours to evict, so somebody who watches a
+                // lot of them does not quietly lose a gigabyte of phone.
+                MediaCache.shared.sweepKept()
             }
         } catch {
             state = .failed(readableMessage(error))

@@ -27,14 +27,40 @@ struct SettingsIcon: View {
     }
 }
 
+/// A network's own mark in the icon column, so a row for TikTok looks like
+/// TikTok. The same width as `SettingsIcon`, so every title still starts in
+/// the same place.
+struct SettingsLogo: View {
+    let logo: BrandLogo
+
+    @ScaledMetric(relativeTo: .body) private var width: CGFloat = 28
+
+    init(_ logo: BrandLogo) { self.logo = logo }
+
+    var body: some View {
+        logo.view
+            .frame(width: 20, height: 20)
+            .frame(width: width, alignment: .center)
+            .accessibilityHidden(true)
+    }
+}
+
 /// A symbol and a title -- what goes inside a `NavigationLink`.
 struct SettingsLabel: View {
     let title: String
-    let symbol: String
+    let symbol: String?
+    let logo: BrandLogo?
 
     init(_ title: String, symbol: String) {
         self.title = title
         self.symbol = symbol
+        self.logo = nil
+    }
+
+    init(_ title: String, logo: BrandLogo) {
+        self.title = title
+        self.symbol = nil
+        self.logo = logo
     }
 
     var body: some View {
@@ -43,7 +69,11 @@ struct SettingsLabel: View {
                 .foregroundStyle(Color.primary)
                 .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
         } icon: {
-            SettingsIcon(symbol)
+            if let logo {
+                SettingsLogo(logo)
+            } else if let symbol {
+                SettingsIcon(symbol)
+            }
         }
     }
 }
@@ -86,13 +116,24 @@ struct SettingsRow: View {
     }
 
     let title: String
-    let symbol: String
+    let symbol: String?
+    let logo: BrandLogo?
     let value: String?
     let accessory: Accessory
 
     init(_ title: String, symbol: String, value: String? = nil, accessory: Accessory = .none) {
         self.title = title
         self.symbol = symbol
+        self.logo = nil
+        self.value = value
+        self.accessory = accessory
+    }
+
+    /// The same row wearing a network's own mark.
+    init(_ title: String, logo: BrandLogo, value: String? = nil, accessory: Accessory = .none) {
+        self.title = title
+        self.symbol = nil
+        self.logo = logo
         self.value = value
         self.accessory = accessory
     }
@@ -107,7 +148,11 @@ struct SettingsRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            SettingsLabel(title, symbol: symbol)
+            if let logo {
+                SettingsLabel(title, logo: logo)
+            } else {
+                SettingsLabel(title, symbol: symbol ?? "circle")
+            }
             Spacer(minLength: 0)
             if let shown = value {
                 Text(shown)

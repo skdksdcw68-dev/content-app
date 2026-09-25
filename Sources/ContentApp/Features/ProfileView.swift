@@ -15,6 +15,9 @@ struct ProfileView: View {
     @Environment(\.openURL) private var openURL
 
     @State private var approving: PendingPost?
+    /// Asked before setup is restarted, because it throws somebody out of the
+    /// app they are using.
+    @State private var confirmingSetup = false
     @State private var web: WebPage?
     @State private var exporting = false
     @State private var exported: ExportShare?
@@ -46,7 +49,8 @@ struct ProfileView: View {
             signOutAndDelete
         }
         .listStyle(.insetGrouped)
-        .tabChrome(title: "Profile", mode: .inline)
+        // The tab says "You", so the screen does too. They disagreed.
+        .tabChrome(title: "You", mode: .inline)
         .refreshable {
             await session.refreshConnections()
             await session.refreshSettings()
@@ -58,6 +62,12 @@ struct ProfileView: View {
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(item: $web) { page in SafariSheet(url: page.url).ignoresSafeArea() }
         .sheet(item: $exported) { file in ShareSheet(items: [file.url]).presentationDetents([.medium, .large]) }
+        .alert("Show setup again?", isPresented: $confirmingSetup) {
+            Button("Cancel", role: .cancel) {}
+            Button("Show it") { session.restartOnboarding() }
+        } message: {
+            Text("You'll go back to the first screen and walk through the questions. Nothing you have made is deleted.")
+        }
         .alert("Sign out?", isPresented: $confirmingSignOut) {
             Button("Cancel", role: .cancel) {}
             Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
@@ -188,7 +198,10 @@ struct ProfileView: View {
                 if let connection = session.connection(for: platform) {
                     NavigationLink { AccountDetailView(connection: connection).pushedPage() } label: {
                         HStack(spacing: 8) {
-                            SettingsLabel(platform.networkName, symbol: platform.symbolName)
+                            // The network's own mark. Profile still showed a
+                            // monochrome music note for TikTok after the marks
+                            // were wired up everywhere else.
+                            SettingsLabel(platform.networkName, logo: platform.logo)
                             Spacer(minLength: 0)
                             if !connection.isHealthy {
                                 Image(systemName: "exclamationmark.circle")
@@ -203,7 +216,7 @@ struct ProfileView: View {
                     Button {
                         Task { await session.connect(platform) }
                     } label: {
-                        SettingsRow(platform.networkName, symbol: platform.symbolName,
+                        SettingsRow(platform.networkName, logo: platform.logo,
                                     value: session.isConnecting ? "Opening…" : "Connect", accessory: .chevron)
                     }
                     .disabled(session.isConnecting)
@@ -260,8 +273,12 @@ struct ProfileView: View {
             } label: {
                 SettingsRow("Notifications", symbol: "bell", accessory: .external)
             }
-            Button { session.restartOnboarding() } label: {
-                SettingsRow("Show setup again", symbol: "arrow.counterclockwise", accessory: .chevron)
+            // 🔴 Asked first. This threw somebody back to the welcome
+            // screen on ONE tap, wearing a chevron -- which the design system
+            // says means "opens a screen inside Autocast", not "restart the
+            // whole app's setup".
+            Button { confirmingSetup = true } label: {
+                SettingsRow("Show setup again", symbol: "arrow.counterclockwise")
             }
         }
     }

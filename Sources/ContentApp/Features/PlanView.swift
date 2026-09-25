@@ -72,6 +72,15 @@ struct PlanView: View {
         }
     }
 
+    /// What this screen is. A running series is a schedule, not a plan, and
+    /// saying "Proposed plan" over it -- moments after the flow said the
+    /// series had started -- was the thing Abel objected to.
+    private var title: String {
+        guard let plan else { return "Plan" }
+        if plan.isSeries { return plan.isProposal ? "Your series" : "Posting" }
+        return plan.isProposal ? "Proposed plan" : "Plan"
+    }
+
     var body: some View {
         Group {
             if let plan {
@@ -80,7 +89,7 @@ struct PlanView: View {
                 NoPlanYet()
             }
         }
-        .navigationTitle(plan?.isProposal == true ? "Proposed plan" : "Plan")
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .pushedPage()
         .toolbar {
@@ -401,8 +410,23 @@ private struct PlanHeader: View {
 
             FlowLayout(spacing: 6) {
                 FactChip(text: platforms, symbol: "music.note")
-                FactChip(text: "\(plan.days) days from \(startLabel)", symbol: "calendar")
-                FactChip(text: "\(plan.postsPerDay) a day", symbol: "repeat")
+                // 🔴 A series is not a month and must not describe itself as
+                // one. It plans the NEXT post and writes the one after once
+                // that has gone out, so "1 days from 25 Sep" was both
+                // ungrammatical and wrong about what the thing does (Abel,
+                // 25 Sep 2026: "do not show the plan, just show the user what
+                // is going to be posted tomorrow").
+                if plan.isSeries {
+                    FactChip(text: "Keeps going", symbol: "infinity")
+                } else {
+                    FactChip(
+                        text: plan.days == 1
+                            ? "One day, \(startLabel)"
+                            : "\(plan.days) days from \(startLabel)",
+                        symbol: "calendar"
+                    )
+                    FactChip(text: "\(plan.postsPerDay) a day", symbol: "repeat")
+                }
                 ForEach(pillars, id: \.self) { name in
                     FactChip(text: name, symbol: "square.stack")
                 }

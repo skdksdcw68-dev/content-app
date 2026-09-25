@@ -95,10 +95,33 @@ export async function openConnection(admin: SupabaseClient, connectionId: string
     });
   } catch (thrown) {
     const status = (thrown as { status?: number }).status ?? 0;
-    // A refused refresh means the grant is gone -- signed out, revoked, or
-    // replaced. Only the person can fix that, so it is said once, where they
-    // will see it, rather than retried every minute.
     if (status === 400 || status === 401) {
+      // 🔴 A refused refresh USUALLY means the grant is gone. It does not
+      // always, and the exception is the common case here.
+      //
+      // Clerk rotates refresh tokens and invalidates the old one the instant
+      // it is used. `poll-generations` runs every minute, so two opens near an
+      // expiry race: the first rotates, the second presents the token it read
+      // a moment earlier, and is refused because that one is now spent. The
+      // grant is fine. It is one second old.
+      //
+      // So look again before giving up. If somebody else has just stored a
+      // token that is still good, this call was the loser of a race and there
+      // is nothing wrong at all.
+      const { data: again } = await admin.rpc("read_connection", { p_connection: connectionId });
+      const now = (again ?? [])[0];
+      const freshUntil = now?.access_expires_at ? Date.parse(now.access_expires_at) : 0;
+      if (now?.access_ct && freshUntil - Date.now() > MARGIN_MS) {
+        return {
+          secret: await open(now.access_ct, `${connectionId}:access`),
+          authKind,
+          providerSlug: connection.provider_slug,
+          endpoint,
+        };
+      }
+      // Nobody else refreshed it either. The grant really is gone, and only
+      // the person can fix that -- said once, where they will see it, rather
+      // than retried every minute.
       await markExpired(admin, connectionId);
       throw new NeedsReconnect();
     }

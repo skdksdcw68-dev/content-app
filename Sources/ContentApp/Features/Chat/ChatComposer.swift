@@ -36,9 +36,18 @@ struct ChatComposer: View {
     /// What the empty field says. The video page asks for a video, not a
     /// question (Abel, 24 Sep 2026).
     var placeholder = "Ask Autocast"
-    /// A strip of controls above the field, used by the video page for length
-    /// and style. Nothing is drawn when it is nil.
+    /// A strip above the field. The video page puts its attachment pills here
+    /// -- "Image", "Start frame", "End frame". Nothing is drawn when nil.
     var accessory: AnyView?
+    /// A strip BELOW the field, sharing its row with Send. The video page puts
+    /// the six generate controls here, which is where ElevenLabs keeps them
+    /// and why their composer reads top to bottom: what you are giving it,
+    /// what you are asking for, how it should come back.
+    ///
+    /// When this is set the plus button goes: its job -- attaching a picture
+    /// -- has moved to a named pill above, where somebody can tell what it
+    /// does without tapping it.
+    var footer: AnyView?
     var onRemoveAttachment: (UUID) -> Void = { _ in }
     let onSend: () -> Void
     let onStop: () -> Void
@@ -86,7 +95,7 @@ struct ChatComposer: View {
             }
 
             HStack(alignment: .bottom, spacing: 6) {
-                plusButton
+                if footer == nil { plusButton }
 
                 TextField(attachments.isEmpty ? placeholder : "Say what to do with it", text: $text, axis: .vertical)
                     .font(.system(size: 16))
@@ -95,11 +104,19 @@ struct ChatComposer: View {
                     // itself. The buttons stay on the bottom edge while it grows.
                     .lineLimit(1...6)
                     .focused($isFocused)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, footer == nil ? 4 : 8)
                     .padding(.vertical, 7)
                     .id(resetToken)
 
-                actionButton
+                if footer == nil { actionButton }
+            }
+
+            if let footer {
+                HStack(alignment: .center, spacing: 6) {
+                    footer
+                    Spacer(minLength: 0)
+                    actionButton
+                }
             }
         }
         .padding(.horizontal, 8)

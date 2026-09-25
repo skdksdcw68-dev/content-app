@@ -106,17 +106,48 @@ struct ModelBrowser: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // 🔴 No NavigationStack, and no `navigationTitle`. Abel, 25 Sep 2026:
+        // "why it doesnt looks exactly as eleven labs?"
+        //
+        // A large navigation title collapses as soon as anything is pinned
+        // above the scroll view, so the filter row -- added with
+        // `safeAreaInset(.top)` -- ate the word "Model" and left a band of
+        // empty grey where it should have been. Theirs is not a navigation
+        // bar at all: a close button, a big word, a row of pills, a list. So
+        // that is what this is now, laid out in order, with nothing that can
+        // decide to collapse itself.
+        VStack(alignment: .leading, spacing: 0) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.primary)
+                    .frame(width: 36, height: 36)
+                    .background(Color.track, in: Circle())
+            }
+            .buttonStyle(SoftPressStyle())
+            .accessibilityLabel("Close")
+            .padding(.leading, Style.gutter)
+            .padding(.top, 10)
+
+            Text("Model")
+                .font(.largeTitle.bold())
+                .padding(.horizontal, Style.gutter)
+                .padding(.top, 16)
+                .padding(.bottom, 16)
+
+            filters
+
             ZStack(alignment: .bottom) {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8, pinnedViews: []) {
+                    LazyVStack(alignment: .leading, spacing: 6) {
                         // The capability, once, the way they head the list
                         // "Image" -- not one header per family.
                         Text(isVideo ? "Video" : "Image")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, Style.gutter)
-                            .padding(.top, 4)
+                            .padding(.top, 10)
+                            .padding(.bottom, 2)
 
                         ForEach(shown) { model in
                             Button { pick(model) } label: {
@@ -134,45 +165,37 @@ struct ModelBrowser: View {
                         }
 
                         // Room for the floating search pill to sit over.
-                        Color.clear.frame(height: 76)
+                        Color.clear.frame(height: 84)
                     }
-                    .padding(.top, 4)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .overlay {
+                    if loading {
+                        ProgressView()
+                    } else if shown.isEmpty {
+                        // Never about connectors. Abel, 25 Sep 2026: "instead
+                        // of asking users to connect with connector who even
+                        // doesnt knows thats that". Autocast brings the models;
+                        // nothing on this screen asks anybody to go and get one.
+                        ContentUnavailableView(
+                            search.isEmpty ? "Nothing here" : "Nothing matches",
+                            systemImage: "magnifyingglass",
+                            description: Text(search.isEmpty ? "Try another filter." : "Try another word.")
+                        )
+                    }
+                }
 
                 searchPill
             }
-            .safeAreaInset(edge: .top, spacing: 0) { filters }
-            .navigationTitle("Model")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Close")
-                }
-            }
-            .overlay {
-                if loading {
-                    ProgressView()
-                } else if models.isEmpty {
-                    ContentUnavailableView(
-                        "Nothing connected yet",
-                        systemImage: "square.stack.3d.up.slash",
-                        description: Text("Connect a generator from the plus menu.")
-                    )
-                } else if shown.isEmpty {
-                    ContentUnavailableView(
-                        "Nothing matches",
-                        systemImage: "magnifyingglass",
-                        description: Text(search.isEmpty ? "Try another filter." : "Try another word.")
-                    )
-                }
-            }
         }
+        .background(Color.canvas.ignoresSafeArea())
         .task {
-            models = await session.models(capability: capability, withPicture: withPicture)
+            let found = await session.models(capability: capability, withPicture: withPicture)
+            // Never an empty picker, and never a word about connectors. What
+            // discovery returns is better -- live prices, real constraints --
+            // but when it returns nothing, the written-down list still gives
+            // somebody a model to choose. See `BuiltInModels`.
+            models = found.isEmpty ? BuiltInModels.forCapability(capability) : found
             loading = false
         }
         .onDisappear { pricing?.cancel() }
@@ -206,10 +229,15 @@ struct ModelBrowser: View {
                     .buttonStyle(SoftPressStyle())
                 }
             }
+            // A little air on the right so the last pill is not sliced by the
+            // screen edge, which is what it looked like before.
             .padding(.horizontal, Style.gutter)
-            .padding(.vertical, 10)
+            .padding(.bottom, 4)
         }
-        .background(.bar)
+        // No `.bar` behind them. It drew a grey band across the top in a
+        // slightly different grey from the sheet, so the header read as two
+        // pieces stuck together. Theirs sit on the page.
+        .scrollIndicators(.hidden)
     }
 
     /// In reach of a thumb, over the list rather than above it.

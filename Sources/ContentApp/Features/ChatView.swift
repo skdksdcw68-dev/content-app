@@ -297,8 +297,11 @@ struct ChatView: View {
                         resetToken: composerReset,
                         focusToken: composerFocus,
                         attachments: pending,
-                        placeholder: makingVideo ? "Describe the video to make" : "Ask Autocast",
-                        accessory: makingVideo ? AnyView(videoControls) : nil,
+                        // Abel, 25 Sep 2026: "keep the page very clean sir
+                        // please like whats the video about or something."
+                        placeholder: makingVideo ? "What's the video about?" : "Ask Autocast",
+                        accessory: makingVideo ? AnyView(videoAttachments) : nil,
+                        footer: makingVideo ? AnyView(videoControls) : nil,
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
@@ -632,6 +635,18 @@ struct ChatView: View {
     /// exact eleven labs thing, that makes more sense and looks so good."
     private var videoControls: some View {
         GenerateBar(choices: $choices, request: draft)
+    }
+
+    /// What you are giving it, above the field: a picture to work from, and
+    /// the first and last frame when the chosen model takes them.
+    private var videoAttachments: some View {
+        GenerateAttachments(choices: $choices) { _ in
+            // All three fill from the photo library. Which slot a picture
+            // lands in is the agent's to read from the request; the pill is
+            // there so somebody can see what the model will accept before
+            // they tap, which a bare plus never showed.
+            showsPhotoPicker = true
+        }
     }
 
     private func send(action: AppSession.ChatAction? = nil) {

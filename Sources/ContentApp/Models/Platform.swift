@@ -28,6 +28,21 @@ enum Platform: String, Codable, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// The network's own mark, drawn in SwiftUI rather than shipped as its
+    /// artwork -- see `BrandLogos.swift` for why.
+    ///
+    /// Abel, 25 Sep 2026: "instead of using TikTok, Instagram and YouTube, also
+    /// put their real logo right there". The marks were drawn weeks ago and
+    /// nothing ever used them; a monochrome music note stood in for TikTok on
+    /// the one screen whose whole job is to be recognised at a glance.
+    var logo: BrandLogo {
+        switch self {
+        case .tiktok: return .tiktok
+        case .reels:  return .instagram
+        case .shorts: return .youtube
+        }
+    }
+
     /// SF Symbol used on badges and the connect rows.
     var symbolName: String {
         switch self {

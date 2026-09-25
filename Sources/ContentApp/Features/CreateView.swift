@@ -50,22 +50,18 @@ struct CreateView: View {
                 .entrance(0)
 
                 // TikTok-style: your video, your words, Write with AI, Post.
-                // With nowhere to post, the button opens the connect sheet
-                // rather than sitting disabled.
-                Group {
-                    if session.connections.isEmpty {
-                        Button { connecting = true } label: {
-                            PrimaryButtonLabel(title: "Connect an account to upload", systemImage: "link")
-                        }
-                        .primaryButtonStyle()
-                    } else {
-                        NavigationLink { StudioFlowView() } label: {
-                            PrimaryButtonLabel(title: "Upload", systemImage: "plus")
-                        }
-                        .primaryButtonStyle()
-                        .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
-                    }
+                //
+                // 🔴 Always open. Connecting an account is what POSTING needs,
+                // not what importing and editing need, and this button used to
+                // refuse both (Abel, 25 Sep 2026: "you can import videos, edit
+                // videos to post, even when you do not connect it"). The
+                // connect sheet now belongs to the Post step at the end of the
+                // flow, where it is actually required.
+                NavigationLink { StudioFlowView() } label: {
+                    PrimaryButtonLabel(title: "Upload", systemImage: "plus")
                 }
+                .primaryButtonStyle()
+                .popoverTip(tips.currentTip as? UploadTip, arrowEdge: .top)
                 .padding(.top, 18)
                 .entrance(1)
 

@@ -98,6 +98,9 @@ struct SeriesFlowView: View {
     @State private var goal = "followers"
     @State private var starting = false
     @State private var needsGenerator = false
+    /// Why starting the series did not work, said on this screen rather than
+    /// thrown at the one underneath it.
+    @State private var failure: String?
     /// Which network is opening its sign-in, so only that tile spins.
     @State private var opening: Platform?
     /// What every video must carry, and what it must never do.
@@ -170,6 +173,14 @@ struct SeriesFlowView: View {
                 }
             }
             .interactiveDismissDisabled(starting)
+            .alert(
+                "That didn't start",
+                isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+            ) {
+                Button("OK", role: .cancel) { failure = nil }
+            } message: {
+                Text(failure ?? "")
+            }
             .alert("One more thing", isPresented: $needsGenerator) {
                 Button("OK") { dismiss() }
             } message: {
@@ -291,7 +302,12 @@ struct SeriesFlowView: View {
             subtitle: "Tap one to connect it. Tap a connected one to pick it.",
             button: destinations.isEmpty ? "Pick at least one" : "Continue",
             tint: destinations.isEmpty ? Color.secondary : Theme.accent,
-            action: { if !destinations.isEmpty { step = .include } }
+            // 🔴 `.length`, not `.include`. This skipped "How long" entirely
+            // going forward, while `back()` from "Every video has" returned TO
+            // it -- so the only way to reach that screen was to press Back into
+            // a page the flow had never shown (Abel, 25 Sep 2026: "when I hit
+            // continue it jumps two pages at one... this really looks funny").
+            action: { if !destinations.isEmpty { step = .length } }
         ) {
             // The same tiles as the connect sheet, rather than a row with a
             // Connect pill bolted to its side (Abel, 24 Sep 2026: "on the
@@ -577,6 +593,20 @@ struct SeriesFlowView: View {
         // posts nobody has seen yet, and a series that learns from what worked
         // cannot use anything it wrote before the first post went out. The
         // next one is written once this one is posted -- see `extend-series`.
+        // 🔴 Every failure below is caught HERE and shown on this screen.
+        //
+        // It used to throw the results away and dismiss regardless, so the
+        // sheet closed saying it had worked and the root alert -- "That did
+        // not work" -- landed on the screen underneath a moment later, with no
+        // clue which step failed (Abel, 25 Sep 2026: "it says writing your
+        // first post and right after that it's gonna say that did not work,
+        // why is that needed").
+        //
+        // It is also why a `proposePlan` failure looked like the spinner
+        // simply stopping: the root alert cannot present from underneath a
+        // sheet that is still up, so nothing appeared at all.
+        session.lastError = nil
+
         guard let proposal = await session.proposePlan(
             brief: brief,
             days: 1,
@@ -584,7 +614,12 @@ struct SeriesFlowView: View {
             platforms: Array(destinations).sorted(),
             template: chosen.slug,
             durationSeconds: decideLength ? nil : length
-        ) else { return }
+        ) else {
+            failure = session.lastError.flatMap { $0.isEmpty ? nil : $0 }
+                ?? "The writer could not be reached just now. Try again."
+            session.lastError = nil
+            return
+        }
 
         // Remembered so the next one is written the same way, and so this
         // screen opens on the same style next time.
@@ -593,11 +628,25 @@ struct SeriesFlowView: View {
         // A series is on from the start: the plan is switched on and the
         // maker with it, so the first video is made without another visit.
         await session.refreshPlan()
-        _ = await session.activatePlan()
+        guard await session.activatePlan() else {
+            // The usual cause is a series already running: the RPC refuses
+            // with "that plan is already active". Said plainly, with the way
+            // out, rather than as a bare database sentence.
+            let reason = session.lastError.flatMap { $0.isEmpty ? nil : $0 } ?? ""
+            failure = reason.localizedCaseInsensitiveContains("already")
+                ? "You already have a series running. Open it from Home and delete it first, then start this one."
+                : (reason.isEmpty ? "Your first post was written, but the series could not be switched on." : reason)
+            session.lastError = nil
+            return
+        }
+
         // A filmed style needs no generator, so not having one is not a
         // problem worth stopping for.
         if session.hasWorkingGenerator || chosen.needsFilming {
+            // Autopilot failing is worth saying, but the series exists and the
+            // post is written, so it is not worth refusing to leave over.
             _ = await session.setAutopilot(true)
+            session.lastError = nil
             onStarted(proposal)
             dismiss()
         } else {

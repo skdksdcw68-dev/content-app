@@ -117,7 +117,13 @@ struct VideoReviewView: View {
         }
         .preferredColorScheme(.dark)
         .task { await load() }
-        .onDisappear { player?.pause() }
+        // The same silence the editor had: without asking for `.playback` this
+        // screen runs on the process default and the ring switch mutes it.
+        .onAppear { PlaybackAudio.sound(true) }
+        .onDisappear {
+            player?.pause()
+            PlaybackAudio.sound(false)
+        }
     }
 
     // MARK: - The file

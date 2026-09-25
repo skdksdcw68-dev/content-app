@@ -65,7 +65,12 @@ struct ChatComposer: View {
 
     var body: some View {
         capsule
-            .padding(.horizontal, isExpanded ? 12 : 34)
+            // 34 at rest left roughly 160pt to type in on a 390pt screen, once
+            // the plus and the send button had taken their 32 each (Abel,
+            // 25 Sep 2026: "the text input is so much narrow and it looks so
+            // much annoying"). 20 keeps the capsule floating rather than
+            // edge-to-edge, and gives back 28pt of words.
+            .padding(.horizontal, isExpanded ? 12 : 20)
             .padding(.top, 6)
             .animation(.easeOut(duration: 0.22), value: isExpanded)
             .sensoryFeedback(.impact(weight: .light), trigger: showsOptions)

@@ -139,11 +139,11 @@ struct PlatformTile: View {
         Button(action: choose) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 0) {
-                    Image(systemName: platform.symbolName)
-                        .font(.system(size: 20, weight: .semibold))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(isLit ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-                        .frame(width: 26, alignment: .leading)
+                    // The network's own mark, so the row is recognised rather
+                    // than read (Abel, 25 Sep 2026).
+                    platform.logo.view
+                        .frame(width: 26, height: 26)
+                        .saturation(isConnected ? 1 : 0.9)
 
                     Spacer(minLength: 0)
 
@@ -162,13 +162,29 @@ struct PlatformTile: View {
                     .foregroundStyle(Color.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                // The handle once it is connected, the invitation before.
-                Text(connection?.label ?? (isOpening ? "Opening…" : "Tap to connect"))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // The account itself once it is yours -- the picture and the
+                // handle, not the word "Connected" (Abel, 25 Sep 2026: "if the
+                // user connected his social media account, show the profile
+                // exactly right there"). The avatar was already being fetched
+                // and drawn on three other screens; this tile just never used
+                // it.
+                HStack(spacing: 6) {
+                    if let avatar = connection?.avatarURL {
+                        AsyncImage(url: avatar) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Circle().fill(Color.track)
+                        }
+                        .frame(width: 18, height: 18)
+                        .clipShape(Circle())
+                    }
+                    Text(connection?.label ?? (isOpening ? "Opening…" : "Tap to connect"))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .multilineTextAlignment(.leading)
             .padding(13)

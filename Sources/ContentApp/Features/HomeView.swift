@@ -31,8 +31,6 @@ struct HomeView: View {
     /// Planning a month, started from Home and finished on the plan screen.
     @State private var planning = false
     @State private var proposed: PlanProposal?
-    /// Typed into the field at the top.
-    @State private var ask = ""
     /// Starting a series, and the plan it made, pushed once the sheet is gone.
     @State private var startingSeries = false
     @State private var series: PlanProposal?
@@ -283,23 +281,30 @@ struct HomeView: View {
 
     /// One field: describe a video, and the chat makes it (Abel, 23 Sep
     /// 2026: "let's make it something people make videos from").
+    /// The way into making a video. A door, not a field.
+    ///
+    /// Abel, 25 Sep 2026: "when they click I want it to exactly redirect them
+    /// to the next page." Typing on Home meant writing the whole request
+    /// through a capsule with no room, on a screen with no reply -- so the tap
+    /// opens the page that has both, with the cursor already in it.
     private var askField: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "wand.and.stars")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Theme.accent)
-            TextField("Describe a video to make", text: $ask)
-                .submitLabel(.send)
-                .onSubmit {
-                    let text = ask.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !text.isEmpty else { return }
-                    ask = ""
-                    session.push(.makeVideo(text))
-                }
+        Button { session.push(.makeVideo("")) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                // "Your first" only while there is nothing to show for it.
+                Text(videos.isEmpty ? "Describe your first video" : "Describe a video to make")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .frame(height: 48)
+            .frame(maxWidth: .infinity)
+            .background(Color.raised, in: Capsule())
         }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
-        .background(Color.raised, in: Capsule())
+        .buttonStyle(SoftPressStyle())
     }
 
     // MARK: - Keep creating

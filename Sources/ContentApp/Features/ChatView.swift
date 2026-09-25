@@ -313,6 +313,14 @@ struct ChatView: View {
             // Asked for on the way in. Sent as though it had been typed, so the
             // transcript reads the way the conversation went.
             guard let opening, threadId == nil, turns.isEmpty, draft.isEmpty else { return }
+            // Opened with nothing to say -- Home's field is a door now, not a
+            // place to type (Abel, 25 Sep 2026: "when they click I want it to
+            // exactly redirect them to the next page"). So put the cursor in
+            // the composer and wait, rather than sending an empty turn.
+            guard !opening.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                composerFocus += 1
+                return
+            }
             draft = opening
             send()
         }
@@ -590,19 +598,33 @@ struct ChatView: View {
 
     /// The video's own choices, above the field: how long, and what goes in
     /// it. Only on the video page; the chat composer is unchanged.
+    /// 🔴 Any length, not three buttons.
+    ///
+    /// Abel, 25 Sep 2026: "instead of showing the user fifteen seconds, thirty
+    /// seconds, sixty seconds in a row, just let the user hit and pick what
+    /// second he wants to generate with." A row of three fixed chips took the
+    /// width and still could not say 20.
+    ///
+    /// A stepper reads the number and changes it without a keyboard, and holds
+    /// its own repeat. `videoLength` is only ever read as a string in
+    /// `videoSpec`, so nothing downstream changes.
     private var videoControls: some View {
         HStack(spacing: 8) {
-            ForEach([15, 30, 60], id: \.self) { seconds in
-                chip("\(seconds)s", on: videoLength == seconds) {
-                    videoLength = seconds
-                }
+            Stepper(value: $videoLength, in: 5...180, step: 5) {
+                Text("\(videoLength)s")
+                    .font(.caption.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(.primary)
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.15), value: videoLength)
             }
-            Divider().frame(height: 18)
+            .fixedSize()
+
             chip("Voiceover", on: videoVoiceover) { videoVoiceover.toggle() }
             chip("Captions", on: videoCaptions) { videoCaptions.toggle() }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 4)
+        .padding(.leading, 34)
+        .padding(.trailing, 4)
     }
 
     private func chip(_ title: String, on: Bool, tap: @escaping () -> Void) -> some View {

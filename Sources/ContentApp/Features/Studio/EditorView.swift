@@ -102,9 +102,20 @@ struct EditorView: View {
         .pushedPage()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                // 🔴 The word has to fit. `RemiFilledButtonStyle` adds 14pt of
+                // horizontal padding inside a capsule, which pushed the label
+                // past the width iOS 26 allows a bar item: the title truncated
+                // to "N" and the system swept the rest into an overflow "⋯"
+                // (Abel, 25 Sep 2026: "the top next thing is N, just N, and
+                // 3 dots -- I want the next to appear exactly as next").
+                //
+                // The system's own prominent style is sized for the bar, so it
+                // fits, and it keeps the filled look the screen wants.
                 Button("Next") { startExport() }
-                    .buttonStyle(RemiFilledButtonStyle())
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
                     .controlSize(.small)
+                    .fixedSize()
             }
             // The filled button stands on its own: iOS 26 otherwise puts its
             // own glass behind every bar item, and a black button on a glass
@@ -127,7 +138,20 @@ struct EditorView: View {
         .toolbar(.visible, for: .bottomBar)
         .task(id: rebuild) { await rebuildPlayer() }
         .task(id: adding) { await addPicked() }
-        .onDisappear { playback.player.pause() }
+        // 🔴 Without this the editor is silent, and it looks like the import
+        // lost the audio (Abel, 25 Sep 2026: "after inputting a video it
+        // doesn't let you hear the sound, I don't know why").
+        //
+        // The composition carries the audio track and the mix all along --
+        // `StudioComposer.build` inserts it. What was missing is the audio
+        // SESSION: nothing here ever left `.soloAmbient`, the process default,
+        // which the ring switch silences. The chat viewer was the only screen
+        // in the app that had ever asked for `.playback`.
+        .onAppear { PlaybackAudio.sound(true) }
+        .onDisappear {
+            playback.player.pause()
+            PlaybackAudio.sound(false)
+        }
         .sheet(item: $tool) { item in sheet(item) }
         .navigationDestination(item: $rendered) { video in
             ComposeView(video: video.url, attribution: video.attribution, preferDrafts: video.tiktokSound)

@@ -155,7 +155,17 @@ Deno.serve(async (request) => {
       .eq("provider_id", provider.id)
       .maybeSingle();
 
-    if (!client || client.redirect_uri !== redirectUri || needsRebranding(stored?.registered ?? null)) {
+    // A client id belongs to the server that issued it. If discovery now picks
+    // a different authorization server -- because the resource's metadata
+    // changed, or because we used to pick the wrong one -- the cached id is
+    // meaningless there and authorizing with it fails on the provider's own
+    // page, where we never see the error and the person never comes back.
+    // Recorded alongside the registration so a change re-registers by itself.
+    const issuer = (server as { issuer?: string }).issuer ?? "";
+    const registeredAt = (stored?.registered as { _issuer?: unknown } | null)?._issuer;
+    const movedServer = issuer !== "" && registeredAt !== issuer;
+
+    if (!client || client.redirect_uri !== redirectUri || movedServer || needsRebranding(stored?.registered ?? null)) {
       const registration = await register(server, redirectUri, scope);
       await admin.rpc("upsert_provider_client", {
         p_slug: slug,
@@ -164,9 +174,10 @@ Deno.serve(async (request) => {
           ? await seal(registration.client_secret, `${slug}:client`)
           : null,
         p_redirect: redirectUri,
-        p_registered: registration.registered,
+        p_registered: { ...registration.registered, _issuer: issuer },
       });
       client = { client_id: registration.client_id, redirect_uri: redirectUri };
+      console.log("connector-start", slug, "registered at", issuer);
     }
 
     const { data: connectionId, error: beginError } = await admin.rpc("begin_connection", {

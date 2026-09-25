@@ -170,7 +170,21 @@ export async function discoverAuthorization(
 ): Promise<AuthorizationDiscovery> {
   const resource = await discoverResource(mcpUrl, probe);
 
-  const issuers = [new URL(mcpUrl).origin, ...resource.authorization_servers];
+  // 🔴 The resource's OWN list comes first. RFC 9728 makes
+  // `authorization_servers` the authoritative answer to "who authorizes this
+  // resource"; the MCP origin is a guess for servers that publish no metadata
+  // at all, and it belongs last.
+  //
+  // This was the other way round, and it cost the product its generator.
+  // Higgsfield's protected-resource metadata names
+  // `https://clerk.higgsfield.ai`, and says in as many words that a client
+  // which can receive a redirect should use it. But `mcp.higgsfield.ai` also
+  // answers /.well-known/oauth-authorization-server WITH a registration
+  // endpoint, so putting the origin first meant we registered and authorized
+  // there every time and never looked at what the resource actually said. The
+  // browser opened, and never came back: connections sat at `pending` for
+  // weeks (Abel, 25 Sep 2026, and twice before).
+  const issuers = [...resource.authorization_servers, new URL(mcpUrl).origin];
   let fallback: ServerMetadata | null = null;
   const failures: string[] = [];
 

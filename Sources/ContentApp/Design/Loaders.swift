@@ -17,12 +17,16 @@ import SwiftUI
 /// Remi: `Coach/CoachParts.swift` -- the coach's thinking dot.
 struct BreathingDot: View {
     var size: CGFloat = 10
+    /// The colour of whatever it is sitting in. It used to be the accent
+    /// violet always, which put a violet dot inside a purple "Generating"
+    /// pill and a violet one inside every other tint the chip has.
+    var tint: Color = .accentColor
 
     @State private var isUp = false
 
     var body: some View {
         Circle()
-            .fill(Color.accentColor)
+            .fill(tint)
             .frame(width: size, height: size)
             .scaleEffect(isUp ? 1 : 0.7)
             .opacity(isUp ? 1 : 0.35)

@@ -53,3 +53,56 @@ extension AppSession {
         MediaCache.shared.forget(media.path, shelf: .kept)
     }
 }
+
+// MARK: - Posters
+
+extension AppSession {
+    /// A poster for a piece of media, kept so scrolling does not re-make it.
+    ///
+    /// 🔴 `PostThumb` used to run `AVAssetImageGenerator` against the REMOTE
+    /// signed URL every time a cell appeared, holding the result in a per-view
+    /// `@State`. A recycled row therefore re-signed a fresh link, streamed the
+    /// file again, and decoded a frame again — for a picture it had drawn
+    /// thirty seconds earlier. Scrolling the library back up did the whole lot
+    /// a second time (Abel, 25 Sep 2026, on waiting for his own videos).
+    ///
+    /// Three layers, cheapest first: memory, then a JPEG on disk, and only
+    /// then the generator — pointed at a LOCAL file, never a URL.
+    func poster(of media: BoardPost.Media, longest pixels: CGFloat) async -> UIImage? {
+        let key = MediaCache.key(media.path, "poster\(Int(pixels))")
+        if let cached = MediaCache.shared.image(key) { return cached }
+
+        let name = "poster\(Int(pixels)).jpg"
+        if let file = MediaCache.shared.onDisk(media.path, name: name, shelf: .fetchedAgain),
+           let data = try? Data(contentsOf: file),
+           let image = UIImage(data: data) {
+            MediaCache.shared.keep(image, key)
+            return image
+        }
+
+        // The local copy when the durable shelf already holds it -- opening a
+        // video and seeing its tile then share one file. Otherwise the signed
+        // link: AVFoundation reads only the few seconds it needs for one
+        // frame, so this must NOT download the whole video. Twenty tiles
+        // pulling twenty full videos would be worse than the bug being fixed.
+        let source: URL?
+        if let here = cachedVideo(of: media) {
+            source = here
+        } else {
+            source = await mediaURL(media)
+        }
+        guard let source, let frame = await MediaCache.poster(source, longest: pixels) else { return nil }
+
+        MediaCache.shared.keep(frame, key)
+        _ = await MediaCache.shared.file(media.path, name: name, shelf: .fetchedAgain) {
+            frame.jpegData(compressionQuality: 0.8)
+        }
+        return frame
+    }
+
+    /// The poster if it is already in memory. Read inside `body`, before any
+    /// `await`, so a recycled cell redraws with no flash.
+    func cachedPoster(of media: BoardPost.Media, longest pixels: CGFloat) -> UIImage? {
+        MediaCache.shared.image(MediaCache.key(media.path, "poster\(Int(pixels))"))
+    }
+}

@@ -1,4 +1,5 @@
 import Foundation
+import Supabase
 import UIKit
 
 /// The brand's own mark: uploading it, reading it back, removing it.

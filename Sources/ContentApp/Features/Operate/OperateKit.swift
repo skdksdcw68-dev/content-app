@@ -12,7 +12,7 @@ struct StageChip: View {
     var body: some View {
         HStack(spacing: 4) {
             if stage.isWorking {
-                BreathingDot(size: 6)
+                BreathingDot(size: 6, tint: stage.tint)
             } else {
                 Image(systemName: stage.symbol)
                     .font(.system(size: compact ? 9 : 10, weight: .bold))
@@ -24,7 +24,11 @@ struct StageChip: View {
         .foregroundStyle(stage.tint)
         .padding(.horizontal, compact ? 7 : 9)
         .padding(.vertical, compact ? 3 : 4)
-        .background(stage.tint.opacity(0.12), in: Capsule())
+        // Readable over a video frame, not only over a form. The tile used to
+        // wrap this in a second material capsule to get that, which made a
+        // chip inside a chip.
+        .background(.regularMaterial, in: Capsule())
+        .background(stage.tint.opacity(0.18), in: Capsule())
         .accessibilityElement(children: .combine)
     }
 }
@@ -443,21 +447,39 @@ struct PostThumb: View {
     @State private var poster: UIImage?
 
     var body: some View {
+        // Read synchronously, before any await: a recycled cell that already
+        // has this picture in memory redraws with it rather than flashing the
+        // placeholder and fetching again.
+        let shown = poster ?? media.flatMap { session.cachedPoster(of: $0, longest: width * 3) }
+
         ZStack {
-            if let poster {
+            if let poster = shown {
                 Image(uiImage: poster).resizable().scaledToFill()
             } else {
                 LinearGradient(colors: [Color.track, Color.track.opacity(0.6)], startPoint: .top, endPoint: .bottom)
+                // Being made is not the same as waiting, and it should not
+                // look the same (Abel, 25 Sep 2026: "on the library while
+                // getting the video ready it doesn't look so good").
+                // `MakingSheen` was written for exactly this and used nowhere.
+                if media == nil, stage == .generating {
+                    MakingSheen()
+                }
                 Image(systemName: media == nil ? (stage == .generating ? "sparkles" : "film") : "play.fill")
-                    .font(.system(size: 18, weight: .medium))
-                    .foregroundStyle(.tertiary)
+                    // Scaled to the tile. 18pt was fixed whether the thumb was
+                    // 72pt wide in a row or 128pt in the library grid, and
+                    // `.tertiary` on this grey is close to invisible.
+                    .font(.system(size: max(16, width * 0.2), weight: .medium))
+                    .foregroundStyle(.secondary)
             }
         }
         .frame(width: width, height: width * 16 / 9)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .task(id: media?.path) {
-            guard let media, let url = await session.mediaURL(media) else { return }
-            poster = await PostMediaView.posterFrame(url)
+            guard let media, poster == nil else { return }
+            // Through the cache: memory, then a JPEG on disk, and only then
+            // the generator. This used to re-sign a link and re-decode a frame
+            // on every single appearance.
+            poster = await session.poster(of: media, longest: width * 3)
         }
     }
 }

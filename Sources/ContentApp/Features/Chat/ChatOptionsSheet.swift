@@ -25,6 +25,12 @@ struct ChatOptionsSheet: View {
     @State private var choosing: ProviderConnection?
 
     @Environment(AppSession.self) private var session
+    /// Opened from the video page rather than the chat. The list then holds
+    /// only what belongs to making a video -- "Plan 30 days", "Look into
+    /// something" and "What is working" are chat errands and have no business
+    /// on a screen whose single job is a video (Abel, 25 Sep 2026: "when you
+    /// hit the plus icon it is showing the same as the chat").
+    var makingVideo = false
     let onPick: (Action) -> Void
 
     var body: some View {
@@ -52,13 +58,16 @@ struct ChatOptionsSheet: View {
                         detail: "Use it as a reference, or ask about it"
                     ) { onPick(.attachPhoto) }
 
-                    Row(
-                        symbol: "calendar",
-                        title: "Plan 30 days",
-                        detail: "Writes and schedules a month at once"
-                    ) { onPick(.planMonth) }
+                    if !makingVideo {
+                        Row(
+                            symbol: "calendar",
+                            title: "Plan 30 days",
+                            detail: "Writes and schedules a month at once"
+                        ) { onPick(.planMonth) }
+                    }
                 }
 
+                if !makingVideo {
                 Section("Research") {
                     Row(
                         symbol: "magnifyingglass",
@@ -71,6 +80,7 @@ struct ChatOptionsSheet: View {
                         title: "What's working",
                         detail: "Reads your own numbers back"
                     ) { onPick(.ask("What's working in my recent posts?")) }
+                }
                 }
 
                 Section {

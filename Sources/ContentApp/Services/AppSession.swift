@@ -22,7 +22,10 @@ final class AppSession {
 
     private(set) var state: State = .starting
     private(set) var userID: UUID?
-    private(set) var brand: Brand?
+    // internal(set), not private(set): Swift scopes private(set) to the FILE,
+    // and AppSession is legitimately split across several. The brand is
+    // written by the logo extension too. See the note further down.
+    internal(set) var brand: Brand?
     /// Every app this person is marketing. The chosen one is `brand`.
     private(set) var brands: [Brand] = []
     private(set) var connections: [PlatformConnection] = []

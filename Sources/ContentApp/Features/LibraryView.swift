@@ -61,7 +61,10 @@ struct LibraryView: View {
                     if loadedVideos == nil {
                         LazyVGrid(columns: grid, spacing: 3) {
                             ForEach(0..<9, id: \.self) { _ in
-                                Rectangle()
+                                // Rounded like the tiles it stands in for.
+                                // Square corners made the grid visibly change
+                                // shape the moment the videos landed.
+                                RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous)
                                     .fill(Color.track)
                                     .aspectRatio(9 / 16, contentMode: .fit)
                             }
@@ -255,11 +258,12 @@ private struct LibraryTile: View {
             PostThumb(media: post.media, stage: post.stage, width: proxy.size.width)
         }
         .aspectRatio(9 / 16, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.mediaRadius, style: .continuous))
         .overlay(alignment: .bottomLeading) {
             if post.stage != .published {
+                // One chip. StageChip already draws its own capsule, and
+                // wrapping it in a material one made a chip inside a chip.
                 StageChip(stage: post.stage, compact: true)
-                    .background(.regularMaterial, in: Capsule())
                     .padding(5)
             }
         }

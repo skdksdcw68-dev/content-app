@@ -67,15 +67,40 @@ function token(): string {
   return `${input}.${signature}`;
 }
 
+/**
+ * One call, retried on the failures that are not answers.
+ *
+ * 🔴 This had no retry at all, and the first --apply run died on a connect
+ * timeout partway through 175 territories. A half-applied price list is the
+ * worst outcome available here: some storefronts corrected, some not, and no
+ * record of which. Apple's API returns 500s under this much paging and the
+ * connection drops, so both are retried; a 4xx is a real answer and is not.
+ *
+ * Re-running is safe by design — it re-reads what each territory is charging
+ * and skips the ones already right — but it has to be able to finish.
+ */
 async function api(method: string, endpoint: string, body?: unknown): Promise<any> {
-  const response = await fetch(`https://api.appstoreconnect.apple.com${endpoint}`, {
-    method,
-    headers: { Authorization: `Bearer ${token()}`, ...(body ? { "Content-Type": "application/json" } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-  const text = await response.text();
-  if (!response.ok) throw new Error(`${method} ${endpoint} → ${response.status}: ${text.slice(0, 300)}`);
-  return text ? JSON.parse(text) : {};
+  let last = "";
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 800 * attempt));
+    let response: Response;
+    try {
+      response = await fetch(`https://api.appstoreconnect.apple.com${endpoint}`, {
+        method,
+        headers: { Authorization: `Bearer ${token()}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+    } catch (thrown) {
+      // Connection refused, DNS, timeout: no answer, so ask again.
+      last = String(thrown).slice(0, 160);
+      continue;
+    }
+    const text = await response.text();
+    if (response.ok) return text ? JSON.parse(text) : {};
+    last = `${response.status}: ${text.slice(0, 200)}`;
+    if (response.status < 500) break; // A refusal is an answer. Stop.
+  }
+  throw new Error(`${method} ${endpoint} → ${last}`);
 }
 
 

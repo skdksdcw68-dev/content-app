@@ -33,7 +33,7 @@ struct SeriesFlowView: View {
         // what it should include and what not, there is a lots." Every extra
         // screen here is something the writer actually uses, not a screen for
         // its own sake.
-        case style, destinations, length, include, avoid, goal, review
+        case style, destinations, length, include, logo, avoid, goal, review
 
         var progress: Double { Double(rawValue + 1) / Double(Step.allCases.count + 1) }
 
@@ -43,6 +43,7 @@ struct SeriesFlowView: View {
             case .destinations: "Where it posts"
             case .length:       "How long"
             case .include:      "Every video has"
+            case .logo:         "Your logo"
             case .avoid:        "Never do this"
             case .goal:         "What it's for"
             case .review:       "Ready"
@@ -196,6 +197,7 @@ struct SeriesFlowView: View {
         case .destinations: whereTo
         case .length:       howLong
         case .include:      mustInclude
+        case .logo:         logoStep
         case .avoid:        mustAvoid
         case .goal:         whatFor
         case .review:       review
@@ -203,7 +205,37 @@ struct SeriesFlowView: View {
     }
 
     private var mustInclude: some View {
-        picker(Self.includeQuestion, chosen: $includes, next: .avoid, skippable: true)
+        picker(Self.includeQuestion, chosen: $includes, next: afterInclude, skippable: true)
+    }
+
+    /// 🔴 The answer decides the next screen.
+    ///
+    /// Abel, 25 Sep 2026: "every answered question might affect the next
+    /// question, so think twice" -- said about exactly this option. Choosing
+    /// "Your name or logo" used to append a sentence to a brief and move on,
+    /// and the logo was never asked for. Now picking it leads straight to the
+    /// screen that asks.
+    private var afterInclude: Step {
+        includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .avoid
+    }
+
+    private var logoStep: some View {
+        FlowStep(
+            title: "Put your logo on them?",
+            subtitle: "You asked for your name or logo on every video. Choose the file and it goes on each one.",
+            button: session.brand?.logoPath == nil ? "Use my name instead" : "Continue",
+            tint: session.brand?.logoPath == nil ? Color.secondary : Theme.accent,
+            action: { step = .avoid }
+        ) {
+            BrandLogoPicker {
+                // Stored: move on by itself, the way picking a style does.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(450))
+                    if step == .logo { step = .avoid }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
     }
 
     private var mustAvoid: some View {
@@ -566,7 +598,8 @@ struct SeriesFlowView: View {
             case .destinations: step = .style
             case .length:       step = .destinations
             case .include:      step = .length
-            case .avoid:        step = .include
+            case .logo:         step = .include
+            case .avoid:        step = includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .include
             case .goal:         step = .avoid
             case .review:       step = .goal
             }

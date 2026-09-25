@@ -17,10 +17,15 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
     /// The Brand page's questionnaire, keyed by question id. Nil on rows read
     /// with a column list that leaves it out.
     var profile: [String: BrandAnswer]?
+    /// Where the brand mark lives in the `brand` bucket, or nil when there is
+    /// none. A path, never a URL: a signed link expires, and one written into a
+    /// row is a link that cannot resolve later or on another device.
+    var logoPath: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, audience, niche, timezone, profile
         case usesMemory = "uses_memory"
+        case logoPath = "logo_path"
     }
 
     /// Enough for the planner to write in a voice that is recognisably this

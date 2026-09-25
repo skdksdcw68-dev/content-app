@@ -59,6 +59,8 @@ struct BrandView: View {
                     .lineLimit(2...5)
                 TextField("Who it’s for", text: $audience, axis: .vertical)
                     .lineLimit(1...4)
+                BrandLogoPicker()
+                    .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
             } header: {
                 Text("About")
             } footer: {

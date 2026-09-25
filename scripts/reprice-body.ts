@@ -160,3 +160,110 @@ export async function reprice(
 
   console.log(apply ? "\nDone." : "\nReport only. Pass --apply to set these.");
 }
+
+/**
+ * The storefronts that price in their own currency.
+ *
+ * About two dozen have no rung reading "29.99" because they do not charge in
+ * dollars: Japan is in yen, India in rupees, Sweden in kronor. Those were the
+ * WORST offenders — Japan ¥5000 (~$33), India ₹2999 (~$36), Sweden 399 kr
+ * (~$37) — so leaving them was not an option.
+ *
+ * Abel chose "use Apple's own equivalent", which is the right answer: Apple
+ * publishes, for any price point, the point it considers equal in every other
+ * territory. So the USA 29.99 rung is asked what it means in yen, and that is
+ * what gets set. No exchange-rate table of mine to go stale, no rounding rule
+ * to defend — it is Apple's own arithmetic, which is also the number their
+ * pricing UI would show him.
+ */
+export async function equalizeRest(
+  api: (method: string, endpoint: string, body?: unknown) => Promise<any>,
+  plans: Plan[],
+  apply: boolean,
+): Promise<void> {
+  for (const plan of plans) {
+    const target = plan.usd.toFixed(2);
+    console.log(`\n=== ${plan.productId} — the rest, at Apple's own equivalent of ${target}`);
+
+    // What each territory charges now, so the ones already right are skipped.
+    const now = await api(
+      "GET",
+      `/v1/subscriptions/${plan.id}/prices?include=subscriptionPricePoint&limit=200`,
+    );
+    const included: Record<string, any> = Object.fromEntries(
+      (now.included ?? []).map((i: any) => [i.id, i]),
+    );
+    const current = new Map<string, string>();
+    for (const row of now.data ?? []) {
+      const pointId = row.relationships?.subscriptionPricePoint?.data?.id;
+      const territory = pointId ? territoryOf(pointId) : null;
+      const price = included[pointId]?.attributes?.customerPrice;
+      if (territory && price) current.set(territory, price);
+    }
+    if (current.size === 0) {
+      console.log("  refusing to continue: read no current prices at all");
+      continue;
+    }
+
+    // The USA rung that reads exactly the target, and what Apple calls equal.
+    const usa = await pageAll(
+      api,
+      `/v1/subscriptions/${plan.id}/pricePoints?filter[territory]=USA&limit=200`,
+    );
+    const base = usa.find((p: any) => p.attributes.customerPrice === target);
+    if (!base) {
+      console.log(`  no USA rung at ${target} — cannot equalise from it`);
+      continue;
+    }
+
+    const equals = await pageAll(
+      api,
+      `/v1/subscriptionPricePoints/${base.id}/equalizations?limit=200`,
+    );
+    console.log(`  Apple gives an equivalent in ${equals.length} territories`);
+
+    let set = 0;
+    const skipped: string[] = [];
+    const refused: string[] = [];
+
+    for (const point of equals) {
+      const territory = territoryOf(point.id);
+      if (!territory) continue;
+      // Already at the literal target: that is exact, and better than an
+      // equivalent. Do not undo the first pass.
+      if (current.get(territory) === target) continue;
+
+      const price = point.attributes?.customerPrice;
+      if (current.get(territory) === price) {
+        skipped.push(territory);
+        continue;
+      }
+      if (!apply) {
+        console.log(`     ${territory.padEnd(5)} ${String(current.get(territory) ?? "unset").padEnd(12)} → ${price}`);
+        set++;
+        continue;
+      }
+      try {
+        await api("POST", "/v1/subscriptionPrices", {
+          data: {
+            type: "subscriptionPrices",
+            attributes: { preserveCurrentPrice: false },
+            relationships: {
+              subscription: { data: { type: "subscriptions", id: plan.id } },
+              subscriptionPricePoint: { data: { type: "subscriptionPricePoints", id: point.id } },
+            },
+          },
+        });
+        set++;
+      } catch (thrown) {
+        refused.push(`${territory}: ${String(thrown).slice(0, 80)}`);
+      }
+    }
+
+    console.log(`  ${apply ? "set" : "would set"} ${set}, ${skipped.length} already equal`);
+    if (refused.length) {
+      console.log(`  ⚠ ${refused.length} refused. First few:`);
+      for (const r of refused.slice(0, 3)) console.log("     " + r);
+    }
+  }
+}

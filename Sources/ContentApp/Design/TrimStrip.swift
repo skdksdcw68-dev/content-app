@@ -26,6 +26,9 @@ struct TrimStrip: View {
     private let handleWidth: CGFloat = 22
     private let minimumSeconds: Double = 1
 
+    /// Which handle is under a finger right now, so it can say so.
+    @State private var holding: Bool?
+
     var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
@@ -33,7 +36,15 @@ struct TrimStrip: View {
             let scale = duration > 0 ? width / duration : 0
             let left = CGFloat(start) * scale
             let right = CGFloat(end) * scale
-            let pill = RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            // 🔴 A card corner, not a lozenge.
+            //
+            // This was `height / 2` -- 46pt on a 92pt strip -- which sliced
+            // the first and last frames into half-moons and rounded the dim
+            // rectangles into blobs whenever a trim offset was only a few
+            // points wide. Theme.mediaRadius is what every other piece of
+            // media in the app is cut to.
+            let corner = Theme.mediaRadius
+            let pill = RoundedRectangle(cornerRadius: corner, style: .continuous)
 
             ZStack(alignment: .leading) {
                 FrameRow(frames: frames, width: width, height: height)
@@ -42,31 +53,35 @@ struct TrimStrip: View {
                     .gesture(scrub(scale: scale, width: width))
 
                 if dimsOutside {
-                    Rectangle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: max(0, left))
-                        .clipShape(pill)
-                        .allowsHitTesting(false)
-                    Rectangle()
-                        .fill(.black.opacity(0.55))
-                        .frame(width: max(0, width - right))
-                        .offset(x: right)
-                        .clipShape(pill)
-                        .allowsHitTesting(false)
+                    // Clipped ONCE, by the strip, rather than each rectangle
+                    // being given the strip's radius of its own -- which
+                    // rounded a four-point-wide dim into a blob.
+                    ZStack(alignment: .leading) {
+                        Rectangle()
+                            .fill(.black.opacity(0.55))
+                            .frame(width: max(0, left))
+                        Rectangle()
+                            .fill(.black.opacity(0.55))
+                            .frame(width: max(0, width - right))
+                            .offset(x: right)
+                    }
+                    .frame(width: width, height: height, alignment: .leading)
+                    .clipShape(pill)
+                    .allowsHitTesting(false)
                 }
 
                 // The bracket: a thick white frame with rounded ends, the
                 // handles being its two ends.
-                RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
                     .strokeBorder(.white, lineWidth: 4)
                     .frame(width: max(handleWidth * 2, right - left))
                     .offset(x: left)
                     .allowsHitTesting(false)
 
-                handle(height: height, leading: true)
+                handle(height: height, leading: true, held: holding == true)
                     .offset(x: left)
                     .gesture(drag(scale: scale, width: width, leading: true))
-                handle(height: height, leading: false)
+                handle(height: height, leading: false, held: holding == false)
                     .offset(x: right - handleWidth)
                     .gesture(drag(scale: scale, width: width, leading: false))
 
@@ -81,7 +96,12 @@ struct TrimStrip: View {
         .accessibilityLabel("Trim, from \(Int(start)) to \(Int(end)) seconds")
     }
 
-    private func handle(height: CGFloat, leading: Bool) -> some View {
+    /// A handle, and whether it is being held.
+    ///
+    /// iOS Photos turns its trim markers a different colour the moment one is
+    /// dragged, so a finger covering the handle can still tell it has hold of
+    /// it. Borrowed here, in the app's accent rather than yellow.
+    private func handle(height: CGFloat, leading: Bool, held: Bool) -> some View {
         UnevenRoundedRectangle(
             topLeadingRadius: leading ? height / 2 : 0,
             bottomLeadingRadius: leading ? height / 2 : 0,
@@ -89,13 +109,16 @@ struct TrimStrip: View {
             topTrailingRadius: leading ? 0 : height / 2,
             style: .continuous
         )
-        .fill(.white)
+        .fill(held ? Theme.accent : .white)
         .frame(width: handleWidth)
         .overlay {
             Capsule()
-                .fill(Color(white: 0.3))
+                .fill(held ? Theme.onAccent.opacity(0.9) : Color(white: 0.3))
                 .frame(width: 3, height: 26)
         }
+        .animation(.snappy(duration: 0.15), value: held)
+        // Reachable: the grip is 22pt but a thumb is not, so the touch area
+        // runs 12pt past it on every side.
         .contentShape(Rectangle().inset(by: -12))
     }
 
@@ -135,7 +158,18 @@ struct TrimStrip: View {
         guard upper > lower else { return [] }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 160, height: 160)
+        // 🔴 Big enough for the pixels it lands on.
+        //
+        // This was 160 on the long edge, and a frame is drawn into a cell
+        // about 36 x 92 POINTS -- 108 x 276 pixels on a 3x screen. A 9:16
+        // thumbnail capped at 160 is roughly 90 x 160, so every frame was
+        // blown up about 1.7x and then cropped by a third by scaledToFill.
+        // That upscale is the whole reason the strip looked soft (Abel,
+        // 25 Sep 2026: "looks bad and the shape is bad too").
+        //
+        // 92pt tall at 3x is 276px; 360 gives headroom for a taller strip and
+        // for the crop, without making the generator do real work.
+        generator.maximumSize = CGSize(width: 360, height: 360)
         generator.requestedTimeToleranceBefore = .zero
         generator.requestedTimeToleranceAfter = CMTime(seconds: 0.5, preferredTimescale: 600)
         var out: [UIImage] = []

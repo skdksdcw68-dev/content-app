@@ -107,3 +107,7 @@ async function api(method: string, endpoint: string, body?: unknown): Promise<an
 import { reprice } from "./reprice-body.ts";
 
 await reprice(api, PLANS, APPLY);
+
+// The local-currency storefronts, at Apple's own equivalent.
+import { equalizeRest } from "./reprice-body.ts";
+await equalizeRest(api, PLANS, APPLY);

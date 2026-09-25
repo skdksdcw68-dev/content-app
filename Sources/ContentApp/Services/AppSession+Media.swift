@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Videos kept on the phone once they have been watched.
 ///

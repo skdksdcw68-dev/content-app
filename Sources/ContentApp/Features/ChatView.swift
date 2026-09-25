@@ -43,9 +43,10 @@ struct ChatView: View {
     @State private var isWorking = false
     @State private var showsOptions = false
     /// The video page's choices.
-    @State private var videoLength = 30
-    @State private var videoVoiceover = true
-    @State private var videoCaptions = true
+    /// What the composer is set to make. One value instead of three loose
+    /// flags, because the bar, the settings sheet and the model picker all
+    /// read and write the same choices.
+    @State private var choices = GenerateChoices()
     @State private var planning = false
     @State private var proposed: PlanProposal?
     @State private var showingPlan = false
@@ -617,60 +618,20 @@ struct ChatView: View {
         }
     }
 
-    /// The video's own choices, above the field: how long, and what goes in
-    /// it. Only on the video page; the chat composer is unchanged.
-    /// 🔴 Any length, not three buttons.
+    /// The video's own choices, under the field: the six knobs that change
+    /// what comes back, in ElevenLabs' order, with everything else behind the
+    /// sliders icon. See `GenerateBar`.
     ///
-    /// Abel, 25 Sep 2026: "instead of showing the user fifteen seconds, thirty
-    /// seconds, sixty seconds in a row, just let the user hit and pick what
-    /// second he wants to generate with." A row of three fixed chips took the
-    /// width and still could not say 20.
+    /// 🔴 What was here: a stepper and two chips -- length, Voiceover,
+    /// Captions -- and no way at all to choose the model, the count or the
+    /// aspect ratio, in an app whose whole job is making video. The length
+    /// stepper was right and is kept, in the clock knob and in the settings
+    /// sheet, where any second from 5 to 180 is still reachable.
     ///
-    /// A stepper reads the number and changes it without a keyboard, and holds
-    /// its own repeat. `videoLength` is only ever read as a string in
-    /// `videoSpec`, so nothing downstream changes.
+    /// Abel, 25 Sep 2026, with fifteen screenshots: "i want it to match the
+    /// exact eleven labs thing, that makes more sense and looks so good."
     private var videoControls: some View {
-        HStack(spacing: 8) {
-            Stepper(value: $videoLength, in: 5...180, step: 5) {
-                Text("\(videoLength)s")
-                    .font(.caption.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(.primary)
-                    .contentTransition(.numericText())
-                    .animation(.snappy(duration: 0.15), value: videoLength)
-            }
-            .fixedSize()
-
-            chip("Voiceover", on: videoVoiceover) { videoVoiceover.toggle() }
-            chip("Captions", on: videoCaptions) { videoCaptions.toggle() }
-            Spacer(minLength: 0)
-        }
-        .padding(.leading, 34)
-        .padding(.trailing, 4)
-    }
-
-    private func chip(_ title: String, on: Bool, tap: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(.snappy(duration: 0.15)) { tap() }
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        } label: {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(on ? Theme.onAccent : Color.primary)
-                .padding(.horizontal, 11)
-                .padding(.vertical, 6)
-                .background(on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track), in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(on ? [.isSelected, .isButton] : .isButton)
-    }
-
-    /// What the choices say, appended to the request so the agent reads them
-    /// and the person can see what they asked for.
-    private var videoSpec: String {
-        var parts = ["\(videoLength) seconds"]
-        parts.append(videoVoiceover ? "with a voiceover" : "no voiceover")
-        if videoCaptions { parts.append("with captions") }
-        return "(\(parts.joined(separator: ", ")))"
+        GenerateBar(choices: $choices, request: draft)
     }
 
     private func send(action: AppSession.ChatAction? = nil) {
@@ -688,7 +649,7 @@ struct ChatView: View {
         }
 
         // The video page's choices travel with the request.
-        if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(videoSpec)" }
+        if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(choices.spec)" }
         // A photo on its own is a message: it says "here, do something with
         // this", and the agent answers with what it could do.
         let photosOnly = asked.isEmpty && action == nil && !pending.isEmpty

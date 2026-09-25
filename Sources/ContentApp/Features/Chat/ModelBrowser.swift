@@ -1,16 +1,29 @@
 import SwiftUI
 
-/// Every model, grouped the way people talk about them.
+/// Every model, the way ElevenLabs lists them.
 ///
-/// The Generate card shows eight rows. This is the rest of them, and it exists
-/// because eight was hiding the good ones: "on nano banana there is two, on
-/// kling there is also... right now its not showing the best". Families come
-/// from what the models are called, so a provider connected tomorrow groups
-/// itself.
+/// Abel sent fifteen screenshots on 25 Sep 2026 and this is the one that
+/// mattered most: "lets go match the video and image generator thing to
+/// exactly that."
 ///
-/// Prices arrive as rows come into view, a dozen at a time. A price is a
-/// provider request, and asking for forty to draw a list would spend forty of
-/// them on a scroll.
+/// What their list gets right, and what the old grouped `List` here got wrong:
+///
+///   - The MAKER'S TILE comes first, before any words. With forty-one video
+///     models the eye finds the row by colour and then reads it. Sections
+///     named after families did the opposite -- you had to read every header
+///     to find anything.
+///   - ONE LINE about what it is for, from the provider, under the name. Not
+///     badges, not resolutions, not a reason. A sentence.
+///   - THE PRICE is right-aligned on its own, so the column scans as a column.
+///   - THE CHOSEN ONE wears a hairline border around the whole row rather than
+///     a tick in a gutter, so it reads as "this is the one" instead of "here
+///     is a list of radio buttons".
+///   - FILTERS ARE PILLS along the top, and SEARCH FLOATS at the bottom, in
+///     reach of a thumb, over the list rather than pushing it down.
+///
+/// Prices still arrive as rows come into view, a dozen at a time. A price is a
+/// provider request, and asking for forty-one to draw a list would spend
+/// forty-one of them on a scroll.
 struct ModelBrowser: View {
     let capability: String
     /// What is being made, so each price is this job's price.
@@ -30,70 +43,109 @@ struct ModelBrowser: View {
     @State private var asked: Set<String> = []
     @State private var pricing: Task<Void, Never>?
     @State private var search = ""
+    @State private var filter: Filter = .all
     @State private var loading = true
 
     private var isVideo: Bool { capability == "video_generation" }
 
-    private var matching: [ModelChoice] {
-        let words = search.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !words.isEmpty else { return models }
-        return models.filter {
-            $0.label.lowercased().contains(words)
-                || ($0.family?.lowercased().contains(words) ?? false)
-                || ($0.about?.lowercased().contains(words) ?? false)
-                || $0.externalId.lowercased().contains(words)
+    /// The pills along the top. Each one answers a question somebody actually
+    /// arrives with, and each is decided from what the provider already told
+    /// us -- nothing here is a list of model names to maintain.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all = "All"
+        case recommended = "Recommended"
+        case cheap = "Cheap"
+        case editing = "Editing"
+        case fast = "Fast"
+        var id: String { rawValue }
+
+        func matches(_ model: ModelChoice, cheapest: Double?) -> Bool {
+            let words = "\(model.label) \(model.about ?? "") \(model.externalId)".lowercased()
+            switch self {
+            case .all:
+                return true
+            case .recommended:
+                return model.recommended || (model.badges?.isEmpty == false)
+            case .cheap:
+                guard let cheapest, let amount = model.cost.amount else { return false }
+                // Within half again of the cheapest thing that can do the job.
+                return amount <= cheapest * 1.5
+            case .editing:
+                return words.contains("edit") || words.contains("upscale")
+                    || words.contains("remove") || words.contains("outpaint")
+                    || words.contains("replace") || words.contains("reframe")
+            case .fast:
+                return words.contains("fast") || words.contains("lite")
+                    || words.contains("turbo") || words.contains("quick")
+                    || words.contains("mini") || words.contains("flash")
+            }
         }
     }
 
-    /// Families in the order the server sent them -- what it would pick first,
-    /// then the provider's own ranking.
-    private var families: [(name: String, models: [ModelChoice])] {
-        var order: [String] = []
-        var grouped: [String: [ModelChoice]] = [:]
-        for model in matching {
-            let name = model.family ?? model.label
-            if grouped[name] == nil { order.append(name) }
-            grouped[name, default: []].append(model)
+    private var cheapest: Double? {
+        models.compactMap { costs[$0.externalId]?.amount ?? $0.cost.amount }.min()
+    }
+
+    private var shown: [ModelChoice] {
+        let words = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let floor = cheapest
+        return models.filter { model in
+            guard filter.matches(model, cheapest: floor) else { return false }
+            guard !words.isEmpty else { return true }
+            return model.label.lowercased().contains(words)
+                || (model.family?.lowercased().contains(words) ?? false)
+                || (model.about?.lowercased().contains(words) ?? false)
+                || ModelMaker.of(model).name.lowercased().contains(words)
+                || model.externalId.lowercased().contains(words)
         }
-        return order.map { ($0, grouped[$0] ?? []) }
     }
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(families, id: \.name) { family in
-                    Section {
-                        ForEach(family.models) { model in
+            ZStack(alignment: .bottom) {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8, pinnedViews: []) {
+                        // The capability, once, the way they head the list
+                        // "Image" -- not one header per family.
+                        Text(isVideo ? "Video" : "Image")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, Style.gutter)
+                            .padding(.top, 4)
+
+                        ForEach(shown) { model in
                             Button { pick(model) } label: {
-                                ModelBrowserRow(
+                                ModelRow(
                                     model: model,
                                     price: costs[model.externalId] ?? model.cost,
                                     isSelected: model.externalId == selected,
                                     isVideo: isVideo
                                 )
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(SoftPressStyle())
                             .disabled(model.suitable == false)
                             .onAppear { want(model.externalId) }
+                            .padding(.horizontal, Style.gutter)
                         }
-                    } header: {
-                        HStack {
-                            Text(family.name)
-                            if family.models.count > 1 {
-                                Text("\(family.models.count)")
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
+
+                        // Room for the floating search pill to sit over.
+                        Color.clear.frame(height: 76)
                     }
+                    .padding(.top, 4)
                 }
+                .scrollDismissesKeyboard(.interactively)
+
+                searchPill
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $search, prompt: "Search models")
-            .navigationTitle(isVideo ? "Video models" : "Image models")
-            .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .top, spacing: 0) { filters }
+            .navigationTitle("Model")
+            .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close")
                 }
             }
             .overlay {
@@ -105,8 +157,12 @@ struct ModelBrowser: View {
                         systemImage: "square.stack.3d.up.slash",
                         description: Text("Connect a generator from the plus menu.")
                     )
-                } else if matching.isEmpty {
-                    ContentUnavailableView.search(text: search)
+                } else if shown.isEmpty {
+                    ContentUnavailableView(
+                        "Nothing matches",
+                        systemImage: "magnifyingglass",
+                        description: Text(search.isEmpty ? "Try another filter." : "Try another word.")
+                    )
                 }
             }
         }
@@ -116,6 +172,62 @@ struct ModelBrowser: View {
         }
         .onDisappear { pricing?.cancel() }
     }
+
+    // MARK: - Pieces
+
+    private var filters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(Filter.allCases) { option in
+                    let on = option == filter
+                    Button {
+                        withAnimation(.snappy(duration: 0.18)) { filter = option }
+                    } label: {
+                        Text(option.rawValue)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(on ? Theme.onAccent : Color.primary)
+                            .padding(.horizontal, 18)
+                            .frame(height: 40)
+                            .background(
+                                on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(SoftPressStyle())
+                }
+            }
+            .padding(.horizontal, Style.gutter)
+            .padding(.vertical, 10)
+        }
+        .background(.bar)
+    }
+
+    /// In reach of a thumb, over the list rather than above it.
+    private var searchPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search", text: $search)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
+        .padding(.horizontal, Style.gutter)
+        .padding(.bottom, 12)
+    }
+
+    // MARK: - Doing
 
     private func pick(_ model: ModelChoice) {
         var picked = model
@@ -148,7 +260,7 @@ struct ModelBrowser: View {
         waiting.insert(id)
         guard pricing == nil else { return }
         pricing = Task {
-            // A moment, so a flick through three families asks once.
+            // A moment, so a flick through three screens asks once.
             try? await Task.sleep(for: .milliseconds(300))
             while !Task.isCancelled, !waiting.isEmpty {
                 let batch = Array(waiting.prefix(12))
@@ -167,8 +279,10 @@ struct ModelBrowser: View {
     }
 }
 
-/// One model in the browser: what it is called, what it is for, what it costs.
-private struct ModelBrowserRow: View {
+// MARK: - One model
+
+/// The maker's tile, the name, one line about it, and the price.
+private struct ModelRow: View {
     let model: ModelChoice
     let price: ModelCost
     let isSelected: Bool
@@ -185,46 +299,51 @@ private struct ModelBrowserRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected ? Theme.accent : Color.secondary.opacity(0.4))
-                .padding(.top, 2)
+        HStack(alignment: .center, spacing: 14) {
+            ModelMakerMark(maker: ModelMaker.of(model))
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(model.label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    ForEach(model.badges ?? [], id: \.self) { badge in
-                        Text(badge)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(badge == "Cheapest" ? Color.green : Theme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill((badge == "Cheapest" ? Color.green : Theme.accent).opacity(0.12)))
-                    }
-                }
+                Text(model.label)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
                 if let detail {
                     Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(model.suitable == false ? Color.secondary : Color.secondary)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
                         .lineLimit(2)
-                }
-                if let resolutions = model.constraints.resolutions, resolutions.count > 1 {
-                    Text(resolutions.map { $0.hasSuffix("k") ? $0.uppercased() : $0 }.joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 
             Spacer(minLength: 8)
 
-            Text(price.amount == nil ? "—" : price.label)
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(price.amount == nil ? Color.secondary : Color.primary)
+            HStack(spacing: 4) {
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Text(price.amount == nil ? "—" : price.label)
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(price.amount == nil ? Color.secondary : Color.primary)
+            }
+            .fixedSize()
         }
-        .padding(.vertical, 4)
-        .opacity(usable ? 1 : 0.5)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
+                .fill(Color.raised)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
+                // The chosen one is outlined, not ticked.
+                .strokeBorder(isSelected ? Color.primary : Color.clear, lineWidth: 1.5)
+        )
+        .opacity(usable ? 1 : 0.45)
+        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .accessibilityAddTraits(isSelected ? [.isSelected, .isButton] : .isButton)
     }
 }

@@ -458,11 +458,33 @@ export async function catalogueFor(
     } satisfies Choice;
   });
 
-  // Two rows reading "Nano Banana Pro" are not a choice; the id says which.
-  const counts = new Map<string, number>();
-  for (const option of options) counts.set(option.label, (counts.get(option.label) ?? 0) + 1);
+  // Two rows reading "Cinema Studio Video" are not a choice. The old fix
+  // appended the whole id, which produced "Cinema Studio Video ·
+  // cinematic_studio_video_v2" -- a raw database string in a list somebody is
+  // meant to choose from.
+  //
+  // Only the part that DIFFERS is worth showing. The shared head of the
+  // colliding ids is dropped and what is left is written the way a person
+  // would say it, so the pair reads "Cinema Studio Video" and "Cinema Studio
+  // Video (V2)".
+  const sharing = new Map<string, Choice[]>();
   for (const option of options) {
-    if ((counts.get(option.label) ?? 0) > 1) option.label = `${option.label} · ${option.externalId}`;
+    sharing.set(option.label, [...(sharing.get(option.label) ?? []), option]);
+  }
+  for (const [, group] of sharing) {
+    if (group.length < 2) continue;
+    const ids = group.map((option) => option.externalId);
+    let head = 0;
+    while (ids.every((id) => id.length > head && id[head] === ids[0][head])) head++;
+    for (const option of group) {
+      const tail = option.externalId.slice(head).replace(/^[-_/.]+/, "");
+      const said = tail
+        .split(/[-_/.]+/)
+        .filter(Boolean)
+        .map((word) => (/^\d/.test(word) ? word : word[0].toUpperCase() + word.slice(1)))
+        .join(" ");
+      if (said) option.label = `${option.label} (${said})`;
+    }
   }
 
   const best = preferredIn(options.filter((o) => o.suitable), capability);

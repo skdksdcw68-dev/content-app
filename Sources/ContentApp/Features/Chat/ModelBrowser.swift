@@ -43,7 +43,10 @@ struct ModelBrowser: View {
     @State private var asked: Set<String> = []
     @State private var pricing: Task<Void, Never>?
     @State private var search = ""
-    @State private var filter: Filter = .all
+    /// Nil is everything. ElevenLabs has no "All" pill -- the list starts
+    /// unfiltered and a pill toggles off again, which is one fewer thing on a
+    /// row that already scrolls.
+    @State private var filter: Filter?
     @State private var loading = true
 
     private var isVideo: Bool { capability == "video_generation" }
@@ -52,8 +55,8 @@ struct ModelBrowser: View {
     /// arrives with, and each is decided from what the provider already told
     /// us -- nothing here is a list of model names to maintain.
     enum Filter: String, CaseIterable, Identifiable {
-        case all = "All"
         case recommended = "Recommended"
+        case realistic = "Realistic"
         case cheap = "Cheap"
         case editing = "Editing"
         case fast = "Fast"
@@ -62,8 +65,10 @@ struct ModelBrowser: View {
         func matches(_ model: ModelChoice, cheapest: Double?) -> Bool {
             let words = "\(model.label) \(model.about ?? "") \(model.externalId)".lowercased()
             switch self {
-            case .all:
-                return true
+            case .realistic:
+                return words.contains("realistic") || words.contains("cinema")
+                    || words.contains("photoreal") || words.contains("studio")
+                    || words.contains("quality")
             case .recommended:
                 return model.recommended || (model.badges?.isEmpty == false)
             case .cheap:
@@ -90,7 +95,7 @@ struct ModelBrowser: View {
         let words = search.trimmingCharacters(in: .whitespaces).lowercased()
         let floor = cheapest
         return models.filter { model in
-            guard filter.matches(model, cheapest: floor) else { return false }
+            guard filter?.matches(model, cheapest: floor) ?? true else { return false }
             guard !words.isEmpty else { return true }
             return model.label.lowercased().contains(words)
                 || (model.family?.lowercased().contains(words) ?? false)
@@ -181,15 +186,20 @@ struct ModelBrowser: View {
                 ForEach(Filter.allCases) { option in
                     let on = option == filter
                     Button {
-                        withAnimation(.snappy(duration: 0.18)) { filter = option }
+                        // Tapping the one already on clears it, so there is a
+                        // way back to everything without an "All" pill.
+                        withAnimation(.snappy(duration: 0.18)) { filter = on ? nil : option }
                     } label: {
                         Text(option.rawValue)
                             .font(.subheadline.weight(.medium))
-                            .foregroundStyle(on ? Theme.onAccent : Color.primary)
+                            // Ink, not accent. The chosen row is outlined in
+                            // ink and the send button is ink; a violet pill in
+                            // the middle of that is a third language.
+                            .foregroundStyle(on ? Color(uiColor: .systemBackground) : Color.primary)
                             .padding(.horizontal, 18)
                             .frame(height: 40)
                             .background(
-                                on ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track),
+                                on ? AnyShapeStyle(Color.primary) : AnyShapeStyle(Color.track),
                                 in: Capsule()
                             )
                     }
@@ -333,13 +343,16 @@ private struct ModelRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
-                .fill(Color.raised)
-        )
+        // 🔴 No fill. Abel, 25 Sep 2026, with the same screen in light mode:
+        // "see the difference brother thats why."
+        //
+        // Every row had a raised card behind it, so forty-one of them read as
+        // forty-one objects and the chosen one had to shout over the other
+        // forty. Theirs sit flat on the page and ONLY the chosen one is drawn
+        // at all -- one outline on an otherwise quiet list, which is why it
+        // reads instantly.
         .overlay(
             RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
-                // The chosen one is outlined, not ticked.
                 .strokeBorder(isSelected ? Color.primary : Color.clear, lineWidth: 1.5)
         )
         .opacity(usable ? 1 : 0.45)

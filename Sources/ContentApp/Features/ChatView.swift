@@ -456,8 +456,18 @@ struct ChatView: View {
         for item in items.prefix(max(0, 4 - pending.count)) {
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
-                      let image = UIImage(data: data),
-                      let jpeg = Self.shrunk(image) else { return }
+                      let picked = UIImage(data: data) else { return }
+
+                // 🔴 On the video page the picture decides the shape of the
+                // video, so it has to be the shape of the video.
+                //
+                // A picture attached to a video request routes to fal's
+                // image-to-video endpoint, which has no aspect ratio field at
+                // all -- the output takes the picture's shape. Abel's first
+                // real video came back 1328x694 from a landscape photo, and
+                // nothing in the composer could have changed that.
+                let image = makingVideo ? VerticalFit.padded(picked) : picked
+                guard let jpeg = Self.shrunk(image) else { return }
 
                 let entry = PendingAttachment(
                     preview: image.preparingThumbnail(of: CGSize(width: 168, height: 168)) ?? image

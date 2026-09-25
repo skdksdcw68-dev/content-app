@@ -69,45 +69,30 @@ enum BuiltInModels {
         }
     }
 
+    /// 🔴 These were Higgsfield's ids -- `veo3_1`, `kling3_0` -- written when
+    /// Higgsfield was the house generator. It is fal now, and fal has never
+    /// heard of any of them, so this list would have shown a picker full of
+    /// models that fail the moment one is chosen. Exactly the fault the
+    /// comment at the top of this file warns about, committed in the same
+    /// hour. Read off the fal adapter's own catalogue.
     private static let video: [Entry] = [
-        Entry(id: "veo3_1", name: "Google Veo 3.1",
-              about: "Realistic, follows the prompt closely, makes its own sound.", frames: true),
-        Entry(id: "veo3_1_lite", name: "Google Veo 3.1 Lite",
-              about: "Like Veo 3.1, faster and cheaper.", frames: true),
-        Entry(id: "/sora-2/text-to-video", name: "Sora 2",
-              about: "Strong movement and camera work, with sound.", frames: false),
-        Entry(id: "/sora-2/text-to-video/pro", name: "Sora 2 Pro",
-              about: "Sora at its best, for the shot that matters.", frames: false),
-        Entry(id: "kling3_0", name: "Kling v3.0",
-              about: "Steady motion and faces that hold together.", frames: true),
-        Entry(id: "kling3_0_turbo", name: "Kling 3.0 Turbo",
-              about: "Kling, quicker, for trying things out.", frames: true),
-        Entry(id: "seedance_2_0", name: "Seedance 2.0",
-              about: "Good with people moving and dancing.", frames: true),
-        Entry(id: "seedance_2_0_mini", name: "Seedance 2.0 Mini",
-              about: "The cheap one for rough cuts.", frames: true),
-        Entry(id: "minimax_h3", name: "MiniMax H3",
-              about: "Clean, simple shots that do what they are told.", frames: true),
-        Entry(id: "wan3_0", name: "Wan 3.0",
-              about: "Sharp detail, good for products.", frames: true),
+        Entry(id: "fal-ai/wan-25-preview/text-to-video", name: "Wan 2.5",
+              about: "Sharp and cheap. The everyday choice for a short clip.", frames: true),
+        Entry(id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video", name: "Kling 2.5 Turbo Pro",
+              about: "Steady motion and faces that hold together.", frames: false),
+        Entry(id: "fal-ai/veo3.1/fast", name: "Google Veo 3.1 Fast",
+              about: "Realistic, follows the prompt closely, makes its own sound.", frames: false),
+        Entry(id: "fal-ai/kling-video/v2.1/master/text-to-video", name: "Kling 2.1 Master",
+              about: "Kling at full quality, for the shot that matters.", frames: false),
+        Entry(id: "fal-ai/veo3.1", name: "Google Veo 3.1",
+              about: "The best of them, with audio. Costs what that implies.", frames: false),
     ]
 
-    private static let image: [Entry] = [
-        Entry(id: "nano_banana_pro", name: "Google Nano Banana Pro",
-              about: "Studio quality, legible text, very consistent.", frames: false),
-        Entry(id: "nano_banana_2", name: "Google Nano Banana 2",
-              about: "Knows the world, precise text, fast.", frames: false),
-        Entry(id: "nano_banana", name: "Google Nano Banana",
-              about: "Quick, high-quality generation and editing.", frames: false),
-        Entry(id: "seedream_v5_pro", name: "Seedream 5.0 Pro",
-              about: "Rich, photographic, good with people.", frames: false),
-        Entry(id: "soul_2", name: "Higgsfield Soul 2.0",
-              about: "Stylised and cinematic rather than literal.", frames: false),
-        Entry(id: "recraft_v4_1", name: "Recraft V4.1",
-              about: "Built for graphics, logos and flat art.", frames: false),
-        Entry(id: "z_image", name: "Z Image",
-              about: "Fast and cheap, for trying a composition.", frames: false),
-    ]
+    /// Empty on purpose. The house generator offers no image models yet, and
+    /// the Higgsfield ids that used to be here would fail on the first tap.
+    /// An empty picker that says so is honest; a full one that does not work
+    /// is not. Fills in the day the adapter declares image models.
+    private static let image: [Entry] = []
 
     /// Whether a model takes a first and last frame. Used by the composer to
     /// decide whether to offer them -- Abel: "the start and end frame thing

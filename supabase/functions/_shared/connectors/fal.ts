@@ -49,21 +49,41 @@ const QUEUE = "https://queue.fal.run";
  * Ordered cheapest first, which is also `rank`: "best available" should mean
  * the cheapest thing that can do the job, not the most expensive.
  */
-const CATALOGUE: Array<{
+interface Entry {
   id: string;
   label: string;
   about: string;
-  perSecond: number;
+  /** Dollars per second of output, by resolution. 🔴 Not one number: Wan is
+   *  $0.05 at 480p, $0.10 at 720p and $0.15 at 1080p, and quoting the cheapest
+   *  while submitting at the model's own default -- which is 1080p -- would
+   *  have shown a price three times under what it charged. */
+  perSecond: Record<string, number>;
   durations: number[];
+  /** What we ask for unless told otherwise. Never left to the model: fal
+   *  defaults Wan to 1080p and 16:9, and 16:9 is the wrong shape for every
+   *  video this app makes. */
+  resolution: string;
+  /** 🔴 The schema says `duration` is a STRING ("5"), not a number. Sending 5
+   *  is a 422 and the job never starts. */
+  durationAsText: boolean;
+  /** The separate endpoint that takes a starting picture. 🔴 A text-to-video
+   *  endpoint does not accept one and does not complain -- it ignores it and
+   *  makes something unrelated, which is worse than refusing. */
+  imageEndpoint?: string;
   frames: boolean;
   audio: boolean;
-}> = [
+}
+
+const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/wan-25-preview/text-to-video",
     label: "Wan 2.5",
     about: "Sharp and cheap. The everyday choice for a short clip.",
-    perSecond: 0.05,
+    perSecond: { "480p": 0.05, "720p": 0.10, "1080p": 0.15 },
     durations: [5, 10],
+    resolution: "720p",
+    durationAsText: true,
+    imageEndpoint: "fal-ai/wan-25-preview/image-to-video",
     frames: true,
     audio: false,
   },
@@ -71,39 +91,61 @@ const CATALOGUE: Array<{
     id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video",
     label: "Kling 2.5 Turbo Pro",
     about: "Steady motion and faces that hold together.",
-    perSecond: 0.07,
+    perSecond: { "720p": 0.07 },
     durations: [5, 10],
-    frames: true,
+    resolution: "720p",
+    durationAsText: true,
+    frames: false,
     audio: false,
   },
   {
     id: "fal-ai/veo3.1/fast",
     label: "Google Veo 3.1 Fast",
     about: "Realistic, follows the prompt closely, makes its own sound.",
-    perSecond: 0.10,
+    perSecond: { "720p": 0.10, "1080p": 0.15 },
     durations: [4, 6, 8],
-    frames: true,
+    resolution: "720p",
+    durationAsText: true,
+    frames: false,
     audio: true,
   },
   {
     id: "fal-ai/kling-video/v2.1/master/text-to-video",
     label: "Kling 2.1 Master",
     about: "Kling at full quality, for the shot that matters.",
-    perSecond: 0.224,
+    perSecond: { "720p": 0.224 },
     durations: [5, 10],
-    frames: true,
+    resolution: "720p",
+    durationAsText: true,
+    frames: false,
     audio: false,
   },
   {
     id: "fal-ai/veo3.1",
     label: "Google Veo 3.1",
     about: "The best of them, with audio. Costs what that implies.",
-    perSecond: 0.40,
+    perSecond: { "720p": 0.40, "1080p": 0.40 },
     durations: [4, 6, 8],
-    frames: true,
+    resolution: "720p",
+    durationAsText: true,
+    frames: false,
     audio: true,
   },
 ];
+
+/** What a second costs at the resolution actually being asked for. */
+function rate(model: Entry, resolution: string): number {
+  return model.perSecond[resolution] ?? model.perSecond[model.resolution] ??
+    Object.values(model.perSecond)[0];
+}
+
+/** The resolution this request will run at: what was asked for if the model
+ *  offers it, else the model's own default. Never fal's default, which is the
+ *  most expensive one it has. */
+function resolutionFor(model: Entry, request: SubmitRequest): string {
+  const asked = String(request.options?.resolution ?? "");
+  return model.perSecond[asked] ? asked : model.resolution;
+}
 
 /** Seconds a request will be billed for, from the options or the model's own
  *  default. Never guessed at zero: an unpriced job is how a budget is spent
@@ -171,16 +213,16 @@ export const falAdapter: Adapter = {
         description: model.about,
         cost: {
           unit: "per_second",
-          amount: model.perSecond,
+          amount: rate(model, model.resolution),
           basis: "per second of finished video",
           quoted: false,
         } satisfies Cost,
         constraints: {
           durations: model.durations,
           aspectRatios: ["9:16", "1:1", "16:9"],
-          resolutions: ["720p"],
+          resolutions: Object.keys(model.perSecond),
           notes: model.audio ? undefined : ["No sound"],
-          defaults: { duration: model.durations[0], resolution: "720p" },
+          defaults: { duration: model.durations[0], resolution: model.resolution },
         },
         // Read by the composer to decide whether to offer a first and last
         // frame, rather than guessing from the name.
@@ -196,23 +238,58 @@ export const falAdapter: Adapter = {
     const model = entry(request.model);
     const length = seconds(request, model?.durations[0] ?? 5);
 
+    const resolution = model ? resolutionFor(model, request) : "720p";
+
+    // 🔴 Built field by field, NOT spread from `options`. The schema rejects
+    // unknown keys, and `options` carries this app's own words -- voiceover,
+    // captions, aspect -- which are instructions for the writer, not for fal.
     const input: Record<string, unknown> = {
       prompt: request.prompt,
-      duration: length,
-      ...(request.options ?? {}),
+      // A string. The schema says `duration: "5" | "10"`, and sending the
+      // number is a 422 with nothing generated.
+      duration: model?.durationAsText === false ? length : String(length),
+      resolution,
+      // Vertical, always, unless something explicitly asks otherwise. fal
+      // defaults to 16:9 and every video this app makes is for a phone.
+      aspect_ratio: typeof request.options?.aspect === "string" ? request.options.aspect : "9:16",
     };
+    const negative = request.options?.negative_prompt;
+    if (typeof negative === "string" && negative.trim()) input.negative_prompt = negative.trim();
 
-    // References go in under the names fal uses for them. A start and end
-    // frame are separate fields, not a list, so they are named here rather
-    // than passed through.
-    const images = (request.references ?? []).filter((r) => r.kind === "image" && r.url);
-    if (images[0]?.url) input.image_url = images[0].url;
-    if (images[1]?.url) input.end_image_url = images[1].url;
+    // 🔴 A picture means a different endpoint, not an extra field.
+    //
+    // Abel, 25 Sep 2026, having attached a photo: "Using the provided photo,
+    // make it actually the reaction." A text-to-video endpoint has no
+    // `image_url` and does not refuse one -- it ignores it and makes something
+    // unrelated, so the video comes back looking fine and having nothing to do
+    // with what was asked for. That is the worst kind of failure: silent.
+    const picture = (request.references ?? []).find((r) => r.kind === "image" && r.url)?.url;
+    let endpoint = request.model;
+    if (picture && model?.imageEndpoint) {
+      endpoint = model.imageEndpoint;
+      input.image_url = picture;
+      // Image-to-video takes its shape from the picture, and sending an
+      // aspect ratio it does not declare is a 422.
+      delete input.aspect_ratio;
+    } else if (picture) {
+      // Asked to work from a picture by a model that cannot. Said, not
+      // silently dropped -- the caller can pick another model.
+      throw Object.assign(new Error(`${model?.label ?? request.model} cannot work from a picture`), {
+        status: 422,
+        verdict: {
+          code: "refused" as const,
+          retryable: false,
+          tryAnotherModel: true,
+          tryAnotherProvider: false,
+          detail: "that model makes video from words only",
+        },
+      });
+    }
 
     const { status, body } = await call(
       auth,
       "POST",
-      `${QUEUE}/${request.model}${request.webhookUrl ? `?fal_webhook=${encodeURIComponent(request.webhookUrl)}` : ""}`,
+      `${QUEUE}/${endpoint}${request.webhookUrl ? `?fal_webhook=${encodeURIComponent(request.webhookUrl)}` : ""}`,
       input,
     );
 
@@ -231,8 +308,8 @@ export const falAdapter: Adapter = {
       capability: request.capability,
       charged: {
         unit: "usd",
-        amount: Number((length * (model?.perSecond ?? 0)).toFixed(4)),
-        basis: `${length}s at $${model?.perSecond ?? "?"}/s`,
+        amount: Number((length * (model ? rate(model, resolution) : 0)).toFixed(4)),
+        basis: `${length}s of ${resolution} at ${model ? rate(model, resolution) : "?"}/s`,
         quoted: false,
       },
     };
@@ -291,10 +368,12 @@ export const falAdapter: Adapter = {
     const model = entry(request.model);
     if (!model) return Promise.resolve(null);
     const length = seconds(request, model.durations[0]);
+    const resolution = resolutionFor(model, request);
+    const each = rate(model, resolution);
     return Promise.resolve({
       unit: "usd",
-      amount: Number((length * model.perSecond).toFixed(4)),
-      basis: `${length}s at $${model.perSecond}/s`,
+      amount: Number((length * each).toFixed(4)),
+      basis: `${length}s of ${resolution} at ${each}/s`,
       quoted: false,
     });
   },

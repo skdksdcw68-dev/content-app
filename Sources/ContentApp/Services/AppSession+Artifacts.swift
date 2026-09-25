@@ -105,6 +105,35 @@ extension AppSession {
         return MediaCache.shared.onDisk(artifact.id.uuidString, name: Self.fileName(of: artifact, path: path))
     }
 
+    /// The same file, reporting as it arrives.
+    ///
+    /// `localCopy` goes through `storage.download`, which hands back the whole
+    /// body at the end and says nothing on the way -- so a card waiting on a
+    /// twenty-megabyte video could only show a spinner. ElevenLabs shows the
+    /// percentage and nothing else, which is better on a slow connection
+    /// because it tells you whether to wait; this is the same file through the
+    /// streaming path so there is a real number to show.
+    ///
+    /// Still nil-safe about the total: a chunked response does not say how big
+    /// it is, and nothing here invents a percentage out of that.
+    func fileStream(of artifact: Artifact) -> AsyncStream<MediaCache.Fetching> {
+        guard let path = artifact.storagePath else {
+            return AsyncStream { $0.finish() }
+        }
+        return MediaCache.shared.stream(
+            artifact.id.uuidString,
+            name: Self.fileName(of: artifact, path: path)
+        ) {
+            await self.signedURL(for: path)
+        }
+    }
+
+    /// Where that download has got to this instant, with no round trip.
+    func fileStanding(of artifact: Artifact) -> MediaCache.Standing {
+        guard let path = artifact.storagePath else { return .absent }
+        return MediaCache.shared.standing(artifact.id.uuidString, name: Self.fileName(of: artifact, path: path))
+    }
+
     /// A picture somebody attached, small, kept like the results are -- it
     /// was a new signed link and a new download every time it scrolled by.
     func attachmentThumbnail(_ path: String, longest pixels: CGFloat) async -> UIImage? {

@@ -122,6 +122,11 @@ struct VideoCard: View {
     @State private var poster: UIImage?
     @State private var muted = true
     @State private var viewing = false
+    /// How far the download has got, for the percentage over the poster.
+    @State private var arriving: (received: Int64, expected: Int64?)?
+    /// Opened full screen, because the editor is a screen rather than a sheet
+    /// and this card can sit inside a scrolling conversation.
+    @State private var editing: EditableClip?
 
     private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
     private var pixels: CGFloat { max(size.width, size.height) * displayScale }
@@ -140,6 +145,18 @@ struct VideoCard: View {
                 }
                 if let shownFile {
                     LoopingVideo(url: shownFile, muted: muted, playing: !viewing)
+                } else if let arriving {
+                    // The percentage, the way ElevenLabs shows one: the number
+                    // and nothing else. It says whether to wait, which a
+                    // spinner never does. No total means no percentage -- the
+                    // view falls back to bytes rather than inventing one.
+                    DownloadProgressView(
+                        fraction: arriving.expected.map { Double(arriving.received) / Double(max($0, 1)) },
+                        received: arriving.received,
+                        title: "",
+                        compact: true,
+                        onDark: shownPoster != nil
+                    )
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -148,7 +165,11 @@ struct VideoCard: View {
             .clipShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
             .onTapGesture { if shownFile != nil { viewing = true } }
-            .contextMenu { MediaMenu(artifact: artifact, onAnimate: nil) }
+            .contextMenu {
+                MediaMenu(artifact: artifact, onAnimate: nil) { file in
+                    Task { editing = await EditableClip.of(file) }
+                }
+            }
             .overlay(alignment: .bottomLeading) {
                 if let seconds = artifact.body.seconds {
                     Text(clock(seconds))
@@ -183,7 +204,21 @@ struct VideoCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
-            if file == nil { file = await session.localCopy(of: artifact) }
+            if file == nil {
+                // Through the streaming path, so there is a number to show
+                // while it comes rather than a spinner that says nothing.
+                for await step in session.fileStream(of: artifact) {
+                    switch step {
+                    case .progress(let received, let expected):
+                        arriving = (received, expected)
+                    case .done(let url):
+                        arriving = nil
+                        file = url
+                    case .failed:
+                        arriving = nil
+                    }
+                }
+            }
             if poster == nil { poster = await session.poster(of: artifact, longest: pixels) }
         }
         .onDisappear {
@@ -194,6 +229,9 @@ struct VideoCard: View {
         }
         .fullScreenCover(isPresented: $viewing) {
             MediaViewer(artifact: artifact, preview: shownPoster)
+        }
+        .fullScreenCover(item: $editing) { editable in
+            NavigationStack { EditorView(clips: [editable.clip]) }
         }
     }
 }
@@ -358,32 +396,71 @@ private struct MediaMenu: View {
     let artifact: Artifact
     let onAnimate: ((Artifact) -> Void)?
 
+    /// Handed the local file when "Add to Video Editor" is tapped. The card
+    /// owns the presentation: 🔴 a `navigationDestination` or a cover declared
+    /// inside `contextMenu` content is never attached to the hierarchy, so the
+    /// menu item would have looked right and done nothing.
+    var onAddToEditor: ((URL) -> Void)? = nil
+
     @Environment(AppSession.self) private var session
     @State private var file: URL?
 
     var body: some View {
+        // ElevenLabs' order, with the items Autocast can actually carry out.
+        //
+        // Theirs reads Upscale / Edit / Lip sync / Add to Video Editor / Copy
+        // prompt / Download / Delete. The first three want a model chosen for
+        // this file, which is the generate path and not wired here yet, and
+        // there is no way to delete an artifact at all -- so they are absent
+        // rather than present and dead. A menu item that does nothing is the
+        // same fault as the "Needs attention" rows that could not be tapped.
         Group {
             if let onAnimate {
                 Button { onAnimate(artifact) } label: {
                     Label("Animate", systemImage: "sparkles")
                 }
             }
-            if let file {
-                ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
-            }
-            Button { Task { _ = await session.saveToPhotos(artifact) } } label: {
-                Label("Save to Photos", systemImage: "arrow.down.to.line")
+            if artifact.kind == "video", let file, let onAddToEditor {
+                Button { onAddToEditor(file) } label: {
+                    Label("Add to Video Editor", systemImage: "film.stack")
+                }
             }
             if let prompt = artifact.body.prompt, !prompt.isEmpty {
                 Button { UIPasteboard.general.string = prompt } label: {
                     Label("Copy prompt", systemImage: "doc.on.doc")
                 }
             }
+            Button { Task { _ = await session.saveToPhotos(artifact) } } label: {
+                Label("Download", systemImage: "arrow.down.to.line")
+            }
+            if let file {
+                ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
+            }
         }
         .task(id: artifact.id) {
             file = session.cachedCopy(of: artifact)
             if file == nil { file = await session.localCopy(of: artifact) }
         }
+    }
+}
+
+/// One video on its way to the editor. Identifiable so it can drive a cover.
+struct EditableClip: Identifiable, Hashable {
+    let clip: StudioClip
+    var id: UUID { clip.id }
+
+    /// Reads the file's real length, the way `VideoReviewView` does, so
+    /// trimming, speed and volume all work on it without a special case.
+    static func of(_ file: URL) async -> EditableClip? {
+        let asset = AVURLAsset(url: file)
+        let seconds = (try? await asset.load(.duration).seconds) ?? 0
+        guard seconds.isFinite, seconds > 0 else { return nil }
+        return EditableClip(clip: StudioClip(
+            kind: .video,
+            url: file,
+            sourceDuration: seconds,
+            trimEnd: seconds
+        ))
     }
 }
 

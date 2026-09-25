@@ -21,6 +21,29 @@ export interface Plan {
 }
 
 /**
+ * Which territory a price point belongs to.
+ *
+ * 🔴 A subscription price row has NO territory relationship — only
+ * `subscriptionPricePoint`. Reading `relationships.territory` off the row gives
+ * null for every row, which made the first run of this report claim all 175
+ * storefronts were unset when 89 of them were already at the right price. It
+ * would have rewritten 151 prices on a reading that was simply wrong.
+ *
+ * The territory is inside the price point's own id, which is base64 JSON:
+ * `{"s":"<subscription>","t":"ARE","p":"<tier>"}`. Decoding it is exact and
+ * needs no extra request. (`include=territory` also works, but costs a bigger
+ * response on every call and is easy to forget again.)
+ */
+export function territoryOf(pricePointId: string): string | null {
+  try {
+    const decoded = JSON.parse(Buffer.from(pricePointId, "base64").toString());
+    return typeof decoded?.t === "string" ? decoded.t : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Sets every storefront to the rung that reads exactly the target price.
  *
  * The prices were never set at all: the original `create-subscriptions.ts`
@@ -59,10 +82,17 @@ export async function reprice(
     );
     const current = new Map<string, string>();
     for (const row of now.data ?? []) {
-      const territory = row.relationships?.territory?.data?.id;
-      const price = included[row.relationships?.subscriptionPricePoint?.data?.id]
-        ?.attributes?.customerPrice;
+      const pointId = row.relationships?.subscriptionPricePoint?.data?.id;
+      const territory = pointId ? territoryOf(pointId) : null;
+      const price = included[pointId]?.attributes?.customerPrice;
       if (territory && price) current.set(territory, price);
+    }
+    if (current.size === 0) {
+      // Never rewrite prices on a reading that returned nothing. An empty map
+      // looks exactly like "every storefront is unset", and acting on it would
+      // reprice the whole world from a parsing mistake.
+      console.log("  refusing to continue: read no current prices at all");
+      continue;
     }
 
     const wrong = territories.filter((t: string) => current.get(t) !== target);

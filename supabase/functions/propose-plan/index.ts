@@ -24,6 +24,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
+import { canAffordVideo } from "../_shared/connectors/route.ts";
 import { maxPlanDays, NEEDS_PRO } from "../_shared/quota.ts";
 import { costUSD } from "../_shared/usage.ts";
 
@@ -202,6 +203,26 @@ Deno.serve(async (request) => {
       throw new PublicError(
         `Your plan writes up to ${allowedDays} days at a time. Autocast Pro plans the whole month.`,
         NEEDS_PRO, false, "needs_pro",
+      );
+    }
+
+    // 🔴 Credits BEFORE the writer runs, not after.
+    //
+    // Abel, 25 Sep 2026: "before the app posts it decides the day, it first
+    // checks the credit the user have, and if the user don't have credits just
+    // fail it -- instead of first generating the plan what to post."
+    //
+    // Nothing checked this. A user with an empty generator account passed
+    // every gate in the series flow, paid for a post to be written, and found
+    // out when the video failed hours later. It only refuses when a provider
+    // actually answered and said zero; one that will not answer never blocks.
+    const funds = await canAffordVideo(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
+    if (!funds.ok) {
+      throw new PublicError(
+        "Your video generator has no credits left, so there is nothing to make this with. Top it up and try again.",
+        402,
+        false,
+        "no_credits",
       );
     }
 

@@ -94,11 +94,37 @@ extension AppSession {
                 signed.append(result.jwsRepresentation)
             }
         }
-        guard !signed.isEmpty else { return }
+        // 🔴 Refresh even with nothing to send. This used to return here,
+        // so Restore -- whose only path is this function -- made ZERO server
+        // calls on a phone StoreKit reported no entitlements for, and then
+        // told the person no subscription was found. Somebody entitled through
+        // an Apple server notification could never get it back that way.
+        guard !signed.isEmpty else {
+            await refreshSubscription()
+            return
+        }
         // Silent: this runs at every launch, and a receipt the server will not
         // take (bought by another account, or a sandbox one that has lapsed)
         // must not greet somebody with an error they cannot act on.
         await send(signed, announce: false)
+    }
+
+    /// Sent again once the account is no longer the anonymous one it started
+    /// as, so a purchase made before signing in follows the person.
+    ///
+    /// Without this the receipt keeps the old anonymous id and the server has
+    /// to decide on its own whether to honour it; with it, the claim is made
+    /// while the person is present and can be told if it fails.
+    func claimPurchasesAfterSignIn() async {
+        var signed: [String] = []
+        for await result in Transaction.currentEntitlements {
+            if case .verified(let transaction) = result,
+               Self.proProductIDs.contains(transaction.productID) {
+                signed.append(result.jwsRepresentation)
+            }
+        }
+        guard !signed.isEmpty else { return }
+        await send(signed, announce: true)
     }
 
     /// Straight after a purchase in the paywall.

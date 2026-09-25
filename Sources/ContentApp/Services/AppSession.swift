@@ -157,6 +157,7 @@ final class AppSession {
             // that expired and came back as a fresh anonymous account. Setup
             // belongs to a person, so it starts again (Abel, 21 Sep 2026:
             // "signout doesn't let you go to the onboarding").
+            let signedInJustNow = isSigningIn
             let remembered = UserDefaults.standard.string(forKey: Self.lastUserKey)
             if remembered != user.id.uuidString {
                 UserDefaults.standard.set(user.id.uuidString, forKey: Self.lastUserKey)
@@ -227,6 +228,13 @@ final class AppSession {
                 // Kept videos are ours to evict, so somebody who watches a
                 // lot of them does not quietly lose a gigabyte of phone.
                 MediaCache.shared.sweepKept()
+
+                // Signed in to an account that already existed: any receipt on
+                // this phone was stamped with the id it was bought under, so
+                // it is claimed now rather than refused forever.
+                if signedInJustNow, !self.isAnonymous {
+                    await self.claimPurchasesAfterSignIn()
+                }
             }
         } catch {
             state = .failed(readableMessage(error))

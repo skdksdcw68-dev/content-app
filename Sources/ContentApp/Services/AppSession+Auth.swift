@@ -167,6 +167,9 @@ extension AppSession {
     func refreshAccount() async {
         if let user = try? await client.auth.session.user { readAccount(user) }
         await refreshSubscription()
+        // A purchase made before signing in is stamped with the anonymous id
+        // it was bought under. Claimed here, while the person is present.
+        if !isAnonymous { await claimPurchasesAfterSignIn() }
     }
 
     /// Supabase's way of saying "that identity already has an account".

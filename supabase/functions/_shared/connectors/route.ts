@@ -444,3 +444,55 @@ function verdictOf(thrown: unknown, slug: string, authKind: string): Verdict {
 function readable(capability: Capability): string {
   return capability.replace(/_generation$/, "").replace(/_/g, " ");
 }
+
+/**
+ * Whether this person can actually pay for a video before one is written.
+ *
+ * 🔴 Nothing checked this. `balanceFor` existed and was read in exactly one
+ * place -- `byPrice`, to ORDER candidates -- and even there an unaffordable
+ * model is deliberately kept in the list rather than dropped, on the grounds
+ * that a stale balance beats no attempt. That is right at submit time and
+ * wrong before it: a user with an empty Higgsfield account passes every check
+ * in the series flow, pays for a month of writing, and finds out when the
+ * first video fails (Abel, 25 Sep 2026: "before the app posts it decides the
+ * day, it first checks the credit the user have, and if the user don't have
+ * credits just fail it -- instead of first generating the plan").
+ *
+ * - `true` when a connected provider reports credit, or when none will say.
+ *   A provider that does not answer must never block the product.
+ * - `false` only when every provider that answered said zero.
+ */
+export async function canAffordVideo(
+  admin: SupabaseClient,
+  userId: string,
+): Promise<{ ok: boolean; checked: number; detail: string }> {
+  let candidates: Candidate[];
+  try {
+    candidates = await candidatesFor(admin, userId, "video_generation");
+  } catch {
+    return { ok: true, checked: 0, detail: "could not read your generators" };
+  }
+  if (candidates.length === 0) {
+    return { ok: true, checked: 0, detail: "no generator connected" };
+  }
+
+  const seen = new Set<string>();
+  let answered = 0;
+  for (const candidate of candidates) {
+    if (seen.has(candidate.connectionId)) continue;
+    seen.add(candidate.connectionId);
+    // A handful, not all of them: this runs before a plan is written and must
+    // not become its own wait.
+    if (seen.size > 4) break;
+
+    const balance = await balanceFor(admin, candidate.connectionId);
+    if (!balance) continue;
+    answered++;
+    if (balance.amount > 0) {
+      return { ok: true, checked: answered, detail: `${balance.amount} ${balance.unit}` };
+    }
+  }
+
+  if (answered === 0) return { ok: true, checked: 0, detail: "no provider would say" };
+  return { ok: false, checked: answered, detail: "every connected generator reports zero credits" };
+}

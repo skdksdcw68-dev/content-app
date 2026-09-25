@@ -396,10 +396,16 @@ struct PaywallView: View {
         restoring = true
         defer { restoring = false }
         try? await AppStore.sync()
+        // Announced, not silent. Restore is a button somebody pressed on
+        // purpose, so a server that refuses the receipt -- because it belongs
+        // to another Autocast account -- has to say so. It used to swallow
+        // that and show "none found", which is a different thing entirely and
+        // sent people looking in the wrong place.
+        await session.claimPurchasesAfterSignIn()
         await session.syncPurchases()
         if session.subscription?.isPro == true {
             close()
-        } else {
+        } else if (session.lastError ?? "").isEmpty {
             session.lastError = "No Autocast Pro subscription was found for this Apple ID."
         }
     }

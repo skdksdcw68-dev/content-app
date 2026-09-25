@@ -241,3 +241,8 @@ verify_jwt = true
 # somebody else's account.
 [functions.inspiration]
 verify_jwt = true
+
+# Installs one of Autocast's own generators. No user session: the request must
+# carry the service role key in x-admin-key, which is checked inside.
+[functions.install-house-generator]
+verify_jwt = false

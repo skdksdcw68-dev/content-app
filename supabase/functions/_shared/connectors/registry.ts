@@ -12,6 +12,7 @@
  */
 
 import type { Adapter } from "./contract.ts";
+import { falAdapter } from "./fal.ts";
 import { higgsfieldRest } from "./higgsfield-rest.ts";
 import { mcpAdapter } from "./mcp.ts";
 
@@ -29,6 +30,9 @@ const ADAPTERS: Record<string, Adapter> = {
   // missing from here: a signed-in account could be discovered but not asked
   // to make anything, because the ladder found no adapter for its door.
   "higgsfield:mcp_oauth": mcpAdapter("higgsfield"),
+  // fal bills per second against a card rather than from a credit pool, so it
+  // has no ceiling to grow into. See `fal.ts` for why both are here.
+  "fal:api_key": falAdapter,
 };
 
 export function adapterFor(providerSlug: string, authKind: string): Adapter {

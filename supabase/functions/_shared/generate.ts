@@ -13,7 +13,7 @@ import { open } from "./crypto.ts";
 import { PublicError } from "./http.ts";
 import { inspect } from "./media.ts";
 import { type Credential, parseCredential, poll, Refused } from "./higgsfield.ts";
-import { NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
+import { canAffordVideo, NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
 
 /**
  * The model that worked last time for this person, whatever provider it was on.
@@ -88,6 +88,26 @@ export async function startJob(
   // line here read `credentialFor(...)` and everything after it assumed
   // Higgsfield -- see _shared/connectors/route.ts for what replaced it and why
   // the recovery ladder matters more than the decoupling.
+  // 🔴 Before the row, before the money. Abel, 25 Sep 2026: "before the app
+  // posts it decides the day, it first checks the credit the user have, and
+  // if the user don't have credits just fail it -- instead of first
+  // generating the plan." `propose-plan` asks this before it writes a month;
+  // this is the other half, and the one that matters for the scheduler, which
+  // reaches `startJob` without going through a plan at all.
+  //
+  // It answers `ok` when nothing will say, so a provider that will not report
+  // a balance can never block the product -- only a provider that answered
+  // zero does.
+  const funds = await canAffordVideo(admin, args.userId);
+  if (!funds.ok) {
+    throw new PublicError(
+      "Your generator has no credits left. Top it up and the next video will go through.",
+      402,
+      false,
+      "no_credits",
+    );
+  }
+
   const lastGoodModel = await rememberedModel(admin, args.userId);
 
   // The row before the request, so a submission that succeeds and then loses

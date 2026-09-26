@@ -62,16 +62,33 @@ final class OnboardingTests: XCTestCase {
 
     /// The questions onboarding asks are the Brand page's own, so answering
     /// them once fills the page somebody edits later.
-    func testQuestionsAreTheBrandPageQuestions() {
-        XCTAssertEqual(OnboardingQuestion.all.count, 12)
-        XCTAssertEqual(OnboardingQuestion.all.map(\.id), [
-            "category", "goal", "audience", "platforms", "styles", "formats",
-            "length", "cadence", "camera", "voice", "cta", "avoid",
-        ])
+    ///
+    /// 🔴 This used to assert the list was exactly twelve, in order. That is
+    /// not a fact about the product, it is a copy of one decision -- and when
+    /// the decision changed on 26 Sep ("our onboarding at the first is so much
+    /// annoying... dont delete it but hide some of them") the test failed for
+    /// being out of date rather than for catching anything.
+    ///
+    /// What IS worth holding: the doorway stays short, and nothing that left
+    /// it went missing. So the count has a ceiling instead of an exact value,
+    /// and `later` is checked to still hold the rest.
+    func testOnboardingIsShortAndNothingIsLost() {
+        XCTAssertLessThanOrEqual(OnboardingQuestion.all.count, 5, "the doorway is getting long again")
+        XCTAssertTrue(OnboardingQuestion.all.map(\.id).contains("category"), "what they sell cannot be defaulted")
+
+        // Every question ever asked is still asked somewhere.
+        let everywhere = Set(OnboardingQuestion.all.map(\.id)).union(OnboardingQuestion.later.map(\.id))
+        for id in ["category", "goal", "audience", "platforms", "styles", "formats",
+                   "length", "cadence", "camera", "voice", "cta", "avoid"] {
+            XCTAssertTrue(everywhere.contains(id), "\(id) was dropped rather than moved")
+        }
+
         // The ids are what the plan and the questionnaire look up, so no two
-        // questions may share one.
-        XCTAssertEqual(Set(OnboardingQuestion.all.map(\.id)).count, OnboardingQuestion.all.count)
-        for question in OnboardingQuestion.all {
+        // questions may share one -- across both halves.
+        let ids = OnboardingQuestion.all.map(\.id) + OnboardingQuestion.later.map(\.id)
+        XCTAssertEqual(Set(ids).count, ids.count, "two questions share an id")
+
+        for question in OnboardingQuestion.all + OnboardingQuestion.later {
             XCTAssertFalse(question.options.isEmpty, "\(question.id) has no options")
             XCTAssertFalse(OnboardingPrompt.title(for: question).isEmpty)
         }

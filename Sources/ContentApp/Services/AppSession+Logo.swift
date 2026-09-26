@@ -91,6 +91,9 @@ extension AppSession {
         guard let path = brand?.logoPath else { return nil }
         if let cached = MediaCache.shared.image(MediaCache.key(path, "logo")) { return cached }
 
+        // The logo is small and read rarely, so the authenticated call is not
+        // worth a signed round trip -- but it IS the slow door (about 2.3s a
+        // request from Addis), so it is read once and kept.
         guard let data = try? await client.storage.from("brand").download(path: path),
               let image = UIImage(data: data) else { return nil }
         MediaCache.shared.keep(image, MediaCache.key(path, "logo"))

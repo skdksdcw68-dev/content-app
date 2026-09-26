@@ -90,12 +90,32 @@ extension AppSession {
     /// the first time and kept (see `MediaCache`). Quick Look, the share sheet
     /// and the players all need a real file with a real extension; a signed
     /// URL is neither, and is a new download every time it is issued.
+    /// 🔴 Through a SIGNED URL, not `storage.download`.
+    ///
+    /// Abel, 26 Sep 2026: "the app takes so much time to download a kb things
+    /// and to upload why is that?" Measured from his own connection, against
+    /// this project:
+    ///
+    ///     10KB   authenticated 2339ms   signed 784ms
+    ///     200KB  authenticated 2609ms   signed 492ms (second read)
+    ///     1MB    authenticated 2745ms   signed 681ms (second read)
+    ///
+    /// The size barely moves the authenticated number, because almost none of
+    /// it is transfer. `storage.download` goes to the storage API, which
+    /// checks the caller on every request and is served from the project's own
+    /// region -- a long way from Addis. A signed URL is a plain file on
+    /// Cloudflare, whose edge answers from Addis itself: the responses come
+    /// back `cf-cache-status: REVALIDATED` and roughly four times faster.
+    ///
+    /// The link is minted inside the fetch rather than before it, so nothing
+    /// is signed for a file already on the phone.
     func localCopy(of artifact: Artifact) async -> URL? {
-        guard let path = artifact.storagePath else { return nil }
-        let storage = client.storage.from("artifacts")
-        return await MediaCache.shared.file(artifact.id.uuidString, name: Self.fileName(of: artifact, path: path)) {
-            try? await storage.download(path: path)
+        guard artifact.storagePath != nil else { return nil }
+        for await step in fileStream(of: artifact) {
+            if case .done(let url) = step { return url }
+            if case .failed = step { return nil }
         }
+        return nil
     }
 
     /// The file if it is already on the phone -- asked synchronously, so a row
@@ -107,12 +127,13 @@ extension AppSession {
 
     /// The same file, reporting as it arrives.
     ///
-    /// `localCopy` goes through `storage.download`, which hands back the whole
-    /// body at the end and says nothing on the way -- so a card waiting on a
-    /// twenty-megabyte video could only show a spinner. ElevenLabs shows the
-    /// percentage and nothing else, which is better on a slow connection
-    /// because it tells you whether to wait; this is the same file through the
-    /// streaming path so there is a real number to show.
+    /// The authenticated storage API hands back the whole body at the end and
+    /// says nothing on the way -- so a card waiting on a twenty-megabyte video
+    /// could only show a spinner. ElevenLabs shows the percentage and nothing
+    /// else, which is better on a slow connection because it tells you whether
+    /// to wait; this is the streaming path, so there is a real number to show.
+    /// `localCopy` goes through here now too, for the speed rather than the
+    /// number.
     ///
     /// Still nil-safe about the total: a chunked response does not say how big
     /// it is, and nothing here invents a percentage out of that.
@@ -139,11 +160,18 @@ extension AppSession {
     func attachmentThumbnail(_ path: String, longest pixels: CGFloat) async -> UIImage? {
         let key = MediaCache.key(path, "\(Int(pixels))")
         if let known = MediaCache.shared.image(key) { return known }
-        let storage = client.storage.from("artifacts")
         let name = (path as NSString).lastPathComponent
-        guard let file = await MediaCache.shared.file(path, name: name, fetch: {
-            try? await storage.download(path: path)
-        }) else { return nil }
+        // Signed, like everything else that reads a file: the authenticated
+        // storage API costs about 2.3 seconds a request from here whatever
+        // the file weighs.
+        var file: URL?
+        for await step in MediaCache.shared.stream(path, name: name, shelf: .fetchedAgain, from: {
+            await self.signedURL(for: path)
+        }) {
+            if case .done(let url) = step { file = url }
+            if case .failed = step { break }
+        }
+        guard let file else { return nil }
         let image = await Task.detached(priority: .userInitiated) {
             MediaCache.downsample(file, longest: pixels)
         }.value

@@ -40,8 +40,13 @@ struct GenerateBar: View {
     /// The lengths worth offering. Abel, 25 Sep: "just let the user hit and
     /// pick what second he wants" -- the stepper in the sheet does that; this
     /// is the quick tap.
-    private static let lengths = [5, 10, 15, 20, 30, 45, 60, 90, 120, 180]
+    /// 🔴 Only what a model can actually do. Abel asked about longer videos
+    /// and the honest answer is that no model here goes past ten seconds --
+    /// Veo stops at eight. Offering 60 was offering something that fails on
+    /// send. A minute is a film of several shots, which is its own build.
+    private static let lengths = [4, 5, 6, 8, 10]
     private static let aspects = ["9:16", "1:1", "4:5", "16:9"]
+    private static let resolutions = ["480p", "720p", "1080p"]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -115,6 +120,34 @@ struct GenerateBar: View {
                 .labelsHidden()
             } label: {
                 Knob(symbol: "aspectratio", value: choices.aspect)
+            }
+
+            // ▦ How sharp. Abel, 26 Sep 2026: "why are the users not allowed
+            // to choose or pick the resolution huh??" They were -- in the
+            // settings sheet, which is not where anybody looked. It belongs
+            // out here with the others because it MOVES THE PRICE: Wan is
+            // $0.05 a second at 480p and $0.15 at 1080p.
+            if choices.isVideo {
+                Menu {
+                    Picker("", selection: $choices.resolution) {
+                        ForEach(Self.resolutions, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                } label: {
+                    Knob(symbol: "rectangle.on.rectangle", value: choices.resolution)
+                }
+
+                // ♪ Sound, and the biggest lever on the bar: Veo 3.1 is $0.40
+                // a second with it and $0.20 without. "which can reduce our
+                // costs" -- by half, on the dearest model offered.
+                Button {
+                    withAnimation(.snappy(duration: 0.15)) { choices.audio.toggle() }
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Knob(symbol: choices.audio ? "speaker.wave.2" : "speaker.slash")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(choices.audio ? "Sound on" : "Sound off")
             }
 
             Spacer(minLength: 0)

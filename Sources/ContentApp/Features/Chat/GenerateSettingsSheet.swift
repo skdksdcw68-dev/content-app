@@ -16,7 +16,10 @@ struct GenerateSettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showingModels = false
 
-    private static let lengths = Array(stride(from: 5, through: 180, by: 5))
+    /// What a model can actually make. Every fal model caps at ten seconds
+    /// and Veo at eight, so the old 5-to-180 stepper offered 175 seconds that
+    /// would have failed on send.
+    private static let lengths = [4, 5, 6, 8, 10]
     private static let aspects = ["9:16", "1:1", "4:5", "16:9"]
     private static let resolutions = ["480p", "720p", "1080p"]
 

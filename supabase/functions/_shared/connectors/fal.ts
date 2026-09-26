@@ -58,6 +58,11 @@ interface Entry {
    *  while submitting at the model's own default -- which is 1080p -- would
    *  have shown a price three times under what it charged. */
   perSecond: Record<string, number>;
+  /** The same ladder with sound switched off, where the provider charges
+   *  less for it. 🔴 Veo 3.1 is $0.40 a second with audio and $0.20 without
+   *  -- HALF -- so "no sound" is not a preference, it is the single biggest
+   *  cost lever on the most expensive model we offer. */
+  perSecondSilent?: Record<string, number>;
   durations: number[];
   /** What we ask for unless told otherwise. Never left to the model: fal
    *  defaults Wan to 1080p and 16:9, and 16:9 is the wrong shape for every
@@ -125,6 +130,7 @@ const CATALOGUE: Entry[] = [
     label: "Google Veo 3.1",
     about: "The best of them, with audio. Costs what that implies.",
     perSecond: { "720p": 0.40, "1080p": 0.40 },
+    perSecondSilent: { "720p": 0.20, "1080p": 0.20 },
     durations: [4, 6, 8],
     resolution: "720p",
     durationAsText: true,
@@ -230,9 +236,19 @@ function imageEntry(id: string) {
 }
 
 /** What a second costs at the resolution actually being asked for. */
-function rate(model: Entry, resolution: string): number {
-  return model.perSecond[resolution] ?? model.perSecond[model.resolution] ??
-    Object.values(model.perSecond)[0];
+function rate(model: Entry, resolution: string, silent = false): number {
+  const ladder = silent && model.perSecondSilent ? model.perSecondSilent : model.perSecond;
+  return ladder[resolution] ?? ladder[model.resolution] ?? Object.values(ladder)[0];
+}
+
+/** Whether this request asked for a silent video. */
+function isSilent(request: SubmitRequest): boolean {
+  // 🔴 Both shapes. A generation carries a real boolean; a QUOTE carries the
+  // string "false", because `quote` keeps only top-level strings and numbers
+  // out of the settings it is given. Checking one shape only is how the price
+  // shown and the price charged drift apart.
+  const said = request.options?.generate_audio ?? request.options?.audio;
+  return said === false || said === "false";
 }
 
 /** The resolution this request will run at: what was asked for if the model
@@ -432,6 +448,12 @@ export const falAdapter: Adapter = {
       // defaults to 16:9 and every video this app makes is for a phone.
       aspect_ratio: typeof request.options?.aspect === "string" ? request.options.aspect : "9:16",
     };
+    // Sound, where the model makes its own. Sent explicitly rather than left
+    // to the model default, because the default is ON and that is the
+    // expensive one.
+    const silent = isSilent(request);
+    if (model?.audio) input.generate_audio = !silent;
+
     const negative = request.options?.negative_prompt;
     if (typeof negative === "string" && negative.trim()) input.negative_prompt = negative.trim();
 
@@ -494,8 +516,8 @@ export const falAdapter: Adapter = {
       capability: request.capability,
       charged: {
         unit: "usd",
-        amount: Number((length * (model ? rate(model, resolution) : 0)).toFixed(4)),
-        basis: `${length}s of ${resolution} at ${model ? rate(model, resolution) : "?"}/s`,
+        amount: Number((length * (model ? rate(model, resolution, silent) : 0)).toFixed(4)),
+        basis: `${length}s of ${resolution}${silent ? ", silent" : ""} at ${model ? rate(model, resolution, silent) : "?"}/s`,
         quoted: false,
       },
     };
@@ -574,11 +596,11 @@ export const falAdapter: Adapter = {
     if (!model) return Promise.resolve(null);
     const length = seconds(request, model.durations[0]);
     const resolution = resolutionFor(model, request);
-    const each = rate(model, resolution);
+    const each = rate(model, resolution, isSilent(request));
     return Promise.resolve({
       unit: "usd",
       amount: Number((length * each).toFixed(4)),
-      basis: `${length}s of ${resolution} at ${each}/s`,
+      basis: `${length}s of ${resolution}${isSilent(request) ? ", silent" : ""} at ${each}/s`,
       quoted: false,
     });
   },

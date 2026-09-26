@@ -31,7 +31,7 @@ struct GenerateChoices: Equatable {
     /// videos is a bill.
     var imageCount: Int = 4
     var videoCount: Int = 1
-    var seconds: Int = 30
+    var seconds: Int = 5
     var aspect: String = "9:16"
     var resolution: String = "720p"
     var audio: Bool = true
@@ -114,11 +114,17 @@ struct GenerateChoices: Equatable {
     }
 
     /// What the quote and the job are told.
+    ///
+    /// `generate_audio` travels as an extra because it is the single biggest
+    /// cost lever we have: Veo 3.1 is $0.40 a second with sound and $0.20
+    /// without. Sent explicitly rather than left to the model's own default,
+    /// which is on -- and therefore the expensive one.
     var settings: GenerationSettings {
         GenerationSettings(
             resolution: isVideo ? resolution : nil,
             duration: isVideo ? Double(seconds) : nil,
-            quality: nil
+            quality: nil,
+            extras: isVideo ? ["generate_audio": audio ? "true" : "false"] : [:]
         )
     }
 }

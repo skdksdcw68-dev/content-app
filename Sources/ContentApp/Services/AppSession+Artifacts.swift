@@ -252,10 +252,40 @@ extension AppSession {
             let models: [String]
             let prompt: String
             let settings: Settings
+            /// 🔴 Encoded FLAT, not nested.
+            ///
+            /// `generate_audio` halves Veo's price, so a quote that loses it
+            /// prices a video with sound and then makes one without -- and the
+            /// number on the send button stops being the number charged.
+            ///
+            /// It has to be flat because the `quote` function keeps only
+            /// top-level string and number entries, deliberately: an adapter
+            /// is handed these as the model's own parameters, and a nested
+            /// object is not one. So each extra is written beside resolution
+            /// and duration rather than under a key of its own.
             struct Settings: Encodable, Sendable {
                 let resolution: String?
                 let duration: Int?
                 let quality: String?
+                let extras: [String: String]
+
+                private struct Key: CodingKey {
+                    let stringValue: String
+                    init(_ stringValue: String) { self.stringValue = stringValue }
+                    init?(stringValue: String) { self.stringValue = stringValue }
+                    var intValue: Int? { nil }
+                    init?(intValue: Int) { nil }
+                }
+
+                func encode(to encoder: Encoder) throws {
+                    var container = encoder.container(keyedBy: Key.self)
+                    try container.encodeIfPresent(resolution, forKey: Key("resolution"))
+                    try container.encodeIfPresent(duration, forKey: Key("duration"))
+                    try container.encodeIfPresent(quality, forKey: Key("quality"))
+                    for (name, value) in extras {
+                        try container.encode(value, forKey: Key(name))
+                    }
+                }
             }
         }
         struct Response: Decodable { let costs: [String: ModelCost]? }
@@ -270,7 +300,8 @@ extension AppSession {
                     settings: .init(
                         resolution: settings.resolution,
                         duration: settings.duration.map { Int($0.rounded()) },
-                        quality: settings.quality
+                        quality: settings.quality,
+                        extras: settings.extras
                     )
                 ))
             )

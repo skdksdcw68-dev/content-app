@@ -142,6 +142,8 @@ struct GenerateChoices: Equatable {
 /// and GPT Image are OpenAI's, Seedance and Seedream are ByteDance's.
 struct ModelMaker: Equatable {
     let name: String
+    /// Whose site carries the real mark. The tile fetches its favicon.
+    var domain: String = "fal.ai"
     let tint: Color
 
     static func of(_ model: ModelChoice) -> ModelMaker {
@@ -149,38 +151,38 @@ struct ModelMaker: Equatable {
         func has(_ needles: [String]) -> Bool { needles.contains { haystack.contains($0) } }
 
         if has(["veo", "nano banana", "nano_banana", "imagen", "gemini"]) {
-            return ModelMaker(name: "Google", tint: Color(red: 0.26, green: 0.52, blue: 0.96))
+            return ModelMaker(name: "Google", domain: "google.com", tint: Color(red: 0.26, green: 0.52, blue: 0.96))
         }
         if has(["sora", "gpt image", "gpt_image", "dall"]) {
-            return ModelMaker(name: "OpenAI", tint: Color(red: 0.06, green: 0.65, blue: 0.53))
+            return ModelMaker(name: "OpenAI", domain: "openai.com", tint: Color(red: 0.06, green: 0.65, blue: 0.53))
         }
         if has(["seedance", "seedream", "bytedance", "seed audio", "seed_audio"]) {
-            return ModelMaker(name: "ByteDance", tint: Color(red: 0.00, green: 0.63, blue: 0.85))
+            return ModelMaker(name: "ByteDance", domain: "bytedance.com", tint: Color(red: 0.00, green: 0.63, blue: 0.85))
         }
         if has(["kling"]) {
-            return ModelMaker(name: "Kling", tint: Color(red: 0.95, green: 0.43, blue: 0.20))
+            return ModelMaker(name: "Kling", domain: "klingai.com", tint: Color(red: 0.95, green: 0.43, blue: 0.20))
         }
         if has(["wan", "qwen"]) {
-            return ModelMaker(name: "Alibaba", tint: Color(red: 0.98, green: 0.51, blue: 0.09))
+            return ModelMaker(name: "Alibaba", domain: "alibaba.com", tint: Color(red: 0.98, green: 0.51, blue: 0.09))
         }
         if has(["minimax", "hailuo"]) {
-            return ModelMaker(name: "MiniMax", tint: Color(red: 0.42, green: 0.36, blue: 0.91))
+            return ModelMaker(name: "MiniMax", domain: "minimaxi.com", tint: Color(red: 0.42, green: 0.36, blue: 0.91))
         }
         if has(["grok"]) {
-            return ModelMaker(name: "xAI", tint: Color(red: 0.35, green: 0.35, blue: 0.38))
+            return ModelMaker(name: "xAI", domain: "x.ai", tint: Color(red: 0.35, green: 0.35, blue: 0.38))
         }
         if has(["topaz"]) {
-            return ModelMaker(name: "Topaz", tint: Color(red: 0.12, green: 0.55, blue: 0.62))
+            return ModelMaker(name: "Topaz", domain: "topazlabs.com", tint: Color(red: 0.12, green: 0.55, blue: 0.62))
         }
         if has(["recraft"]) {
-            return ModelMaker(name: "Recraft", tint: Color(red: 0.85, green: 0.25, blue: 0.45))
+            return ModelMaker(name: "Recraft", domain: "recraft.ai", tint: Color(red: 0.85, green: 0.25, blue: 0.45))
         }
         if has(["elevenlabs", "inworld", "mirelo", "sonilo"]) {
-            return ModelMaker(name: "Audio", tint: Color(red: 0.55, green: 0.35, blue: 0.85))
+            return ModelMaker(name: "Audio", domain: "elevenlabs.io", tint: Color(red: 0.55, green: 0.35, blue: 0.85))
         }
         // Higgsfield's own -- Soul, Genjutsu, Marketing Studio, and anything
         // else it fronts without naming a maker.
-        return ModelMaker(name: "Higgsfield", tint: Color(red: 0.45, green: 0.40, blue: 0.95))
+        return ModelMaker(name: "Higgsfield", domain: "higgsfield.ai", tint: Color(red: 0.45, green: 0.40, blue: 0.95))
     }
 
     /// Two letters at most, so the tile never has to shrink its type.
@@ -192,25 +194,67 @@ struct ModelMaker: Equatable {
 }
 
 /// The maker's tile beside a model, the size ElevenLabs draws it.
+///
+/// 🔴 The real mark now, not initials. Abel, 26 Sep 2026: "the model choosing
+/// logost too make it real." The mark is each maker's own favicon, fetched
+/// from their own site at runtime and kept — so nothing trademarked ships in
+/// the bundle, and a maker changing their mark changes ours. The tinted
+/// initials stay underneath as the first frame and the fallback, because a
+/// grey square while a favicon loads is a list that flickers.
 struct ModelMakerMark: View {
     let maker: ModelMaker
     var side: CGFloat = 44
 
+    @State private var mark: UIImage?
+
     var body: some View {
         RoundedRectangle(cornerRadius: side * 0.27, style: .continuous)
             .fill(
-                LinearGradient(
-                    colors: [maker.tint.opacity(0.95), maker.tint.opacity(0.62)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+                mark != nil
+                    ? AnyShapeStyle(Color(uiColor: .systemBackground))
+                    : AnyShapeStyle(LinearGradient(
+                        colors: [maker.tint.opacity(0.95), maker.tint.opacity(0.62)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
             )
             .frame(width: side, height: side)
             .overlay {
-                Text(maker.initials)
-                    .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                if let mark {
+                    Image(uiImage: mark)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: side * 0.62, height: side * 0.62)
+                } else {
+                    Text(maker.initials)
+                        .font(.system(size: side * 0.42, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                }
             }
+            .overlay(
+                RoundedRectangle(cornerRadius: side * 0.27, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(mark != nil ? 0.08 : 0), lineWidth: 1)
+            )
+            .task(id: maker.domain) { mark = await MakerMarks.mark(for: maker) }
             .accessibilityLabel(maker.name)
+    }
+}
+
+/// Fetches and keeps the makers' marks. One fetch per maker per install --
+/// they land in `MediaCache` like any other picture.
+enum MakerMarks {
+    @MainActor static func mark(for maker: ModelMaker) async -> UIImage? {
+        let key = MediaCache.key("maker-mark", maker.domain)
+        if let known = MediaCache.shared.image(key) { return known }
+        // Google's favicon service, which resolves any domain's mark at a
+        // usable size and answers from cache at their edge. Failing quietly
+        // leaves the initials tile, which is the whole reason it exists.
+        guard let url = URL(string: "https://www.google.com/s2/favicons?domain=\(maker.domain)&sz=128"),
+              let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let image = UIImage(data: data),
+              image.size.width > 16 else { return nil }
+        MediaCache.shared.keep(image, key)
+        return image
     }
 }

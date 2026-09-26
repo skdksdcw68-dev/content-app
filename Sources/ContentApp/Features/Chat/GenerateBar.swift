@@ -26,9 +26,16 @@ struct GenerateBar: View {
     /// What is being typed, so a price is this job's price.
     let request: String
 
+    @Environment(AppSession.self) private var session
+
     @State private var showingSettings = false
     @State private var showingModels = false
     @State private var showingMode = false
+    /// What this exact request costs, asked of the provider whenever the
+    /// choices change. Nil while unknown, and shown as nothing rather than
+    /// as zero -- free and unpriced are different facts.
+    @State private var credits: Int?
+    @State private var pricing: Task<Void, Never>?
 
     /// The lengths worth offering. Abel, 25 Sep: "just let the user hit and
     /// pick what second he wants" -- the stepper in the sheet does that; this
@@ -111,9 +118,31 @@ struct GenerateBar: View {
             }
 
             Spacer(minLength: 0)
+
+            // What it will cost, beside the send button. Abel, 26 Sep 2026:
+            // "make sure the send button has the credits thing also."
+            if let credits {
+                HStack(spacing: 3) {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 8))
+                    Text("\(credits)")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .contentTransition(.numericText())
+                }
+                .foregroundStyle(.secondary)
+                .padding(.trailing, 2)
+                .transition(.opacity)
+                .accessibilityLabel("\(credits) credits")
+            }
         }
         .padding(.leading, 30)
         .padding(.trailing, 4)
+        .animation(.easeOut(duration: 0.2), value: credits)
+        // Re-priced when anything that changes the bill changes: the model,
+        // the length, how many, and the resolution. Not on every keystroke --
+        // the prompt does not move the price on any provider here.
+        .task(id: priceKey) { await reprice() }
+        .onDisappear { pricing?.cancel() }
         .sheet(isPresented: $showingSettings) {
             GenerateSettingsSheet(choices: $choices, request: request)
         }
@@ -126,6 +155,37 @@ struct GenerateBar: View {
                 selected: choices.model?.externalId
             ) { choices.model = $0 }
         }
+    }
+}
+
+private extension GenerateBar {
+    /// Everything that moves the price. The prompt is not in it, because no
+    /// provider here charges by the word.
+    var priceKey: String {
+        [
+            choices.model?.externalId ?? "",
+            choices.mode.rawValue,
+            String(choices.count),
+            String(choices.seconds),
+            choices.resolution,
+        ].joined(separator: "|")
+    }
+
+    func reprice() async {
+        pricing?.cancel()
+        guard let model = choices.model else {
+            // No model chosen means the router picks, and what it picks
+            // decides the price -- so there is no honest number to show yet.
+            credits = nil
+            return
+        }
+        let cost = await session.quote(
+            capability: choices.mode.capability,
+            model: model.externalId,
+            prompt: request,
+            settings: choices.settings
+        )
+        credits = GenerateChoices.credits(from: cost)
     }
 }
 

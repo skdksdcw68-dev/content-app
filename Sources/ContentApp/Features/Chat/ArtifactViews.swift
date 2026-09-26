@@ -220,6 +220,15 @@ struct ArtifactCard: View {
                     .fill(Theme.surface)
                     .frame(width: waiting?.width, height: waiting?.height ?? 72)
                     .overlay { MakingSheen() }
+                    // The number, the way ElevenLabs shows one: centred in the
+                    // empty frame and nothing else. Only where there is a
+                    // frame to centre it in -- on the 72pt strip that stands
+                    // in for a file, the sheen alone says enough.
+                    .overlay {
+                        if waiting != nil {
+                            MakingProgress(expected: MakingProgress.expected(for: expect.kind))
+                        }
+                    }
                     .clipShape(shape)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

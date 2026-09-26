@@ -68,6 +68,26 @@ struct GenerateChoices: Equatable {
         [startFrame?.path, endFrame?.path].compactMap { $0 }
     }
 
+    /// What this exact request would cost, in credits.
+    ///
+    /// Abel, 26 Sep 2026: "for generating videos and images make sure the send
+    /// button has the credits thing also". Now possible to answer honestly,
+    /// because fal publishes a rate per second and per image and the adapter
+    /// works the job out from the length and the count -- so this is the real
+    /// number, not a tier somebody guessed at.
+    ///
+    /// The unit is deliberately not a dollar. Nobody wants to see $0.003 on a
+    /// button, and the price we pay is not the price we charge; a credit is
+    /// Autocast's own money, and the rate between them is one constant to
+    /// change when the pricing is settled.
+    static func credits(from cost: ModelCost?) -> Int? {
+        guard let amount = cost?.amount, cost?.unit == "usd" else { return nil }
+        // A tenth of a cent each, so the cheapest image is 3 and a long Veo
+        // clip is a few thousand -- the range people already read on other
+        // generators, and granular enough that nothing rounds to zero.
+        return max(1, Int((amount * 1000).rounded()))
+    }
+
     var count: Int {
         get { mode == .image ? imageCount : videoCount }
         set { if mode == .image { imageCount = newValue } else { videoCount = newValue } }

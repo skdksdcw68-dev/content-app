@@ -133,6 +133,102 @@ const CATALOGUE: Entry[] = [
   },
 ];
 
+/**
+ * The image models, and how each one wants to be told the shape.
+ *
+ * Abel, 26 Sep 2026: "there is no model for the image generator". True -- this
+ * adapter only ever declared video, so the image picker was empty.
+ *
+ * 🔴 THEY DO NOT AGREE ON FIELD NAMES, which is the same trap `duration` was.
+ * Checked against each model's own OpenAPI schema rather than assumed: the
+ * Nano Bananas and Kontext take `aspect_ratio: "9:16"`, while FLUX, Seedream,
+ * Qwen and Recraft take `image_size: "portrait_16_9"`. Sending the wrong one
+ * is a 422, or worse, a silently square picture.
+ *
+ * Prices are per image from fal's pricing page, so `quoted: false`.
+ */
+interface ImageEntry {
+  id: string;
+  label: string;
+  about: string;
+  /** Dollars per image. */
+  each: number;
+  /** Which field this model names the shape with. */
+  shape: "aspect_ratio" | "image_size";
+}
+
+const IMAGES: ImageEntry[] = [
+  {
+    id: "fal-ai/flux/schnell",
+    label: "FLUX Schnell",
+    about: "The quick one. Good for trying a composition.",
+    each: 0.003,
+    shape: "image_size",
+  },
+  {
+    id: "fal-ai/qwen-image",
+    label: "Qwen Image",
+    about: "Cheap and clean, strong with text in the picture.",
+    each: 0.02,
+    shape: "image_size",
+  },
+  {
+    id: "fal-ai/flux/dev",
+    label: "FLUX Dev",
+    about: "Sharper than Schnell, still inexpensive.",
+    each: 0.025,
+    shape: "image_size",
+  },
+  {
+    id: "fal-ai/bytedance/seedream/v4/text-to-image",
+    label: "Seedream 4",
+    about: "Photographic, good with people.",
+    each: 0.03,
+    shape: "image_size",
+  },
+  {
+    id: "fal-ai/nano-banana",
+    label: "Google Nano Banana",
+    about: "Quick, high-quality generation and editing.",
+    each: 0.0398,
+    shape: "aspect_ratio",
+  },
+  {
+    id: "fal-ai/recraft/v3/text-to-image",
+    label: "Recraft V3",
+    about: "Built for graphics, logos and flat art.",
+    each: 0.04,
+    shape: "image_size",
+  },
+  {
+    id: "fal-ai/nano-banana-2",
+    label: "Google Nano Banana 2",
+    about: "Knows the world, precise text, fast.",
+    each: 0.06,
+    shape: "aspect_ratio",
+  },
+  {
+    id: "fal-ai/nano-banana-pro",
+    label: "Google Nano Banana Pro",
+    about: "Studio quality, legible text, very consistent.",
+    each: 0.15,
+    shape: "aspect_ratio",
+  },
+];
+
+/** fal's own name for a 9:16 frame, for the models that take `image_size`. */
+const IMAGE_SIZES: Record<string, string> = {
+  "9:16": "portrait_16_9",
+  "3:4": "portrait_4_3",
+  "1:1": "square_hd",
+  "4:3": "landscape_4_3",
+  "16:9": "landscape_16_9",
+};
+
+function imageEntry(id: string) {
+  return IMAGES.find((model) => model.id === id);
+}
+
 /** What a second costs at the resolution actually being asked for. */
 function rate(model: Entry, resolution: string): number {
   return model.perSecond[resolution] ?? model.perSecond[model.resolution] ??
@@ -185,6 +281,62 @@ async function call(
   return { status: response.status, body: parsed };
 }
 
+/**
+ * One picture. Separate from `submit` because almost nothing is shared: no
+ * duration, no resolution ladder, no image-to-video endpoint, and a shape
+ * field whose NAME depends on the model.
+ */
+async function makePicture(auth: Authorization, request: SubmitRequest): Promise<Submitted> {
+  const model = imageEntry(request.model);
+  const asked = typeof request.options?.aspect === "string" ? request.options.aspect : "9:16";
+  const aspect = IMAGE_SIZES[asked] ? asked : "9:16";
+
+  const input: Record<string, unknown> = { prompt: request.prompt };
+  if (model?.shape === "image_size") {
+    input.image_size = IMAGE_SIZES[aspect];
+  } else {
+    input.aspect_ratio = aspect;
+  }
+  // How many at once. ElevenLabs defaults images to four, and every one of
+  // these bills per image, so the count is the bill.
+  const howMany = Number(request.options?.count ?? 1);
+  if (Number.isFinite(howMany) && howMany > 1) input.num_images = Math.min(4, Math.round(howMany));
+
+  const reference = (request.references ?? []).find((r) => r.kind === "image" && r.url)?.url;
+  // Only the editing models take a picture to work from; the rest ignore the
+  // field, so it is not sent where it would be noise.
+  if (reference && request.model.includes("kontext")) input.image_url = reference;
+
+  const { status, body } = await call(
+    auth,
+    "POST",
+    `${QUEUE}/${request.model}${request.webhookUrl ? `?fal_webhook=${encodeURIComponent(request.webhookUrl)}` : ""}`,
+    input,
+  );
+  if (status >= 400) {
+    const verdict = falAdapter.classify(status, body);
+    throw Object.assign(new Error(verdict.detail), { status, verdict });
+  }
+  const ref = body?.request_id;
+  if (typeof ref !== "string") throw new Error("fal accepted the picture but named no request id");
+
+  const count = Math.max(1, Math.min(4, Math.round(howMany || 1)));
+  return {
+    ref,
+    statusUrl: typeof body?.status_url === "string"
+      ? body.status_url
+      : `${QUEUE}/${request.model}/requests/${ref}/status`,
+    state: "queued",
+    capability: request.capability,
+    charged: {
+      unit: "usd",
+      amount: Number(((model?.each ?? 0) * count).toFixed(4)),
+      basis: count > 1 ? `${count} images` : "1 image",
+      quoted: false,
+    },
+  };
+}
+
 export const falAdapter: Adapter = {
   slug: "fal",
 
@@ -231,10 +383,37 @@ export const falAdapter: Adapter = {
       rank: index,
     }));
 
-    return { accountLabel: "fal.ai", externalAccountId: null, models };
+    const pictures: ModelDescriptor[] = IMAGES.map((model, index) => ({
+      capability: "image_generation",
+      external_id: model.id,
+      label: model.label,
+      metadata: {
+        description: model.about,
+        cost: {
+          unit: "per_image",
+          amount: model.each,
+          basis: "per image",
+          quoted: false,
+        } satisfies Cost,
+        constraints: {
+          aspectRatios: Object.keys(IMAGE_SIZES),
+          defaults: { resolution: "9:16" },
+        },
+        frames: false,
+      },
+      rank: index,
+    }));
+
+    return { accountLabel: "fal.ai", externalAccountId: null, models: [...models, ...pictures] };
   },
 
   async submit(auth: Authorization, request: SubmitRequest): Promise<Submitted> {
+    // Pictures first: a different catalogue, a different body, and no
+    // duration at all.
+    if (request.capability === "image_generation") {
+      return await makePicture(auth, request);
+    }
+
     const model = entry(request.model);
     const length = seconds(request, model?.durations[0] ?? 5);
 
@@ -344,8 +523,13 @@ export const falAdapter: Adapter = {
       return { state: "failed", verdict: falAdapter.classify(result.status, result.body) };
     }
 
-    const video = result.body?.video ?? result.body?.videos?.[0];
-    const url = video?.url ?? result.body?.url;
+    // A video answers under `video`, a picture under `images[0]`. Asking for
+    // the wrong one is how a poster frame once passed as a finished video --
+    // so what was asked for decides what is looked for.
+    const wanted = submitted.capability === "image_generation"
+      ? (result.body?.images?.[0] ?? result.body?.image)
+      : (result.body?.video ?? result.body?.videos?.[0]);
+    const url = wanted?.url ?? result.body?.url;
     if (typeof url !== "string") {
       return {
         state: "failed",
@@ -354,7 +538,7 @@ export const falAdapter: Adapter = {
           retryable: false,
           tryAnotherModel: true,
           tryAnotherProvider: true,
-          detail: `fal reported ${state} with no video: ${JSON.stringify(result.body).slice(0, 200)}`,
+          detail: `fal reported ${state} with nothing usable: ${JSON.stringify(result.body).slice(0, 200)}`,
         },
       };
     }
@@ -362,7 +546,9 @@ export const falAdapter: Adapter = {
     return {
       state: "done",
       outputUrl: url,
-      outputMime: typeof video?.content_type === "string" ? video.content_type : "video/mp4",
+      outputMime: typeof wanted?.content_type === "string"
+        ? wanted.content_type
+        : (submitted.capability === "image_generation" ? "image/jpeg" : "video/mp4"),
     };
   },
 
@@ -372,6 +558,18 @@ export const falAdapter: Adapter = {
    * reading of their pricing page, and the picker says so.
    */
   quote(_auth: Authorization, request: SubmitRequest): Promise<Cost | null> {
+    const picture = imageEntry(request.model);
+    if (picture) {
+      const howMany = Number(request.options?.count ?? 1);
+      const count = Math.max(1, Math.min(4, Math.round(Number.isFinite(howMany) ? howMany : 1)));
+      return Promise.resolve({
+        unit: "usd",
+        amount: Number((picture.each * count).toFixed(4)),
+        basis: count > 1 ? `${count} images` : "per image",
+        quoted: false,
+      });
+    }
+
     const model = entry(request.model);
     if (!model) return Promise.resolve(null);
     const length = seconds(request, model.durations[0]);

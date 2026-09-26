@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Everything the composer is set to make, in one value.
 ///
@@ -41,6 +42,31 @@ struct GenerateChoices: Equatable {
     // shape of the thing, and these change what is said in it.
     var voiceover: Bool = true
     var captions: Bool = true
+
+    /// The first and last frame, as storage paths.
+    ///
+    /// 🔴 One each, not a pile. Abel, 26 Sep 2026: "while uploaded end and
+    /// start frame, our accepts whatever amount 😂😂😂 bit see the elevven
+    /// labs when uploaded." All three pills opened the same picker with
+    /// `maxSelectionCount: 4`, so "Start frame" could take four pictures and
+    /// none of them was the start frame in particular -- they all landed in
+    /// the same list and the model got whichever came first.
+    ///
+    /// A frame is a slot with one thing in it. Filling it again replaces what
+    /// was there, which is what the pill showing a thumbnail and an × means.
+    var startFrame: FramePick?
+    var endFrame: FramePick?
+
+    /// A picture in a frame slot: where it lives, and what to draw on the pill.
+    struct FramePick: Equatable {
+        let path: String
+        let preview: UIImage
+    }
+
+    /// Start and end, in the order an adapter reads them.
+    var frames: [String] {
+        [startFrame?.path, endFrame?.path].compactMap { $0 }
+    }
 
     var count: Int {
         get { mode == .image ? imageCount : videoCount }

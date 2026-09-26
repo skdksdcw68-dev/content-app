@@ -78,9 +78,16 @@ struct GenerateBar: View {
             }
             .onChange(of: choices.mode) { _, _ in
                 // A model chosen for video cannot make an image. Cleared
-                // rather than carried, so the bar never names something that
-                // would be refused on send.
+                // rather than carried -- and then replaced with the new
+                // kind's recommendation, because a page with no model is a
+                // page whose send button has stopped being a generate button.
                 choices.model = nil
+                Task {
+                    let models = await session.models(capability: choices.mode.capability, withPicture: false)
+                    if choices.model == nil {
+                        choices.model = models.first(where: \.recommended) ?? models.first
+                    }
+                }
             }
 
             // ✦ Which model.

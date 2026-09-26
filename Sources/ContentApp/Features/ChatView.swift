@@ -344,11 +344,17 @@ struct ChatView: View {
             send()
         }
         .task {
-            // The video page offers the account's own ideas as starting
-            // points, so they have to be there when it opens cold rather than
-            // only after Home has been looked at.
             guard makingVideo else { return }
             await session.refreshInspiration()
+            // A model from the first moment, so the send button is always a
+            // generate button and nobody is ever offered a card asking them
+            // to choose what the bar already shows. ElevenLabs opens with one
+            // selected for the same reason. The recommendation is the
+            // server's; the person changes it on the ✦ knob.
+            if choices.model == nil {
+                let models = await session.models(capability: choices.mode.capability, withPicture: false)
+                choices.model = models.first(where: \.recommended) ?? models.first
+            }
         }
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way
@@ -714,7 +720,41 @@ struct ChatView: View {
             return
         }
 
-        // The video page's choices travel with the request.
+        // 🔴 On the video page, SEND IS GENERATE.
+        //
+        // Abel, 26 Sep 2026: "if the user already chooses a model why does
+        // they need to be asked for?? justmake it as elevenlabs." And he had
+        // been through it: he named Wan 2.5 in the composer, the agent
+        // replied "Pick a model and quality, then tap Generate", and he had
+        // to say everything a second time on a card.
+        //
+        // The composer already knows the model, the length, the resolution,
+        // the sound, the frames and the count. Sending all of that to a
+        // writer so it can offer it back as a card is a conversation about a
+        // decision that has been made. So the send button submits the job
+        // itself -- the same `.generate` action the card's button sent --
+        // and the reply is the result, counting up, like the screenshots.
+        if makingVideo, action == nil, let model = choices.model, !asked.isEmpty {
+            // Frames first and in order: an adapter reads the first
+            // reference as the start frame and the second as the end.
+            guard pending.allSatisfy({ $0.path != nil }) else { return }
+            let references = choices.frames + pending.compactMap { $0.path }
+            pending = []
+            choices.startFrame = nil
+            choices.endFrame = nil
+            send(action: .generate(
+                capability: choices.mode.capability,
+                prompt: asked,
+                model: model.externalId,
+                references: references,
+                settings: choices.settings,
+                quoted: nil
+            ))
+            return
+        }
+
+        // The video page's choices travel with the request -- the path for
+        // when no model is chosen yet and the router should pick.
         if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(choices.spec)" }
         // A photo on its own is a message: it says "here, do something with
         // this", and the agent answers with what it could do.

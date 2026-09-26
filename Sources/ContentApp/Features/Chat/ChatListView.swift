@@ -7,13 +7,19 @@ struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
     let title: String
     let preview: String
     let updatedAt: Date
+    /// "chat" or "generation", so the list can say which is which and a
+    /// reopened generation comes back as the generator (Abel, 26 Sep 2026:
+    /// "on the chats list i want it to be identified as well").
+    var kind: String = "chat"
+
+    var isGeneration: Bool { kind == "generation" }
 
     var displayTitle: String {
         title.isEmpty ? "New chat" : title
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, preview
+        case id, title, preview, kind
         case updatedAt = "updated_at"
     }
 }
@@ -63,9 +69,18 @@ struct ChatListView: View {
                         ForEach(threads) { thread in
                             NavigationLink(value: AppRoute.chat(thread.id)) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(thread.displayTitle)
-                                        .font(.subheadline.weight(.medium))
-                                        .lineLimit(1)
+                                    HStack(spacing: 6) {
+                                        // Which of these made things and
+                                        // which just talked, at a glance.
+                                        if thread.isGeneration {
+                                            Image(systemName: "wand.and.stars")
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(Theme.accent)
+                                        }
+                                        Text(thread.displayTitle)
+                                            .font(.subheadline.weight(.medium))
+                                            .lineLimit(1)
+                                    }
                                     if !thread.preview.isEmpty {
                                         Text(thread.preview)
                                             .font(.caption)

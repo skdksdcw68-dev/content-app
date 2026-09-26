@@ -18,9 +18,36 @@ struct GenerateAttachments: View {
 
     enum Slot { case reference, start, end }
 
+    /// Worn when chat is generating: "Video" or "Image" as an accented chip
+    /// whose × puts the composer back to plain chat. A tag, not words in the
+    /// field (Abel, 26 Sep 2026: "let it be like a tag or a different tag not
+    /// a text actually").
+    var tag: String? = nil
+    var onClearTag: () -> Void = {}
+
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                if let tag {
+                    HStack(spacing: 6) {
+                        Image(systemName: tag == "Image" ? "photo" : "video")
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(tag)
+                            .font(.subheadline.weight(.semibold))
+                        Button(action: onClearTag) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .semibold))
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Back to chat")
+                    }
+                    .foregroundStyle(Theme.onAccent)
+                    .padding(.horizontal, 12)
+                    .frame(height: 34)
+                    .background(Theme.accent, in: Capsule())
+                }
+
                 Pill(title: "Image", picture: nil) { attach(.reference) } clear: {}
 
                 if BuiltInModels.takesFrames(choices.model) {

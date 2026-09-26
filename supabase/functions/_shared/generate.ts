@@ -299,8 +299,55 @@ export async function finishJob(
   }
 
   if (result.status !== "completed") {
-    // nsfw is terminal and distinct: retrying the same prompt fails the same
-    // way and charges again for the privilege.
+    // 🔴 One model's refusal is not a verdict on the prompt.
+    //
+    // 26 Sep 2026: Kling refused "a pair of symmetrical shoes side-by-side
+    // under bright clean light" and "a laptop with a project management tool
+    // open". Nothing in either sentence is unsafe -- its filter over-fires on
+    // structured prompts -- and the old code declared them rejected_nsfw and
+    // stopped, while Wan sat one rung down making the same prompts without
+    // comment. Abel watched that happen twice in a night and called it what
+    // it felt like: the generation is failing.
+    //
+    // So a refusal gets ONE retry, same prompt, anywhere but the model that
+    // refused. If the second model refuses too, then it really is the prompt,
+    // and THAT is terminal -- retrying a twice-refused prompt charges again
+    // for the same answer.
+    const refusedOnce = result.status === "nsfw"
+      && (job.input as { retried_refusal?: boolean } | null)?.retried_refusal !== true;
+    if (refusedOnce) {
+      try {
+        const input = (job.input ?? {}) as Record<string, unknown>;
+        // No webhook on the retry: the loaded job row does not carry its
+        // token, and polling is the path that guarantees completion anyway.
+        const routed = await routeSubmit(admin, {
+          userId: job.user_id,
+          capability: "video_generation",
+          prompt: String(input.prompt ?? ""),
+          options: (input.options as Record<string, unknown> | undefined),
+          avoidModel: typeof input.model === "string" ? input.model : undefined,
+        });
+        await admin
+          .from("generation_jobs")
+          .update({
+            status: "submitted",
+            provider: routed.providerSlug,
+            credential_id: routed.connectionId,
+            provider_request_id: routed.submitted.ref,
+            status_url: routed.submitted.statusUrl ?? null,
+            submitted_at: new Date().toISOString(),
+            poll_after: new Date(Date.now() + 30_000).toISOString(),
+            input: { ...input, model: routed.model, model_label: routed.modelLabel, retried_refusal: true },
+            error: null,
+          })
+          .eq("id", job.id);
+        return { state: "waiting" };
+      } catch (thrown) {
+        // Nowhere else to go: fall through and record the refusal honestly.
+        console.error("refusal retry could not be placed", thrown);
+      }
+    }
+
     const status = result.status === "nsfw" ? "rejected_nsfw" : "failed";
     const reason = result.status === "nsfw"
       ? "The generator refused that prompt. Edit what the video should show and try again."

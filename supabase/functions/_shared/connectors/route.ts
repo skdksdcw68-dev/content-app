@@ -193,10 +193,19 @@ export async function routeSubmit(
     options?: Record<string, unknown>;
     webhookUrl?: string;
     preferModel?: string;
+    /** A model that already refused this prompt, so the retry goes anywhere
+     *  but there. Kling refused "a pair of shoes side-by-side under bright
+     *  clean light" on 26 Sep; Wan made it without comment. One filter's
+     *  opinion is not a verdict on the prompt. */
+    avoidModel?: string;
     references?: SubmitRequest["references"];
   },
 ): Promise<RoutedSubmission> {
-  const everything = await candidatesFor(admin, args.userId, args.capability);
+  let everything = await candidatesFor(admin, args.userId, args.capability);
+  if (args.avoidModel) {
+    const rest = everything.filter((c) => c.externalId !== args.avoidModel);
+    if (rest.length > 0) everything = rest;
+  }
   // The ladder only climbs models that can do this request -- a background
   // remover is not a fallback for "make an image". Unfiltered if the filter
   // would empty it, for the same reason as in `choicesFor`.

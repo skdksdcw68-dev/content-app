@@ -47,6 +47,13 @@ struct ChatView: View {
     /// flags, because the bar, the settings sheet and the model picker all
     /// read and write the same choices.
     @State private var choices = GenerateChoices()
+    /// Chat wearing the generator as a tag: Video or Image chosen from the
+    /// plus sheet. Nil is plain chat. The dedicated page sets makingVideo
+    /// instead; isGenerating is the one question everything else asks.
+    @State private var creating: GenerateChoices.Mode?
+    /// A generation thread reopened from the chats list, where the route
+    /// cannot say so. Read off the thread itself on restore.
+    @State private var reopenedGeneration = false
     @State private var planning = false
     @State private var proposed: PlanProposal?
     @State private var showingPlan = false
@@ -157,7 +164,7 @@ struct ChatView: View {
                     // keeps its bubbles; the generator draws the ElevenLabs
                     // feed -- kind, prompt, result, newest on top, no
                     // narration (Abel, 26 Sep 2026: "yes i said.").
-                    if makingVideo && !turns.isEmpty {
+                    if (makingVideo || reopenedGeneration) && !turns.isEmpty {
                         GenerationFeed(
                             turns: turns,
                             onCopy: { prompt in
@@ -326,9 +333,9 @@ struct ChatView: View {
                         attachments: pending,
                         // Abel, 25 Sep 2026: "keep the page very clean sir
                         // please like whats the video about or something."
-                        placeholder: makingVideo ? "What's the video about?" : "Ask Autocast",
-                        accessory: makingVideo ? AnyView(videoAttachments) : nil,
-                        footer: makingVideo ? AnyView(videoControls) : nil,
+                        placeholder: isGenerating ? (choices.mode == .image ? "What's the image about?" : "What's the video about?") : "Ask Autocast",
+                        accessory: isGenerating ? AnyView(videoAttachments) : nil,
+                        footer: isGenerating ? AnyView(videoControls) : nil,
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
@@ -347,6 +354,18 @@ struct ChatView: View {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
             restoring = true
+            // What this thread IS comes back with it. The route that opened
+            // it says nothing: from the chats list every thread arrives as
+            // `.chat(id)`, and a generation reopened that way was losing its
+            // feed, its bar and its send button's whole meaning.
+            if await session.threadKind(threadId) == "generation" {
+                reopenedGeneration = true
+                choices.mode = .video
+                if choices.model == nil {
+                    let models = await session.models(capability: choices.mode.capability, withPicture: false)
+                    choices.model = models.first(where: \.recommended) ?? models.first
+                }
+            }
             turns = await session.messages(in: threadId)
             restoring = false
         }
@@ -415,6 +434,21 @@ struct ChatView: View {
             ChatOptionsSheet(makingVideo: makingVideo) { action in
                 showsOptions = false
                 switch action {
+                case .create(let mode):
+                    // A tag, not text. The composer flips into the generator
+                    // -- pills above, the bar below, send submits the job --
+                    // and the × on the tag flips it back to plain chat.
+                    creating = mode
+                    choices.mode = mode
+                    choices.model = nil
+                    composerFocus += 1
+                    Task {
+                        let models = await session.models(capability: mode.capability, withPicture: false)
+                        if choices.model == nil {
+                            choices.model = models.first(where: \.recommended) ?? models.first
+                        }
+                    }
+
                 case .planMonth:
                     planning = true
 
@@ -517,7 +551,7 @@ struct ChatView: View {
                 // all -- the output takes the picture's shape. Abel's first
                 // real video came back 1328x694 from a landscape photo, and
                 // nothing in the composer could have changed that.
-                let image = makingVideo ? VerticalFit.padded(picked) : picked
+                let image = isGenerating ? VerticalFit.padded(picked) : picked
                 guard let jpeg = Self.shrunk(image) else { return }
 
                 let entry = PendingAttachment(
@@ -694,6 +728,8 @@ struct ChatView: View {
     ///
     /// Abel, 25 Sep 2026, with fifteen screenshots: "i want it to match the
     /// exact eleven labs thing, that makes more sense and looks so good."
+    private var isGenerating: Bool { makingVideo || reopenedGeneration || creating != nil }
+
     private var videoControls: some View {
         GenerateBar(choices: $choices, request: draft)
     }
@@ -701,7 +737,11 @@ struct ChatView: View {
     /// What you are giving it, above the field: a picture to work from, and
     /// the first and last frame when the chosen model takes them.
     private var videoAttachments: some View {
-        GenerateAttachments(choices: $choices) { slot in
+        GenerateAttachments(
+            choices: $choices,
+            tag: creating.map { $0 == .image ? "Image" : "Video" },
+            onClearTag: { creating = nil }
+        ) { slot in
             // Which slot is being filled decides how many pictures the picker
             // will take, and where the one that comes back is put.
             fillingSlot = slot
@@ -756,7 +796,7 @@ struct ChatView: View {
         // decision that has been made. So the send button submits the job
         // itself -- the same `.generate` action the card's button sent --
         // and the reply is the result, counting up, like the screenshots.
-        if makingVideo, action == nil, let model = choices.model, !asked.isEmpty {
+        if isGenerating, action == nil, let model = choices.model, !asked.isEmpty {
             // Frames first and in order: an adapter reads the first
             // reference as the start frame and the second as the end.
             guard pending.allSatisfy({ $0.path != nil }) else { return }
@@ -856,6 +896,12 @@ struct ChatView: View {
                         turns[replyIndex].chosenModel = choice.label
                     case .thread(let id):
                         thread = id
+                        // A thread born on the generator is marked as one, so
+                        // reopening it from the list comes back as the
+                        // generator and not as plain chat (Abel, 26 Sep 2026).
+                        if isGenerating {
+                            Task { await session.markThreadGeneration(id) }
+                        }
                     case .questions(let asked, let request, let days):
                         turns[replyIndex].questionRequest = request
                         turns[replyIndex].questionDays = days

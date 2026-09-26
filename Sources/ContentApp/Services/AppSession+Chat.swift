@@ -26,6 +26,23 @@ extension AppSession {
     /// should not show where last week's ad for another one was made. Threads
     /// from before brands were carried still appear, because hiding somebody's
     /// history to introduce a feature is not a trade worth making.
+    /// Marks a thread as a generation thread, once, forward-only. Quiet on
+    /// failure: the worst outcome is the thread reopening as chat, which is
+    /// the bug this exists to fix, not a new one.
+    func markThreadGeneration(_ id: UUID) async {
+        struct Params: Encodable, Sendable { let p_thread: String }
+        _ = try? await client
+            .rpc("mark_thread_generation", params: Params(p_thread: id.uuidString))
+            .execute()
+    }
+
+    /// What a thread is -- "chat" or "generation" -- read from the same list
+    /// the chats screen shows. Nil when it cannot be read, and the caller
+    /// falls back to chat, which draws everything correctly if plainly.
+    func threadKind(_ id: UUID) async -> String? {
+        await threads().first(where: { $0.id == id })?.kind
+    }
+
     func threads() async -> [ChatThread] {
         struct Params: Encodable { let p_limit: Int; let p_brand: String? }
         do {

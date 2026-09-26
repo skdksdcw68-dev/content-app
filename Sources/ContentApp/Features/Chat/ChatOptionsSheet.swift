@@ -12,6 +12,10 @@ import SwiftUI
 /// actually do instead of a checkmark.
 struct ChatOptionsSheet: View {
     enum Action {
+        /// Flip the composer into the generator, worn as a tag -- not words
+        /// typed into the field (Abel, 26 Sep 2026: "let it be like a tag or
+        /// a different tag not a text actually").
+        case create(GenerateChoices.Mode)
         case planMonth
         case ask(String)
         case attachPhoto
@@ -34,96 +38,66 @@ struct ChatOptionsSheet: View {
     let onPick: (Action) -> Void
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section("Create") {
-                    // Both end in a space: they want the rest typed -- what
-                    // the video is of -- rather than sending a request with
-                    // nothing in it to make.
-                    Row(
-                        symbol: "video",
-                        title: "Make a video",
-                        detail: makeDetail(for: "video_generation")
-                    ) { onPick(.ask("Make a video of ")) }
+        // 🔴 Remi's plus sheet, brought across on its owner's own instruction.
+        // Abel, 26 Sep 2026: "the + isnt as remi app side admin panel chat am
+        // sure, brother it looks bad."
+        //
+        // What Remi's gets right and a grouped List got wrong: it is a
+        // LAUNCHER, not a settings page. Two big tiles for the two things
+        // somebody actually came for, one quiet card of rows under them, and
+        // the conversation still visible above the sheet. No navigation bar,
+        // no section headers, no full screen.
+        VStack(spacing: 16) {
+            HStack(spacing: 12) {
+                tile(symbol: "video", title: "Video") { onPick(.create(.video)) }
+                tile(symbol: "photo", title: "Image") { onPick(.create(.image)) }
+            }
 
-                    Row(
-                        symbol: "photo",
-                        title: "Make an image",
-                        detail: makeDetail(for: "image_generation")
-                    ) { onPick(.ask("Make an image of ")) }
+            VStack(spacing: 0) {
+                row(symbol: "paperclip", title: "Attach a photo",
+                    detail: "Use it as a reference, or ask about it") { onPick(.attachPhoto) }
+                Divider().padding(.leading, 62)
+                row(symbol: "calendar", title: "Plan 30 days",
+                    detail: "Writes and schedules a month at once") { onPick(.planMonth) }
+                Divider().padding(.leading, 62)
+                row(symbol: "magnifyingglass", title: "Look into something",
+                    detail: "Keeps working after you close the app") { onPick(.ask("Research ")) }
+                Divider().padding(.leading, 62)
+                row(symbol: "chart.line.uptrend.xyaxis", title: "What's working",
+                    detail: "Reads your own numbers back") { onPick(.ask("What's working in my recent posts?")) }
+            }
+            .background(Color.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
 
-                    Row(
-                        symbol: "paperclip",
-                        title: "Attach a photo",
-                        detail: "Use it as a reference, or ask about it"
-                    ) { onPick(.attachPhoto) }
-
-                    if !makingVideo {
-                        Row(
-                            symbol: "calendar",
-                            title: "Plan 30 days",
-                            detail: "Writes and schedules a month at once"
-                        ) { onPick(.planMonth) }
-                    }
-                }
-
-                if !makingVideo {
-                Section("Research") {
-                    Row(
-                        symbol: "magnifyingglass",
-                        title: "Look into something",
-                        detail: "Keeps working after you close the app"
-                    ) { onPick(.ask("Research ")) }
-
-                    Row(
-                        symbol: "chart.line.uptrend.xyaxis",
-                        title: "What's working",
-                        detail: "Reads your own numbers back"
-                    ) { onPick(.ask("What's working in my recent posts?")) }
-                }
-                }
-
-                Section {
+            // The generators, one row each, still one tap from here -- the
+            // choices dialog is unchanged underneath.
+            if !session.connectedProviders.isEmpty || !session.connectable.isEmpty {
+                VStack(spacing: 0) {
                     ForEach(session.connectedProviders) { provider in
-                        // A tap opens the choices rather than doing one of
-                        // them. It used to re-ask the provider silently, which
-                        // left no way to disconnect from here at all.
                         ConnectedRow(provider: provider) { choosing = provider }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        if provider.id != session.connectedProviders.last?.id || !session.connectable.isEmpty {
+                            Divider().padding(.leading, 62)
+                        }
                     }
-
                     ForEach(session.connectable) { provider in
-                        Row(
-                            symbol: "person.crop.circle.badge.plus",
-                            title: provider.action,
-                            detail: provider.how
-                        ) { onPick(.connect(provider.slug)) }
+                        row(symbol: "person.crop.circle.badge.plus",
+                            title: provider.action, detail: provider.how) { onPick(.connect(provider.slug)) }
                     }
-
-                    if session.connectedProviders.isEmpty && session.connectable.isEmpty {
-                        Text("Nothing to connect yet.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } header: {
-                    Text("Connections")
-                } footer: {
-                    Text("Signing in keeps the key on our side — Autocast never stores it on your phone.")
                 }
+                .background(Color.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
 
-            }
-            // Denser than a default List on purpose. This sheet is a launcher:
-            // somebody opens it, taps one thing, and it goes. Default row
-            // height and section spacing made it a full-screen page, which is
-            // why it opened covering the conversation it was launched from.
-            .listSectionSpacing(.compact)
-            .environment(\.defaultMinListRowHeight, 40)
-            .navigationTitle("Add")
-            .navigationBarTitleDisplayMode(.inline)
-            .task {
-                await session.refreshConnectedProviders()
-                await session.refreshConnectable()
-            }
-            .confirmationDialog(
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Style.gutter)
+        .padding(.top, 20)
+        .background(Color.canvas.ignoresSafeArea())
+        .task {
+            await session.refreshConnectedProviders()
+            await session.refreshConnectable()
+        }
+        .confirmationDialog(
                 choosing?.providerName ?? "",
                 isPresented: Binding(get: { choosing != nil }, set: { if !$0 { choosing = nil } }),
                 titleVisibility: .visible,
@@ -136,16 +110,65 @@ struct ChatOptionsSheet: View {
                     onPick(.reconnect(provider))
                 }
                 Button("Disconnect", role: .destructive) { onPick(.disconnect(provider)) }
-            } message: { provider in
-                Text("\(provider.door) · \(provider.summary)")
-            }
+        } message: { provider in
+            Text("\(provider.door) · \(provider.summary)")
         }
-        // Opens at a compact height with the conversation still visible above
-        // it, and pulls up to full when there is more to scroll. The sheet had
-        // no detents at all before, so it always opened full-screen.
-        .presentationDetents([.height(540), .large])
+        // Remi's height: the two tiles, the rows, and the conversation still
+        // in view above it. Pulls to full only when the generator list needs
+        // the room.
+        .presentationDetents([.height(470), .large])
         .presentationDragIndicator(.visible)
-        .presentationCornerRadius(24)
+        .presentationCornerRadius(28)
+    }
+
+    private func tile(symbol: String, title: String, tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            VStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(Color.primary)
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.primary)
+            }
+            .frame(maxWidth: .infinity, minHeight: 104)
+            .background(Color.raised, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .buttonStyle(SoftPressStyle())
+    }
+
+    private func row(symbol: String, title: String, detail: String, tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(Color.primary.opacity(0.06))
+                    Image(systemName: symbol)
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color.primary)
+                }
+                .frame(width: 38, height: 38)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color.primary)
+                    Text(detail)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SoftPressStyle())
     }
 
     /// Says what making one would actually use, so somebody is not offered a

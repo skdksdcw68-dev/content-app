@@ -13,8 +13,11 @@ struct GenerateSettingsSheet: View {
     @Binding var choices: GenerateChoices
     let request: String
 
+    @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var showingModels = false
+    /// This month's allowance, read once when the sheet opens.
+    @State private var standing: [QuotaStanding] = []
 
     /// What a model can actually make. Every fal model caps at ten seconds
     /// and Veo at eight, so the old 5-to-180 stepper offered 175 seconds that
@@ -100,6 +103,25 @@ struct GenerateSettingsSheet: View {
                 } footer: {
                     Text("What it should keep out of the shot.")
                 }
+
+                // How far this month goes. Abel, 26 Sep 2026: "the credits
+                // how far they can go" -- the same counters the server
+                // refuses from, read without spending.
+                if !standing.isEmpty {
+                    Section {
+                        ForEach(standing, id: \.kind) { row in
+                            HStack {
+                                Text(row.kind == "video_gen" ? "Videos" : "Images")
+                                Spacer()
+                                Text(row.limitValue == 0 ? "With Pro" : "\(row.left) of \(row.limitValue) left")
+                                    .foregroundStyle(.secondary)
+                                    .monospacedDigit()
+                            }
+                        }
+                    } header: {
+                        Text("This month")
+                    }
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -128,5 +150,6 @@ struct GenerateSettingsSheet: View {
             }
         }
         .presentationDetents([.large])
+        .task { standing = await session.quotaStanding() }
     }
 }

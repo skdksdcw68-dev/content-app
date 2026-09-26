@@ -48,6 +48,8 @@ struct NewPlanSheet: View {
 
     @State private var focus: PlanFocus?
     @State private var days = 30
+    /// This month's allowance, so the review can say what the plan draws on.
+    @State private var standing: [QuotaStanding] = []
     @State private var postsPerDay = 1
     /// Where the posts go. Asked in the plan, not assumed (Abel, 23 Sep 2026:
     /// "make sure to ask the user where to post right after the plan").
@@ -186,6 +188,7 @@ struct NewPlanSheet: View {
             .interactiveDismissDisabled(session.isPlanning)
             .task {
                 await session.refreshFacts()
+                standing = await session.quotaStanding()
                 // Start on the longest plan this account can write.
                 if days > maxDays { days = maxDays }
             }
@@ -457,6 +460,31 @@ struct NewPlanSheet: View {
                 }
                 if !typedBrief.isEmpty {
                     PlanSummaryRow(symbol: "text.alignleft", label: "About", value: typedBrief)
+                }
+
+                // 🔴 What this month of posts DRAWS ON, said before the button
+                // rather than discovered when post thirty-one refuses. Abel,
+                // 26 Sep 2026: "why does the user is not allowed to see the
+                // costs... plans also cost credits btw." Every post here is a
+                // video the month's allowance pays for.
+                if let videos = standing.first(where: { $0.kind == "video_gen" }) {
+                    PlanSummaryRow(
+                        symbol: "film",
+                        label: "Uses",
+                        value: "\(total) of your \(videos.left) videos left this month"
+                    )
+                    if total > videos.left {
+                        Label(
+                            videos.limitValue == 0
+                                ? "Your plan doesn't include videos yet. Autocast Pro adds them."
+                                : "That's more than this month has left. The last \(total - videos.left) will wait for next month.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                    }
                 }
 
                 if let existing = session.plan, existing.isProposal {

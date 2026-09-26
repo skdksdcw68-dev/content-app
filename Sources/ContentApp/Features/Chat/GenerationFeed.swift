@@ -1,0 +1,208 @@
+import SwiftUI
+
+/// The generator's history, drawn the way ElevenLabs draws theirs.
+///
+/// Abel, 26 Sep 2026, on being asked whether the video page should keep chat's
+/// bubbles or match his screenshots exactly: "yes i said."
+///
+/// So: no bubbles. Each generation is a block — the KIND in small grey, a
+/// copy-back and a retry control on the right, the prompt in plain ink with
+/// its frame chips beside it, and the result underneath. Newest at the top,
+/// which is where his screenshots put it: the thing counting up is the thing
+/// you are waiting for, and it should not be under a keyboard's worth of
+/// history.
+///
+/// The agent's own sentences ("Making Hi.") are not drawn. The block's shape
+/// says all of that — a placeholder counting up IS "making it". The one
+/// assistant text that survives is a failure, because an error nobody can see
+/// is a generation that silently never arrived, which this project has had
+/// enough of.
+struct GenerationFeed: View {
+    let turns: [ChatMessage]
+    /// Puts the prompt back in the composer for editing.
+    let onCopy: (String) -> Void
+    /// Runs the same prompt again with the composer's current choices.
+    let onRetry: (String) -> Void
+
+    @Environment(AppSession.self) private var session
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 28) {
+            ForEach(entries.reversed()) { entry in
+                block(entry)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    // MARK: - One generation
+
+    @ViewBuilder
+    private func block(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 18) {
+                Text(entry.kind)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button { onCopy(entry.prompt) } label: {
+                    Image(systemName: "character.cursor.ibeam")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit this prompt")
+                Button { onRetry(entry.prompt) } label: {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Make it again")
+            }
+
+            HStack(alignment: .center, spacing: 8) {
+                // The frames it was given, as small chips before the words,
+                // exactly where the screenshots put them.
+                ForEach(entry.attachments.prefix(3), id: \.self) { path in
+                    AttachmentChip(path: path)
+                }
+                Text(entry.prompt)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let artifactId = entry.artifactId {
+                ArtifactCard(
+                    artifactId: artifactId,
+                    expect: (entry.artifactKind, entry.width, entry.height)
+                )
+                .padding(.top, 6)
+            } else if entry.pending {
+                // Counting, in an empty 9:16 card about half the screen wide
+                // -- the number and nothing else.
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.surface)
+                    .frame(width: 200, height: 356)
+                    .overlay { MakingSheen() }
+                    .overlay { MakingProgress(expected: MakingProgress.expected(for: entry.expectedKind)) }
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(.top, 6)
+            } else if let failure = entry.failure {
+                Label(failure, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
+        }
+    }
+
+    /// A small round thumbnail of an attached picture.
+    private struct AttachmentChip: View {
+        let path: String
+        @Environment(AppSession.self) private var session
+        @State private var image: UIImage?
+
+        var body: some View {
+            Group {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                } else {
+                    Color.track
+                }
+            }
+            .frame(width: 26, height: 26)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .task(id: path) {
+                if image == nil { image = await session.attachmentThumbnail(path, longest: 64) }
+            }
+        }
+    }
+
+    // MARK: - Reading the transcript
+
+    struct Entry: Identifiable {
+        let id: UUID
+        var prompt: String
+        var attachments: [String]
+        var artifactId: UUID?
+        var artifactKind: String?
+        var width: Int?
+        var height: Int?
+        var pending = false
+        var failure: String?
+        var expectedKind: String?
+
+        var kind: String {
+            switch artifactKind ?? expectedKind {
+            case "image": "Image"
+            case "audio": "Audio"
+            default: "Video"
+            }
+        }
+    }
+
+    /// The transcript folded into generations: each of the person's turns,
+    /// with whatever the turns after it produced. The writer's prose is
+    /// dropped — the one sentence kept is the last one of an attempt that
+    /// produced nothing, which is the error.
+    private var entries: [Entry] {
+        var out: [Entry] = []
+        for turn in turns {
+            switch turn.role {
+            case .user:
+                out.append(Entry(
+                    id: turn.id,
+                    prompt: Self.stripped(turn.text),
+                    attachments: turn.attachments
+                ))
+            case .assistant:
+                guard var current = out.last else { continue }
+                if let made = turn.artifactId {
+                    current.artifactId = made
+                    current.artifactKind = turn.artifactKind
+                    current.width = turn.artifactWidth
+                    current.height = turn.artifactHeight
+                    current.pending = false
+                    current.failure = nil
+                } else if turn.isPending {
+                    current.pending = true
+                    current.expectedKind = turn.artifactKind ?? current.expectedKind
+                } else if turn.failed || !turn.text.isEmpty {
+                    // Kept only while nothing has arrived; replaced by the
+                    // result when one does. "Making Hi." never survives a
+                    // finished video, and an error never disappears under one
+                    // that did not come.
+                    if current.artifactId == nil {
+                        current.pending = false
+                        current.failure = turn.failed || !Self.isChatter(turn.text) ? turn.text : nil
+                    }
+                }
+                out[out.count - 1] = current
+            }
+        }
+        return out
+    }
+
+    /// The composer's old habit of appending "(5 seconds, 9:16, ...)" to the
+    /// prompt. Not drawn: the person wrote the words before the bracket.
+    private static func stripped(_ text: String) -> String {
+        guard let opening = text.range(of: "\n(", options: .backwards),
+              text.hasSuffix(")") else { return text }
+        return String(text[..<opening.lowerBound])
+    }
+
+    /// The writer narrating ("Making a reaction video."), as opposed to
+    /// telling somebody something went wrong. Narration starts with what it
+    /// is doing; errors talk about the person's account, credits or
+    /// connections — kept, because hiding those is how three weeks were lost.
+    private static func isChatter(_ text: String) -> Bool {
+        let lowered = text.lowercased()
+        return lowered.hasPrefix("making ") || lowered.hasPrefix("sure")
+            || lowered.hasPrefix("ready to make") || lowered.hasPrefix("here's your")
+            || lowered.hasPrefix("glad you")
+    }
+}

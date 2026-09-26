@@ -153,6 +153,27 @@ struct ChatView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
+                    // 🔴 Two different pages share this scroll view now. Chat
+                    // keeps its bubbles; the generator draws the ElevenLabs
+                    // feed -- kind, prompt, result, newest on top, no
+                    // narration (Abel, 26 Sep 2026: "yes i said.").
+                    if makingVideo && !turns.isEmpty {
+                        GenerationFeed(
+                            turns: turns,
+                            onCopy: { prompt in
+                                draft = prompt
+                                composerFocus += 1
+                            },
+                            onRetry: { prompt in
+                                draft = prompt
+                                send()
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 24)
+                        .animation(.easeOut(duration: 0.18), value: turns.count)
+                    } else {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(turns) { turn in
                             turnView(turn)
@@ -181,6 +202,7 @@ struct ChatView: View {
                     // nothing.
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                         if pinned != nil { stackHeight = height }
+                    }
                     }
 
                     Color.clear

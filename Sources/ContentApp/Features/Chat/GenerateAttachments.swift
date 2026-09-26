@@ -13,10 +13,6 @@ import SwiftUI
 /// as "Your name or logo" asking for neither.
 struct GenerateAttachments: View {
     @Binding var choices: GenerateChoices
-    /// Opens the photo picker. Which slot it fills is set first.
-    let attach: (Slot) -> Void
-
-    enum Slot { case reference, start, end }
 
     /// Worn when chat is generating: "Video" or "Image" as an accented chip
     /// whose × puts the composer back to plain chat. A tag, not words in the
@@ -24,6 +20,12 @@ struct GenerateAttachments: View {
     /// a text actually").
     var tag: String? = nil
     var onClearTag: () -> Void = {}
+
+    /// Opens the photo picker. Which slot it fills is set first. Declared
+    /// last so a call site can hand it as the trailing closure.
+    let attach: (Slot) -> Void
+
+    enum Slot { case reference, start, end }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {

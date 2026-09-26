@@ -38,16 +38,33 @@ extension OnboardingQuestion {
     /// answer lands in brands.profile exactly as the Brand page saves it, so
     /// the two never disagree (Abel, 19 Sep 2026: "selections and questions,
     /// like onboarding").
+    /// 🔴 Four, not twelve. Abel, 26 Sep 2026: "our onboarding at the first is
+    /// so much annoying right?? so now dont delete it but hide some of them."
+    ///
+    /// It went six → twelve on 23 Sep because a series needs the rhythm, the
+    /// platforms, the length and the rest before it can plan a month. All
+    /// true, and all of it still asked -- just not in the first ninety seconds
+    /// of somebody's first ever visit, before they have seen one video.
+    ///
+    /// NOTHING IS DELETED. Every one of the twelve is on the Brand page
+    /// already, where `BrandQuestions` defines them and where this list reads
+    /// them from; that page is where depth belongs and always was. These four
+    /// are the ones with no sensible default: what you sell, what kind of
+    /// videos, where they go, and whether you are on camera. The rest the
+    /// planner can start from a default and the person can correct.
+    ///
+    /// `later` is the remainder, kept beside this so it is obvious they are
+    /// two halves of one list rather than a list and some orphans.
     static var all: [OnboardingQuestion] {
-        // Twelve now, not six: a series needs the rhythm, the platforms,
-        // the length, whether they are on camera and what to leave out
-        // before it can plan a month (Abel, 23 Sep 2026). Anyone who
-        // answered the original six still counts as done -- see
-        // `Brand.answeredOnboarding`, which asks for half.
-        [BrandQuestions.category, BrandQuestions.goal, BrandQuestions.audience,
-         BrandQuestions.platforms, BrandQuestions.styles, BrandQuestions.formats,
-         BrandQuestions.length, BrandQuestions.cadence, BrandQuestions.camera,
-         BrandQuestions.voice, BrandQuestions.cta, BrandQuestions.avoid]
+        [BrandQuestions.category, BrandQuestions.styles,
+         BrandQuestions.platforms, BrandQuestions.camera]
+    }
+
+    /// Asked on the Brand page instead of in the doorway.
+    static var later: [OnboardingQuestion] {
+        [BrandQuestions.goal, BrandQuestions.audience, BrandQuestions.formats,
+         BrandQuestions.length, BrandQuestions.cadence, BrandQuestions.voice,
+         BrandQuestions.cta, BrandQuestions.avoid]
     }
 
     /// Writes `brands.niche`. The reference calls this "What did you build?"

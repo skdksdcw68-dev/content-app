@@ -63,6 +63,9 @@ struct ChatView: View {
     @State private var pending: [PendingAttachment] = []
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showsPhotoPicker = false
+    /// Which pill opened the picker, so one picture lands where it was asked
+    /// for rather than in the general pile.
+    @State private var fillingSlot: GenerateAttachments.Slot = .reference
     /// Set when "Attach a photo" is picked, and acted on once the plus sheet
     /// has finished closing -- a picker presented during the dismissal is
     /// dropped, and the button then looks broken.
@@ -214,19 +217,21 @@ struct ChatView: View {
                     .padding(.top, 16)
                     .transition(.opacity)
                 } else if showsWordmark {
-                    // The greeting alone is right for chat and wrong here.
-                    // This page's only job is one video, and it was showing
-                    // "Good afternoon, Abel" over an empty screen (Abel,
-                    // 25 Sep 2026: "this is what the video thing looks like").
-                    Group {
-                        if makingVideo {
-                            EmptyVideoStart { draft = $0 }
-                        } else {
-                            EmptyChat(name: session.displayName ?? session.brand?.name)
-                        }
-                    }
-                    .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
-                    .transition(.opacity)
+                    // 🔴 One greeting, both pages. Abel, 26 Sep 2026: "why
+                    // does the clean page have that one 3 question ideas +
+                    // make a video thing?? i want it to be very clean as the
+                    // normal chat."
+                    //
+                    // Yesterday the video page got a heading, a subtitle and
+                    // three tappable starters, on the grounds that a bare
+                    // greeting told nobody what to write. It told them at the
+                    // cost of a screenful of furniture, on a page whose only
+                    // job is to hold one sentence somebody is about to type.
+                    // The composer already says "What's the video about?"
+                    // an inch below, which was always the better place for it.
+                    EmptyChat(name: session.displayName ?? session.brand?.name)
+                        .padding(.bottom, barHeight + KeyboardBarController.keyboardGap)
+                        .transition(.opacity)
                 }
             }
             .animation(.easeOut(duration: 0.3), value: showsWordmark)
@@ -436,10 +441,19 @@ struct ChatView: View {
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
         }
+        // 🔴 One picture for a frame slot, up to four otherwise. Abel, 26 Sep
+        // 2026: "while uploaded end and start frame, our accepts whatever
+        // amount 😂😂😂 bit see the elevven labs when uploaded."
+        //
+        // All three pills opened this one picker at four apiece, so "Start
+        // frame" could take four pictures and none of them was the start
+        // frame in particular -- they all landed in the same list and the
+        // model got whichever came first. A frame is a slot with one thing in
+        // it, and `fillingSlot` says which slot is being filled.
         .photosPicker(
             isPresented: $showsPhotoPicker,
             selection: $photoItems,
-            maxSelectionCount: 4,
+            maxSelectionCount: fillingSlot == .reference ? 4 : 1,
             matching: .images
         )
         .onChange(of: photoItems) { _, items in attach(items) }
@@ -452,6 +466,15 @@ struct ChatView: View {
     private func attach(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
         photoItems = []
+
+        // A frame slot takes exactly one, and picking again replaces what was
+        // there rather than adding to a pile.
+        if fillingSlot != .reference, let item = items.first {
+            let slot = fillingSlot
+            fillingSlot = .reference
+            Task { await fill(slot, from: item) }
+            return
+        }
 
         for item in items.prefix(max(0, 4 - pending.count)) {
             Task {
@@ -650,12 +673,30 @@ struct ChatView: View {
     /// What you are giving it, above the field: a picture to work from, and
     /// the first and last frame when the chosen model takes them.
     private var videoAttachments: some View {
-        GenerateAttachments(choices: $choices) { _ in
-            // All three fill from the photo library. Which slot a picture
-            // lands in is the agent's to read from the request; the pill is
-            // there so somebody can see what the model will accept before
-            // they tap, which a bare plus never showed.
+        GenerateAttachments(choices: $choices) { slot in
+            // Which slot is being filled decides how many pictures the picker
+            // will take, and where the one that comes back is put.
+            fillingSlot = slot
             showsPhotoPicker = true
+        }
+    }
+
+    /// One picture into a frame slot: shrunk, made vertical, uploaded, and
+    /// shown on its own pill.
+    private func fill(_ slot: GenerateAttachments.Slot, from item: PhotosPickerItem) async {
+        guard let data = try? await item.loadTransferable(type: Data.self),
+              let picked = UIImage(data: data) else { return }
+        let image = VerticalFit.padded(picked)
+        guard let jpeg = Self.shrunk(image) else { return }
+        guard let path = await session.uploadAttachment(jpeg) else {
+            say("That picture didn't upload. Try it again.")
+            return
+        }
+        let pick = GenerateChoices.FramePick(path: path, preview: image)
+        switch slot {
+        case .start: choices.startFrame = pick
+        case .end:   choices.endFrame = pick
+        case .reference: break
         }
     }
 
@@ -683,8 +724,15 @@ struct ChatView: View {
         // every picture, and a button-driven action carries none.
         guard action != nil || pending.allSatisfy({ $0.path != nil }) else { return }
 
-        let attached = action == nil ? pending.compactMap { $0.path } : []
-        if action == nil { pending = [] }
+        // The frames go FIRST and in order, because an adapter reads the
+        // first reference as the start frame and the second as the end. A
+        // general picture attached alongside follows them.
+        let attached = action == nil ? choices.frames + pending.compactMap { $0.path } : []
+        if action == nil {
+            pending = []
+            choices.startFrame = nil
+            choices.endFrame = nil
+        }
 
         dismissKeyboard()
         var mine = ChatMessage.user(asked)
@@ -1040,128 +1088,6 @@ struct ChatView: View {
 // MARK: - The empty page
 
 /// The name, and a few things worth asking, centred above the bar.
-/// The video page before anything is typed into it.
-///
-/// Chat's greeting is a whole screen of nothing on a page whose single job is
-/// making one video, and a blank field with a blank page above it gives
-/// somebody no idea what to write. This says what the page makes and offers
-/// real starting points -- the account's own ideas where there are any,
-/// because they are already there, and three shapes of video where there are
-/// not.
-///
-/// A tap fills the field rather than sending. The length, the voiceover and
-/// the captions are chosen on the bar underneath, and sending before somebody
-/// has looked at those makes the choices pointless.
-private struct EmptyVideoStart: View {
-    let use: (String) -> Void
-
-    @Environment(AppSession.self) private var session
-
-    /// One way to open a video. A struct rather than a tuple because Swift has
-    /// no key paths into tuples, and `ForEach` wants one for the id.
-    private struct Shape: Identifiable {
-        let symbol: String
-        let title: String
-        let start: String
-        var id: String { title }
-    }
-
-    /// Shapes rather than subjects. A suggestion about coffee is wrong for
-    /// most people; "show it being used" is wrong for nobody, and leaves the
-    /// subject where it belongs -- with them.
-    private static let shapes = [
-        Shape(symbol: "hand.raised.fill", title: "Show it being used", start: "Show "),
-        Shape(symbol: "list.number", title: "Three things people get wrong", start: "Three things people get wrong about "),
-        Shape(symbol: "arrow.left.arrow.right", title: "Before and after", start: "Before and after: "),
-    ]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Spacer(minLength: 0)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Make a video")
-                    .font(.title2.weight(.semibold))
-                Text(session.inspiration.isEmpty
-                     ? "Describe it below, or start from one of these."
-                     : "Describe it below, or start from one of your ideas.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.bottom, 6)
-
-            if session.inspiration.isEmpty {
-                ForEach(Self.shapes) { shape in
-                    StartRow(symbol: shape.symbol, title: shape.title, detail: nil) {
-                        use(shape.start)
-                    }
-                }
-            } else {
-                ForEach(session.inspiration.prefix(3)) { idea in
-                    StartRow(
-                        symbol: idea.measured ? "chart.line.uptrend.xyaxis" : "sparkles",
-                        title: idea.hook,
-                        detail: idea.angle
-                    ) {
-                        use(idea.brief)
-                    }
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// One tappable way to begin.
-private struct StartRow: View {
-    let symbol: String
-    let title: String
-    let detail: String?
-    let tap: () -> Void
-
-    var body: some View {
-        Button(action: tap) {
-            HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 26, height: 26)
-                    .background(Theme.accent.opacity(0.12), in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                    if let detail {
-                        Text(detail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: "arrow.up.left")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .raisedCard(radius: Style.rowCard)
-        }
-        .buttonStyle(SoftPressStyle())
-    }
-}
-
 private struct EmptyChat: View {
     /// What to call them: the name they gave, else the brand, else nothing.
     let name: String?

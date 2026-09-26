@@ -21,16 +21,36 @@ struct GenerateAttachments: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Pill(title: "Image", filled: false) { attach(.reference) }
+                Pill(title: "Image", picture: nil) { attach(.reference) } clear: {}
 
                 if BuiltInModels.takesFrames(choices.model) {
-                    Pill(title: "Start frame", filled: false) { attach(.start) }
+                    Pill(title: "Start frame", picture: choices.startFrame?.preview) {
+                        attach(.start)
+                    } clear: {
+                        choices.startFrame = nil
+                    }
 
-                    Image(systemName: "arrow.left.arrow.right")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
+                    // Swaps them, which is what the arrows mean and what
+                    // ElevenLabs does with the same control.
+                    Button {
+                        let first = choices.startFrame
+                        choices.startFrame = choices.endFrame
+                        choices.endFrame = first
+                    } label: {
+                        Image(systemName: "arrow.left.arrow.right")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 26, height: 34)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(choices.startFrame == nil && choices.endFrame == nil)
 
-                    Pill(title: "End frame", filled: false) { attach(.end) }
+                    Pill(title: "End frame", picture: choices.endFrame?.preview) {
+                        attach(.end)
+                    } clear: {
+                        choices.endFrame = nil
+                    }
                 }
             }
             .padding(.horizontal, 2)
@@ -39,24 +59,50 @@ struct GenerateAttachments: View {
     }
 }
 
+/// Empty it shows a plus and its name; filled it shows the picture and an ×,
+/// which is how somebody can tell at a glance which slot has what in it.
 private struct Pill: View {
     let title: String
-    let filled: Bool
+    let picture: UIImage?
     let tap: () -> Void
+    let clear: () -> Void
 
     var body: some View {
-        Button(action: tap) {
-            HStack(spacing: 5) {
-                Image(systemName: "plus")
-                    .font(.system(size: 13, weight: .medium))
-                Text(title)
-                    .font(.subheadline)
+        HStack(spacing: 6) {
+            Button(action: tap) {
+                HStack(spacing: 6) {
+                    if let picture {
+                        Image(uiImage: picture)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 24, height: 24)
+                            .clipShape(Circle())
+                    } else {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    Text(title)
+                        .font(.subheadline)
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 13)
-            .frame(height: 34)
-            .background(Color.track, in: Capsule())
+            .buttonStyle(.plain)
+
+            if picture != nil {
+                Button(action: clear) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove \(title)")
+            }
         }
-        .buttonStyle(SoftPressStyle())
+        .padding(.leading, picture == nil ? 13 : 6)
+        .padding(.trailing, 13)
+        .frame(height: 34)
+        .background(Color.track, in: Capsule())
     }
 }

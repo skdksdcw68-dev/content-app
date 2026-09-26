@@ -486,6 +486,10 @@ struct MediaViewer: View {
     @State private var notice: String?
     @State private var saving = false
     @State private var saves = 0
+    /// The facts pill, toggled by ⓘ.
+    @State private var showingInfo = false
+    /// This video on its way into the editor.
+    @State private var editing: EditableClip?
 
     private var isVideo: Bool { artifact.kind == "video" }
 
@@ -567,18 +571,54 @@ struct MediaViewer: View {
         }
     }
 
+    /// 🔴 Laid out the way the screenshots are. Abel, 26 Sep 2026: "the way
+    /// while generating, the preview, when u click the video and everything."
+    ///
+    /// Back on the left; ONE pill on the right holding info and the menu.
+    /// Share-as-a-white-button and a bare save icon were three separate
+    /// controls saying overlapping things -- they live in the bottom-right
+    /// pill now, where his reference puts them.
     private var topBar: some View {
         HStack(spacing: 12) {
             Button { dismiss() } label: {
-                circle("xmark")
+                circle("chevron.left")
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Close")
+            .accessibilityLabel("Back")
 
             Spacer()
 
-            Menu {
-                Section(mediaCaption(artifact)) {
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { showingInfo.toggle() }
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 40)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("About this")
+
+                Menu {
+                    if isVideo, file != nil {
+                        Button {
+                            Task {
+                                if let file, let clip = await EditableClip.of(file) { editing = clip }
+                            }
+                        } label: {
+                            Label("Add to Video Editor", systemImage: "film.stack")
+                        }
+                    }
+                    if let onAnimate, !isVideo {
+                        Button {
+                            dismiss()
+                            onAnimate(artifact)
+                        } label: {
+                            Label("Animate", systemImage: "sparkles")
+                        }
+                    }
                     if let prompt = artifact.body.prompt, !prompt.isEmpty {
                         Button {
                             UIPasteboard.general.string = prompt
@@ -587,53 +627,127 @@ struct MediaViewer: View {
                             Label("Copy prompt", systemImage: "doc.on.doc")
                         }
                     }
+                    Button(action: save) {
+                        Label("Download", systemImage: "arrow.down.to.line")
+                    }
+                    if let file {
+                        ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 44, height: 40)
+                        .contentShape(Rectangle())
                 }
-            } label: {
-                circle("ellipsis")
+                .accessibilityLabel("More")
             }
-            .accessibilityLabel("More")
-
-            Button(action: save) {
-                circle("arrow.down.to.line")
-            }
-            .buttonStyle(.plain)
-            .disabled(saving)
-            .accessibilityLabel("Save to Photos")
-
-            if let file {
-                ShareLink(item: file) {
-                    Text("Share")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 18)
-                        .frame(height: 40)
-                        .background(.white, in: Capsule())
-                }
-                .buttonStyle(PressButtonStyle())
-            }
+            .glassEffect(.regular.interactive(), in: .capsule)
         }
         .padding(.horizontal, 14)
         .padding(.top, 6)
     }
 
+    /// The prompt in quiet grey with the two pills under it: what can be made
+    /// of this on the left, share and download on the right.
     @ViewBuilder
     private var bottomBar: some View {
-        if let onAnimate, !isVideo {
-            Button {
-                dismiss()
-                onAnimate(artifact)
-            } label: {
-                Label("Animate", systemImage: "sparkles")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 18)
-                    .frame(height: 44)
-                    .contentShape(Capsule())
+        VStack(spacing: 14) {
+            if showingInfo {
+                info
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: .capsule)
-            .padding(.bottom, 20)
+
+            if let prompt = artifact.body.prompt, !prompt.isEmpty {
+                Text(prompt)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+
+            HStack {
+                if isVideo {
+                    Button {
+                        Task {
+                            if let file, let clip = await EditableClip.of(file) { editing = clip }
+                        }
+                    } label: {
+                        circle("film.badge.plus")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(file == nil)
+                    .accessibilityLabel("Add to Video Editor")
+                } else if let onAnimate {
+                    Button {
+                        dismiss()
+                        onAnimate(artifact)
+                    } label: {
+                        circle("sparkles")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Animate")
+                }
+
+                Spacer()
+
+                HStack(spacing: 0) {
+                    if let file {
+                        ShareLink(item: file) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 48, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Button(action: save) {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 48, height: 44)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(saving)
+                    .accessibilityLabel("Download")
+                }
+                .glassEffect(.regular.interactive(), in: .capsule)
+            }
+            .padding(.horizontal, 20)
         }
+        .padding(.bottom, 16)
+        .fullScreenCover(item: $editing) { editable in
+            NavigationStack { EditorView(clips: [editable.clip]) }
+        }
+    }
+
+    /// What this is, said in facts: the model, the shape, the length. Toggled
+    /// by ⓘ rather than always drawn, because the result is the point.
+    private var info: some View {
+        VStack(spacing: 4) {
+            if let model = artifact.body.modelLabel {
+                Text(model).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+            }
+            HStack(spacing: 10) {
+                if let w = artifact.body.width, let h = artifact.body.height {
+                    Text("\(w)×\(h)")
+                }
+                if let resolution = artifact.body.resolution {
+                    Text(resolution)
+                }
+                if let seconds = artifact.body.seconds {
+                    Text(clock(seconds))
+                }
+            }
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white.opacity(0.6))
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .glassEffect(.regular, in: .capsule)
     }
 
     private func circle(_ symbol: String) -> some View {

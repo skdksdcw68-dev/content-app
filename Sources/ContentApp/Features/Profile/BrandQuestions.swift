@@ -138,9 +138,11 @@ enum BrandQuestions {
         subtitle: "Pick every one. You connect them later.",
         selection: .multiple,
         options: [
-            .init(id: "tiktok", label: "TikTok", symbol: "music.note"),
-            .init(id: "reels", label: "Instagram Reels", symbol: "play.square.stack"),
-            .init(id: "shorts", label: "YouTube Shorts", symbol: "play.rectangle.on.rectangle"),
+            // Each in its own mark; the symbols are only what an option
+            // without one falls back to.
+            .init(id: "tiktok", label: "TikTok", symbol: "music.note", logo: .tiktok),
+            .init(id: "reels", label: "Instagram Reels", symbol: "play.square.stack", logo: .instagram),
+            .init(id: "shorts", label: "YouTube Shorts", symbol: "play.rectangle.on.rectangle", logo: .youtube),
             // Honest fourth rather than a platform that does not exist here:
             // starting from nothing is a real answer, and the planner reads it
             // as "no audience yet, write for discovery".

@@ -29,6 +29,9 @@ enum AppRoute: Hashable {
     case post(UUID)
     /// Every post, as a list.
     case library
+    /// Everything that was generated -- pictures, videos, sounds -- from any
+    /// conversation, on one shelf.
+    case generated
     /// Ideas for the next video, drawn from this account's own numbers.
     case inspiration
 }

@@ -11,16 +11,56 @@ struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
     /// reopened generation comes back as the generator (Abel, 26 Sep 2026:
     /// "on the chats list i want it to be identified as well").
     var kind: String = "chat"
+    /// What the conversation MADE -- "video", "image" or "audio" -- or nil.
+    /// Read from what was actually saved, not from what was asked for (0076).
+    var media: String?
 
     var isGeneration: Bool { kind == "generation" }
+
+    /// Anything that produced something, or was opened to. Both belong under
+    /// Generations, whichever way they started.
+    var isMaking: Bool { isGeneration || media != nil }
 
     var displayTitle: String {
         title.isEmpty ? "New chat" : title
     }
 
+    /// The word on the row, and its glyph. What it made, when it made
+    /// something; "Generation" for a generator that has not yet; nothing for
+    /// a plain conversation.
+    ///
+    /// Abel, 29 Sep 2026: "after you generate with the chat, there is no
+    /// 'Video' or 'Generation' or 'Library' called or a badge." There was a
+    /// wand the size of a full stop.
+    var badge: (title: String, symbol: String)? {
+        switch media {
+        case "video": return ("Video", "play.rectangle.fill")
+        case "image": return ("Image", "photo.fill")
+        case "audio": return ("Audio", "waveform")
+        default:      return isGeneration ? ("Generation", "wand.and.stars") : nil
+        }
+    }
+
     private enum CodingKeys: String, CodingKey {
-        case id, title, preview, kind
+        case id, title, preview, kind, media
         case updatedAt = "updated_at"
+    }
+}
+
+/// The word that says what a conversation made: a small accent capsule.
+private struct ThreadBadge: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
+        Label(title, systemImage: symbol)
+            .font(.caption2.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Theme.accent.opacity(0.12), in: Capsule())
+            .fixedSize()
     }
 }
 
@@ -39,7 +79,31 @@ struct ChatListView: View {
     /// while it waits instead of an empty section.
     @State private var threads: [ChatThread]?
     @State private var showingSettings = false
+    @State private var filter: Filter = .all
     private let startTip = ChatStartTip()
+
+    /// Which conversations are shown: everything, the ones that only talked,
+    /// or the ones that made things.
+    private enum Filter: String, CaseIterable, Identifiable {
+        case all, chats, generations
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .all:         "All"
+            case .chats:       "Chats"
+            case .generations: "Generations"
+            }
+        }
+    }
+
+    private var shown: [ChatThread] {
+        guard let threads else { return [] }
+        switch filter {
+        case .all:         return threads
+        case .chats:       return threads.filter { !$0.isMaking }
+        case .generations: return threads.filter { $0.isMaking }
+        }
+    }
 
     var body: some View {
         List {
@@ -61,25 +125,49 @@ struct ChatListView: View {
                     .padding(.vertical, 3)
                 }
                 .popoverTip(startTip, arrowEdge: .top)
+
+                // Everything that was made, from every conversation, on one
+                // shelf. Named on the screen where the making starts.
+                NavigationLink(value: AppRoute.generated) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "square.grid.2x2.fill")
+                            .font(.body)
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 26)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Library")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Every picture, video and sound you've made.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
             }
 
             if let threads {
                 if !threads.isEmpty {
                     Section {
-                        ForEach(threads) { thread in
+                        if shown.isEmpty {
+                            Text(filter == .generations ? "Nothing made yet." : "No chats yet.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(shown) { thread in
                             NavigationLink(value: AppRoute.chat(thread.id)) {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 6) {
-                                        // Which of these made things and
-                                        // which just talked, at a glance.
-                                        if thread.isGeneration {
-                                            Image(systemName: "wand.and.stars")
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(Theme.accent)
-                                        }
+                                    HStack(spacing: 8) {
                                         Text(thread.displayTitle)
                                             .font(.subheadline.weight(.medium))
                                             .lineLimit(1)
+                                        // What it made, in a word -- Video,
+                                        // Image or Generation -- so the ones
+                                        // that made things read differently
+                                        // from the ones that talked.
+                                        if let badge = thread.badge {
+                                            ThreadBadge(title: badge.title, symbol: badge.symbol)
+                                        }
                                     }
                                     if !thread.preview.isEmpty {
                                         Text(thread.preview)
@@ -105,7 +193,7 @@ struct ChatListView: View {
                             }
                         }
                     } header: {
-                        Text("Recent chats")
+                        filterChips
                     }
                 }
             } else {
@@ -138,5 +226,31 @@ struct ChatListView: View {
         .task { threads = await session.threads() }
         .onAppear { Task { threads = await session.threads() } }
         .refreshable { threads = await session.threads() }
+    }
+
+    /// All, Chats, Generations -- what the list is showing, said as chips.
+    private var filterChips: some View {
+        HStack(spacing: 8) {
+            ForEach(Filter.allCases) { item in
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { filter = item }
+                } label: {
+                    Text(item.title)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(filter == item ? Theme.onAccent : Color.primary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            filter == item ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(filter == item ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .textCase(nil)
+        .padding(.vertical, 2)
     }
 }

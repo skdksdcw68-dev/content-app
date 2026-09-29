@@ -23,6 +23,16 @@ struct GenerationFeed: View {
     let onCopy: (String) -> Void
     /// Runs the same prompt again with the composer's current choices.
     let onRetry: (String) -> Void
+    /// A picture made here, set up in the composer to make a video from.
+    ///
+    /// 🔴 Nothing was wired to this. The feed drew its cards with the default
+    /// no-op closures, so on the video page the viewer's Animate button was
+    /// there, pressed, and did nothing at all (Abel, 29 Sep 2026: "when you
+    /// are trying to use an image for a video preference... it's not going to
+    /// attach it, and it's not going to use it").
+    let onAnimate: (Artifact) -> Void
+    /// A picture made here, set up in the composer as a reference.
+    let onReference: (Artifact) -> Void
 
     @Environment(AppSession.self) private var session
 
@@ -78,9 +88,16 @@ struct GenerationFeed: View {
             if let artifactId = entry.artifactId {
                 ArtifactCard(
                     artifactId: artifactId,
-                    expect: (entry.artifactKind, entry.width, entry.height)
+                    expect: (entry.artifactKind, entry.width, entry.height),
+                    onAnimate: onAnimate,
+                    onReference: onReference
                 )
                 .padding(.top, 6)
+            } else if entry.pending && entry.isSmallTalk {
+                // A greeting is answered, not made: a breathing dot while the
+                // reply is on its way, not a video-shaped box counting up.
+                BreathingDot(size: 9)
+                    .padding(.top, 2)
             } else if entry.pending {
                 // Counting, in an empty 9:16 card about half the screen wide
                 // -- the number and nothing else.
@@ -96,6 +113,16 @@ struct GenerationFeed: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.top, 2)
+            } else if let reply = entry.reply {
+                // What the agent said back to a greeting: "Sure, what should
+                // the video be of?" Plain ink, under what was said, with no
+                // warning on it -- it is not an error.
+                Text(reply)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+                    .textSelection(.enabled)
             }
         }
     }
@@ -134,13 +161,21 @@ struct GenerationFeed: View {
         var height: Int?
         var pending = false
         var failure: String?
+        /// The agent's answer to a greeting -- text, not a result.
+        var reply: String?
         var expectedKind: String?
 
+        /// Said TO the assistant rather than describing something to make.
+        var isSmallTalk: Bool { SmallTalk.matches(prompt) }
+
         var kind: String {
+            // A greeting and its answer are a chat, and say so; labelling
+            // "Hi" as a Video is what made the page look like it had made one.
+            if isSmallTalk && artifactId == nil { return "Chat" }
             switch artifactKind ?? expectedKind {
-            case "image": "Image"
-            case "audio": "Audio"
-            default: "Video"
+            case "image": return "Image"
+            case "audio": return "Audio"
+            default: return "Video"
             }
         }
     }
@@ -178,7 +213,13 @@ struct GenerationFeed: View {
                     // that did not come.
                     if current.artifactId == nil {
                         current.pending = false
-                        current.failure = turn.failed || !Self.isChatter(turn.text) ? turn.text : nil
+                        if !turn.failed, current.isSmallTalk {
+                            // The answer to "Hi" is an answer, not a fault.
+                            current.reply = turn.text
+                            current.failure = nil
+                        } else {
+                            current.failure = turn.failed || !Self.isChatter(turn.text) ? turn.text : nil
+                        }
                     }
                 }
                 out[out.count - 1] = current

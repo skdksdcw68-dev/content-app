@@ -60,6 +60,7 @@ private func clock(_ seconds: Double) -> String {
 struct ImageCard: View {
     let artifact: Artifact
     let onAnimate: (Artifact) -> Void
+    var onReference: ((Artifact) -> Void)? = nil
 
     @Environment(AppSession.self) private var session
     @Environment(\.displayScale) private var displayScale
@@ -89,7 +90,7 @@ struct ImageCard: View {
             .buttonStyle(PressButtonStyle())
             .disabled(shown == nil)
             .accessibilityLabel("Open the image")
-            .contextMenu { MediaMenu(artifact: artifact, onAnimate: onAnimate) }
+            .contextMenu { MediaMenu(artifact: artifact, onAnimate: onAnimate, onReference: onReference) }
 
             MediaFooting(artifact: artifact, onAnimate: onAnimate)
         }
@@ -99,7 +100,7 @@ struct ImageCard: View {
             picture = await session.picture(of: artifact, longest: pixels)
         }
         .fullScreenCover(isPresented: $viewing) {
-            MediaViewer(artifact: artifact, preview: shown, onAnimate: onAnimate)
+            MediaViewer(artifact: artifact, preview: shown, onAnimate: onAnimate, onReference: onReference)
         }
     }
 }
@@ -400,7 +401,13 @@ private struct MediaMenu: View {
     /// owns the presentation: 🔴 a `navigationDestination` or a cover declared
     /// inside `contextMenu` content is never attached to the hierarchy, so the
     /// menu item would have looked right and done nothing.
+    ///
+    /// Declared BEFORE `onReference` on purpose: a trailing closure binds to
+    /// the first closure parameter it can, and `VideoCard` hands this one its
+    /// closure that way.
     var onAddToEditor: ((URL) -> Void)? = nil
+    /// Sets this picture up as the reference for the next request.
+    var onReference: ((Artifact) -> Void)? = nil
 
     @Environment(AppSession.self) private var session
     @State private var file: URL?
@@ -415,6 +422,11 @@ private struct MediaMenu: View {
         // rather than present and dead. A menu item that does nothing is the
         // same fault as the "Needs attention" rows that could not be tapped.
         Group {
+            if let onReference, artifact.kind == "image" {
+                Button { onReference(artifact) } label: {
+                    Label("Use as reference", systemImage: "photo.badge.plus")
+                }
+            }
             if let onAnimate {
                 Button { onAnimate(artifact) } label: {
                     Label("Animate", systemImage: "sparkles")
@@ -475,14 +487,27 @@ struct MediaViewer: View {
     /// rather than a spinner while the full-size one is read.
     var preview: UIImage? = nil
     var onAnimate: ((Artifact) -> Void)? = nil
+    /// Puts this picture into the next request as a reference, so what is
+    /// typed next is made from it (Abel, 29 Sep 2026: "when you are trying to
+    /// use an image for a video preference, or an image preference, it's not
+    /// going to attach it, and it's not going to use it").
+    var onReference: ((Artifact) -> Void)? = nil
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var picture: UIImage?
     @State private var file: URL?
     @State private var player: LoopingPlayer?
+    /// How far it is zoomed and panned, kept apart from the gesture still in
+    /// flight so the two never get added twice.
     @State private var zoom: CGFloat = 1
+    @State private var pinch: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var panning: CGSize = .zero
+    /// The drag that puts it away: down, and a little sideways so it follows
+    /// the finger the way Photos does.
     @State private var drag: CGFloat = 0
+    @State private var slide: CGFloat = 0
     @State private var notice: String?
     @State private var saving = false
     @State private var saves = 0
@@ -500,7 +525,7 @@ struct MediaViewer: View {
                 .ignoresSafeArea()
 
             content
-                .offset(y: drag)
+                .offset(x: slide, y: drag)
         }
         .overlay(alignment: .top) { topBar.opacity(drag == 0 ? 1 : 0) }
         .overlay(alignment: .bottom) { bottomBar.opacity(drag == 0 ? 1 : 0) }
@@ -546,29 +571,84 @@ struct MediaViewer: View {
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 88)
-                .scaleEffect(zoom)
-                .gesture(
-                    MagnifyGesture()
-                        .onChanged { zoom = max(1, $0.magnification) }
-                        .onEnded { _ in withAnimation(.spring(duration: 0.3)) { zoom = 1 } }
-                )
-                .simultaneousGesture(
-                    DragGesture(minimumDistance: 12)
-                        .onChanged { value in
-                            guard zoom == 1 else { return }
-                            drag = value.translation.height
+                .scaleEffect(zoom * pinch)
+                .offset(x: pan.width + panning.width, y: pan.height + panning.height)
+                .gesture(pinchToZoom)
+                .simultaneousGesture(moveIt)
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(duration: 0.3)) {
+                        if zoom > 1.01 {
+                            zoom = 1
+                            pan = .zero
+                        } else {
+                            zoom = 2.5
                         }
-                        .onEnded { value in
-                            if abs(value.translation.height) > 120 || abs(value.predictedEndTranslation.height) > 400 {
-                                dismiss()
-                            } else {
-                                withAnimation(.spring(duration: 0.3)) { drag = 0 }
-                            }
-                        }
-                )
+                    }
+                }
         } else {
             ProgressView().tint(.white)
         }
+    }
+
+    /// Pinch to look closer, and it STAYS closer -- it used to snap back to 1
+    /// the moment the fingers came off, so there was nothing to move.
+    private var pinchToZoom: some Gesture {
+        MagnifyGesture()
+            .onChanged { pinch = $0.magnification }
+            .onEnded { value in
+                withAnimation(.spring(duration: 0.3)) {
+                    zoom = min(max(zoom * value.magnification, 1), 5)
+                    pinch = 1
+                    if zoom <= 1.01 {
+                        zoom = 1
+                        pan = .zero
+                    }
+                }
+            }
+    }
+
+    /// 🔴 Measured in the screen's own space, not the picture's.
+    ///
+    /// Abel, 29 Sep 2026: "you just click and try to move the image, and it
+    /// glitches." The drag was written against the image's LOCAL coordinates
+    /// while the same drag moved the image -- so every frame the finger's
+    /// position was re-measured from a picture that had just moved under it,
+    /// which fed straight back into the next frame: a jitter that grew with
+    /// the movement. `.global` does not move when the picture does.
+    ///
+    /// Zoomed in, a drag pans; at rest, a drag follows the finger and lets go
+    /// of the viewer when it goes far enough.
+    private var moveIt: some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { value in
+                if zoom > 1.01 {
+                    panning = value.translation
+                } else {
+                    drag = value.translation.height
+                    slide = value.translation.width * 0.6
+                }
+            }
+            .onEnded { value in
+                if zoom > 1.01 {
+                    // How far the picture can travel grows with the zoom, so
+                    // it can be moved to its edges and never off the screen.
+                    let reach = (zoom - 1) * 200
+                    withAnimation(.spring(duration: 0.3)) {
+                        pan = CGSize(
+                            width: max(-reach, min(reach, pan.width + value.translation.width)),
+                            height: max(-reach, min(reach, pan.height + value.translation.height))
+                        )
+                        panning = .zero
+                    }
+                } else if abs(value.translation.height) > 120 || abs(value.predictedEndTranslation.height) > 400 {
+                    dismiss()
+                } else {
+                    withAnimation(.spring(duration: 0.3)) {
+                        drag = 0
+                        slide = 0
+                    }
+                }
+            }
     }
 
     /// 🔴 Laid out the way the screenshots are. Abel, 26 Sep 2026: "the way
@@ -609,6 +689,14 @@ struct MediaViewer: View {
                             }
                         } label: {
                             Label("Add to Video Editor", systemImage: "film.stack")
+                        }
+                    }
+                    if let onReference, !isVideo {
+                        Button {
+                            dismiss()
+                            onReference(artifact)
+                        } label: {
+                            Label("Use as reference", systemImage: "photo.badge.plus")
                         }
                     }
                     if let onAnimate, !isVideo {
@@ -679,15 +767,31 @@ struct MediaViewer: View {
                     .buttonStyle(.plain)
                     .disabled(file == nil)
                     .accessibilityLabel("Add to Video Editor")
-                } else if let onAnimate {
-                    Button {
-                        dismiss()
-                        onAnimate(artifact)
-                    } label: {
-                        circle("sparkles")
+                } else {
+                    // The two things a picture is for: something to make the
+                    // next one from, and something to set moving.
+                    HStack(spacing: 10) {
+                        if let onReference {
+                            Button {
+                                dismiss()
+                                onReference(artifact)
+                            } label: {
+                                circle("photo.badge.plus")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Use as reference")
+                        }
+                        if let onAnimate {
+                            Button {
+                                dismiss()
+                                onAnimate(artifact)
+                            } label: {
+                                circle("sparkles")
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Animate")
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Animate")
                 }
 
                 Spacer()

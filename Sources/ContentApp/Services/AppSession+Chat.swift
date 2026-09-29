@@ -40,7 +40,21 @@ extension AppSession {
     /// the chats screen shows. Nil when it cannot be read, and the caller
     /// falls back to chat, which draws everything correctly if plainly.
     func threadKind(_ id: UUID) async -> String? {
-        await threads().first(where: { $0.id == id })?.kind
+        // Asked of the thread itself first. The list is the newest thirty, so
+        // a generation older than that came back as "not found" and reopened
+        // as plain chat -- the feed, the bar and the meaning of send gone.
+        struct Row: Decodable { let kind: String }
+        if let rows: [Row] = try? await client
+            .from("threads")
+            .select("kind")
+            .eq("id", value: id.uuidString)
+            .limit(1)
+            .execute()
+            .value,
+           let kind = rows.first?.kind {
+            return kind
+        }
+        return await threads().first(where: { $0.id == id })?.kind
     }
 
     func threads() async -> [ChatThread] {

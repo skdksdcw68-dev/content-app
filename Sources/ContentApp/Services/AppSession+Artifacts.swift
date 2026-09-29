@@ -27,6 +27,26 @@ extension AppSession {
         }
     }
 
+    /// Everything this person has made -- pictures, videos and sounds -- from
+    /// every conversation, newest first (0076). Nil `kind` is all three.
+    /// Empty on failure: a shelf that cannot be read says nothing rather than
+    /// showing somebody an old one as though it were current.
+    func library(kind: String? = nil) async -> [Artifact] {
+        struct Params: Encodable, Sendable {
+            let p_kind: String?
+            let p_limit: Int
+        }
+        do {
+            return try await client
+                .rpc("my_library", params: Params(p_kind: kind, p_limit: 120))
+                .execute()
+                .value
+        } catch {
+            report("library", error)
+            return []
+        }
+    }
+
     /// What Autocast did today, counted from what it actually wrote down.
     ///
     /// Counts, not a performance figure: nothing here is an estimate, an

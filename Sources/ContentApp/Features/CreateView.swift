@@ -38,7 +38,33 @@ struct CreateView: View {
         GridItem(.flexible(), spacing: 12),
     ]
 
+    /// 🔴 Nothing to create for without somewhere to post.
+    ///
+    /// Abel, 29 Sep 2026: "there is a chart page, analytics, you, and a plus
+    /// icon. Those three must have a connection, at least with one connector."
+    /// (On 25 Sep he asked for Upload to work with no account; he has since
+    /// said this, and this is the later word. Everything made here is made to
+    /// be posted.) Shown only once the accounts have been read and none works.
     var body: some View {
+        if session.needsAccount {
+            ScrollView {
+                ConnectGate(
+                    art: "empty-posts",
+                    title: "Connect an account to create",
+                    detail: "Everything you make here is made to be posted. Connect where it goes and it is all yours."
+                )
+                .screenGutter()
+                .padding(.top, 24)
+                .padding(.bottom, 32)
+            }
+            .background(Color.canvas.ignoresSafeArea())
+            .tabChrome(title: "Create")
+        } else {
+            content
+        }
+    }
+
+    private var content: some View {
         ScrollView {
             VStack(spacing: 0) {
                 HStack(spacing: 10) {

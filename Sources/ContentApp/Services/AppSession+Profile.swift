@@ -174,6 +174,19 @@ extension AppSession {
             ?? connections.first { $0.platform == platform }
     }
 
+    /// True only when the accounts have been read and not one is signed in and
+    /// working. Analytics, Create and You show a connect screen on it (Abel,
+    /// 29 Sep 2026: "those three must have a connection, at least with one
+    /// connector").
+    ///
+    /// "Have been read" matters as much as "none": before the first read
+    /// returns, or after one fails, `connections` is empty for a reason that
+    /// has nothing to do with the person -- and a gate that opened then would
+    /// tell somebody who is connected to connect.
+    var needsAccount: Bool {
+        connectionsLoaded && !connections.contains { $0.isHealthy }
+    }
+
     /// Revokes at TikTok and forgets it here. Anything queued for the account
     /// is cancelled by the database in the same step.
     @discardableResult

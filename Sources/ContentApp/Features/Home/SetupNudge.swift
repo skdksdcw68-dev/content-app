@@ -36,12 +36,12 @@ struct SetupNudge: View {
                 Section {
                     ForEach(Platform.allCases) { platform in
                         if let connection = session.connection(for: platform) {
-                            SettingsRow(platform.networkName, symbol: platform.symbolName, value: connection.label)
+                            SettingsRow(platform.networkName, logo: platform.logo, value: connection.label)
                         } else {
                             Button {
                                 Task { await session.connect(platform) }
                             } label: {
-                                SettingsRow(platform.networkName, symbol: platform.symbolName,
+                                SettingsRow(platform.networkName, logo: platform.logo,
                                             value: session.isConnecting ? "Opening…" : "Connect", accessory: .chevron)
                             }
                             .disabled(session.isConnecting)

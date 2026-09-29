@@ -25,6 +25,12 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
     var templateSlug: String? = nil
     /// How long each video should be, when the series said.
     var durationSeconds: Int? = nil
+    /// How the series looks, sounds and reads, as the person chose in Start a
+    /// series (0075). Kept on the plan because the next post is written from
+    /// it, long after the screen that asked has gone.
+    var look: String? = nil
+    var voice: String? = nil
+    var language: String? = nil
 
     enum Status: String, Decodable, Sendable {
         case draft, proposed, approved, active, paused, archived
@@ -32,6 +38,7 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, days, brief, objective, platforms
+        case look, voice, language
         case startsOn = "starts_on"
         case postsPerDay = "posts_per_day"
         case approvedAt = "approved_at"

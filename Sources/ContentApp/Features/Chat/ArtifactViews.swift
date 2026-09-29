@@ -174,6 +174,8 @@ struct ArtifactCard: View {
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
     var onApprove: (Artifact) -> Void = { _ in }
+    /// A picture as the reference for the next request. Nil hides the action.
+    var onReference: ((Artifact) -> Void)? = nil
 
     @Environment(AppSession.self) private var session
     @State private var artifact: Artifact?
@@ -199,7 +201,7 @@ struct ArtifactCard: View {
                 case "campaign", "plan":
                     CampaignCard(artifact: artifact, onExport: onExport, onApprove: onApprove)
                 case "image":
-                    ImageCard(artifact: artifact, onAnimate: onAnimate)
+                    ImageCard(artifact: artifact, onAnimate: onAnimate, onReference: onReference)
                 case "video":
                     VideoCard(artifact: artifact)
                 case "audio":

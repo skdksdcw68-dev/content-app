@@ -372,7 +372,8 @@ struct NewPlanSheet: View {
                             symbol: platform.symbolName,
                             detail: connected
                                 ? "Connected"
-                                : "Not connected yet — connect it in You → Accounts before the first post"
+                                : "Not connected yet — connect it in You → Accounts before the first post",
+                            logo: platform.logo
                         ),
                         isChosen: destinations.contains(platform.rawValue)
                     ) {

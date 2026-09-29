@@ -18,6 +18,8 @@ struct ChatTurnView: View {
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
     var onApprove: (Artifact) -> Void = { _ in }
+    /// A picture picked as the reference for whatever is asked next.
+    var onReference: ((Artifact) -> Void)? = nil
     /// A run this turn started has ended while it was being watched.
     var onRunFinished: (UUID) -> Void = { _ in }
     /// A suggested next thing, tapped.
@@ -110,7 +112,8 @@ struct ChatTurnView: View {
                             expect: (turn.artifactKind, turn.artifactWidth, turn.artifactHeight),
                             onExport: onExport,
                             onAnimate: onAnimate,
-                            onApprove: onApprove
+                            onApprove: onApprove,
+                            onReference: onReference
                         )
                     }
 

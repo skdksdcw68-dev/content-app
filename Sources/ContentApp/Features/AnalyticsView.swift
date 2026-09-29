@@ -57,11 +57,6 @@ struct AnalyticsView: View {
     @State private var planDraft: PlanDraft?
     @State private var proposed: PlanProposal?
     @State private var ask: AnalyticsAsk?
-    /// The connect sheet, opened over whatever screen asked for it rather
-    /// than pushing Profile and making somebody hunt (Abel, 23 Sep 2026:
-    /// "clicking the connect acc doesn't open a sheet to connect, why? it
-    /// redirects to the page where the profile is").
-    @State private var connecting = false
     @State private var applied = 0
     @State private var tips = TipGroup(.ordered) {
         PostsLibraryTip()
@@ -110,7 +105,10 @@ struct AnalyticsView: View {
         report?.platforms ?? Array(Set(session.connections.map { $0.platform.rawValue })).sorted()
     }
 
-    private var hasAccount: Bool { !session.connections.isEmpty }
+    /// False only when the accounts have been read and not one is working --
+    /// then the whole page is the connect screen (Abel, 29 Sep 2026: "those
+    /// three must have a connection").
+    private var hasAccount: Bool { !session.needsAccount }
 
     var body: some View {
         ScrollView {
@@ -130,7 +128,11 @@ struct AnalyticsView: View {
                     .padding(.top, 14)
                     .padding(.bottom, 32)
                 } header: {
-                    UnderlineTabs(items: Page.allCases, selection: $page) { $0.title }
+                    // The tabs are for numbers that exist; with no account
+                    // there is one screen and it is the gate.
+                    if hasAccount {
+                        UnderlineTabs(items: Page.allCases, selection: $page) { $0.title }
+                    }
                 }
             }
         }
@@ -179,7 +181,6 @@ struct AnalyticsView: View {
             pillarId = nil
             planId = nil
         }
-        .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
         .sheet(isPresented: $showingCustom) {
             CustomRangeSheet(
                 start: customFrom > 0 ? Date(timeIntervalSince1970: customFrom) : query.from,
@@ -382,27 +383,15 @@ struct AnalyticsView: View {
         .buttonStyle(SoftPressStyle())
     }
 
+    /// The whole page while nothing is connected: the connect tiles, right
+    /// there, instead of a card that opens a sheet that shows the tiles.
     private var noConnection: some View {
-        VStack(spacing: 10) {
-            EmptyArt(name: "empty-analytics", size: 120)
-            Text("Connect an account to see analytics")
-                .font(.title3.bold())
-                .multilineTextAlignment(.center)
-            Text("Views, what worked, what Autocast learned and what to post next, for every app you market.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Button { connecting = true } label: {
-                PrimaryButtonLabel(title: "Connect an account")
-            }
-            .primaryButtonStyle()
-            .padding(.top, 6)
-        }
-        .padding(.vertical, 28)
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity)
-        .raisedCard(radius: 18)
+        ConnectGate(
+            art: "empty-analytics",
+            title: "Connect an account to see analytics",
+            detail: "Views, what worked, what Autocast learned and what to post next, for every app you market."
+        )
+        .padding(.top, 12)
     }
 
     private var exportMenu: some View {

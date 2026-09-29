@@ -33,7 +33,13 @@ struct SeriesFlowView: View {
         // what it should include and what not, there is a lots." Every extra
         // screen here is something the writer actually uses, not a screen for
         // its own sake.
-        case style, destinations, length, include, logo, avoid, goal, review
+        //
+        // And on 29 Sep 2026, the order he walked it in: pick the style, then
+        // "it will ask me to connect at least one platform... I cannot
+        // continue", then the seconds, then "the video style it wants with
+        // pictures. I must put that", then "a voiceover. It must be a
+        // requirement", then the rest ("I didn't say it all").
+        case style, destinations, length, look, voice, language, include, logo, avoid, goal, review
 
         var progress: Double { Double(rawValue + 1) / Double(Step.allCases.count + 1) }
 
@@ -42,6 +48,9 @@ struct SeriesFlowView: View {
             case .style:        "Pick a style"
             case .destinations: "Where it posts"
             case .length:       "How long"
+            case .look:         "How it looks"
+            case .voice:        "Voiceover"
+            case .language:     "Language"
             case .include:      "Every video has"
             case .logo:         "Your logo"
             case .avoid:        "Never do this"
@@ -61,7 +70,9 @@ struct SeriesFlowView: View {
         options: [
             .init(id: "hook", label: "A hook in the first second", symbol: "bolt"),
             .init(id: "captions", label: "Captions burned in", symbol: "captions.bubble"),
-            .init(id: "voiceover", label: "A voiceover", symbol: "waveform"),
+            // The voiceover is its own required step now, with the voice to
+            // go with it; the list keeps eight so the grid stays even.
+            .init(id: "text", label: "Big words on screen", symbol: "textformat.size"),
             .init(id: "music", label: "Music under it", symbol: "music.note"),
             .init(id: "cta", label: "A call to action at the end", symbol: "hand.point.up.left"),
             .init(id: "proof", label: "A number or proof", symbol: "checkmark.seal"),
@@ -107,6 +118,14 @@ struct SeriesFlowView: View {
     /// What every video must carry, and what it must never do.
     @State private var includes: Set<String> = ["hook", "captions"]
     @State private var avoids: Set<String> = []
+    /// How it looks and who speaks. Both start EMPTY on purpose: they are
+    /// required, and a preselected answer is a question that was never asked.
+    @State private var look: SeriesLook?
+    @State private var voice: SeriesVoice?
+    /// English until told otherwise -- the one question with a natural default.
+    @State private var language = "english"
+    /// What this month still has, for the credits line on the accounts step.
+    @State private var standing: [QuotaStanding] = []
 
     private static let goals: [(id: String, label: String, symbol: String, sentence: String)] = [
         ("followers", "Grow followers", "person.3", "The goal is followers: hooks that make people want the next one."),
@@ -173,6 +192,7 @@ struct SeriesFlowView: View {
                     if let seconds = chosen?.workflow?.durationSeconds, !decideLength { length = seconds }
                 }
             }
+            .task { standing = await session.quotaStanding() }
             .interactiveDismissDisabled(starting)
             .alert(
                 "That didn't start",
@@ -196,6 +216,9 @@ struct SeriesFlowView: View {
         case .style:        styles
         case .destinations: whereTo
         case .length:       howLong
+        case .look:         howItLooks
+        case .voice:        whoSpeaks
+        case .language:     inWhichLanguage
         case .include:      mustInclude
         case .logo:         logoStep
         case .avoid:        mustAvoid
@@ -293,9 +316,13 @@ struct SeriesFlowView: View {
                         StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
                             chosen = template
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            // Only accounts that work. TikTok used to be put
+                            // in for somebody with no account at all, which
+                            // let the next screen say "Continue" over an
+                            // empty row. Nothing is picked for them: the
+                            // next screen asks them to connect one.
                             if destinations.isEmpty {
-                                destinations = Set(session.connections.map { $0.platform.rawValue })
-                                if destinations.isEmpty { destinations = [Platform.tiktok.rawValue] }
+                                destinations = Set(session.connections.filter(\.isHealthy).map { $0.platform.rawValue })
                             }
                             if let seconds = template.workflow?.durationSeconds, !decideLength {
                                 length = seconds
@@ -328,18 +355,50 @@ struct SeriesFlowView: View {
             Array(Platform.allCases[$0..<min($0 + 2, Platform.allCases.count)])
         }
 
+    /// The networks that are signed in and working. An account whose login has
+    /// lapsed is still on the list, but it is not connected: it needs signing
+    /// in again, and it does not count.
+    private var connectedPlatforms: [Platform] {
+        Platform.allCases.filter { session.connection(for: $0)?.isHealthy == true }
+    }
+
+    /// What will really be posted to: picked AND still signed in. A pick is
+    /// kept when a login lapses, so it comes back with it, but it is not used.
+    private var readyDestinations: Set<String> {
+        destinations.filter { raw in
+            Platform(rawValue: raw).map { session.connection(for: $0)?.isHealthy == true } ?? false
+        }
+    }
+
+    /// 🔴 A gate, not a suggestion.
+    ///
+    /// Abel, 29 Sep 2026: "right after that it will ask me to connect at least
+    /// one platform. There is no platform I connected, so I cannot continue. I
+    /// must connect at least one of those, and after that, I can choose which
+    /// platform I want."
+    ///
+    /// It used to open with TikTok picked for somebody who had connected
+    /// nothing, so "Continue" was live over a row that showed no account and a
+    /// series could be started for nowhere. Now nothing is picked until an
+    /// account is signed in, the button says why it is dead, and the moment one
+    /// connects it is picked and the button wakes up.
     private var whereTo: some View {
-        FlowStep(
-            title: "Where should it post?",
-            subtitle: "Tap one to connect it. Tap a connected one to pick it.",
-            button: destinations.isEmpty ? "Pick at least one" : "Continue",
-            tint: destinations.isEmpty ? Color.secondary : Theme.accent,
+        let signedIn = connectedPlatforms
+        let ready = readyDestinations
+        return FlowStep(
+            title: signedIn.isEmpty ? "Connect an account" : "Where should it post?",
+            subtitle: signedIn.isEmpty
+                ? "A series posts for you, so it needs at least one account. Connect one and carry straight on."
+                : "Tap an account to pick it or drop it. Tap another network to connect it too.",
+            button: signedIn.isEmpty ? "Connect an account to continue" : (ready.isEmpty ? "Pick at least one" : "Continue"),
+            tint: ready.isEmpty ? Color.secondary : Theme.accent,
+            isDisabled: ready.isEmpty,
             // 🔴 `.length`, not `.include`. This skipped "How long" entirely
             // going forward, while `back()` from "Every video has" returned TO
             // it -- so the only way to reach that screen was to press Back into
             // a page the flow had never shown (Abel, 25 Sep 2026: "when I hit
             // continue it jumps two pages at one... this really looks funny").
-            action: { if !destinations.isEmpty { step = .length } }
+            action: { if !readyDestinations.isEmpty { step = .length } }
         ) {
             // The same tiles as the connect sheet, rather than a row with a
             // Connect pill bolted to its side (Abel, 24 Sep 2026: "on the
@@ -349,32 +408,72 @@ struct SeriesFlowView: View {
                 ForEach(Self.platformRows, id: \.self) { row in
                     HStack(spacing: 10) {
                         ForEach(row) { platform in
-                            let connected = session.connection(for: platform) != nil
+                            let live = session.connection(for: platform)?.isHealthy == true
                             PlatformTile(
                                 platform: platform,
                                 connection: session.connection(for: platform),
                                 isOpening: opening == platform,
-                                isChosen: connected && destinations.contains(platform.rawValue)
+                                isChosen: live && destinations.contains(platform.rawValue)
                             ) {
-                                tap(platform, connected: connected)
+                                tap(platform)
                             }
                         }
                     }
                 }
+
+                creditsNote(accounts: ready.count)
+                    .padding(.top, 6)
             }
             .padding(.horizontal, 20)
         }
     }
 
-    private func tap(_ platform: Platform, connected: Bool) {
+    /// What this costs, said before it is spent -- and only what is true. A
+    /// series makes ONE video per post and hands the same file to every
+    /// account picked (`addTarget` in attach.ts), so the credits are the
+    /// videos, not the accounts.
+    private func creditsNote(accounts: Int) -> some View {
+        let left = standing.first { $0.kind == "video_gen" }?.left
+        let sentence: String
+        if accounts > 1 {
+            sentence = "One video is made for each post and posted to all \(accounts) accounts."
+        } else {
+            sentence = "One video is made for each post."
+        }
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "bolt.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.accent)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sentence)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let left {
+                    Text("\(left) videos left this month.")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.primary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func tap(_ platform: Platform) {
         guard opening == nil else { return }
-        guard connected else {
+        guard session.connection(for: platform)?.isHealthy == true else {
+            // Not signed in, or signed in once and lapsed: the network's own
+            // sign-in opens either way.
             opening = platform
             Task {
                 await session.connect(platform)
                 opening = nil
                 // Signing in is agreeing to post there, so it arrives picked.
-                if session.connection(for: platform) != nil {
+                if session.connection(for: platform)?.isHealthy == true {
                     withAnimation(.snappy(duration: 0.18)) {
                         destinations.insert(platform.rawValue)
                     }
@@ -391,12 +490,102 @@ struct SeriesFlowView: View {
         }
     }
 
+    // MARK: - How it comes out
+
+    /// 🔴 Pictures, and no default.
+    ///
+    /// Abel, 29 Sep 2026: "it should ask me for the video style it wants with
+    /// pictures. I must put that." Twelve looks, the same barista poured in
+    /// each, so they can be compared instead of imagined. Nothing is picked
+    /// when the screen opens -- a preselected answer is a question nobody was
+    /// asked -- and Continue stays dead until one is.
+    private var howItLooks: some View {
+        FlowStep(
+            title: "How should it look?",
+            subtitle: "Every video in the series is drawn this way. Pick one.",
+            button: look == nil ? "Pick a look" : "Continue",
+            tint: look == nil ? Color.secondary : Theme.accent,
+            isDisabled: look == nil,
+            action: { if look != nil { step = .voice } }
+        ) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(SeriesLook.all) { item in
+                    LookTile(look: item, isChosen: look?.id == item.id) {
+                        withAnimation(.snappy(duration: 0.18)) { look = item }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        // On to the next screen by itself, the way picking a
+                        // style does -- unless they changed their mind.
+                        Task {
+                            try? await Task.sleep(for: .milliseconds(450))
+                            if look?.id == item.id, step == .look { step = .voice }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    /// 🔴 Required. "No voiceover" is an answer; not answering is not.
+    ///
+    /// Abel, 29 Sep 2026: "something that should ask me for a voiceover. It
+    /// must be a requirement." It was a checkbox in a list that could be left
+    /// alone, and left alone it meant nothing was decided. The voice changes
+    /// what is WRITTEN -- a voiced video needs a script, a silent one needs its
+    /// words on the screen -- so it is asked before the writer runs.
+    private var whoSpeaks: some View {
+        FlowStep(
+            title: "Who speaks over it?",
+            subtitle: "Pick a voice, or none. Every script is written for it.",
+            button: voice == nil ? "Pick a voice" : "Continue",
+            tint: voice == nil ? Color.secondary : Theme.accent,
+            isDisabled: voice == nil,
+            action: { if voice != nil { step = .language } }
+        ) {
+            VStack(spacing: 10) {
+                ForEach(SeriesVoice.all) { item in
+                    DetailedOption(
+                        option: OnboardingQuestion.Option(
+                            id: item.id, label: item.name, symbol: item.symbol, detail: item.detail
+                        ),
+                        isChosen: voice?.id == item.id
+                    ) {
+                        withAnimation(.snappy(duration: 0.18)) { voice = item }
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private var inWhichLanguage: some View {
+        FlowStep(
+            title: "What language?",
+            subtitle: "The hook, the caption and every spoken word are written in it.",
+            button: "Continue",
+            action: { step = .include }
+        ) {
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(SeriesLanguage.all) { item in
+                    OptionTile(
+                        option: OnboardingQuestion.Option(id: item.id, label: item.native, symbol: "globe"),
+                        isChosen: language == item.id
+                    ) {
+                        withAnimation(.snappy(duration: 0.18)) { language = item.id }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+        }
+    }
+
     private var howLong: some View {
         FlowStep(
             title: "How long should each video be?",
-            subtitle: "Or let Autocast pick per post.",
+            subtitle: "In seconds. Or let Autocast pick per post.",
             button: "Continue",
-            action: { step = .include }
+            action: { step = .look }
         ) {
             VStack(spacing: 10) {
                 if let suggested = chosen?.workflow?.durationSeconds, ![15, 30, 60].contains(suggested) {
@@ -574,12 +763,18 @@ struct SeriesFlowView: View {
     /// The choices, shortest first, as chips.
     private var reviewChips: [String] {
         var chips: [String] = []
-        chips.append(contentsOf: destinations.sorted().compactMap { Platform(rawValue: $0)?.networkName })
+        chips.append(contentsOf: readyDestinations.sorted().compactMap { Platform(rawValue: $0)?.networkName })
         chips.append(decideLength
                      ? "\(chosen?.workflow?.durationSeconds ?? 30)s"
                      : "\(length ?? 30)s")
         chips.append("Daily")
         if let label = Self.goals.first(where: { $0.id == goal })?.label { chips.append(label) }
+        // How it comes out, said in the words the person picked.
+        if let look { chips.append(look.name) }
+        if let voice { chips.append(voice.isNone ? "No voiceover" : voice.name) }
+        if language != "english", let spoken = SeriesLanguage.all.first(where: { $0.id == language }) {
+            chips.append(spoken.native)
+        }
         chips.append(contentsOf: includes.compactMap { id in
             Self.includeQuestion.options.first { $0.id == id }?.label
         }.sorted())
@@ -597,7 +792,10 @@ struct SeriesFlowView: View {
             case .style:        break
             case .destinations: step = .style
             case .length:       step = .destinations
-            case .include:      step = .length
+            case .look:         step = .length
+            case .voice:        step = .look
+            case .language:     step = .voice
+            case .include:      step = .language
             case .logo:         step = .include
             case .avoid:        step = includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .include
             case .goal:         step = .avoid
@@ -607,7 +805,18 @@ struct SeriesFlowView: View {
     }
 
     private func start() async {
-        guard let chosen else { return }
+        // The three required answers. The buttons that lead here cannot be
+        // pressed without them, so this is the second lock, not the first.
+        guard let chosen, let look, let voice else {
+            failure = "Pick a style, a look and a voice first."
+            return
+        }
+        // An account that signed out while the flow was open is not one to
+        // post to.
+        guard !readyDestinations.isEmpty else {
+            failure = "Connect an account first. A series needs somewhere to post."
+            return
+        }
         starting = true
         defer { starting = false }
 
@@ -644,9 +853,12 @@ struct SeriesFlowView: View {
             brief: brief,
             days: 1,
             postsPerDay: 1,
-            platforms: Array(destinations).sorted(),
+            platforms: Array(readyDestinations).sorted(),
             template: chosen.slug,
-            durationSeconds: decideLength ? nil : length
+            durationSeconds: decideLength ? nil : length,
+            look: look.sentence,
+            voice: voice.sentence,
+            language: SeriesLanguage.all.first { $0.id == language }?.english
         ) else {
             failure = session.lastError.flatMap { $0.isEmpty ? nil : $0 }
                 ?? "The writer could not be reached just now. Try again."
@@ -698,6 +910,10 @@ private struct FlowStep<Content: View>: View {
     var button: String?
     var tint: Color = Theme.accent
     var isBusy = false
+    /// A button that cannot be pressed yet -- a required answer is missing.
+    /// Dimmed and dead, not merely grey: "Continue" over an unanswered
+    /// question is how the accounts step used to let people through.
+    var isDisabled = false
     var action: () -> Void = {}
     @ViewBuilder var content: () -> Content
 
@@ -733,7 +949,8 @@ private struct FlowStep<Content: View>: View {
                 .buttonStyle(RemiFilledButtonStyle())
                 .controlSize(.large)
                 .tint(tint)
-                .disabled(isBusy)
+                .disabled(isBusy || isDisabled)
+                .opacity(isDisabled ? 0.55 : 1)
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 8)

@@ -12,11 +12,17 @@ struct OptionTile: View {
     var body: some View {
         Button(action: choose) {
             VStack(alignment: .leading, spacing: 10) {
-                Image(systemName: option.symbol)
-                    .font(.system(size: 20, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(isChosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-                    .frame(width: 26, alignment: .leading)
+                if let logo = option.logo {
+                    logo.view
+                        .frame(width: 26, height: 26)
+                        .frame(width: 26, alignment: .leading)
+                } else {
+                    Image(systemName: option.symbol)
+                        .font(.system(size: 20, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(isChosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                        .frame(width: 26, alignment: .leading)
+                }
 
                 Text(option.label)
                     .font(.subheadline.weight(.medium))
@@ -49,11 +55,16 @@ struct DetailedOption: View {
     var body: some View {
         Button(action: choose) {
             HStack(alignment: .top, spacing: 13) {
-                Image(systemName: option.symbol)
-                    .font(.system(size: 17, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(isChosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-                    .frame(width: 24)
+                if let logo = option.logo {
+                    logo.view
+                        .frame(width: 24, height: 24)
+                } else {
+                    Image(systemName: option.symbol)
+                        .font(.system(size: 17, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(isChosen ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                        .frame(width: 24)
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(option.label)

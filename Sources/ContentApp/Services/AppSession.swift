@@ -29,6 +29,9 @@ final class AppSession {
     /// Every app this person is marketing. The chosen one is `brand`.
     private(set) var brands: [Brand] = []
     private(set) var connections: [PlatformConnection] = []
+    /// Whether the accounts have been read at least once for this brand. See
+    /// `needsAccount`: an empty list means "none" only after a read succeeded.
+    private(set) var connectionsLoaded = false
     private(set) var isConnecting = false
     /// Any longer-running action the person started: uploading, approving,
     /// publishing. Drives the spinners and stops a second tap.
@@ -122,6 +125,19 @@ final class AppSession {
         path.append(route)
     }
 
+    /// A picture that was made, waiting to be set up in the next video page's
+    /// composer -- chosen in the Library, used when the page opens. Held here
+    /// because the two screens share nothing else, and a push carries only a
+    /// value that can be hashed into a route.
+    var referenceHandoff: (artifact: Artifact, animating: Bool)?
+
+    /// Takes it, once: the page that opens consumes it so a second opening is
+    /// not born with the same picture already attached.
+    func takeReferenceHandoff() -> (artifact: Artifact, animating: Bool)? {
+        defer { referenceHandoff = nil }
+        return referenceHandoff
+    }
+
     /// Videos on their way up from this phone right now, so Home can show
     /// them as tiles that say "Uploading" instead of a spinner somewhere
     /// else (Abel, 22 Sep 2026: "say uploading on the home... so on the home
@@ -188,9 +204,25 @@ final class AppSession {
             // 23 Sep 2026: "the splash is taking much time, make the app
             // load in the back").
             async let name: Void = refreshName()
-            async let connections: Void = refreshConnections()
             try await loadBrand(for: user.id)
-            _ = await (name, connections)
+            // 🔴 AFTER the brand, never beside it.
+            //
+            // Abel, 29 Sep 2026: "when you leave the app, in an hour or in a
+            // day... if you connected to TikTok, it will disconnect itself.
+            // YouTube too, Instagram too."
+            //
+            // Nothing had disconnected. On 23 Sep this read moved to run
+            // alongside `loadBrand` (`async let`, "three reads not eleven"),
+            // but the accounts are read FOR a brand: `refreshConnections()`
+            // starts with `guard let brandID = brand?.id`, and the brand is
+            // exactly what `loadBrand` is still fetching. So it returned
+            // empty-handed on every cold launch, and the app drew every
+            // account as gone. It only showed after the phone had closed the
+            // app for a while -- which is the only time a launch is cold --
+            // and the database, where TikTok's tokens refresh hourly on
+            // their own, had every connection active the whole time.
+            await refreshConnections()
+            _ = await name
             // An account is how somebody gets in (Abel, 21 Sep 2026:
             // "registration and onboarding completion is must"). Anyone who
             // finished setup before that rule, or whose session lapsed into a
@@ -285,6 +317,7 @@ final class AppSession {
         brand = nil
         brands = []
         connections = []
+        connectionsLoaded = false
         posts = []
         plan = nil
         planPosts = []
@@ -363,6 +396,7 @@ final class AppSession {
         plan = nil
         planPosts = []
         connections = []
+        connectionsLoaded = false
         await refreshConnections()
         await refreshPosts()
         await refreshPlan()
@@ -396,18 +430,45 @@ final class AppSession {
 
     func refreshConnections() async {
         guard let brandID = brand?.id else { return }
-        do {
-            connections = try await client
-                .from("platform_connections")
-                .select("id,brand_id,platform,username,display_name,avatar_url,scopes,status,connected_at,last_error")
-                .eq("brand_id", value: brandID.uuidString)
-                .order("connected_at", ascending: false)
-                .execute()
-                .value
-        } catch {
-            report("refreshConnections", error)
+        // Twice, because the first read after a phone wakes can land while the
+        // sign-in is still being renewed, and a read that failed must never be
+        // mistaken for "no accounts" -- `connections` keeps what it had.
+        for attempt in 0..<2 {
+            do {
+                connections = try await client
+                    .from("platform_connections")
+                    .select("id,brand_id,platform,username,display_name,avatar_url,scopes,status,connected_at,last_error")
+                    .eq("brand_id", value: brandID.uuidString)
+                    .order("connected_at", ascending: false)
+                    .execute()
+                    .value
+                connectionsLoaded = true
+                return
+            } catch {
+                report("refreshConnections", error)
+                if attempt == 0 { try? await Task.sleep(for: .milliseconds(700)) }
+            }
         }
     }
+
+    /// The app coming back to the front after being away.
+    ///
+    /// Most of what the screens show is read once and kept, so it is only as
+    /// fresh as the last launch. The accounts are the part that moves while
+    /// nobody is looking -- a token renewed, a login revoked on the other
+    /// side -- so they are read again, at most once every 45 seconds so
+    /// flicking between apps does not become a stream of requests.
+    func refreshOnForeground() async {
+        guard state == .ready, brand != nil else { return }
+        guard Date.now.timeIntervalSince(lastForegroundRefresh) > 45 else { return }
+        lastForegroundRefresh = .now
+        async let accounts: Void = refreshConnections()
+        async let findings: Void = refreshHealth()
+        async let providers: Void = refreshConnectedProviders()
+        _ = await (accounts, findings, providers)
+    }
+
+    @ObservationIgnored private var lastForegroundRefresh = Date.distantPast
 
     // MARK: - Connecting an account
 
@@ -890,7 +951,7 @@ extension AppSession {
             // showed, so Drobe could open Remi Snap's month.
             let plans: [ContentPlan] = try await client
                 .from("content_plans")
-                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms,template_slug,duration_s")
+                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms,template_slug,duration_s,look,voice,language")
                 .eq("brand_id", value: brand.id.uuidString)
                 .in("status", values: ["draft", "proposed", "active", "paused"])
                 .order("created_at", ascending: false)
@@ -950,7 +1011,10 @@ extension AppSession {
         postsPerDay: Int,
         platforms: [String] = [],
         template: String? = nil,
-        durationSeconds: Int? = nil
+        durationSeconds: Int? = nil,
+        look: String? = nil,
+        voice: String? = nil,
+        language: String? = nil
     ) async -> PlanProposal? {
         guard !isPlanning else { return nil }
         isPlanning = true
@@ -966,7 +1030,10 @@ extension AppSession {
                     brandId: brand?.id.uuidString,
                     platforms: platforms.isEmpty ? nil : platforms,
                     template: template,
-                    durationSeconds: durationSeconds
+                    durationSeconds: durationSeconds,
+                    look: look,
+                    voice: voice,
+                    language: language
                 ))
             )
             await refreshSettings()
@@ -1114,9 +1181,15 @@ private struct PlanRequest: Encodable {
     let template: String?
     /// How long each video should be. Nil lets the model decide.
     let durationSeconds: Int?
+    /// What the person chose in Start a series: how it looks, who speaks over
+    /// it ("none" for nobody), and what language the words are in.
+    let look: String?
+    let voice: String?
+    let language: String?
 
     enum CodingKeys: String, CodingKey {
         case brief, days, platforms, template
+        case look, voice, language
         case postsPerDay = "posts_per_day"
         case brandId = "brand_id"
         case durationSeconds = "duration_s"
@@ -1675,7 +1748,11 @@ extension AppSession {
             postsPerDay: 1,
             platforms: plan.platforms ?? [],
             template: plan.templateSlug,
-            durationSeconds: plan.durationSeconds
+            durationSeconds: plan.durationSeconds,
+            // The next post is written the way the first one was asked for.
+            look: plan.look,
+            voice: plan.voice,
+            language: plan.language
         )
         guard proposal != nil else { return false }
         await refreshPlan()

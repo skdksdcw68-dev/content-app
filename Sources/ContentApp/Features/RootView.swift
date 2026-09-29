@@ -15,6 +15,7 @@ struct RootView: View {
     /// binding is what lets anything outside the bar move between tabs -- an
     /// onboarding step finishing, a notification, a card on Home.
     @Environment(AppSession.self) private var session
+    @Environment(\.scenePhase) private var scenePhase
     @State private var tab: AppTab = .home
     /// Light unless the person chose otherwise (Remi's default). Read here, at
     /// the root, so the choice reaches every screen -- sheets included -- at once.
@@ -67,6 +68,7 @@ struct RootView: View {
                                 case .plan(let proposal):   PlanView(notice: proposal)
                                 case .post(let id):         PostDetailView(postID: id)
                                 case .library:              LibraryView()
+                                case .generated:            GeneratedLibraryView()
                                 case .inspiration:          InspirationView()
                                 }
                             }
@@ -111,6 +113,11 @@ struct RootView: View {
             PaywallView()
         }
         .task { await session.listenForTransactions() }
+        // Back from the background: read the accounts again, so a change made
+        // while the app was away is on screen without a pull to refresh.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await session.refreshOnForeground() } }
+        }
         .alert(
             "That did not work",
             isPresented: Binding(

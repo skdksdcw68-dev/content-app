@@ -17,6 +17,11 @@ struct OnboardingQuestion: Identifiable, Hashable, Sendable {
         /// The longer line, where an option needs one. Only the voice question
         /// uses it, which is why the layout adapts rather than being declared.
         var detail: String?
+        /// A network's own mark, drawn in place of the symbol. The platform
+        /// options wore generic symbols -- a music note, two stacked squares --
+        /// beside the words TikTok, Instagram and YouTube (Abel, 29 Sep 2026:
+        /// "could we make them shaped?").
+        var logo: BrandLogo?
     }
 
     let id: String

@@ -174,7 +174,9 @@ struct ChatView: View {
                             onRetry: { prompt in
                                 draft = prompt
                                 send()
-                            }
+                            },
+                            onAnimate: { artifact in animate(artifact) },
+                            onReference: { artifact in useAsReference(artifact) }
                         )
                         .padding(.horizontal, 16)
                         .padding(.top, 12)
@@ -396,6 +398,11 @@ struct ChatView: View {
                 let models = await session.models(capability: choices.mode.capability, withPicture: false)
                 choices.model = models.first(where: \.recommended) ?? models.first
             }
+            // A picture chosen in the Library on the way here: set up in the
+            // composer now that a model is chosen for it to be checked against.
+            if let handoff = session.takeReferenceHandoff() {
+                await use(handoff.artifact, animating: handoff.animating)
+            }
         }
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way
@@ -407,6 +414,18 @@ struct ChatView: View {
         // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
         .hidesTabBar()
         .toolbar {
+            // The shelf of everything made, one tap from where it is made
+            // (Abel, 29 Sep 2026: no "Library" anywhere on the generator).
+            if isGenerating {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        session.push(.generated)
+                    } label: {
+                        Image(systemName: "square.grid.2x2")
+                    }
+                    .accessibilityLabel("Library")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -615,6 +634,9 @@ struct ChatView: View {
             onApprove: { artifact in
                 approve(artifact)
             },
+            onReference: { artifact in
+                useAsReference(artifact)
+            },
             onRunFinished: { run in
                 runFinished(run)
             },
@@ -796,7 +818,11 @@ struct ChatView: View {
         // decision that has been made. So the send button submits the job
         // itself -- the same `.generate` action the card's button sent --
         // and the reply is the result, counting up, like the screenshots.
-        if isGenerating, action == nil, let model = choices.model, !asked.isEmpty {
+        //
+        // Except for "Hi". A greeting is not a subject (`SmallTalk`): it goes
+        // to the agent, which asks what the video should be of, and the next
+        // message -- the actual idea -- is the one that is made.
+        if isGenerating, action == nil, let model = choices.model, !asked.isEmpty, !SmallTalk.matches(asked) {
             // Frames first and in order: an adapter reads the first
             // reference as the start frame and the second as the end.
             guard pending.allSatisfy({ $0.path != nil }) else { return }
@@ -1085,9 +1111,77 @@ struct ChatView: View {
     }
 
     /// An image made into a video, from the card's Animate button.
+    ///
+    /// On the generator the picture goes INTO the composer -- as the start
+    /// frame, or the reference for a model that takes only one -- and what is
+    /// typed next is the motion. Send is generate there, so nothing else has to
+    /// happen. This used to send "Animate this image" as a chat message and
+    /// wait for the agent to answer with a card asking which model, on a page
+    /// whose model was already chosen; and from the feed it did not run at all.
+    /// Plain chat keeps its own path, where the agent offers the models.
     private func animate(_ artifact: Artifact) {
+        if isGenerating {
+            Task { await use(artifact, animating: true) }
+            return
+        }
         draft = "Animate this image"
         send(action: .animate(artifact: artifact.id))
+    }
+
+    /// A picture that was made, put in the composer as a reference for the
+    /// next request: the pill shows it, the send button carries it, and the
+    /// model is told what it is.
+    private func useAsReference(_ artifact: Artifact) {
+        Task { await use(artifact, animating: false) }
+    }
+
+    /// Takes a made picture into the composer the way a photo from the camera
+    /// roll is taken -- shrunk, made vertical on the generator, uploaded -- so
+    /// everything already built for an attached picture (the pill, the price,
+    /// the request) treats it as one. Nothing about it is special-cased.
+    ///
+    /// Abel, 29 Sep 2026: "when you are trying to use an image for a video
+    /// preference or something, or an image preference, it's not going to
+    /// attach it, and it's not going to use it. The AI won't understand what
+    /// it has to do." A made picture lives in the server's artifacts, and
+    /// chat only accepts uploads it was handed from the phone -- so there was
+    /// no way to attach one at all. Reading it back through the phone and
+    /// uploading it again is the one path every layer already trusts.
+    private func use(_ artifact: Artifact, animating: Bool) async {
+        guard let picked = await session.picture(of: artifact, longest: 1600) else {
+            say("I couldn't open that picture. Try again.")
+            return
+        }
+
+        // Animating means a video model, and one that will take a picture.
+        if animating, isGenerating, choices.mode != .video {
+            choices.mode = .video
+            choices.model = nil
+            if creating != nil { creating = .video }
+        }
+        if isGenerating {
+            let capable = await session.models(capability: choices.mode.capability, withPicture: true)
+            let current = choices.model
+            if current == nil || !capable.contains(where: { $0.externalId == current?.externalId }) {
+                choices.model = capable.first(where: \.recommended) ?? capable.first ?? current
+            }
+        }
+
+        let image = isGenerating ? VerticalFit.padded(picked) : picked
+        guard let jpeg = Self.shrunk(image), let path = await session.uploadAttachment(jpeg) else {
+            say("That picture didn't upload. Try it again.")
+            return
+        }
+
+        if animating, isGenerating, BuiltInModels.takesFrames(choices.model) {
+            choices.startFrame = GenerateChoices.FramePick(path: path, preview: image)
+        } else if pending.count < 4 {
+            pending.append(PendingAttachment(
+                preview: image.preparingThumbnail(of: CGSize(width: 168, height: 168)) ?? image,
+                path: path
+            ))
+        }
+        composerFocus += 1
     }
 
     /// A run this conversation was watching has ended. The worker wrote the

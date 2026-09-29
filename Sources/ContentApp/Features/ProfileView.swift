@@ -37,21 +37,53 @@ struct ProfileView: View {
         ScrollViewReader { scroll in
         List {
             Section {
-                ProfileHeader()
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
+                ProfileHeader {
+                    withAnimation { scroll.scrollTo(Self.accountsAnchor, anchor: .top) }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             }
 
-            attention(scroll)
-            pro
-            account
-            brandSection
-            accounts.id(Self.accountsAnchor)
-            autopilot
-            insights
-            app
-            support
-            signOutAndDelete
+            if session.needsAccount {
+                // 🔴 No account, no profile -- almost.
+                //
+                // Abel, 29 Sep 2026: "analytics, you, and a plus icon. Those
+                // three must have a connection, at least with one connector."
+                // So the brand, Autopilot and the numbers step aside and the
+                // one thing to do fills the screen. What stays is what a
+                // person must always be able to reach: their plan, how they
+                // are signed in, support and legal, and Sign out and Delete --
+                // App Review requires the last two whatever else is locked.
+                Section {
+                    ConnectGate(
+                        art: "empty-plan",
+                        title: "Connect your first account",
+                        detail: "Your accounts, your brand and your plan live here. Start with one."
+                    )
+                    .padding(.horizontal, Style.gutter)
+                    .padding(.vertical, 8)
+                }
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+
+                pro
+                account
+                app
+                support
+                signOutAndDelete
+            } else {
+                attention(scroll)
+                pro
+                account
+                brandSection
+                accounts.id(Self.accountsAnchor)
+                autopilot
+                insights
+                app
+                support
+                signOutAndDelete
+            }
         }
         .listStyle(.insetGrouped)
         // The tab says "You", so the screen does too. They disagreed.

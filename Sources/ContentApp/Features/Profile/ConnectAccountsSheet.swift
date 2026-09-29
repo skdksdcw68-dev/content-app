@@ -26,7 +26,7 @@ struct ConnectAccountsSheet: View {
     }
 
     private var connectedCount: Int {
-        Platform.allCases.filter { session.connection(for: $0) != nil }.count
+        Platform.allCases.filter { session.connection(for: $0)?.isHealthy == true }.count
     }
 
     var body: some View {
@@ -105,7 +105,7 @@ struct ConnectAccountsSheet: View {
     }
 
     private func connect(_ platform: Platform) {
-        guard session.connection(for: platform) == nil, opening == nil else { return }
+        guard session.connection(for: platform)?.isHealthy != true, opening == nil else { return }
         opening = platform
         Task {
             await session.connect(platform)
@@ -131,7 +131,11 @@ struct PlatformTile: View {
     var isChosen: Bool?
     let choose: () -> Void
 
-    private var isConnected: Bool { connection != nil }
+    /// Signed in AND working. An account whose login has lapsed is still on
+    /// file, but it is not connected: it says so and can be signed in again,
+    /// instead of sitting there ticked and doing nothing.
+    private var isConnected: Bool { connection?.isHealthy == true }
+    private var needsSignIn: Bool { connection != nil && !isConnected }
     /// Filled in when it is yours, or when it is yours AND picked.
     private var isLit: Bool { isChosen ?? isConnected }
 
@@ -178,11 +182,18 @@ struct PlatformTile: View {
                         .frame(width: 18, height: 18)
                         .clipShape(Circle())
                     }
-                    Text(connection?.label ?? (isOpening ? "Opening…" : "Tap to connect"))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    if needsSignIn {
+                        Text(isOpening ? "Opening…" : "Sign in again")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color.orange)
+                            .lineLimit(1)
+                    } else {
+                        Text(connection?.label ?? (isOpening ? "Opening…" : "Tap to connect"))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -197,9 +208,16 @@ struct PlatformTile: View {
             .scaleEffect(isLit ? 0.98 : 1)
         }
         .buttonStyle(.plain)
-        .disabled(isConnected || isOpening)
+        // A connected tile is dead on the plain connect sheet, where there is
+        // nothing to choose -- and live in the series flow, where tapping it
+        // picks it or drops it. It was disabled in both, so nothing connected
+        // could ever be unpicked.
+        .disabled(isOpening || (isConnected && isChosen == nil))
         .animation(.snappy(duration: 0.2), value: isConnected)
-        .accessibilityLabel(isConnected ? "\(platform.networkName), connected" : "Connect \(platform.networkName)")
+        .accessibilityLabel(
+            isConnected ? "\(platform.networkName), connected"
+                : (needsSignIn ? "Sign in to \(platform.networkName) again" : "Connect \(platform.networkName)")
+        )
         .accessibilityAddTraits(isConnected ? [.isSelected, .isButton] : .isButton)
     }
 }

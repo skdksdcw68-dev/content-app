@@ -162,7 +162,7 @@ struct ComposeView: View {
                                 Text(account.label).font(.caption).foregroundStyle(.secondary)
                             }
                         } icon: {
-                            SettingsIcon(account.platform.symbolName)
+                            SettingsLogo(account.platform.logo)
                         }
                     }
                 }
@@ -349,7 +349,12 @@ struct ComposeView: View {
     }
 
     private func platformHeader(_ platform: Platform) -> some View {
-        Label(platform.networkName, systemImage: platform.symbolName)
+        Label {
+            Text(platform.networkName)
+        } icon: {
+            platform.logo.view
+                .frame(width: 18, height: 18)
+        }
     }
 
     /// YouTube's title when none is typed: the caption's first line.

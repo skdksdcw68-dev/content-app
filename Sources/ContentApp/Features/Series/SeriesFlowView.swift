@@ -748,6 +748,24 @@ struct SeriesFlowView: View {
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
 
+                // What it will spend, before it is started: a series makes
+                // about a video a day, and the month only holds so many. The
+                // number is the server's own counter, not an estimate.
+                if chosen?.needsFilming != true, let left = standing.first(where: { $0.kind == "video_gen" })?.left {
+                    Label(
+                        left == 0
+                            ? "No videos left this month, so the series waits until they renew -- or you upgrade."
+                            : (left >= 30
+                                ? "About a video a day, so about 30 a month. \(left) left this month."
+                                : "About a video a day, and only \(left) left this month."),
+                        systemImage: "bolt.fill"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
                 if chosen?.needsFilming == true {
                     // Said here, not discovered later: this style is a person
                     // talking, and no generator can be that person.

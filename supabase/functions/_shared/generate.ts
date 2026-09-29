@@ -14,7 +14,7 @@ import { PublicError } from "./http.ts";
 import { inspect } from "./media.ts";
 import { type Credential, parseCredential, poll, Refused } from "./higgsfield.ts";
 import { canAffordVideo, NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
-import { requireQuota } from "./quota.ts";
+import { chargeForGeneration, refundCredits } from "./credits.ts";
 
 /**
  * The model that worked last time for this person, whatever provider it was on.
@@ -107,21 +107,23 @@ export async function startJob(
   // (migration 0068), and that is Autocast's bill -- so the allowance is
   // spent HERE, before the job row and before the submission. A job that runs
   // and then discovers it was over budget has already cost the money.
-  const { data: onOurMoney } = await admin.rpc("uses_house_generator", {
-    p_user: args.userId,
-    p_capability: "video_generation",
+  const lastGoodModel = await rememberedModel(admin, args.userId);
+
+  // 🔴 In CREDITS now, not in videos (migration 0077). Sixty "videos" a month
+  // was sixty Veo clips at $3.20 or sixty Wan clips at $0.25 depending on what
+  // the router picked, so the cap did not bound the bill. The price is the
+  // quoted price of the model this job is expected to use, taken before the
+  // row exists and given back by a trigger if the job fails.
+  const charge = await chargeForGeneration(admin, args.userId, {
+    capability: "video_generation",
+    model: lastGoodModel ?? undefined,
+    prompt: args.prompt,
+    settings: args.options ?? {},
   });
-  if (onOurMoney === true) {
-    await requireQuota(
-      admin,
-      args.userId,
-      "video_gen",
-      "You've used every video on your plan this month. Autocast Pro raises it.",
-    );
-  }
 
   const funds = await canAffordVideo(admin, args.userId);
   if (!funds.ok) {
+    if (charge) await refundCredits(admin, args.userId, charge.ref);
     throw new PublicError(
       "Your generator has no credits left. Top it up and the next video will go through.",
       402,
@@ -129,8 +131,6 @@ export async function startJob(
       "no_credits",
     );
   }
-
-  const lastGoodModel = await rememberedModel(admin, args.userId);
 
   // The row before the request, so a submission that succeeds and then loses
   // its response still has somewhere to be recovered from. The other order
@@ -147,11 +147,16 @@ export async function startJob(
       provider: "pending",
       status: "queued",
       input: { prompt: args.prompt, ...(args.options ? { options: args.options } : {}) },
+      // What was taken for it, so a job that fails gives it back (0077).
+      credit_ref: charge?.ref ?? null,
     })
     .select("id, webhook_token")
     .single();
 
-  if (jobError) throw jobError;
+  if (jobError) {
+    if (charge) await refundCredits(admin, args.userId, charge.ref);
+    throw jobError;
+  }
 
   try {
     const routed = await routeSubmit(admin, {

@@ -30,6 +30,7 @@ import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { requireQuota } from "../_shared/quota.ts";
+import { type Charge, chargeForGeneration, refundCredits } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -276,16 +277,52 @@ Deno.serve(async (request) => {
          * it through `run_events` -- so closing the app halfway through a
          * research job loses nothing, and the result lands in this thread.
          */
-        const startRun = async (kind: string, input: Record<string, unknown>, brandId: string | null) => {
+        const startRun = async (
+          kind: string,
+          input: Record<string, unknown>,
+          brandId: string | null,
+          /** Spoken once the run is certain to start -- after the credits. */
+          announce?: string,
+        ) => {
+          // 🔴 Making something is paid for in credits, BEFORE it starts and only
+          // when it runs on our money (`_shared/credits.ts`). This one line is
+          // every road to a generation: the card's Generate button, the
+          // composer's send-is-generate, an answered question, a direct ask.
+          // Until 29 Sep none of them were counted at all.
+          let charge: Charge | null = null;
+          if (kind === "generate") {
+            try {
+              charge = await chargeForGeneration(admin, auth.user!.id, input);
+            } catch (thrown) {
+              // Not enough credits, or a model for a higher plan: said in the
+              // conversation, in words, and the app is told to offer the plans.
+              if (thrown instanceof PublicError && thrown.status === 402) {
+                speak(thrown.message);
+                send({ t: "paywall", code: thrown.failureCode ?? "needs_credits" });
+                await remember();
+                finish();
+                return;
+              }
+              throw thrown;
+            }
+          }
+          if (announce) speak(announce);
+
           const { data: runId, error } = await admin.rpc("start_agent_run", {
             p_user: auth.user!.id,
             p_thread: threadId,
             p_kind: kind,
-            p_input: input,
+            // The reference travels on the run, so a failure -- by any road --
+            // can give the credits back (migration 0077's trigger) and a
+            // success can settle them to what the provider charged.
+            p_input: charge ? { ...input, credit_ref: charge.ref, credits: charge.credits } : input,
             p_brand: brandId,
             p_model: MODELS.chat,
           });
-          if (error || !runId) throw error ?? new Error("the run did not start");
+          if (error || !runId) {
+            if (charge) await refundCredits(admin, auth.user!.id, charge.ref);
+            throw error ?? new Error("the run did not start");
+          }
           send({ t: "run", id: runId, kind });
           await remember({ kind: "run", run_id: runId, run_kind: kind });
           finish();
@@ -927,11 +964,13 @@ Deno.serve(async (request) => {
               };
               // An Animate offer's source travels on the offer, not the button.
               const source = same ? offer!.sourceArtifactId : null;
-              speak(
-                source
-                  ? "Animating it."
-                  : `Making ${action.prompt}.`,
-              );
+              // Said once the credits are taken, not before: "Making a lighthouse."
+              // followed by "you don't have enough credits" is a sentence that
+              // contradicts itself. Only the first paragraph, too -- a line for
+              // the voice to speak rides on the end of the prompt.
+              const announce = source
+                ? "Animating it."
+                : `Making ${String(action.prompt ?? "").split("\n\n")[0].slice(0, 140)}.`;
               const quoted = action.quoted && typeof action.quoted.amount === "number"
                 ? { unit: String(action.quoted.unit ?? "credits"), amount: action.quoted.amount, quoted: true }
                 : null;
@@ -943,7 +982,7 @@ Deno.serve(async (request) => {
                 quoted_cost: quoted,
                 references,
                 ...(source ? { source_artifact_id: source } : {}),
-              }, null);
+              }, null, announce);
             }
 
             if (action.type === "answers") {

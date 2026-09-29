@@ -91,14 +91,21 @@ interface Entry {
    *  -- HALF -- so "no sound" is not a preference, it is the single biggest
    *  cost lever on the most expensive model we offer. */
   perSecondSilent?: Record<string, number>;
-  /** Lengths the endpoint accepts, in seconds. */
+  /** Lengths we offer, in seconds. A subset of what the endpoint accepts where
+   *  it accepts many (Kling 3 takes every second from 3 to 15; a menu of
+   *  thirteen is not a choice). */
   durations: number[];
-  /** 🔴 How the schema spells a length: "5" (Wan, Kling) or "8s" (Veo). Sending
+  /** 🔴 How the schema spells a length: "5" (Kling) or "8s" (Veo). Sending
    *  the other spelling is a 422 and the job never starts. */
   durationSuffix: boolean;
+  /** ...or as a bare integer (MiniMax H3, Wan 3.0). */
+  durationInt?: boolean;
   /** Resolutions the endpoint accepts. Absent when it has no such field at all
-   *  (Kling): sending one anyway is a 422. */
+   *  (Kling): sending one anyway is a 422. Always written lower-case here;
+   *  `resolutionUpper` says how the endpoint wants it spelled. */
   resolutions?: string[];
+  /** MiniMax spells them "768P". */
+  resolutionUpper?: boolean;
   /** What we price at, and ask for unless told otherwise. Never left to the
    *  model: fal defaults Wan to 1080p and 16:9, and 16:9 is the wrong shape for
    *  every video this app makes. */
@@ -109,41 +116,136 @@ interface Entry {
    *  endpoint does not accept one and does not complain -- it ignores it and
    *  makes something unrelated, which is worse than refusing. */
   imageEndpoint: string;
+  /** What that endpoint calls the starting picture. Most say `image_url`;
+   *  Kling 3 and Wan 3 say `start_image_url`. */
+  startField?: string;
   /** Whether that endpoint takes an aspect ratio of its own. Veo's does
-   *  ("auto" follows the picture); Wan's and Kling's take their shape from the
-   *  picture and reject the field. */
+   *  ("auto" follows the picture); the others take their shape from the
+   *  picture and reject or ignore the field. */
   pictureAspect: boolean;
-  /** Makes its own sound (`generate_audio`). */
+  /** Makes its own sound. */
   audio: boolean;
+  /** What the switch for it is called: `generate_audio` for nearly everyone,
+   *  `audio` for Wan 3. */
+  audioField?: string;
+  /** False when sound is always on and there is nothing to turn off (MiniMax
+   *  H3): the app then shows no sound button rather than one that does nothing. */
+  audioSwitch?: boolean;
   /** Takes `negative_prompt`. */
   negative: boolean;
-  /** The picture-to-video endpoint also takes a LAST frame (`tail_image_url`). */
+  /** The picture-to-video endpoint also takes a LAST frame. */
   endFrame?: boolean;
+  /** ...and what it calls it: `tail_image_url` (Kling 2.5) or `end_image_url`. */
+  endField?: string;
   /** Takes an `audio_url` to drive the video with -- a voice or a track. */
   audioInput?: boolean;
+  /** Fields a schema REQUIRES and that never change (MiniMax:
+   *  `prompt_expansion_mode`). */
+  extra?: Record<string, unknown>;
+  /** The lowest plan tier that may use it: 1 Pro, 2 Max, 3 Ultra. Enforced by
+   *  `chargeForGeneration` (0077). Absent means any paid plan. */
+  minTier?: number;
 }
 
+/**
+ * What we offer. Rewritten 29 Sep 2026, evening, after Netro: "there is no good
+ * models honestly now, we need the most popular and good ones."
+ *
+ * Chosen from fal's live catalogue that day (`api.fal.ai/v1/models`, 136 active
+ * text-to-video endpoints) and cross-checked against the arena rankings: Sora 2
+ * was withdrawn on 24 Sep and is not on fal at all; MiniMax H3 Max (post-trained
+ * by fal, ranked first for quality) and Seedance 2.x lead; Kling 3.0 and Veo 3.1
+ * are what people ask for by name; Wan 3.0 is the cheap everyday one.
+ *
+ * Every price is the HIGHER of fal's own pricing API and the maker's published
+ * rate, at the resolution actually asked for. Some are launch prices that will
+ * end (H3 Max is $0.025 a second on fal today and $0.08 at MiniMax), and
+ * charging the low number now would mean a loss the day it changes.
+ *
+ * Ordered cheapest first, which is also `rank`.
+ */
 const CATALOGUE: Entry[] = [
   {
-    id: "fal-ai/wan-25-preview/text-to-video",
-    label: "Wan 2.5",
-    about: "Sharp and cheap. The everyday choice for a short clip.",
+    id: "minimax/h3-max-turbo/text-to-video",
+    label: "MiniMax H3 Max Turbo",
+    about: "The same look as H3 Max, twice as fast. Sound included.",
+    perSecond: { "480p": 0.025, "768p": 0.04, "1080p": 0.07 },
+    durations: [5, 8, 10, 15],
+    durationSuffix: false,
+    durationInt: true,
+    resolutions: ["480p", "768p", "1080p"],
+    resolutionUpper: true,
+    resolution: "768p",
+    aspects: ["9:16", "1:1", "16:9"],
+    imageEndpoint: "minimax/h3-max-turbo/image-to-video",
+    pictureAspect: false,
+    audio: true,
+    audioSwitch: false,
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
+    extra: { prompt_expansion_mode: "balanced" },
+  },
+  {
+    id: "alibaba/wan-3.0/text-to-video",
+    label: "Wan 3.0",
+    about: "Alibaba's newest. Sharp and cheap, with sound. The everyday choice.",
     perSecond: { "480p": 0.05, "720p": 0.10, "1080p": 0.15 },
     durations: [5, 10],
     durationSuffix: false,
+    durationInt: true,
     resolutions: ["480p", "720p", "1080p"],
     resolution: "720p",
     aspects: ["9:16", "1:1", "16:9"],
-    imageEndpoint: "fal-ai/wan-25-preview/image-to-video",
+    imageEndpoint: "alibaba/wan-3.0/image-to-video",
+    startField: "start_image_url",
     pictureAspect: false,
-    audio: false,
+    audio: true,
+    audioField: "audio",
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
+  },
+  {
+    id: "fal-ai/veo3.1/lite",
+    label: "Google Veo 3.1 Lite",
+    about: "Google's Veo at a fraction of the price, with sound.",
+    perSecond: { "720p": 0.05, "1080p": 0.08 },
+    durations: [4, 6, 8],
+    durationSuffix: true,
+    resolutions: ["720p", "1080p"],
+    resolution: "720p",
+    aspects: ["9:16", "16:9"],
+    imageEndpoint: "fal-ai/veo3.1/lite/image-to-video",
+    pictureAspect: true,
+    audio: true,
     negative: true,
-    audioInput: true,
+  },
+  {
+    id: "minimax/h3-max/text-to-video",
+    label: "MiniMax H3 Max",
+    about: "Ranked first for quality and prompt-following. Sharp faces, sound included.",
+    perSecond: { "480p": 0.05, "768p": 0.08, "1080p": 0.14 },
+    durations: [5, 8, 10, 15],
+    durationSuffix: false,
+    durationInt: true,
+    resolutions: ["480p", "768p", "1080p"],
+    resolutionUpper: true,
+    resolution: "768p",
+    aspects: ["9:16", "1:1", "16:9"],
+    imageEndpoint: "minimax/h3-max/image-to-video",
+    pictureAspect: false,
+    audio: true,
+    audioSwitch: false,
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
+    extra: { prompt_expansion_mode: "balanced" },
   },
   {
     id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video",
     label: "Kling 2.5 Turbo Pro",
-    about: "Steady motion and faces that hold together.",
+    about: "Steady motion and faces that hold together. Silent.",
     perSecond: { "720p": 0.07 },
     durations: [5, 10],
     durationSuffix: false,
@@ -154,6 +256,7 @@ const CATALOGUE: Entry[] = [
     audio: false,
     negative: true,
     endFrame: true,
+    endField: "tail_image_url",
   },
   {
     id: "fal-ai/veo3.1/fast",
@@ -172,18 +275,41 @@ const CATALOGUE: Entry[] = [
     negative: true,
   },
   {
-    id: "fal-ai/kling-video/v2.1/master/text-to-video",
-    label: "Kling 2.1 Master",
-    about: "Kling at full quality, for the shot that matters.",
-    perSecond: { "720p": 0.28 },
-    durations: [5, 10],
+    id: "fal-ai/kling-video/v3/pro/text-to-video",
+    label: "Kling 3.0 Pro",
+    about: "Kling's newest. Steady motion, sharp faces, native sound and lip-sync.",
+    perSecond: { "720p": 0.168 },
+    perSecondSilent: { "720p": 0.112 },
+    durations: [5, 8, 10, 15],
     durationSuffix: false,
     resolution: "720p",
     aspects: ["9:16", "1:1", "16:9"],
-    imageEndpoint: "fal-ai/kling-video/v2.1/master/image-to-video",
+    imageEndpoint: "fal-ai/kling-video/v3/pro/image-to-video",
+    startField: "start_image_url",
     pictureAspect: false,
-    audio: false,
+    audio: true,
     negative: true,
+    endFrame: true,
+    endField: "end_image_url",
+  },
+  {
+    id: "bytedance/seedance-2.0/fast/text-to-video",
+    label: "Seedance 2.0 Fast",
+    about: "ByteDance. Cinematic motion with sound, quick to make.",
+    // Billed by the token, not the second: width x height x 24 x seconds / 1024
+    // tokens at $0.0112 per thousand. These are that, per second, rounded up.
+    perSecond: { "480p": 0.11, "720p": 0.25 },
+    durations: [4, 5, 8, 10, 15],
+    durationSuffix: false,
+    resolutions: ["480p", "720p"],
+    resolution: "720p",
+    aspects: ["9:16", "1:1", "16:9"],
+    imageEndpoint: "bytedance/seedance-2.0/fast/image-to-video",
+    pictureAspect: false,
+    audio: true,
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
   },
   {
     id: "fal-ai/veo3.1",
@@ -200,6 +326,26 @@ const CATALOGUE: Entry[] = [
     pictureAspect: true,
     audio: true,
     negative: true,
+    minTier: 2,
+  },
+  {
+    id: "bytedance/seedance-2.5/text-to-video",
+    label: "Seedance 2.5",
+    about: "ByteDance's best. One shot up to 30 seconds, up to 1080p, with sound.",
+    // $0.0214 per thousand tokens -- see Seedance 2.0 Fast above.
+    perSecond: { "480p": 0.21, "720p": 0.47, "1080p": 1.05 },
+    durations: [5, 10, 15, 20, 30],
+    durationSuffix: false,
+    resolutions: ["480p", "720p", "1080p"],
+    resolution: "720p",
+    aspects: ["9:16", "1:1", "16:9"],
+    imageEndpoint: "bytedance/seedance-2.5/image-to-video",
+    pictureAspect: false,
+    audio: true,
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
+    minTier: 2,
   },
 ];
 
@@ -270,23 +416,33 @@ function videoInput(
   const length = lengthFor(model, request);
   const input: Record<string, unknown> = {
     prompt: request.prompt,
-    duration: model.durationSuffix ? `${length}s` : String(length),
+    // Three spellings of the same number: 8 (MiniMax, Wan 3), "5" (Kling,
+    // Seedance) and "8s" (Veo). Each of the others is a 422.
+    duration: model.durationInt ? length : model.durationSuffix ? `${length}s` : String(length),
+    ...(model.extra ?? {}),
   };
-  if (model.resolutions) input.resolution = resolutionFor(model, request);
+  if (model.resolutions) {
+    const wanted = resolutionFor(model, request);
+    input.resolution = model.resolutionUpper ? wanted.toUpperCase() : wanted;
+  }
 
   if (picture) {
-    input.image_url = picture;
+    input[model.startField ?? "image_url"] = picture;
     // Picture-to-video takes its shape from the picture. Veo alone has a field
     // for it, and "auto" is the answer that keeps the picture's own frame.
     if (model.pictureAspect) input.aspect_ratio = "auto";
-    if (tail && model.endFrame) input.tail_image_url = tail;
+    if (tail && model.endFrame) input[model.endField ?? "tail_image_url"] = tail;
   } else {
     input.aspect_ratio = pick(model.aspects, askedAspect(request));
   }
 
-  // Sound, where the model makes its own. Sent explicitly rather than left to
-  // the model default, because the default is ON and that is the expensive one.
-  if (model.audio) input.generate_audio = !isSilent(request);
+  // Sound, where the model makes its own and lets it be switched. Sent
+  // explicitly rather than left to the model default, because the default is
+  // ON and that is the expensive one. MiniMax H3 has no switch -- its sound is
+  // always there -- so there is nothing to send.
+  if (model.audio && model.audioSwitch !== false) {
+    input[model.audioField ?? "generate_audio"] = !isSilent(request);
+  }
 
   const negative = request.options?.negative_prompt;
   if (model.negative && typeof negative === "string" && negative.trim()) {
@@ -324,22 +480,38 @@ interface ImageEntry {
   id: string;
   label: string;
   about: string;
-  /** Dollars per image at the default size. */
+  /** Dollars per image at the default tier and size. */
   each: number;
   /** Which field this model names the shape with. */
   shape: "aspect_ratio" | "image_size";
   /** What we offer, and every one of these is accepted by the endpoint. */
   aspects: string[];
-  /** Resolution tiers and what each costs relative to the default. Only the
-   *  models that have a `resolution` field. */
+  /** Quality tiers and what each costs relative to the default -- "2K" on Nano
+   *  Banana, "Medium" on GPT Image, "Balanced" on Ideogram. The keys are the
+   *  names people see; `tierValues` says how the endpoint spells each. */
   tiers?: Record<string, number>;
   tier?: string;
+  /** The field the tier travels in: `resolution` for most, `quality` for GPT
+   *  Image, `rendering_speed` for Ideogram. */
+  tierField?: string;
+  tierValues?: Record<string, string>;
   /** The endpoint that takes reference pictures, and the field it wants. */
   edit?: { id: string; field: "image_urls" | "image_url" };
+  /** Lowest plan tier that may use it, when it is not the free one. */
+  minTier?: number;
 }
 
 const FRAMES = ["9:16", "4:5", "1:1", "16:9"];
+/** The shapes the models that only take presets can make. */
+const PRESET_FRAMES = ["9:16", "3:4", "1:1", "4:3", "16:9"];
 
+/**
+ * Rewritten 29 Sep 2026, evening, with the videos: GPT Image 2 is first in every
+ * blind vote (and OpenAI moved consumers on to 2.5 on 8 Sep), Nano Banana Pro
+ * and Seedream 5 are the other two people name, Ideogram V4 is the one for words
+ * in pictures, and Grok Imagine and Qwen 3 are the cheap ones. Prices are the
+ * higher of fal's pricing API and the maker's own, at the tier asked for.
+ */
 const IMAGES: ImageEntry[] = [
   {
     id: "fal-ai/flux/schnell",
@@ -350,30 +522,25 @@ const IMAGES: ImageEntry[] = [
     aspects: FRAMES,
   },
   {
-    id: "fal-ai/qwen-image",
-    label: "Qwen Image",
+    id: "alibaba/qwen-image-3/text-to-image",
+    label: "Qwen Image 3",
     about: "Cheap and clean, strong with text in the picture.",
-    each: 0.02,
-    shape: "image_size",
-    aspects: FRAMES,
-    edit: { id: "fal-ai/qwen-image-edit", field: "image_url" },
-  },
-  {
-    id: "fal-ai/flux/dev",
-    label: "FLUX Dev",
-    about: "Sharper than Schnell, still inexpensive.",
-    each: 0.025,
-    shape: "image_size",
-    aspects: FRAMES,
-  },
-  {
-    id: "fal-ai/bytedance/seedream/v4/text-to-image",
-    label: "Seedream 4",
-    about: "Photographic, good with people.",
     each: 0.03,
     shape: "image_size",
     aspects: FRAMES,
-    edit: { id: "fal-ai/bytedance/seedream/v4/edit", field: "image_urls" },
+    edit: { id: "alibaba/qwen-image-3/edit", field: "image_urls" },
+  },
+  {
+    id: "xai/grok-imagine-image/v2.0/text-to-image",
+    label: "Grok Imagine Image 2",
+    about: "xAI's. Fast, bold and inexpensive.",
+    each: 0.03,
+    shape: "aspect_ratio",
+    aspects: PRESET_FRAMES,
+    tiers: { "1K": 1, "2K": 2 },
+    tier: "1K",
+    tierValues: { "1K": "1k", "2K": "2k" },
+    edit: { id: "xai/grok-imagine-image/v2.0/edit", field: "image_urls" },
   },
   {
     id: "fal-ai/nano-banana",
@@ -385,12 +552,25 @@ const IMAGES: ImageEntry[] = [
     edit: { id: "fal-ai/nano-banana/edit", field: "image_urls" },
   },
   {
-    id: "fal-ai/recraft/v3/text-to-image",
-    label: "Recraft V3",
-    about: "Built for graphics, logos and flat art.",
-    each: 0.04,
+    id: "ideogram/v4",
+    label: "Ideogram V4",
+    about: "The best with words in pictures: posters, covers, thumbnails.",
+    each: 0.06,
+    shape: "image_size",
+    aspects: PRESET_FRAMES,
+    tiers: { Fast: 0.5, Balanced: 1, Quality: 1.5 },
+    tier: "Balanced",
+    tierField: "rendering_speed",
+    tierValues: { Fast: "TURBO", Balanced: "BALANCED", Quality: "QUALITY" },
+  },
+  {
+    id: "bytedance/seedream/v5/pro/text-to-image",
+    label: "Seedream 5 Pro",
+    about: "ByteDance's. Photographic, great with people and products.",
+    each: 0.07,
     shape: "image_size",
     aspects: FRAMES,
+    edit: { id: "bytedance/seedream/v5/pro/edit", field: "image_urls" },
   },
   {
     id: "fal-ai/nano-banana-2",
@@ -402,6 +582,23 @@ const IMAGES: ImageEntry[] = [
     tiers: { "0.5K": 0.75, "1K": 1, "2K": 1.5, "4K": 2 },
     tier: "1K",
     edit: { id: "fal-ai/nano-banana-2/edit", field: "image_urls" },
+  },
+  {
+    id: "openai/gpt-image-2",
+    label: "GPT Image 2",
+    about: "OpenAI's newest. The most accurate, and the best with text.",
+    // 🔴 Medium, not fal's default of High: High costs about $0.21 a picture
+    // and is what its average call costs on fal. Medium is $0.07, and Low is
+    // $0.03 -- so a person chooses to pay for High rather than paying for it
+    // without knowing.
+    each: 0.07,
+    shape: "image_size",
+    aspects: PRESET_FRAMES,
+    tiers: { Low: 0.4, Medium: 1, High: 3 },
+    tier: "Medium",
+    tierField: "quality",
+    tierValues: { Low: "low", Medium: "medium", High: "high" },
+    edit: { id: "openai/gpt-image-2/edit", field: "image_urls" },
   },
   {
     id: "fal-ai/nano-banana-pro",
@@ -445,8 +642,10 @@ function imageEntry(id: string) {
 /** The tier this request will run at, for the models that have tiers. */
 function tierFor(model: ImageEntry, request: SubmitRequest): string | undefined {
   if (!model.tiers) return undefined;
-  const asked = String(request.options?.resolution ?? "").toUpperCase();
-  return model.tiers[asked] !== undefined ? asked : model.tier;
+  // Whatever case it comes in: the app sends the names it was given, and a
+  // hand-typed "2k" arrives lower-case.
+  const asked = String(request.options?.resolution ?? "").toLowerCase();
+  return Object.keys(model.tiers).find((name) => name.toLowerCase() === asked) ?? model.tier;
 }
 
 /** What one request costs: the model's price, at its tier, times how many. */
@@ -515,8 +714,11 @@ async function makePicture(auth: Authorization, request: SubmitRequest): Promise
   } else {
     input.aspect_ratio = aspect;
   }
+  // The tier goes in the field THIS model keeps it in, spelled its way:
+  // `resolution: "2K"` for Nano Banana, `quality: "medium"` for GPT Image,
+  // `rendering_speed: "BALANCED"` for Ideogram.
   const tier = model ? tierFor(model, request) : undefined;
-  if (tier) input.resolution = tier;
+  if (tier && model) input[model.tierField ?? "resolution"] = model.tierValues?.[tier] ?? tier;
 
   // How many at once. Every one of these bills per image, so the count is the
   // bill.
@@ -605,13 +807,20 @@ export function describeCatalogue(): ModelDescriptor[] {
         defaults: { duration: model.durations[0], resolution: model.resolution },
         // What it can do, for the card and the bar to show only what applies.
         audio: model.audio,
+        // Whether sound can be switched off. MiniMax H3's cannot: it is always
+        // there, so the app shows no sound button rather than a dead one.
+        audioSwitch: model.audio && model.audioSwitch !== false,
         takesPicture: true,
         endFrame: model.endFrame === true,
         negativePrompt: model.negative,
         // Whether a picture leaves the shape to be chosen. Where it does not,
         // the shape is the picture's own and the size control is not offered.
         pictureAspect: model.pictureAspect,
+        // The plan it needs: 2 is Max. Also on the model itself, where the
+        // server reads it (`chargeForGeneration`).
+        ...(model.minTier ? { minTier: model.minTier } : {}),
       },
+      ...(model.minTier ? { minTier: model.minTier } : {}),
       // Read by `suits`: a model that starts from a picture is one that can be
       // asked to animate one.
       medias: [{ roles: ["start_image"] }],
@@ -637,10 +846,13 @@ export function describeCatalogue(): ModelDescriptor[] {
         resolutions: model.tiers ? Object.keys(model.tiers) : [],
         defaults: model.tier ? { resolution: model.tier } : {},
         audio: false,
+        audioSwitch: false,
         takesPicture: model.edit !== undefined,
         endFrame: false,
         negativePrompt: false,
+        ...(model.minTier ? { minTier: model.minTier } : {}),
       },
+      ...(model.minTier ? { minTier: model.minTier } : {}),
       ...(model.edit ? { medias: [{ roles: ["image"] }] } : {}),
       frames: false,
     },

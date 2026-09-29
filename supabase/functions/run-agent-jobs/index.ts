@@ -28,6 +28,7 @@ import { rediscover } from "../_shared/connectors/discovery.ts";
 import type { Capability, Submitted } from "../_shared/connectors/contract.ts";
 import { buildDocx, buildPdf, buildZip, type Document } from "../_shared/exports.ts";
 import { imageSize, inspect } from "../_shared/media.ts";
+import { settleCredits } from "../_shared/credits.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -942,6 +943,17 @@ async function saveGenerated(
     p_status: "succeeded",
     p_result: { artifact_id: artifactId },
   });
+  // Made: settle the credits to what the provider actually charged. The quote
+  // taken at the start is an estimate, and the router may have fallen back to
+  // another model; a failed run never gets here -- its credits went back the
+  // moment it was marked failed (migration 0077's trigger).
+  await settleCredits(
+    admin,
+    run.user_id,
+    typeof run.input.credit_ref === "string" ? run.input.credit_ref : null,
+    typeof run.input.credits === "number" ? run.input.credits : null,
+    submitted.charged,
+  );
   // The shape travels with the message, so the card can hold the right space
   // before the picture arrives. Without it the row was 72 points tall, then
   // suddenly the height of a photo, and the conversation jumped under a

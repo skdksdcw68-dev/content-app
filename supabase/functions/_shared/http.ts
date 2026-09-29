@@ -45,7 +45,9 @@ export class PublicError extends Error {
 
 export function fail(error: unknown): Response {
   if (error instanceof PublicError) {
-    return json({ error: error.message }, error.status);
+    // The code lets the app tell "out of credits" from "needs a plan" from
+    // "needs a higher plan" without reading the sentence.
+    return json({ error: error.message, ...(error.failureCode ? { code: error.failureCode } : {}) }, error.status);
   }
   console.error("unhandled", error instanceof Error ? error.stack ?? error.message : error);
   return json({ error: "Something went wrong on our side." }, 500);

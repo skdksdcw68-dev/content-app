@@ -52,33 +52,41 @@ struct GenerateAttachments: View {
 
                 Pill(title: "Image", picture: nil) { attach(.reference) } clear: {}
 
-                if BuiltInModels.takesFrames(choices.model) {
+                // Frames are a video's. In image mode the "Image" pill is the
+                // one way in, and a "Start frame" on a picture is a word that
+                // means nothing there.
+                if choices.isVideo, BuiltInModels.takesFrames(choices.model) {
                     Pill(title: "Start frame", picture: choices.startFrame?.preview) {
                         attach(.start)
                     } clear: {
                         choices.startFrame = nil
                     }
 
-                    // Swaps them, which is what the arrows mean and what
-                    // ElevenLabs does with the same control.
-                    Button {
-                        let first = choices.startFrame
-                        choices.startFrame = choices.endFrame
-                        choices.endFrame = first
-                    } label: {
-                        Image(systemName: "arrow.left.arrow.right")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 26, height: 34)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(choices.startFrame == nil && choices.endFrame == nil)
+                    // The last frame only where the model has one to give:
+                    // Kling 2.5 Turbo does; Wan and Veo start from a picture
+                    // and choose their own ending.
+                    if choices.takesEndFrame {
+                        // Swaps them, which is what the arrows mean and what
+                        // ElevenLabs does with the same control.
+                        Button {
+                            let first = choices.startFrame
+                            choices.startFrame = choices.endFrame
+                            choices.endFrame = first
+                        } label: {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 26, height: 34)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(choices.startFrame == nil && choices.endFrame == nil)
 
-                    Pill(title: "End frame", picture: choices.endFrame?.preview) {
-                        attach(.end)
-                    } clear: {
-                        choices.endFrame = nil
+                        Pill(title: "End frame", picture: choices.endFrame?.preview) {
+                            attach(.end)
+                        } clear: {
+                            choices.endFrame = nil
+                        }
                     }
                 }
             }

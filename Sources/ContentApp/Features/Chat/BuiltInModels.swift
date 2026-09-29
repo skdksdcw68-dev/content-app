@@ -79,13 +79,13 @@ enum BuiltInModels {
         Entry(id: "fal-ai/wan-25-preview/text-to-video", name: "Wan 2.5",
               about: "Sharp and cheap. The everyday choice for a short clip.", frames: true),
         Entry(id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video", name: "Kling 2.5 Turbo Pro",
-              about: "Steady motion and faces that hold together.", frames: false),
+              about: "Steady motion and faces that hold together.", frames: true),
         Entry(id: "fal-ai/veo3.1/fast", name: "Google Veo 3.1 Fast",
-              about: "Realistic, follows the prompt closely, makes its own sound.", frames: false),
+              about: "Realistic, follows the prompt closely, makes its own sound.", frames: true),
         Entry(id: "fal-ai/kling-video/v2.1/master/text-to-video", name: "Kling 2.1 Master",
-              about: "Kling at full quality, for the shot that matters.", frames: false),
+              about: "Kling at full quality, for the shot that matters.", frames: true),
         Entry(id: "fal-ai/veo3.1", name: "Google Veo 3.1",
-              about: "The best of them, with audio. Costs what that implies.", frames: false),
+              about: "The best of them, with audio. Costs what that implies.", frames: true),
     ]
 
     /// Empty on purpose. The house generator offers no image models yet, and
@@ -94,15 +94,18 @@ enum BuiltInModels {
     /// is not. Fills in the day the adapter declares image models.
     private static let image: [Entry] = []
 
-    /// Whether a model takes a first and last frame. Used by the composer to
-    /// decide whether to offer them -- Abel: "the start and end frame thing
-    /// when it comes to model that supports it".
+    /// Whether a video model can start from a picture, so the composer offers a
+    /// start frame -- Abel: "the start and end frame thing when it comes to
+    /// model that supports it". (Whether it takes a LAST frame too is a
+    /// separate question, `GenerateChoices.takesEndFrame`.)
     ///
-    /// Read off the written-down list first, then guessed from the id for a
-    /// discovered model that is not on it. The guess is conservative: the
-    /// families known to take frames, and nothing else.
+    /// The model's own word first (29 Sep 2026: every model in the house
+    /// catalogue now says), then the written-down list, then a guess from the
+    /// id for a discovered model that is on neither. The guess is conservative:
+    /// the families known to take frames, and nothing else.
     static func takesFrames(_ model: ModelChoice?) -> Bool {
         guard let model else { return false }
+        if let own = model.constraints.takesPicture { return own }
         if let entry = (video + image).first(where: { $0.id == model.externalId }) {
             return entry.frames
         }

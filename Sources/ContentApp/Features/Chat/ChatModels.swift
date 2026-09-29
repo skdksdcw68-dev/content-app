@@ -128,8 +128,26 @@ struct ModelConstraints: Equatable, Decodable {
     var notes: [String]?
     var defaults: Defaults?
 
+    // What the model can do, said by the model itself (29 Sep 2026), so a card
+    // or a bar shows the knobs that apply and never a dead one. Nil means the
+    // provider did not say, which is NOT the same as "no": an unknown model
+    // keeps every control, and a model that says `audio: false` loses the
+    // sound one.
+    /// Makes its own sound, so sound and a voiceover mean something.
+    var audio: Bool?
+    /// Can start from a picture.
+    var takesPicture: Bool?
+    /// Takes a last frame as well as a first.
+    var endFrame: Bool?
+    /// Understands a negative prompt.
+    var negativePrompt: Bool?
+    /// Has a control for the shape when it starts from a picture. Most take the
+    /// picture's own.
+    var pictureAspect: Bool?
+
     private enum CodingKeys: String, CodingKey {
         case durations, resolutions, qualities, aspectRatios, typicalSeconds, notes, defaults, choices
+        case audio, takesPicture, endFrame, negativePrompt, pictureAspect
     }
 
     init(from decoder: Decoder) throws {
@@ -142,6 +160,11 @@ struct ModelConstraints: Equatable, Decodable {
         typicalSeconds = try? c.decodeIfPresent(Int.self, forKey: .typicalSeconds)
         notes = try? c.decodeIfPresent([String].self, forKey: .notes)
         defaults = try? c.decodeIfPresent(Defaults.self, forKey: .defaults)
+        audio = try? c.decodeIfPresent(Bool.self, forKey: .audio)
+        takesPicture = try? c.decodeIfPresent(Bool.self, forKey: .takesPicture)
+        endFrame = try? c.decodeIfPresent(Bool.self, forKey: .endFrame)
+        negativePrompt = try? c.decodeIfPresent(Bool.self, forKey: .negativePrompt)
+        pictureAspect = try? c.decodeIfPresent(Bool.self, forKey: .pictureAspect)
     }
 }
 
@@ -209,6 +232,17 @@ struct GenerationSettings: Equatable {
     /// to -- a voice, an engine, a language. Nothing here is written down in
     /// the app: the rows come from the model's own catalogue entry.
     var extras: [String: String] = [:]
+    /// What the person wrote on the card, when they changed it -- "she turns and
+    /// smiles" instead of the agent's guess. Not part of the payload: it is the
+    /// prompt, and travels as the prompt.
+    var prompt: String?
+
+    /// What the card sets itself, as opposed to what a model asks for by name.
+    static let ownKeys: Set<String> = ["aspect_ratio", "generate_audio", "negative_prompt"]
+
+    /// The answers to the model's own questions -- a voice, an engine -- and
+    /// nothing else in `extras`.
+    var answers: [String: String] { extras.filter { !Self.ownKeys.contains($0.key) } }
 
     var payload: [String: Any] {
         var out: [String: Any] = [:]

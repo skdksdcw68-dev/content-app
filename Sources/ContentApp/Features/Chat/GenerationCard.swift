@@ -36,6 +36,17 @@ struct GenerationCard: View {
     /// the provider's own parameter name, so nothing about them is written
     /// down here.
     @State private var extras: [String: String] = [:]
+    /// The size, the sound and the line to be spoken -- what the card used to
+    /// leave out entirely. Netro, 29 Sep 2026, with a screenshot of it: "it
+    /// doesn't include every single thing, doesn't include all the required
+    /// things like voiceover, the pixels, the size."
+    @State private var aspect: String?
+    @State private var sound = true
+    @State private var voiceover = ""
+    /// What should happen, in the person's words. Starts on the request the
+    /// agent understood, and is theirs to change: the card is the last place
+    /// to say it before anything is spent.
+    @State private var prompt = ""
     @State private var price: ModelCost?
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
@@ -56,6 +67,23 @@ struct GenerationCard: View {
     /// A picture has no length; a video and a piece of music both do.
     private var hasLength: Bool { offer.capability != "image_generation" }
 
+    private var isVideo: Bool { offer.capability == "video_generation" }
+    private var withPicture: Bool { offer.withPicture ?? false }
+
+    /// The shapes the chosen model makes.
+    private var shapes: [String] { selected?.constraints.aspectRatios ?? [] }
+
+    /// The size is the person's to choose, unless a picture decides it: a video
+    /// that starts from one takes its shape.
+    private var choosesShape: Bool { shapes.count > 1 && !(isVideo && withPicture) }
+
+    /// Sound is a row only where the model says it makes sound. A switch on a
+    /// model that cannot is a switch that does nothing.
+    private var hasSound: Bool { isVideo && selected?.constraints.audio == true }
+
+    /// The model will read a line out, if given one.
+    private var canSpeak: Bool { hasSound && sound }
+
     var body: some View {
         if let settled {
             Label(settled, systemImage: "checkmark.circle.fill")
@@ -63,10 +91,24 @@ struct GenerationCard: View {
                 .foregroundStyle(Theme.accent)
         } else {
             VStack(alignment: .leading, spacing: 14) {
+                promptField
+
                 models
 
+                // The size. For a video that starts from a picture there is
+                // nothing to choose, and the card says so rather than dropping
+                // the row without a word.
+                if choosesShape {
+                    ChoiceChips(title: "Size", options: shapes, label: { $0 }, selection: $aspect)
+                } else if isVideo, withPicture {
+                    Label("The video takes the shape of your picture", systemImage: "photo")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                // The pixels. "Resolution" to a provider; pixels to everyone else.
                 if let options = selected?.constraints.resolutions, options.count > 1 {
-                    ChoiceChips(title: "Resolution", options: options, label: resolutionLabel, selection: $resolution)
+                    ChoiceChips(title: "Pixels", options: options, label: resolutionLabel, selection: $resolution)
                 }
 
                 if let options = selected?.constraints.qualities, options.count > 1 {
@@ -96,6 +138,20 @@ struct GenerationCard: View {
                     )
                 }
 
+                if hasSound {
+                    soundRow
+                } else if isVideo, selected?.constraints.audio == false {
+                    // Said, not left out: "where is the voiceover?" is the
+                    // question a card with no sound row invites.
+                    Label("This model makes silent video", systemImage: "speaker.slash")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if canSpeak {
+                    voiceoverField
+                }
+
                 generateButton
             }
             .padding(14)
@@ -114,6 +170,8 @@ struct GenerationCard: View {
             .onChange(of: duration) { _, _ in reprice() }
             .onChange(of: quality) { _, _ in reprice() }
             .onChange(of: extras) { _, _ in reprice() }
+            // Sound moves the price -- Veo is half as much without it.
+            .onChange(of: sound) { _, _ in reprice() }
             .sheet(isPresented: $browsing) {
                 ModelBrowser(
                     capability: offer.capability,
@@ -130,6 +188,57 @@ struct GenerationCard: View {
     }
 
     // MARK: - Pieces
+
+    /// What should happen, editable. The card used to show only model names,
+    /// so the one thing the person had actually typed was nowhere on it.
+    private var promptField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(isVideo ? "What should happen?" : offer.capability == "image_generation" ? "What should it show?" : "Prompt")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("Describe it", text: $prompt, axis: .vertical)
+                .lineLimit(1...5)
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                }
+        }
+    }
+
+    private var soundRow: some View {
+        Toggle(isOn: $sound) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Sound")
+                    .font(.subheadline.weight(.semibold))
+                Text(sound ? "It makes its own sound" : "Silent, and it costs less")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .tint(Theme.accent)
+    }
+
+    /// The line the voice reads. Optional: left empty, the model chooses what
+    /// to say, or nothing.
+    private var voiceoverField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Voiceover")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            TextField("What should the voice say? (optional)", text: $voiceover, axis: .vertical)
+                .lineLimit(1...4)
+                .font(.subheadline)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                }
+        }
+    }
 
     private var models: some View {
         VStack(spacing: 6) {
@@ -198,6 +307,7 @@ struct GenerationCard: View {
 
     private func start() {
         guard selectedID == nil else { return }
+        if prompt.isEmpty { prompt = request ?? "" }
         let usable = offer.options.filter { $0.affordable != false }
         selectedID = [offer.preselect, offer.auto?.externalId]
             .compactMap { $0 }
@@ -220,6 +330,13 @@ struct GenerationCard: View {
         resolution = match(wanted, in: resolutions)
             ?? match(selected.constraints.defaults?.resolution, in: resolutions)
             ?? resolutions.first
+
+        // The size: kept if the new model makes it, else what was asked for in
+        // words, else vertical -- this app makes videos for a phone.
+        let shapes = selected.constraints.aspectRatios ?? []
+        aspect = match(keeping ? aspect : offer.settings?.aspectRatio, in: shapes)
+            ?? match("9:16", in: shapes)
+            ?? shapes.first
 
         let durations = selected.constraints.durations ?? []
         let asked = keeping ? duration : offer.settings?.duration
@@ -249,8 +366,30 @@ struct GenerationCard: View {
     }
 
     /// Everything set on the card, as it would be sent.
+    ///
+    /// 🔴 The size, the sound and the person's own words all stayed on the
+    /// card. Only the pixels, the length and a quality ever left it, so "9:16"
+    /// could not have been chosen and a silent video could not have been asked
+    /// for. The adapter takes each of these in that model's own spelling and
+    /// drops what it does not have.
     private var current: GenerationSettings {
-        GenerationSettings(resolution: resolution, duration: duration, quality: quality, extras: extras)
+        var all = extras
+        if choosesShape, let aspect { all["aspect_ratio"] = aspect }
+        if hasSound { all["generate_audio"] = sound ? "true" : "false" }
+        var settings = GenerationSettings(resolution: resolution, duration: duration, quality: quality, extras: all)
+        settings.prompt = finalPrompt
+        return settings
+    }
+
+    /// The words as they will be sent: what is in the field, and the line to
+    /// speak on the end. Nil when neither changed anything, so an unedited
+    /// card still answers the offer it came from.
+    private var finalPrompt: String? {
+        let written = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asked = (request ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = written.isEmpty ? asked : written
+        if canSpeak { text = GenerateChoices.adding(voiceover: voiceover, to: text) }
+        return text == asked || text.isEmpty ? nil : text
     }
 
     private func match(_ wanted: String?, in options: [String]) -> String? {

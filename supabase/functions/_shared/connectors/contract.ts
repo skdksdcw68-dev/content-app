@@ -137,6 +137,13 @@ export interface Constraints {
   notes?: string[];
   /** A quality tier the model offers instead of, or as well as, resolution. */
   qualities?: string[];
+  /** What the model can do, said by the model itself so the app shows only the
+   *  knobs that apply. Absent means the provider did not say, which is not "no". */
+  audio?: boolean;
+  takesPicture?: boolean;
+  endFrame?: boolean;
+  negativePrompt?: boolean;
+  pictureAspect?: boolean;
   /** What the model uses when nothing is said -- the settings a picker should
    *  start on, so the first price shown is the price of what would happen. */
   defaults?: { resolution?: string; duration?: number; quality?: string };

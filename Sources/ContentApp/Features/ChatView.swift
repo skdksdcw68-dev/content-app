@@ -339,7 +339,7 @@ struct ChatView: View {
                         attachments: pending,
                         // Abel, 25 Sep 2026: "keep the page very clean sir
                         // please like whats the video about or something."
-                        placeholder: isGenerating ? (choices.mode == .image ? "What's the image about?" : "What's the video about?") : "Ask Autocast",
+                        placeholder: generatorPlaceholder,
                         accessory: isGenerating ? AnyView(videoAttachments) : nil,
                         footer: isGenerating ? AnyView(videoControls) : nil,
                         onRemoveAttachment: { id in
@@ -356,6 +356,21 @@ struct ChatView: View {
             }
         }
         .background(Theme.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
+        // The bar and the model picker need to know a picture is in play: the
+        // models offered are the ones that can work from one, and a video's
+        // shape is then the picture's own. And a picture attached while a
+        // model that cannot use one is chosen moves the choice to one that can,
+        // rather than letting Send fail on it.
+        .onChange(of: hasPicture) { _, attached in
+            choices.pictured = attached
+            guard attached, isGenerating, choices.model?.constraints.takesPicture == false else { return }
+            Task {
+                let capable = await session.models(capability: choices.mode.capability, withPicture: true)
+                if let better = capable.first(where: \.recommended) ?? capable.first {
+                    choices.model = better
+                }
+            }
+        }
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
@@ -762,6 +777,23 @@ struct ChatView: View {
     /// exact eleven labs thing, that makes more sense and looks so good."
     private var isGenerating: Bool { makingVideo || reopenedGeneration || opensAsGeneration || creating != nil }
 
+    /// A picture is in the composer, whichever way it got there: the pill, a
+    /// frame slot, or Animate.
+    private var hasPicture: Bool {
+        !pending.isEmpty || choices.startFrame != nil || choices.endFrame != nil
+    }
+
+    /// What the field asks. With a picture in it the question is about the
+    /// picture -- "What's the video about?" over a photo of a dog is a question
+    /// about something the person has already answered.
+    private var generatorPlaceholder: String {
+        guard isGenerating else { return "Ask Autocast" }
+        if choices.mode == .image {
+            return hasPicture ? "What should change?" : "What's the image about?"
+        }
+        return hasPicture ? "How should it move?" : "What's the video about?"
+    }
+
     private var videoControls: some View {
         GenerateBar(choices: $choices, request: draft)
     }
@@ -842,7 +874,8 @@ struct ChatView: View {
             choices.endFrame = nil
             send(action: .generate(
                 capability: choices.mode.capability,
-                prompt: asked,
+                // With the line to be spoken, when the model can speak one.
+                prompt: choices.prompt(asked),
                 model: model.externalId,
                 references: references,
                 settings: choices.settings,
@@ -1088,8 +1121,10 @@ struct ChatView: View {
         }
         if let quality = settings.quality { parts.append(quality.capitalized) }
         if let duration = settings.duration { parts.append("\(Int(duration.rounded()))s") }
+        if let size = settings.extras["aspect_ratio"] { parts.append(size) }
+        if settings.extras["generate_audio"] == "false" { parts.append("no sound") }
         // Whatever else the model asked for -- the voice it will speak in.
-        parts.append(contentsOf: settings.extras.values.sorted())
+        parts.append(contentsOf: settings.answers.values.sorted())
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {
             turns[index].chosenModel = "\(summary) · \(price.label)"
@@ -1106,7 +1141,8 @@ struct ChatView: View {
         draft = "Generate with \(summary)"
         send(action: .generate(
             capability: offer.capability,
-            prompt: request,
+            // What they wrote on the card, when they changed it.
+            prompt: settings.prompt ?? request,
             model: choice.externalId,
             references: turns[index].offerReferences,
             settings: settings,
@@ -1122,20 +1158,19 @@ struct ChatView: View {
 
     /// An image made into a video, from the card's Animate button.
     ///
-    /// On the generator the picture goes INTO the composer -- as the start
-    /// frame, or the reference for a model that takes only one -- and what is
-    /// typed next is the motion. Send is generate there, so nothing else has to
-    /// happen. This used to send "Animate this image" as a chat message and
-    /// wait for the agent to answer with a card asking which model, on a page
-    /// whose model was already chosen; and from the feed it did not run at all.
-    /// Plain chat keeps its own path, where the agent offers the models.
+    /// The picture goes INTO the composer -- as the start frame, or the
+    /// reference for a model that takes only one -- and what is typed next is
+    /// the motion. Send is generate there, so nothing else has to happen.
+    ///
+    /// 🔴 In plain chat too. This used to be `draft = "Animate this image"`,
+    /// which sent that sentence and made the agent answer with a bare list of
+    /// models -- the person's own words, the length, the size, the pixels and
+    /// the sound all missing, and no way to say what should move. Netro, 29 Sep
+    /// 2026, with a screenshot of exactly that card: "animate this picture
+    /// without including anything -- that's the most annoying part." The
+    /// generator page had the composer path; plain chat never did.
     private func animate(_ artifact: Artifact) {
-        if isGenerating {
-            Task { await use(artifact, animating: true) }
-            return
-        }
-        draft = "Animate this image"
-        send(action: .animate(artifact: artifact.id))
+        Task { await use(artifact, animating: true) }
     }
 
     /// A picture that was made, put in the composer as a reference for the
@@ -1163,12 +1198,30 @@ struct ChatView: View {
             return
         }
 
+        // Plain chat becomes the generator for this. Somebody who pressed
+        // Animate or "Use as reference" wants to MAKE something from the
+        // picture, and the composer that lets them say how -- the model, the
+        // size, the pixels, the length, the sound, and a field for what should
+        // happen -- is the generator's. Animate opens the video one; a
+        // reference opens the picture one, and the Image | Video knob changes
+        // it.
+        if !isGenerating {
+            let mode: GenerateChoices.Mode = animating ? .video : .image
+            creating = mode
+            choices.mode = mode
+            choices.model = nil
+        }
+
         // Animating means a video model, and one that will take a picture.
         if animating, isGenerating, choices.mode != .video {
             choices.mode = .video
             choices.model = nil
             if creating != nil { creating = .video }
         }
+        // Said before the models are asked for, so what is offered is what can
+        // work from a picture -- and the bar hides the size of a video whose
+        // shape the picture decides.
+        choices.pictured = true
         if isGenerating {
             let capable = await session.models(capability: choices.mode.capability, withPicture: true)
             let current = choices.model
@@ -1177,8 +1230,13 @@ struct ChatView: View {
             }
         }
 
-        let image = isGenerating ? VerticalFit.padded(picked) : picked
+        // Made vertical for a video, because a video from a picture takes the
+        // picture's shape. Left alone for a picture to be edited: bars added
+        // for a video's sake would be edited into the result.
+        let toVideo = isGenerating && choices.mode == .video
+        let image = toVideo ? VerticalFit.padded(picked) : picked
         guard let jpeg = Self.shrunk(image), let path = await session.uploadAttachment(jpeg) else {
+            choices.pictured = hasPicture
             say("That picture didn't upload. Try it again.")
             return
         }

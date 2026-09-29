@@ -19,13 +19,6 @@ struct GenerateSettingsSheet: View {
     /// This month's allowance, read once when the sheet opens.
     @State private var standing: [QuotaStanding] = []
 
-    /// What a model can actually make. Every fal model caps at ten seconds
-    /// and Veo at eight, so the old 5-to-180 stepper offered 175 seconds that
-    /// would have failed on send.
-    private static let lengths = [4, 5, 6, 8, 10]
-    private static let aspects = ["9:16", "1:1", "4:5", "16:9"]
-    private static let resolutions = ["480p", "720p", "1080p"]
-
     var body: some View {
         NavigationStack {
             Form {
@@ -59,49 +52,68 @@ struct GenerateSettingsSheet: View {
                     }
                     .buttonStyle(.plain)
 
-                    Picker("Number of generations", selection: Binding(
-                        get: { choices.count }, set: { choices.count = $0 }
-                    )) {
-                        ForEach(1...4, id: \.self) { Text("\($0)").tag($0) }
+                    // Only what this model has. The same rule as the bar (29 Sep
+                    // 2026): a row the model cannot honour is not drawn, and
+                    // where that is worth explaining -- the shape following a
+                    // picture, silence -- the row says so instead of vanishing,
+                    // because "where did the sound go?" is a fair question.
+                    // (The "number of generations" row is gone: it never made
+                    // more than one.)
+                    if choices.choosesShape {
+                        if choices.aspects.count > 1 {
+                            Picker("Aspect Ratio", selection: $choices.aspect) {
+                                ForEach(choices.aspects, id: \.self) { Text($0).tag($0) }
+                            }
+                        }
+                    } else {
+                        LabeledContent("Aspect Ratio", value: "Follows your picture")
                     }
 
-                    Picker("Aspect Ratio", selection: $choices.aspect) {
-                        ForEach(Self.aspects, id: \.self) { Text($0).tag($0) }
-                    }
-
-                    if choices.isVideo {
+                    if choices.resolutions.count > 1 {
                         Picker("Resolution", selection: $choices.resolution) {
-                            ForEach(Self.resolutions, id: \.self) { Text($0).tag($0) }
+                            ForEach(choices.resolutions, id: \.self) { Text($0).tag($0) }
                         }
+                    }
 
+                    if choices.isVideo, choices.lengths.count > 1 {
                         Picker("Duration Secs", selection: $choices.seconds) {
-                            ForEach(Self.lengths, id: \.self) { Text("\($0)").tag($0) }
+                            ForEach(choices.lengths, id: \.self) { Text("\($0)").tag($0) }
                         }
+                    }
 
+                    if choices.hasSound {
                         Toggle("Generate Audio", isOn: $choices.audio)
+                    } else if choices.isVideo {
+                        LabeledContent("Audio", value: "Silent video")
                     }
                 }
 
-                if choices.isVideo {
-                    // Autocast's own two. ElevenLabs has no equivalent, and
-                    // they are what makes a short-form video rather than a
-                    // clip, so they get their own group rather than being
-                    // smuggled in above.
+                // What the voice says. Only where the model makes sound and it
+                // is on -- Veo reads the line out; Kling and Wan cannot.
+                //
+                // 🔴 Replaces the "Voiceover" and "Captions" switches, which
+                // were never sent anywhere. A switch that changes nothing is a
+                // lie the size of a switch.
+                if choices.canSpeak {
                     Section {
-                        Toggle("Voiceover", isOn: $choices.voiceover)
-                        Toggle("Captions", isOn: $choices.captions)
+                        TextField("What should the voice say?", text: $choices.voiceover, axis: .vertical)
+                            .lineLimit(2...6)
                     } header: {
-                        Text("On the video")
+                        Text("Voiceover")
+                    } footer: {
+                        Text("Spoken in the video's own sound, in the voice the model chooses.")
                     }
                 }
 
-                Section {
-                    TextField("Enter negative prompt", text: $choices.negative, axis: .vertical)
-                        .lineLimit(3...6)
-                } header: {
-                    Text("Negative Prompt")
-                } footer: {
-                    Text("What it should keep out of the shot.")
+                if choices.takesNegative {
+                    Section {
+                        TextField("Enter negative prompt", text: $choices.negative, axis: .vertical)
+                            .lineLimit(3...6)
+                    } header: {
+                        Text("Negative Prompt")
+                    } footer: {
+                        Text("What it should keep out of the shot.")
+                    }
                 }
 
                 // How far this month goes. Abel, 26 Sep 2026: "the credits
@@ -144,7 +156,7 @@ struct GenerateSettingsSheet: View {
                     capability: choices.mode.capability,
                     request: request,
                     settings: choices.settings,
-                    withPicture: false,
+                    withPicture: choices.pictured,
                     selected: choices.model?.externalId
                 ) { choices.model = $0 }
             }

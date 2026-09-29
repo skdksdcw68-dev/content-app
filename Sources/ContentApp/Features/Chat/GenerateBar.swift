@@ -13,14 +13,21 @@ import SwiftUI
 ///   │   a hairline, so the sheet reads as separate from the six
 ///   ▶︎  image or video                  -- decides what the rest even mean
 ///   ✦  which model                      -- decides what it can do
-///   ⧉  how many                         -- decides what it costs
 ///   ◷  how long                         -- video only; images have no length
-///   ⤢  aspect ratio                     -- the frame it comes back in
+///   ⤢  size (aspect ratio)              -- the frame it comes back in
+///   ▦  pixels (resolution)              -- how sharp; moves the price
+///   ♪  sound                            -- video models that make their own
 ///                                    ↑  send, alone on the right
 ///
 /// A knob that does not apply is not greyed out, it is absent: the clock
 /// disappears in image mode rather than sitting there dead, which is what
 /// ElevenLabs does and why their image bar looks calmer than their video one.
+///
+/// 29 Sep 2026: absent is now decided by the MODEL, not by the mode. Kling has
+/// no pixels setting, Wan and Kling make no sound, and a video that starts from
+/// a picture takes the picture's own shape -- so on those the knob is not
+/// there, where it used to be drawn and quietly ignored. The "how many" knob is
+/// gone: it never produced more than one.
 struct GenerateBar: View {
     @Binding var choices: GenerateChoices
     /// What is being typed, so a price is this job's price.
@@ -36,17 +43,6 @@ struct GenerateBar: View {
     /// as zero -- free and unpriced are different facts.
     @State private var credits: Int?
     @State private var pricing: Task<Void, Never>?
-
-    /// The lengths worth offering. Abel, 25 Sep: "just let the user hit and
-    /// pick what second he wants" -- the stepper in the sheet does that; this
-    /// is the quick tap.
-    /// 🔴 Only what a model can actually do. Abel asked about longer videos
-    /// and the honest answer is that no model here goes past ten seconds --
-    /// Veo stops at eight. Offering 60 was offering something that fails on
-    /// send. A minute is a film of several shots, which is its own build.
-    private static let lengths = [4, 5, 6, 8, 10]
-    private static let aspects = ["9:16", "1:1", "4:5", "16:9"]
-    private static let resolutions = ["480p", "720p", "1080p"]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -81,13 +77,24 @@ struct GenerateBar: View {
                 // rather than carried -- and then replaced with the new
                 // kind's recommendation, because a page with no model is a
                 // page whose send button has stopped being a generate button.
+                // With a picture in the composer, only a model that can work
+                // from one is recommended.
                 choices.model = nil
                 Task {
-                    let models = await session.models(capability: choices.mode.capability, withPicture: false)
+                    let models = await session.models(
+                        capability: choices.mode.capability,
+                        withPicture: choices.pictured
+                    )
                     if choices.model == nil {
                         choices.model = models.first(where: \.recommended) ?? models.first
                     }
                 }
+            }
+            // A different model has different limits: keep what still applies
+            // and move what does not, so "1080p" is never left selected on a
+            // model that has no such thing.
+            .onChange(of: choices.model) { _, _ in
+                choices.fit()
             }
 
             // ✦ Which model.
@@ -96,22 +103,13 @@ struct GenerateBar: View {
             }
             .buttonStyle(.plain)
 
-            // ⧉ How many.
-            Menu {
-                Picker("", selection: Binding(get: { choices.count }, set: { choices.count = $0 })) {
-                    ForEach(1...4, id: \.self) { Text("\($0)").tag($0) }
-                }
-                .labelsHidden()
-            } label: {
-                Knob(symbol: "square.stack.3d.up", value: "\(choices.count)")
-            }
-
             // ◷ How long. Video only -- an image has no length, and a dead
-            // control is worse than no control.
-            if choices.isVideo {
+            // control is worse than no control. Only the lengths this model
+            // makes: Veo offers 4, 6 and 8, Kling 5 and 10.
+            if choices.isVideo, choices.lengths.count > 1 {
                 Menu {
                     Picker("", selection: $choices.seconds) {
-                        ForEach(Self.lengths, id: \.self) { Text("\($0)s").tag($0) }
+                        ForEach(choices.lengths, id: \.self) { Text("\($0)s").tag($0) }
                     }
                     .labelsHidden()
                 } label: {
@@ -119,34 +117,41 @@ struct GenerateBar: View {
                 }
             }
 
-            // ⤢ The frame it comes back in.
-            Menu {
-                Picker("", selection: $choices.aspect) {
-                    ForEach(Self.aspects, id: \.self) { Text($0).tag($0) }
+            // ⤢ The size it comes back in -- the model's own shapes. Absent
+            // when a picture decides it.
+            if choices.choosesShape, choices.aspects.count > 1 {
+                Menu {
+                    Picker("", selection: $choices.aspect) {
+                        ForEach(choices.aspects, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden()
+                } label: {
+                    Knob(symbol: "aspectratio", value: choices.aspect)
                 }
-                .labelsHidden()
-            } label: {
-                Knob(symbol: "aspectratio", value: choices.aspect)
             }
 
             // ▦ How sharp. Abel, 26 Sep 2026: "why are the users not allowed
             // to choose or pick the resolution huh??" They were -- in the
             // settings sheet, which is not where anybody looked. It belongs
             // out here with the others because it MOVES THE PRICE: Wan is
-            // $0.05 a second at 480p and $0.15 at 1080p.
-            if choices.isVideo {
+            // $0.05 a second at 480p and $0.15 at 1080p. Pictures have it too
+            // now -- Nano Banana 2 goes from 0.5K to 4K.
+            if choices.resolutions.count > 1 {
                 Menu {
                     Picker("", selection: $choices.resolution) {
-                        ForEach(Self.resolutions, id: \.self) { Text($0).tag($0) }
+                        ForEach(choices.resolutions, id: \.self) { Text($0).tag($0) }
                     }
                     .labelsHidden()
                 } label: {
                     Knob(symbol: "rectangle.on.rectangle", value: choices.resolution)
                 }
+            }
 
-                // ♪ Sound, and the biggest lever on the bar: Veo 3.1 is $0.40
-                // a second with it and $0.20 without. "which can reduce our
-                // costs" -- by half, on the dearest model offered.
+            // ♪ Sound, and the biggest lever on the bar: Veo 3.1 is $0.40
+            // a second with it and $0.20 without. "which can reduce our
+            // costs" -- by half, on the dearest model offered. Only where the
+            // model makes sound at all.
+            if choices.hasSound {
                 Button {
                     withAnimation(.snappy(duration: 0.15)) { choices.audio.toggle() }
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -191,7 +196,7 @@ struct GenerateBar: View {
                 capability: choices.mode.capability,
                 request: request,
                 settings: choices.settings,
-                withPicture: false,
+                withPicture: choices.pictured,
                 selected: choices.model?.externalId
             ) { choices.model = $0 }
         }
@@ -201,13 +206,17 @@ struct GenerateBar: View {
 private extension GenerateBar {
     /// Everything that moves the price. The prompt is not in it, because no
     /// provider here charges by the word.
+    ///
+    /// Sound is in it: Veo is half the price without, and a number that did not
+    /// move when the speaker was switched off was the number on the send button
+    /// being wrong.
     var priceKey: String {
         [
             choices.model?.externalId ?? "",
             choices.mode.rawValue,
-            String(choices.count),
             String(choices.seconds),
             choices.resolution,
+            choices.audio ? "sound" : "silent",
         ].joined(separator: "|")
     }
 

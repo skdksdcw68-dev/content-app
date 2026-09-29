@@ -355,6 +355,19 @@ private struct PlanHeader: View {
         return formatter.string(from: date)
     }
 
+    /// Each network the plan posts to, in its own mark.
+    private var platformLogos: [BrandLogo] {
+        var logos: [BrandLogo] = []
+        for value in plan.platforms ?? ["tiktok"] {
+            switch value {
+            case "reels":  logos.append(.instagram)
+            case "shorts": logos.append(.youtube)
+            default:       logos.append(.tiktok)
+            }
+        }
+        return logos
+    }
+
     private var platforms: String {
         var names: [String] = []
         for value in plan.platforms ?? ["tiktok"] {
@@ -409,7 +422,7 @@ private struct PlanHeader: View {
             }
 
             FlowLayout(spacing: 6) {
-                FactChip(text: platforms, symbol: "music.note")
+                FactChip(text: platforms, symbol: "music.note", logos: platformLogos)
                 // 🔴 A series is not a month and must not describe itself as
                 // one. It plans the NEXT post and writes the one after once
                 // that has gone out, so "1 days from 25 Sep" was both

@@ -155,7 +155,9 @@ struct ChatListView: View {
                                 .foregroundStyle(.secondary)
                         }
                         ForEach(shown) { thread in
-                            NavigationLink(value: AppRoute.chat(thread.id)) {
+                            // A generation opens AS the generator, from the
+                            // first frame; everything else opens as chat.
+                            NavigationLink(value: thread.isGeneration ? AppRoute.generation(thread.id) : AppRoute.chat(thread.id)) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack(spacing: 8) {
                                         Text(thread.displayTitle)

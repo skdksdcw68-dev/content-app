@@ -32,6 +32,10 @@ struct ChatView: View {
     /// "similar as the chat but different text input video, which included
     /// video things instead of a text").
     var makingVideo = false
+    /// A saved generation, reopened from a list that already knows what it
+    /// is. The generator is drawn from the first frame instead of after a
+    /// read, so the bar never starts as plain chat and then changes.
+    var opensAsGeneration = false
 
     @Environment(AppSession.self) private var session
 
@@ -164,7 +168,7 @@ struct ChatView: View {
                     // keeps its bubbles; the generator draws the ElevenLabs
                     // feed -- kind, prompt, result, newest on top, no
                     // narration (Abel, 26 Sep 2026: "yes i said.").
-                    if (makingVideo || reopenedGeneration) && !turns.isEmpty {
+                    if (makingVideo || reopenedGeneration || opensAsGeneration) && !turns.isEmpty {
                         GenerationFeed(
                             turns: turns,
                             onCopy: { prompt in
@@ -360,7 +364,13 @@ struct ChatView: View {
             // it says nothing: from the chats list every thread arrives as
             // `.chat(id)`, and a generation reopened that way was losing its
             // feed, its bar and its send button's whole meaning.
-            if await session.threadKind(threadId) == "generation" {
+            // (Already known when the list opened it as a generation; asked
+            // of the thread itself only when it came in by any other road.)
+            var isGeneration = opensAsGeneration
+            if !isGeneration {
+                isGeneration = await session.threadKind(threadId) == "generation"
+            }
+            if isGeneration {
                 reopenedGeneration = true
                 choices.mode = .video
                 if choices.model == nil {
@@ -750,7 +760,7 @@ struct ChatView: View {
     ///
     /// Abel, 25 Sep 2026, with fifteen screenshots: "i want it to match the
     /// exact eleven labs thing, that makes more sense and looks so good."
-    private var isGenerating: Bool { makingVideo || reopenedGeneration || creating != nil }
+    private var isGenerating: Bool { makingVideo || reopenedGeneration || opensAsGeneration || creating != nil }
 
     private var videoControls: some View {
         GenerateBar(choices: $choices, request: draft)

@@ -554,6 +554,16 @@ struct SeriesFlowView: View {
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 }
+
+                // Said before anybody counts on it. The script is always
+                // written; whether it is SPOKEN depends on the model that
+                // makes the video, and not all of them make sound.
+                Text("Autocast writes the script either way. It is spoken by video models that make sound; on the others the words stay in the caption.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
             }
             .padding(.horizontal, 20)
         }
@@ -949,8 +959,8 @@ private struct FlowStep<Content: View>: View {
                 .buttonStyle(RemiFilledButtonStyle())
                 .controlSize(.large)
                 .tint(tint)
+                // The button style already draws itself faint when disabled.
                 .disabled(isBusy || isDisabled)
-                .opacity(isDisabled ? 0.55 : 1)
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 8)

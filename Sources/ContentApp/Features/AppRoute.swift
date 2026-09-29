@@ -18,6 +18,13 @@ enum AppTab: Hashable {
 enum AppRoute: Hashable {
     /// A saved conversation by id, or a fresh one.
     case chat(UUID?)
+    /// A saved conversation the list already knows is a GENERATION, opened as
+    /// the generator from its first frame. `chat` finds that out by reading
+    /// the thread after the screen is up -- so for a moment it drew the plain
+    /// chat bar, and the person watched the input change (Abel, 29 Sep 2026:
+    /// "when you click that, the text input changes to a normal chat text
+    /// input").
+    case generation(UUID)
     /// A fresh conversation that starts by sending these words.
     case chatOpening(String)
     /// Making a video, from Home's field: the same conversation with a

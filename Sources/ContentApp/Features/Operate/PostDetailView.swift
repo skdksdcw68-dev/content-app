@@ -183,7 +183,7 @@ struct PostDetailView: View {
                     }
                     Divider()
                     HStack(spacing: 6) {
-                        FactChip(text: post.platformName, symbol: "music.note")
+                        FactChip(text: post.platformName, symbol: "music.note", logos: [post.platformLogo])
                         FactChip(text: (post.format ?? "video").capitalized, symbol: "film")
                         if let pillar = post.pillar { FactChip(text: pillar, symbol: "square.stack") }
                         if let privacy = post.privacyName { FactChip(text: privacy, symbol: "eye") }

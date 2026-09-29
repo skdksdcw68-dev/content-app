@@ -63,6 +63,7 @@ struct RootView: View {
                             .navigationDestination(for: AppRoute.self) { route in
                                 switch route {
                                 case .chat(let id):         ChatView(threadId: id)
+                                case .generation(let id):   ChatView(threadId: id, opensAsGeneration: true)
                                 case .chatOpening(let text): ChatView(opening: text)
                                 case .makeVideo(let text):  ChatView(opening: text, makingVideo: true)
                                 case .plan(let proposal):   PlanView(notice: proposal)

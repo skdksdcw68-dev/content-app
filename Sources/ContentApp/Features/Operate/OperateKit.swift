@@ -37,10 +37,18 @@ struct StageChip: View {
 struct FactChip: View {
     let text: String
     var symbol: String? = nil
+    /// Networks' own marks, drawn in place of the symbol: a chip that says
+    /// "TikTok" wore a music note, and one that said "Instagram" a generic
+    /// icon (Abel, 29 Sep 2026: "could we make them shaped?").
+    var logos: [BrandLogo] = []
 
     var body: some View {
         HStack(spacing: 4) {
-            if let symbol {
+            if !logos.isEmpty {
+                ForEach(logos, id: \.rawValue) { logo in
+                    logo.view.frame(width: 13, height: 13)
+                }
+            } else if let symbol {
                 Image(systemName: symbol).font(.system(size: 10, weight: .semibold))
             }
             Text(text).lineLimit(1)

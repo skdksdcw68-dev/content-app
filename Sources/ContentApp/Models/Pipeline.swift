@@ -139,6 +139,15 @@ struct BoardPost: Decodable, Identifiable, Hashable, Sendable {
         }
     }
 
+    /// The same network's own mark, for the chip that names it.
+    var platformLogo: BrandLogo {
+        switch platform {
+        case "reels":  .instagram
+        case "shorts": .youtube
+        default:       .tiktok
+        }
+    }
+
     var privacyName: String? {
         guard let privacy else { return nil }
         return CreatorInfo.label(for: privacy)

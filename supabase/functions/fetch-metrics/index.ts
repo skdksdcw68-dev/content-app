@@ -271,7 +271,35 @@ Deno.serve(async (request) => {
       }
       for (const [brandId, userId] of brands) await relearn(admin, brandId, userId);
 
-      return json({ measured, failed, learned: brands.size });
+      // Keep YouTube and Instagram tokens alive too.
+      //
+      // TikTok's are renewed above as a side effect of reading its numbers.
+      // Nothing did the same for the other two: a YouTube access token lasts
+      // an hour and an Instagram one 60 days, and both were only ever
+      // renewed at the moment a post went out. So a connection nobody had
+      // posted through sat with a dead token and a green "connected" badge,
+      // and the first anyone heard of it was a failed post. `accessToken`
+      // renews when the token is near its end and marks the connection
+      // "needs reconnecting" when the platform refuses -- so a revoked login
+      // is found within the hour, while somebody can still fix it.
+      let kept = 0;
+      let lost = 0;
+      const { data: others } = await admin
+        .from("platform_connections")
+        .select("id")
+        .eq("status", "active")
+        .in("platform", ["shorts", "reels"]);
+      for (const other of (others ?? []) as Array<{ id: string }>) {
+        try {
+          await accessToken(admin, other.id);
+          kept += 1;
+        } catch (error) {
+          lost += 1;
+          console.error("fetch-metrics: keepalive", other.id, error);
+        }
+      }
+
+      return json({ measured, failed, learned: brands.size, kept, lost });
     }
 
     // --- the phone: the brand on screen ----------------------------------------

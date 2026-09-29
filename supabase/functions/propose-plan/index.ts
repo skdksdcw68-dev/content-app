@@ -66,6 +66,58 @@ interface Body {
   template?: string;
   /** How long each video should be, in seconds. Nil lets the model decide. */
   duration_s?: number;
+  /** What the person picked in Start a series (0075). The look is how every
+   *  video is drawn, the voice is who speaks over it ("none" for nobody), the
+   *  language is what the words are in. One short line each. */
+  look?: string;
+  voice?: string;
+  language?: string;
+}
+
+/** A person's own choice, cleaned to one short line. It goes into a prompt,
+ *  so it is never longer than a sentence and never carries a line break. */
+function oneLine(value: unknown, max: number): string {
+  return typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max) : "";
+}
+
+/** The chosen look, written INTO the concept.
+ *
+ *  The concept is what the video model is handed as its prompt, and a writer
+ *  told "describe every shot in this style" describes shots -- a grinder on a
+ *  wooden table, warm morning light -- and never says "anime". The first live
+ *  run proved it: the look was chosen, stored, sent to the writer, and nowhere
+ *  in the words that make the video. So it is appended here, by us, once,
+ *  where no model can leave it out. The look reads "Name -- what it means";
+ *  only the meaning is a prompt. */
+function withLook(concept: string, look: string): string {
+  if (!look) return concept;
+  const meaning = look.includes(" -- ") ? look.split(" -- ").slice(1).join(" -- ") : look;
+  return `${concept}${concept && !/[.!?]$/.test(concept) ? "." : ""} Visual style: ${meaning}.`.trim();
+}
+
+/** The voice and language a person chose, as instructions for the writer.
+ *  Said as rules rather than facts: a small model follows "put the spoken
+ *  words in the caption" and ignores "the person likes a warm voice". */
+function choiceLines(voice: string, language: string): string {
+  const lines: string[] = [];
+  if (voice) {
+    if (/^none\b/i.test(voice)) {
+      lines.push("VOICE: none. There is no voice-over; the caption is the on-screen text only.");
+    } else {
+      lines.push(
+        `VOICE: the person chose a voice-over -- ${voice}. This overrides anything above about voice. ` +
+        "Put the exact words it says (a short script, at most 20 words) in the caption field, and finish the concept with: " +
+        'VOICE: "<the same words>". Never describe the voice in the concept itself.',
+      );
+    }
+  }
+  if (language && !/^english\b/i.test(language)) {
+    lines.push(
+      `LANGUAGE: write the hook, the caption, the hashtags and every spoken word in ${language}. ` +
+      "The concept -- the shot description -- stays in English.",
+    );
+  }
+  return lines.join("\n");
 }
 
 interface Template {
@@ -89,7 +141,7 @@ interface Template {
 }
 
 /** The writer's instructions for a style's workflow, as prompt lines. */
-function workflowLines(template: Template | null): string {
+function workflowLines(template: Template | null, voiceChosen = false): string {
   const w = template?.workflow;
   if (!w) return "";
   const lines: string[] = [];
@@ -108,7 +160,9 @@ function workflowLines(template: Template | null): string {
   if (typeof w.shots === "number" && w.shots > 0) {
     lines.push(`The concept lists exactly ${w.shots} shots, numbered, each one sentence: what is in frame, the light, the camera move.`);
   }
-  if (w.voice === "none") lines.push("No voice-over: the caption is the on-screen text only.");
+  // A style's own "no voice" is only its default. A person who chose a voice
+  // (or chose none) has said it themselves, and `choiceLines` carries that.
+  if (w.voice === "none" && !voiceChosen) lines.push("No voice-over: the caption is the on-screen text only.");
   if (w.text === "big_text") lines.push("On-screen text is one big line per beat; put those lines in the concept as TEXT: ...");
   if (Array.isArray(w.hooks)) {
     const patterns = w.hooks.filter((h) => typeof h === "string" && h.trim());
@@ -190,6 +244,17 @@ Deno.serve(async (request) => {
       if (!found) throw new PublicError("That style is not available.", 404);
       template = found as Template;
     }
+
+    // The look, the voice and the language: the person's own, and stronger
+    // than anything the style says about the same thing.
+    const look = oneLine(body.look, 260);
+    const voice = oneLine(body.voice, 120);
+    const language = oneLine(body.language, 40);
+    // The chosen look replaces the style's own default rather than adding to
+    // it: "anime" and "top-down flat-lay photography" cannot both be true.
+    const styleText = look || (template?.visual_style ?? "");
+    const workflowText = [workflowLines(template, voice !== ""), choiceLines(voice, language)]
+      .filter(Boolean).join("\n");
 
     // "Decide for me" on a style means the style's own length.
     const durationDefault = template?.workflow?.duration_s;
@@ -392,8 +457,8 @@ Deno.serve(async (request) => {
         slots: laidOut.slice(start, start + BATCH),
         offset: start,
         avoid: [...used].slice(0, 40),
-        style: template?.visual_style ?? "",
-        workflow: workflowLines(template),
+        style: styleText,
+        workflow: workflowText,
       });
 
       tokensIn += result.tokensIn;
@@ -427,6 +492,9 @@ Deno.serve(async (request) => {
         platforms: platforms.length > 0 ? platforms : ["tiktok"],
         template_slug: template?.slug ?? null,
         duration_s: durationChosen,
+        look: look || null,
+        voice: voice || null,
+        language: language || null,
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();
@@ -492,8 +560,8 @@ Deno.serve(async (request) => {
         offset: 0,
         avoid: [...used].slice(0, 40),
         strict: true,
-        style: template?.visual_style ?? "",
-        workflow: workflowLines(template),
+        style: styleText,
+        workflow: workflowText,
       }).catch((thrown) => {
         console.error("propose-plan second pass", thrown instanceof Error ? thrown.message : thrown);
         return { posts: [] as Written[], tokensIn: 0, tokensOut: 0 };
@@ -559,7 +627,7 @@ Deno.serve(async (request) => {
         script: (post?.caption ?? "").trim(),
         cta: (post?.cta ?? "").trim().slice(0, 200),
         hashtags: cleanTags(post?.hashtags),
-        concept: (post?.concept ?? "").trim(),
+        concept: withLook((post?.concept ?? "").trim(), look),
         rationale: rationale.slice(0, 300),
         status: "planned",
         // The first three days get made up front so the preview shows something

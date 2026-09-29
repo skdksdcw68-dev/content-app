@@ -71,7 +71,9 @@ struct GenerateSettingsSheet: View {
 
                     if choices.resolutions.count > 1 {
                         Picker("Resolution", selection: $choices.resolution) {
-                            ForEach(choices.resolutions, id: \.self) { Text($0).tag($0) }
+                            ForEach(choices.resolutions, id: \.self) {
+                                Text(GenerateChoices.pixelsLabel($0)).tag($0)
+                            }
                         }
                     }
 

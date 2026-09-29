@@ -154,6 +154,14 @@ struct GenerateChoices: Equatable {
         !(isVideo && pictured)
     }
 
+    /// A resolution as it is read: "4k" looks like a typo and "4K" does not, and
+    /// a bare "768" is a height, which people know as "768p".
+    static func pixelsLabel(_ value: String) -> String {
+        if value.hasSuffix("k") { return value.uppercased() }
+        if !value.isEmpty, value.allSatisfy(\.isNumber) { return "\(value)p" }
+        return value
+    }
+
     /// A negative prompt is offered wherever the model has not said it ignores
     /// one.
     var takesNegative: Bool { can?.negativePrompt != false }

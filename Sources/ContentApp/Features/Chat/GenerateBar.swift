@@ -139,11 +139,13 @@ struct GenerateBar: View {
             if choices.resolutions.count > 1 {
                 Menu {
                     Picker("", selection: $choices.resolution) {
-                        ForEach(choices.resolutions, id: \.self) { Text($0).tag($0) }
+                        ForEach(choices.resolutions, id: \.self) {
+                            Text(GenerateChoices.pixelsLabel($0)).tag($0)
+                        }
                     }
                     .labelsHidden()
                 } label: {
-                    Knob(symbol: "rectangle.on.rectangle", value: choices.resolution)
+                    Knob(symbol: "rectangle.on.rectangle", value: GenerateChoices.pixelsLabel(choices.resolution))
                 }
             }
 

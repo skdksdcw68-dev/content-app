@@ -371,6 +371,21 @@ struct ChatView: View {
                 }
             }
         }
+        // Frames are a video's. Switching to a picture keeps what was attached,
+        // as a plain attachment, rather than leaving it in a slot that is no
+        // longer drawn and is still sent.
+        .onChange(of: choices.mode) { _, mode in
+            guard mode == .image else { return }
+            let picks: [GenerateChoices.FramePick] = [choices.startFrame, choices.endFrame].compactMap { $0 }
+            for pick in picks where pending.count < 4 {
+                pending.append(PendingAttachment(
+                    preview: pick.preview.preparingThumbnail(of: CGSize(width: 168, height: 168)) ?? pick.preview,
+                    path: pick.path
+                ))
+            }
+            choices.startFrame = nil
+            choices.endFrame = nil
+        }
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
@@ -595,7 +610,10 @@ struct ChatView: View {
                 // all -- the output takes the picture's shape. Abel's first
                 // real video came back 1328x694 from a landscape photo, and
                 // nothing in the composer could have changed that.
-                let image = isGenerating ? VerticalFit.padded(picked) : picked
+                // Only for a video. A picture to be EDITED keeps its own shape:
+                // blurred bars added for a video's sake would be edited into the
+                // result.
+                let image = isGenerating && choices.mode == .video ? VerticalFit.padded(picked) : picked
                 guard let jpeg = Self.shrunk(image) else { return }
 
                 let entry = PendingAttachment(

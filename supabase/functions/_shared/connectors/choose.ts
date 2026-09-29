@@ -188,8 +188,19 @@ export function settlesOn<T extends { label: string; externalId?: string }>(matc
  * its price, and nothing is spent until Generate.
  */
 const PREFERRED: Record<string, string[]> = {
-  image_generation: ["nano banana pro", "nano banana", "seedream pro", "gpt image"],
-  video_generation: ["kling 3.0", "kling", "veo", "seedance"],
+  // 29 Sep 2026: the value pick leads on the house generator, which is fal.
+  //
+  // This was ["nano banana pro", ..., "kling", "veo"], written for Higgsfield
+  // and taken from what he liked using. On fal it resolved to Nano Banana Pro
+  // ($0.15 a picture, 4x the plain one) and, for "kling", to Kling 2.1 Master
+  // -- $1.40 for a five-second clip, on the one generator whose bill we pay.
+  // Quotas count videos, not dollars, so what a person is defaulted to is what
+  // the month costs: Kling 2.5 Turbo is $0.35 a clip and looks as good on a
+  // phone. Everything dearer is one tap away on the card; it is a default,
+  // never a decision. "kling 3.0" stays first so a Higgsfield connection that
+  // has it still gets what was asked for.
+  image_generation: ["nano banana", "seedream", "nano banana pro", "gpt image"],
+  video_generation: ["kling 3.0", "kling 2.5", "wan", "veo 3.1 fast", "kling", "veo", "seedance"],
 };
 
 /** The model a preference names, if they have it and it can do the job. */

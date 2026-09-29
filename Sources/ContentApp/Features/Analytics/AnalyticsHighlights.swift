@@ -44,10 +44,8 @@ struct ViewsHeroCard: View {
                         .background(Color.track, in: Capsule())
                 }
             }
-            Text(reading.current.map { AnalyticsFormat.number($0) } ?? "—")
-                .font(.system(size: 34, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            RollingFigure(value: reading.current, style: .number)
+                .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(detail)
@@ -55,17 +53,13 @@ struct ViewsHeroCard: View {
                 .foregroundStyle(.secondary)
 
             if points.count >= 2 {
-                Chart(points) { point in
-                    AreaMark(x: .value("Date", point.date), y: .value("Views", point.value))
-                        .foregroundStyle(Color.track)
-                        .interpolationMethod(.monotone)
-                    LineMark(x: .value("Date", point.date), y: .value("Views", point.value))
-                        .foregroundStyle(Color.accentColor)
-                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .interpolationMethod(.monotone)
+                // A new range draws in afresh. Overlapping, so the old line
+                // fades out underneath instead of stacking above it.
+                ZStack {
+                    Sparkline(points: points)
+                        .id("\(report.range.from)|\(report.range.to)")
+                        .transition(.opacity)
                 }
-                .chartXAxis(.hidden)
-                .chartYAxis(.hidden)
                 .frame(height: 72)
                 .padding(.top, 8)
                 .accessibilityHidden(true)
@@ -74,6 +68,53 @@ struct ViewsHeroCard: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .raisedCard(radius: 18)
+    }
+}
+
+/// The hero's small line, drawn in from the left the first time it is shown,
+/// with its fill fading up behind it (Netro, 29 Sep 2026: "Make the charts to
+/// actually alive and very smooth").
+private struct Sparkline: View {
+    let points: [TrendPoint]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drawn: CGFloat = 0
+    @State private var isDrawing = true
+
+    private var fill: Color {
+        Color.track.opacity(reduceMotion ? 1 : Double(drawn))
+    }
+
+    var body: some View {
+        Chart(points) { point in
+            AreaMark(x: .value("Date", point.date), y: .value("Views", point.value))
+                .foregroundStyle(fill)
+                .interpolationMethod(.monotone)
+            LineMark(x: .value("Date", point.date), y: .value("Views", point.value))
+                .foregroundStyle(Color.accentColor)
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .interpolationMethod(.monotone)
+        }
+        .chartXAxis(.hidden)
+        .chartYAxis(.hidden)
+        .modifier(DrawIn(progress: drawn, isDrawing: isDrawing && !reduceMotion))
+        .onAppear(perform: drawIn)
+    }
+
+    private func drawIn() {
+        guard isDrawing else { return }
+        if reduceMotion {
+            AnalyticsMotion.instantly {
+                drawn = 1
+                isDrawing = false
+            }
+            return
+        }
+        withAnimation(AnalyticsMotion.draw.delay(0.05)) {
+            drawn = 1
+        } completion: {
+            isDrawing = false
+        }
     }
 }
 
@@ -268,12 +309,13 @@ struct ViewsShareCard: View {
                 info: "Each post's lifetime views as a share of all the posts listed here."
             ) {
                 VStack(spacing: 14) {
-                    ForEach(ranked.prefix(6)) { video in
+                    ForEach(Array(ranked.prefix(6).enumerated()), id: \.element.id) { index, video in
                         let fraction = Double(video.views) / Double(total)
                         PercentBarRow(
                             label: video.displayTitle,
                             value: AnalyticsFormat.percent(fraction),
-                            fraction: fraction
+                            fraction: fraction,
+                            order: index
                         )
                     }
                 }

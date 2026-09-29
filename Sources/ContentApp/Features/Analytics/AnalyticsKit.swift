@@ -211,6 +211,8 @@ struct PercentBarRow: View {
     let label: String
     let value: String
     let fraction: Double
+    /// Its place in the list, so the bars grow in one after another.
+    var order: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -222,14 +224,8 @@ struct PercentBarRow: View {
                 Text(value)
                     .font(.subheadline.weight(.semibold).monospacedDigit())
             }
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.track)
-                    Capsule().fill(Color.accentColor)
-                        .frame(width: max(4, proxy.size.width * min(1, max(0, fraction))))
-                }
-            }
-            .frame(height: 8)
+            GrowingBar(fraction: fraction, minimum: 4, order: order)
+                .frame(height: 8)
         }
     }
 }
@@ -244,6 +240,14 @@ struct KeyTile: View {
     var caption: String? = nil
     var captionColor: Color = .secondary
     var isSelected = false
+    /// The number behind `value`, when there is one. The tile then draws the
+    /// figure itself: it counts up to it the first time it is shown and rolls
+    /// its digits to each new value. A nil value still reads "—".
+    var figure: TileFigure? = nil
+    /// Laid over the caption while the chart under the tile is scrubbed: the
+    /// dates of the bucket the figure is reading out. The caption keeps its
+    /// space underneath, so nothing below the tile moves.
+    var scrubCaption: String? = nil
     var action: (() -> Void)? = nil
 
     var body: some View {
@@ -256,25 +260,48 @@ struct KeyTile: View {
         }
     }
 
+    @ViewBuilder
+    private var valueText: some View {
+        if let figure {
+            RollingFigure(value: figure.value, style: figure.style)
+        } else {
+            Text(value)
+                .contentTransition(.numericText())
+        }
+    }
+
+    private func captionText(_ caption: String) -> some View {
+        Text(caption)
+            .font(.footnote)
+            .foregroundStyle(captionColor)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .opacity(scrubCaption == nil ? 1 : 0)
+            .overlay(alignment: .topLeading) {
+                if let scrubCaption {
+                    Text(scrubCaption)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: scrubCaption == nil)
+    }
+
     private var tile: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.subheadline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-            Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .monospacedDigit()
-                .contentTransition(.numericText())
+            valueText
+                .font(.system(size: 20, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             if let caption {
-                Text(caption)
-                    .font(.footnote)
-                    .foregroundStyle(captionColor)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                captionText(caption)
             }
         }
         .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)

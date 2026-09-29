@@ -138,12 +138,21 @@ extension GainRow {
     }
 }
 
-struct TrendPoint: Identifiable {
+struct TrendPoint: Identifiable, Equatable {
     let id: Int
     let date: Date
     let endDate: Date
     let value: Double
     let previous: Double?
+
+    /// True for the bucket that holds the present moment. Its total is still
+    /// growing with every reading, so the chart says "so far" and lets that
+    /// one point breathe; every other bucket is finished.
+    var isOpen: Bool {
+        let now = Date()
+        guard let after = Calendar.current.date(byAdding: .day, value: 1, to: endDate) else { return false }
+        return date <= now && now < after
+    }
 }
 
 extension AnalyticsReport {
@@ -259,6 +268,12 @@ enum AnalyticsFormat {
 
     static func range(_ from: Date, _ to: Date) -> String {
         Calendar.current.isDate(from, inSameDayAs: to) ? day(from) : "\(day(from)) – \(day(to))"
+    }
+
+    /// One bucket's dates, and "so far" while it is still being counted.
+    static func bucket(_ point: TrendPoint) -> String {
+        let dates = range(point.date, point.endDate)
+        return point.isOpen ? "\(dates) · so far" : dates
     }
 
     /// A 3-hour block starting at `hour`: "6 PM – 9 PM".

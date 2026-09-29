@@ -40,8 +40,15 @@ struct AnalyticsView: View {
     @State private var planId: UUID?
     @State private var metric: AnalyticsMetric = .views
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var report: AnalyticsReport?
     @State private var reportFailed: String?
+    /// The query the report on screen answers. While another range or filter
+    /// loads, the old report stays up, dimmed, instead of the page flashing
+    /// back to a skeleton; the new one cross-fades in when it lands.
+    @State private var shownQuery: AnalyticsQuery?
+    /// Set when a new range failed to load while an older one is on screen.
+    @State private var refreshFailed: String?
     @State private var learning: LearningState?
     @State private var learningFailed = false
     @State private var autopilot: AutopilotReport?
@@ -96,6 +103,22 @@ struct AnalyticsView: View {
         LoadKey(query: query, brand: session.brand?.id, reloads: reloads, accounts: session.connections.count)
     }
 
+    /// The numbers on screen are for another range or filter than the one
+    /// chosen: a new one is loading, or failed to.
+    private var isStale: Bool {
+        report != nil && shownQuery != query
+    }
+
+    private var isRefreshing: Bool {
+        isStale && refreshFailed == nil
+    }
+
+    /// The range the numbers on screen answer. The cards keep naming the dates
+    /// they show until the new ones land, so old numbers never wear new dates.
+    private var shownRange: AnalyticsQuery {
+        shownQuery ?? query
+    }
+
     private var customLabel: String? {
         guard customFrom > 0, customTo > 0 else { return nil }
         return AnalyticsFormat.range(Date(timeIntervalSince1970: customFrom), Date(timeIntervalSince1970: customTo))
@@ -121,6 +144,16 @@ struct AnalyticsView: View {
                             }
                             .padding(.horizontal, -Style.gutter)
                             .popoverTip(tips.currentTip as? RangeTip, arrowEdge: .top)
+                            // In the gap under the pills, taking no space,
+                            // so nothing moves when it comes and goes.
+                            .overlay(alignment: .bottom) {
+                                if isRefreshing {
+                                    RefreshLine()
+                                        .padding(.horizontal, Style.gutter)
+                                        .offset(y: 9)
+                                        .transition(.opacity)
+                                }
+                            }
                         }
                         pageBody
                     }
@@ -174,6 +207,8 @@ struct AnalyticsView: View {
         .refreshable { await readLive() }
         .onChange(of: session.brand?.id) { _, _ in
             report = nil
+            shownQuery = nil
+            refreshFailed = nil
             learning = nil
             autopilot = nil
             live = nil
@@ -211,29 +246,56 @@ struct AnalyticsView: View {
 
     // MARK: - Pages
 
-    @ViewBuilder
+    /// Overlapping, so the skeleton fades out under the cards instead of the
+    /// cards landing below it and jumping up when it goes.
     private var pageBody: some View {
-        if !hasAccount {
-            noConnection
-        } else if let report {
-            if let note = pageNote(report) {
-                Text(note)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        ZStack(alignment: .topLeading) {
+            if !hasAccount {
+                noConnection
+            } else if let report {
+                reportPages(report)
+                    .transition(.opacity)
+            } else if let reportFailed {
+                RetryNotice(title: reportFailed) { reloads += 1 }
+            } else {
+                VStack(alignment: .leading, spacing: 16) {
+                    SkeletonCard(height: 220)
+                    SkeletonCard(height: 120)
+                }
+                .transition(.opacity)
             }
-            switch page {
-            case .overview:  overview(report)
-            case .content:   content(report)
-            case .viewers:   viewers(report)
-            case .followers: followers(report)
-            case .autocast:  insights(report)
+        }
+    }
+
+    /// A loaded report's pages. While another range loads these are the old
+    /// numbers, so they dim until the new ones land.
+    private func reportPages(_ report: AnalyticsReport) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let refreshFailed {
+                RetryNotice(title: refreshFailed) { reloads += 1 }
             }
-        } else if let reportFailed {
-            RetryNotice(title: reportFailed) { reloads += 1 }
-        } else {
-            SkeletonCard(height: 220)
-            SkeletonCard(height: 120)
+            VStack(alignment: .leading, spacing: 16) {
+                if let note = pageNote(report) {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                pageContent(report)
+            }
+            .opacity(isStale ? 0.5 : 1)
+            .animation(reduceMotion ? nil : Animation.smooth(duration: 0.25), value: isStale)
+        }
+    }
+
+    @ViewBuilder
+    private func pageContent(_ report: AnalyticsReport) -> some View {
+        switch page {
+        case .overview:  overview(report)
+        case .content:   content(report)
+        case .viewers:   viewers(report)
+        case .followers: followers(report)
+        case .autocast:  insights(report)
         }
     }
 
@@ -246,7 +308,7 @@ struct AnalyticsView: View {
                 detail: "TikTok shares numbers for public videos only. Once one is public, Autocast reads it within 6 hours."
             )
         }
-        ViewsHeroCard(report: report, range: AnalyticsFormat.range(query.from, query.to))
+        ViewsHeroCard(report: report, range: AnalyticsFormat.range(shownRange.from, shownRange.to))
             .entrance(0)
         KeyMetricsCard(
             report: report,
@@ -338,7 +400,7 @@ struct AnalyticsView: View {
     // MARK: - Pieces
 
     private func rangeLine(_ report: AnalyticsReport) -> String {
-        let current = AnalyticsFormat.range(query.from, query.to)
+        let current = AnalyticsFormat.range(shownRange.from, shownRange.to)
         guard let from = AnalyticsDay.parse(report.range.prevFrom),
               let to = AnalyticsDay.parse(report.range.prevTo) else { return current }
         return "\(current) · vs \(AnalyticsFormat.range(from, to))"
@@ -352,10 +414,10 @@ struct AnalyticsView: View {
     /// One quiet line when the page is narrowed or starts before the history.
     private func pageNote(_ report: AnalyticsReport) -> String? {
         var parts: [String] = []
-        if report.filtered || platform != nil {
+        if report.filtered || shownRange.platform != nil {
             parts.append("Filtered.")
         }
-        if let started = report.historyStartDate, started > query.from {
+        if let started = report.historyStartDate, started > shownRange.from {
             parts.append("Autocast started reading your numbers on \(AnalyticsFormat.day(started)); earlier days aren't counted.")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
@@ -415,16 +477,27 @@ struct AnalyticsView: View {
 
     // MARK: - Loading
 
+    /// The new report lands animated: the same days morph to their new
+    /// numbers, a new range cross-fades and draws in, and the figures roll.
     private func loadReport() async {
         guard hasAccount, session.brand != nil else { return }
+        let asked = query
+        refreshFailed = nil
         do {
-            let fresh = try await session.analyticsReport(query)
+            let fresh = try await session.analyticsReport(asked)
             guard !Task.isCancelled else { return }
-            report = fresh
+            withAnimation(reduceMotion ? nil : AnalyticsMotion.land) {
+                report = fresh
+                shownQuery = asked
+            }
             reportFailed = nil
         } catch {
             guard !Task.isCancelled else { return }
-            if report == nil { reportFailed = "Couldn't load analytics. \(error.localizedDescription)" }
+            if report == nil {
+                reportFailed = "Couldn't load analytics. \(error.localizedDescription)"
+            } else if shownQuery != asked {
+                refreshFailed = "Couldn't load these dates. \(error.localizedDescription)"
+            }
         }
     }
 

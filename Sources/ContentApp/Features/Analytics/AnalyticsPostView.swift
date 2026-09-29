@@ -175,9 +175,8 @@ struct AnalyticsPostView: View {
                 .font(.title3)
                 .foregroundStyle(.primary)
                 .frame(height: 24)
-            Text(AnalyticsFormat.number(Double(value)))
+            RollingFigure(value: Double(value), style: .number)
                 .font(.headline.monospacedDigit())
-                .contentTransition(.numericText())
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -267,8 +266,8 @@ struct AnalyticsPostView: View {
 
     @ViewBuilder
     private func growth(_ data: PostAnalytics) -> some View {
-        let points = (data.readings ?? []).compactMap { reading in
-            PostgresTimestamp.parse(reading.at).map { (at: $0, views: reading.views) }
+        let points: [ViewsReading] = (data.readings ?? []).compactMap { reading in
+            PostgresTimestamp.parse(reading.at).map { ViewsReading(at: $0, views: reading.views) }
         }
         AnalyticsCard(
             title: "Views over time",
@@ -276,31 +275,7 @@ struct AnalyticsPostView: View {
             info: "Running total at each hourly check. The steeper the line, the faster it's growing."
         ) {
             if points.count >= 2 {
-                Chart(points, id: \.at) { point in
-                    AreaMark(x: .value("Time", point.at), y: .value("Views", point.views))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color.accentColor.opacity(0.14), Color.accentColor.opacity(0)],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .interpolationMethod(.monotone)
-                    LineMark(x: .value("Time", point.at), y: .value("Views", point.views))
-                        .foregroundStyle(Color.accentColor)
-                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                        .interpolationMethod(.monotone)
-                    PointMark(x: .value("Time", point.at), y: .value("Views", point.views))
-                        .foregroundStyle(Color.accentColor)
-                        .symbolSize(18)
-                }
-                .chartYAxis {
-                    AxisMarks(position: .trailing) { _ in
-                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
-                        AxisValueLabel()
-                    }
-                }
-                .frame(height: 190)
+                ReadingsChart(points: points)
             } else {
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: "chart.xyaxis.line")
@@ -331,46 +306,23 @@ struct AnalyticsPostView: View {
             ) {
                 HStack(alignment: .top, spacing: 8) {
                     if let viewsRatio {
-                        ringTile("Views", progress: viewsRatio, text: PostInsights.times(viewsRatio),
+                        RingTile(label: "Views", progress: viewsRatio, text: PostInsights.times(viewsRatio),
                                  usual: "Usual \(AnalyticsFormat.number(context?.medianViews ?? 0))",
-                                 good: viewsRatio >= 1)
+                                 good: viewsRatio >= 1, order: 0)
                     }
                     if let engagementRatio {
-                        ringTile("Engagement", progress: engagementRatio, text: PostInsights.times(engagementRatio),
+                        RingTile(label: "Engagement", progress: engagementRatio, text: PostInsights.times(engagementRatio),
                                  usual: "Usual \(AnalyticsFormat.percent(context?.medianEngagement ?? 0))",
-                                 good: engagementRatio >= 1)
+                                 good: engagementRatio >= 1, order: 1)
                     }
                     if let share {
-                        ringTile("Of all views", progress: share, text: AnalyticsFormat.percent(share),
+                        RingTile(label: "Of all views", progress: share, text: AnalyticsFormat.percent(share),
                                  usual: context.map { "\($0.videos) videos" } ?? "",
-                                 good: false)
+                                 good: false, order: 2)
                     }
                 }
             }
         }
-    }
-
-    private func ringTile(_ label: String, progress: Double, text: String, usual: String, good: Bool) -> some View {
-        VStack(spacing: 8) {
-            ZStack {
-                ProgressRing(progress: min(1, max(0, progress)), lineWidth: 9, color: good ? .green : .accentColor)
-                Text(text)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .padding(.horizontal, 12)
-            }
-            .frame(width: 86, height: 86)
-            Text(label)
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-            Text(usual)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -494,25 +446,7 @@ struct AnalyticsPostView: View {
         if total > 0 {
             AnalyticsCard(title: "What people did", info: "Of every like, comment and share, how much was each.") {
                 HStack(spacing: 20) {
-                    Chart(parts, id: \.name) { part in
-                        SectorMark(
-                            angle: .value("Count", part.value),
-                            innerRadius: .ratio(0.62),
-                            angularInset: 1.5
-                        )
-                        .cornerRadius(3)
-                        .foregroundStyle(part.color)
-                    }
-                    .frame(width: 120, height: 120)
-                    .overlay {
-                        VStack(spacing: 0) {
-                            Text(AnalyticsFormat.number(Double(total)))
-                                .font(.headline.monospacedDigit())
-                            Text("actions")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+                    EngagementDonut(parts: parts, total: total)
 
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(parts, id: \.name) { part in
@@ -667,5 +601,231 @@ struct AnalyticsPostView: View {
         if let ms = media.durationMs { parts.append(AnalyticsFormat.duration(seconds: Double(ms) / 1000)) }
         if let width = media.width, let height = media.height { parts.append("\(width)×\(height)") }
         return parts.isEmpty ? "Media" : parts.joined(separator: " · ")
+    }
+}
+
+// MARK: - Moving parts
+
+/// One hourly reading of a video's running total of views.
+private struct ViewsReading: Identifiable {
+    let at: Date
+    let views: Int
+    var id: Date { at }
+}
+
+/// Views over time, drawn in from the left the first time it is shown (Netro,
+/// 29 Sep 2026: "Make the charts to actually alive and very smooth"). The
+/// newest reading breathes while it is fresh -- taken within the last two
+/// hours, two of Autocast's hourly checks -- because that total is still
+/// climbing; an older one stays still.
+private struct ReadingsChart: View {
+    let points: [ViewsReading]
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var drawn: CGFloat = 0
+    @State private var isDrawing = true
+    @State private var settled = false
+
+    private static let freshFor: TimeInterval = 2 * 60 * 60
+
+    /// The area fades up behind the line as it draws.
+    private var areaFill: LinearGradient {
+        let strength: Double = reduceMotion ? 1 : Double(drawn)
+        return LinearGradient(
+            colors: [Color.accentColor.opacity(0.14 * strength), Color.accentColor.opacity(0)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    /// The newest reading, once the line has reached it and only while it is
+    /// recent enough to still be moving.
+    private var freshest: ViewsReading? {
+        guard settled || reduceMotion, let last = points.last else { return nil }
+        return Date().timeIntervalSince(last.at) < Self.freshFor ? last : nil
+    }
+
+    var body: some View {
+        Chart {
+            readingMarks()
+            freshMark()
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
+                AxisValueLabel()
+            }
+        }
+        .chartPlotStyle { plot in
+            plot.modifier(DrawIn(progress: drawn, isDrawing: isDrawing && !reduceMotion))
+        }
+        .frame(height: 190)
+        .onAppear(perform: drawIn)
+    }
+
+    @ChartContentBuilder
+    private func readingMarks() -> some ChartContent {
+        ForEach(points) { point in
+            AreaMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                .foregroundStyle(areaFill)
+                .interpolationMethod(.monotone)
+            LineMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                .foregroundStyle(Color.accentColor)
+                .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                .interpolationMethod(.monotone)
+            PointMark(x: .value("Time", point.at), y: .value("Views", point.views))
+                .foregroundStyle(Color.accentColor)
+                .symbolSize(18)
+        }
+    }
+
+    @ChartContentBuilder
+    private func freshMark() -> some ChartContent {
+        if let freshest {
+            PointMark(x: .value("Time", freshest.at), y: .value("Views", freshest.views))
+                .foregroundStyle(Color.clear)
+                .annotation(position: .overlay, alignment: .center, spacing: 0) {
+                    LivePointHalo()
+                }
+        }
+    }
+
+    private func drawIn() {
+        guard isDrawing else { return }
+        if reduceMotion {
+            AnalyticsMotion.instantly {
+                drawn = 1
+                isDrawing = false
+                settled = true
+            }
+            return
+        }
+        withAnimation(AnalyticsMotion.draw.delay(0.12)) {
+            drawn = 1
+        } completion: {
+            isDrawing = false
+            withAnimation(AnalyticsMotion.settle) {
+                settled = true
+            }
+        }
+    }
+}
+
+/// One "O" against the account's usual. The ring sweeps round to its value
+/// the first time it shows, each a beat after the one before, and settles
+/// with the ring's own snap.
+private struct RingTile: View {
+    let label: String
+    let progress: Double
+    let text: String
+    let usual: String
+    let good: Bool
+    /// Its place in the row, so the rings sweep in one after another.
+    let order: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    private var ringProgress: Double {
+        (shown || reduceMotion) ? min(1, max(0, progress)) : 0
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                ProgressRing(progress: ringProgress, lineWidth: 9, color: good ? .green : .accentColor)
+                Text(text)
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 12)
+            }
+            .frame(width: 86, height: 86)
+            Text(label)
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+            Text(usual)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .task {
+            guard !shown else { return }
+            if !reduceMotion {
+                try? await Task.sleep(for: .seconds(0.15 + Double(order) * 0.12))
+            }
+            // ProgressRing animates its own progress, so this only says when.
+            shown = true
+        }
+    }
+}
+
+/// What the engagement was made of. The donut sweeps round from twelve
+/// o'clock the first time it is shown and settles with a small spring; the
+/// total in the middle counts up with it.
+private struct EngagementDonut: View {
+    let parts: [(name: String, value: Int, color: Color)]
+    let total: Int
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var swept: CGFloat = 0
+    @State private var settled = false
+
+    private var sweep: CGFloat {
+        reduceMotion ? 1 : swept
+    }
+
+    private var scale: CGFloat {
+        (settled || reduceMotion) ? 1 : 0.92
+    }
+
+    var body: some View {
+        Chart(parts, id: \.name) { part in
+            SectorMark(
+                angle: .value("Count", part.value),
+                innerRadius: .ratio(0.62),
+                angularInset: 1.5
+            )
+            .cornerRadius(3)
+            .foregroundStyle(part.color)
+        }
+        .frame(width: 120, height: 120)
+        .mask(alignment: .center) {
+            // A thick ring over the donut's band, trimmed as it sweeps.
+            Circle()
+                .trim(from: 0, to: sweep)
+                .stroke(Color.black, style: StrokeStyle(lineWidth: 60, lineCap: .butt))
+                .rotationEffect(.degrees(-90))
+        }
+        .scaleEffect(scale)
+        .overlay {
+            VStack(spacing: 0) {
+                RollingFigure(value: Double(total), style: .number)
+                    .font(.headline.monospacedDigit())
+                Text("actions")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onAppear(perform: sweepIn)
+    }
+
+    private func sweepIn() {
+        guard swept < 1 else { return }
+        if reduceMotion {
+            AnalyticsMotion.instantly {
+                swept = 1
+                settled = true
+            }
+            return
+        }
+        withAnimation(AnalyticsMotion.draw.delay(0.1)) {
+            swept = 1
+        }
+        withAnimation(AnalyticsMotion.settle.delay(0.1)) {
+            settled = true
+        }
     }
 }

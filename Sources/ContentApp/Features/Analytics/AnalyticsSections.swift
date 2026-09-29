@@ -473,7 +473,12 @@ struct BestTimeCard: View {
         var title: String { self == .hours ? "Hours" : "Days" }
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var unit: Unit = .hours
+    /// The bars rise one after another, left to right, each time Hours or
+    /// Days is shown: which unit has risen, and how many of its bars so far.
+    @State private var risenUnit: Unit?
+    @State private var risen: Int = 0
 
     var body: some View {
         AnalyticsCard(
@@ -529,16 +534,53 @@ struct BestTimeCard: View {
     }
 
     private func chart(best: Int?) -> some View {
-        let slots = unit == .hours ? bestTime.hours : bestTime.days
-        return Chart(slots, id: \.slot) { slot in
-            BarMark(
-                x: .value("When", label(slot.slot)),
-                y: .value("Median views", slot.medianViews)
-            )
-            .foregroundStyle(slot.slot == best ? Color.accentColor : Color.accentColor.opacity(0.22))
-            .cornerRadius(4)
+        let slots: [AnalyticsReport.Slot] = unit == .hours ? bestTime.hours : bestTime.days
+        let top: Double = slots.map { $0.medianViews }.max() ?? 0
+        return Chart {
+            ForEach(slots, id: \.slot) { slot in
+                BarMark(
+                    x: .value("When", label(slot.slot)),
+                    y: .value("Median views", height(of: slot, in: slots))
+                )
+                .foregroundStyle(slot.slot == best ? Color.accentColor : Color.accentColor.opacity(0.22))
+                .cornerRadius(4)
+            }
+            // Invisible, at the tallest bar: the axis is at its final scale
+            // while the bars rise, so its labels never move.
+            RuleMark(y: .value("Median views", top))
+                .foregroundStyle(Color.clear)
         }
         .frame(height: 140)
+        .task(id: unit) {
+            await rise(count: slots.count)
+        }
+    }
+
+    /// A bar's height while the bars rise: its real median once its turn has
+    /// come, nothing before -- never a value in between.
+    private func height(of slot: AnalyticsReport.Slot, in slots: [AnalyticsReport.Slot]) -> Double {
+        if reduceMotion { return slot.medianViews }
+        guard risenUnit == unit, let index = slots.firstIndex(where: { $0.slot == slot.slot }) else { return 0 }
+        return index < risen ? slot.medianViews : 0
+    }
+
+    /// Lets the bars up one at a time, each springing to its height.
+    private func rise(count: Int) async {
+        let shown: Unit = unit
+        if reduceMotion {
+            risen = count
+            risenUnit = shown
+            return
+        }
+        risen = 0
+        risenUnit = shown
+        for index in 0..<count {
+            try? await Task.sleep(for: .seconds(0.04))
+            guard !Task.isCancelled else { return }
+            withAnimation(AnalyticsMotion.settle) {
+                risen = index + 1
+            }
+        }
     }
 }
 
@@ -592,7 +634,7 @@ struct CompareSection: View {
                         .sorted { ($0.medianViews ?? 0) > ($1.medianViews ?? 0) }
                     let top = groups.first?.medianViews ?? 1
 
-                    ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                    ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
                                 Text(group.label.map { Platform(rawValue: $0)?.displayName ?? $0.capitalized } ?? "—")
@@ -602,14 +644,8 @@ struct CompareSection: View {
                                     .font(.footnote.monospacedDigit())
                                     .foregroundStyle(.secondary)
                             }
-                            GeometryReader { proxy in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.track)
-                                    Capsule().fill(Color.accentColor)
-                                        .frame(width: max(6, proxy.size.width * CGFloat((group.medianViews ?? 0) / max(top, 1))))
-                                }
-                            }
-                            .frame(height: 6)
+                            GrowingBar(fraction: (group.medianViews ?? 0) / max(top, 1), minimum: 6, order: index)
+                                .frame(height: 6)
                         }
                     }
                 }

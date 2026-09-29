@@ -169,6 +169,14 @@ struct LearningProgressCard: View {
     let videos: Int
     private let needed = 10
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The bar fills to its real count once, just after the card shows.
+    @State private var filled = false
+
+    private var shownVideos: Double {
+        (filled || reduceMotion) ? Double(videos) : 0
+    }
+
     var body: some View {
         if videos < needed {
             VStack(alignment: .leading, spacing: 12) {
@@ -177,7 +185,7 @@ struct LearningProgressCard: View {
                 Text("Patterns start once Autocast has read \(needed) public videos. It never calls one video a pattern.")
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
-                ProgressView(value: Double(videos), total: Double(needed))
+                ProgressView(value: shownVideos, total: Double(needed))
                     .tint(Color.accentColor)
                 Text("\(videos) of \(needed) videos")
                     .font(.footnote)
@@ -186,6 +194,18 @@ struct LearningProgressCard: View {
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .raisedCard(radius: 18)
+            .onAppear(perform: fill)
+        }
+    }
+
+    private func fill() {
+        guard !filled else { return }
+        if reduceMotion {
+            AnalyticsMotion.instantly { filled = true }
+            return
+        }
+        withAnimation(AnalyticsMotion.settle.delay(0.25)) {
+            filled = true
         }
     }
 }

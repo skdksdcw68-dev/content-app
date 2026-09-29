@@ -91,8 +91,6 @@ struct GenerationCard: View {
                 .foregroundStyle(Theme.accent)
         } else {
             VStack(alignment: .leading, spacing: 14) {
-                promptField
-
                 models
 
                 // The size. For a video that starts from a picture there is
@@ -151,6 +149,12 @@ struct GenerationCard: View {
                 if canSpeak {
                     voiceoverField
                 }
+
+                // Last before Generate, on purpose. The conversation scrolls to
+                // its end when the keyboard rises, and a field at the top of a
+                // tall card would be scrolled out of sight under the words being
+                // typed into it.
+                promptField
 
                 generateButton
             }

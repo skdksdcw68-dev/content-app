@@ -138,12 +138,24 @@ struct GenerateChoices: Equatable {
     /// nothing to draw and nothing to send.
     var resolutions: [String] { can?.resolutions ?? [] }
 
-    /// Sound is a control only where the model makes sound.
-    var hasSound: Bool { isVideo && can?.audio != false }
+    /// Sound is a control only where the model makes sound AND lets it be
+    /// switched: MiniMax H3's is always on, and a button that does nothing is
+    /// worse than none.
+    var hasSound: Bool {
+        guard isVideo else { return false }
+        if let own = can?.audioSwitch { return own }
+        return can?.audio != false
+    }
+
+    /// The model makes sound, whether or not it can be switched off.
+    var makesSound: Bool { isVideo && can?.audio == true }
 
     /// The model will read a line out, if it is given one. Only a model that
-    /// says it makes sound.
-    var canSpeak: Bool { isVideo && audio && can?.audio == true }
+    /// says it makes sound -- and with a switch, only while it is on.
+    var canSpeak: Bool {
+        guard isVideo, can?.audio == true else { return false }
+        return can?.audioSwitch == false ? true : audio
+    }
 
     /// Whether the shape is the person's to choose. A video that starts from a
     /// picture takes the picture's own -- the adapter asks for "auto" where the
@@ -252,6 +264,29 @@ struct GenerateChoices: Equatable {
             quality: nil,
             extras: extras
         )
+    }
+}
+
+// MARK: - Credits and plans
+
+extension ModelCost {
+    /// What this costs in credits, when the price is in dollars: the number the
+    /// send button, the card and the model list all show, and the number the
+    /// server takes. Nil while nothing has priced it.
+    var credits: Int? { GenerateChoices.credits(from: self) }
+}
+
+extension ModelChoice {
+    /// The plan rank a person needs to use it: 1 Pro, 2 Max, 3 Ultra. Video is
+    /// a paid feature at all; a model's own `minTier` can raise that.
+    func minimumTier(isVideo: Bool) -> Int {
+        constraints.minTier ?? (isVideo ? 1 : 0)
+    }
+
+    /// "Pro", "Max", "Ultra": the name of the plan that unlocks it.
+    func unlockedBy(isVideo: Bool) -> String {
+        let rank = minimumTier(isVideo: isVideo)
+        return Tier.allCases.first { $0.rank == rank }?.name ?? "Pro"
     }
 }
 

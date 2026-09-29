@@ -77,12 +77,21 @@ struct GenerationCard: View {
     /// that starts from one takes its shape.
     private var choosesShape: Bool { shapes.count > 1 && !(isVideo && withPicture) }
 
-    /// Sound is a row only where the model says it makes sound. A switch on a
-    /// model that cannot is a switch that does nothing.
-    private var hasSound: Bool { isVideo && selected?.constraints.audio == true }
+    /// Sound is a row only where the model says it makes sound AND can switch
+    /// it. A switch on a model that cannot is a switch that does nothing.
+    private var hasSound: Bool {
+        guard isVideo, let constraints = selected?.constraints, constraints.audio == true else { return false }
+        return constraints.audioSwitch != false
+    }
+
+    /// Makes sound that cannot be turned off (MiniMax H3). Said in a line.
+    private var soundIsAlwaysOn: Bool {
+        guard isVideo, let constraints = selected?.constraints else { return false }
+        return constraints.audio == true && constraints.audioSwitch == false
+    }
 
     /// The model will read a line out, if given one.
-    private var canSpeak: Bool { hasSound && sound }
+    private var canSpeak: Bool { (hasSound && sound) || soundIsAlwaysOn }
 
     var body: some View {
         if let settled {
@@ -138,6 +147,10 @@ struct GenerationCard: View {
 
                 if hasSound {
                     soundRow
+                } else if soundIsAlwaysOn {
+                    Label("Sound is included", systemImage: "speaker.wave.2")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if isVideo, selected?.constraints.audio == false {
                     // Said, not left out: "where is the voiceover?" is the
                     // question a card with no sound row invites.
@@ -248,13 +261,23 @@ struct GenerationCard: View {
         VStack(spacing: 6) {
             ForEach(options) { option in
                 let usable = option.affordable != false
+                // A model for a higher plan opens the plans instead of being
+                // chosen: the tap is a wish to use it, and the answer is how.
+                let lockedTo: String? = option.minimumTier(isVideo: isVideo) > session.planRank
+                    ? option.unlockedBy(isVideo: isVideo)
+                    : nil
                 Button {
-                    if usable { selectedID = option.externalId }
+                    if lockedTo != nil {
+                        session.showingPaywall = true
+                    } else if usable {
+                        selectedID = option.externalId
+                    }
                 } label: {
                     ModelOptionRow(
                         option: option,
                         isSelected: option.externalId == selectedID,
-                        price: option.externalId == selectedID ? (price ?? option.cost) : option.cost
+                        price: option.externalId == selectedID ? (price ?? option.cost) : option.cost,
+                        lockedTo: lockedTo
                     )
                 }
                 .buttonStyle(PressButtonStyle())
@@ -294,9 +317,15 @@ struct GenerationCard: View {
                 Spacer(minLength: 8)
                 if pricing {
                     ProgressView().controlSize(.small).tint(Theme.onAccent)
-                } else if let shown = price ?? selected?.cost, shown.amount != nil {
-                    Text(shown.label)
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                } else if let shown = price ?? selected?.cost, let credits = shown.credits {
+                    // In credits: the number the server will take, and the one
+                    // the bar and the model list show.
+                    HStack(spacing: 4) {
+                        Image(systemName: "diamond.fill")
+                            .font(.system(size: 9))
+                        Text(CreditFormat.text(credits))
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                    }
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 30)
@@ -437,6 +466,8 @@ private struct ModelOptionRow: View {
     let option: ModelChoice
     let isSelected: Bool
     let price: ModelCost
+    /// The plan that unlocks it, when the person is not on it.
+    var lockedTo: String? = nil
 
     private var usable: Bool { option.affordable != false }
 
@@ -461,6 +492,18 @@ private struct ModelOptionRow: View {
                             .padding(.vertical, 2)
                             .background(Capsule().fill((badge == "Cheapest" ? Color.green : Theme.accent).opacity(0.12)))
                     }
+                    if let lockedTo {
+                        HStack(spacing: 3) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(lockedTo)
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                    }
                 }
                 if let note = option.constraints.notes?.first {
                     Text(note)
@@ -473,9 +516,15 @@ private struct ModelOptionRow: View {
 
             Spacer(minLength: 8)
 
-            Text(price.amount == nil ? "—" : price.label)
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(usable ? Color.primary : Color.secondary)
+            // In credits: the same number as the button and the bar.
+            HStack(spacing: 3) {
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+                Text(price.credits.map { CreditFormat.text($0) } ?? "—")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(usable ? Color.primary : Color.secondary)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

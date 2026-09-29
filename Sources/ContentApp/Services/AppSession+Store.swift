@@ -23,12 +23,13 @@ import Supabase
 /// takes. The currency code is stored with it, so a person who travels does
 /// not see yesterday's currency against today's.
 struct RememberedPricing: Codable, Equatable {
-    var monthly: String
-    var yearly: String
-    var saving: Int?
+    /// What each product cost when last seen, by product id: "$29.99".
+    var prices: [String: String]
     var currency: String
 
-    private static let key = "store.pricing"
+    /// A different key from the two-price version (29 Sep 2026, three tiers):
+    /// what that one stored has the wrong shape and would fail to read.
+    private static let key = "store.pricing.tiers"
 
     static var saved: RememberedPricing? {
         guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
@@ -42,7 +43,8 @@ struct RememberedPricing: Codable, Equatable {
 }
 
 extension AppSession {
-    static let proProductIDs = ["autocast.pro.yearly", "autocast.pro.monthly"]
+    /// Everything Autocast sells: three tiers, each monthly and yearly.
+    static let subscriptionProductIDs = Tier.allProductIDs
 
     /// Fetched once at launch so the paywall never has to wait for StoreKit.
     ///
@@ -51,29 +53,19 @@ extension AppSession {
     /// words "Loading plans…" appeared on every single open, even the tenth.
     func loadProducts() async {
         guard storeProducts.isEmpty else { return }
-        guard let loaded = try? await Product.products(for: Self.proProductIDs) else { return }
+        guard let loaded = try? await Product.products(for: Self.subscriptionProductIDs) else { return }
         storeProducts = loaded.sorted { $0.price > $1.price }
         rememberPricing()
     }
 
     /// Writes down what was just fetched, for the next cold start.
     private func rememberPricing() {
-        guard
-            let yearly = storeProducts.first(where: { $0.id == "autocast.pro.yearly" }),
-            let monthly = storeProducts.first(where: { $0.id == "autocast.pro.monthly" }),
-            monthly.price > 0
-        else { return }
-
-        let twelve = monthly.price * 12
-        let fraction = (twelve - yearly.price) / twelve
-        let percent = Int((NSDecimalNumber(decimal: fraction).doubleValue * 100).rounded())
-
-        RememberedPricing(
-            monthly: monthly.displayPrice,
-            yearly: yearly.displayPrice,
-            saving: percent > 0 ? percent : nil,
-            currency: monthly.priceFormatStyle.currencyCode
-        ).save()
+        guard let first = storeProducts.first else { return }
+        var prices: [String: String] = [:]
+        for product in storeProducts {
+            prices[product.id] = product.displayPrice
+        }
+        RememberedPricing(prices: prices, currency: first.priceFormatStyle.currencyCode).save()
     }
 
     func refreshSubscription() async {
@@ -83,6 +75,9 @@ extension AppSession {
         } catch {
             // Keep what we had: a failed read must not flip someone to free.
         }
+        // A plan change moves the credits with it: an upgrade lifts the
+        // allowance at once, and a sign-in changes whose they are.
+        await refreshCredits()
     }
 
     /// Sends whatever StoreKit currently entitles this Apple ID to.
@@ -90,7 +85,7 @@ extension AppSession {
         var signed: [String] = []
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
-               Self.proProductIDs.contains(transaction.productID) {
+               Self.subscriptionProductIDs.contains(transaction.productID) {
                 signed.append(result.jwsRepresentation)
             }
         }
@@ -119,7 +114,7 @@ extension AppSession {
         var signed: [String] = []
         for await result in Transaction.currentEntitlements {
             if case .verified(let transaction) = result,
-               Self.proProductIDs.contains(transaction.productID) {
+               Self.subscriptionProductIDs.contains(transaction.productID) {
                 signed.append(result.jwsRepresentation)
             }
         }
@@ -188,6 +183,11 @@ struct MyPlan: Decodable, Sendable, Equatable {
     }
 
     let plan: String
+    /// "Pro", "Max", "Ultra", "Free" -- the server's own name for it (0077).
+    /// Nil from a server that has not been updated.
+    let name: String?
+    /// 0 free, 1 Pro, 2 Max, 3 Ultra.
+    let tier: Int?
     let isPro: Bool
     let isTrial: Bool
     let productId: String?
@@ -197,7 +197,7 @@ struct MyPlan: Decodable, Sendable, Equatable {
     let used: Used
 
     enum CodingKeys: String, CodingKey {
-        case plan, limits, used
+        case plan, name, tier, limits, used
         case isPro = "is_pro"
         case isTrial = "is_trial"
         case productId = "product_id"
@@ -207,9 +207,10 @@ struct MyPlan: Decodable, Sendable, Equatable {
 
     var expires: Date? { expiresAt.flatMap(PostgresTimestamp.parse) }
 
-    /// "Pro", "Pro · Trial", "Free".
+    /// "Pro", "Max", "Ultra", "Pro trial", "Free".
     var title: String {
         if isTrial { return "Pro trial" }
+        if isPro, let name, !name.isEmpty { return name }
         return isPro ? "Pro" : "Free"
     }
 }

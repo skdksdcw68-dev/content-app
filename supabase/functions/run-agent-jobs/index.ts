@@ -689,7 +689,13 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
           p_error: thrown.code,
           p_result: { attempts: thrown.attempts },
         });
-        await tell(admin, run, refusal(thrown.code, what));
+        // On the house generator an empty provider balance is OUR problem, not
+        // theirs -- say so, and say it loudly where we will read it.
+        const house = typeof run.input.credit_ref === "string";
+        if (house && thrown.code === "no_credits") {
+          console.error("HOUSE GENERATOR IS OUT OF CREDIT: top up the fal balance (fal.ai/dashboard/billing)");
+        }
+        await tell(admin, run, refusal(thrown.code, what, house));
         return `failed ${thrown.code}`;
       }
       throw thrown;
@@ -970,9 +976,14 @@ async function saveGenerated(
 
 /** A failure code, said the way a person needs to hear it. The provider's own
  *  words stay on the run row for diagnosis and never reach the chat. */
-function refusal(code: string, what: string): string {
+function refusal(code: string, what: string, house = false): string {
   switch (code) {
     case "no_credits":
+      // Our balance, not theirs: nothing to top up, nothing they did, and the
+      // credits taken for this job are already back (0077).
+      if (house) {
+        return `Making ${what === "image" ? "pictures" : what === "audio" ? "audio" : "videos"} is paused for a moment on our side, so the ${what} wasn't made. Your credits are back and nothing was charged. Try again in a little while.`;
+      }
       // Not "you are out of credits": the first time this fired, the account
       // had 26 and the model wanted 75. The balance may be fine for a
       // cheaper model, and saying so is the useful half.

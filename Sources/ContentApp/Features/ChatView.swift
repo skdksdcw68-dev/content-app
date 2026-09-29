@@ -1003,6 +1003,10 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].suggestions = options
                         }
+                    case .paywall:
+                        // The sentence about it is already in the reply. What
+                        // is left is the way out: the plans, opened.
+                        session.showingPaywall = true
                     case .failed(let message):
                         turns[replyIndex].isPending = false
                         turns[replyIndex].failed = true
@@ -1145,7 +1149,9 @@ struct ChatView: View {
         parts.append(contentsOf: settings.answers.values.sorted())
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {
-            turns[index].chosenModel = "\(summary) · \(price.label)"
+            // In credits, the unit everything else on the page is in.
+            let cost: String = price.credits.map { "\(CreditFormat.text($0)) credits" } ?? price.label
+            turns[index].chosenModel = "\(summary) · \(cost)"
         } else {
             turns[index].chosenModel = summary
         }
@@ -1275,6 +1281,9 @@ struct ChatView: View {
     /// than the result being guessed at here.
     private func runFinished(_ run: UUID) {
         guard finishedRuns.insert(run).inserted else { return }
+        // A result arriving may have settled to a slightly different price, and
+        // a failure has given its credits back: read the balance again.
+        Task { await session.refreshCredits() }
         if isWorking {
             reloadWhenIdle = true
         } else {

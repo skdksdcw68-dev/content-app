@@ -468,17 +468,30 @@ struct NewPlanSheet: View {
                 // 26 Sep 2026: "why does the user is not allowed to see the
                 // costs... plans also cost credits btw." Every post here is a
                 // video the month's allowance pays for.
-                if let videos = standing.first(where: { $0.kind == "video_gen" }) {
+                //
+                // In CREDITS since 29 Sep 2026 (0077): a video is not a unit of
+                // cost -- a Wan clip is $0.25 and a Veo one $3.20 -- so the
+                // sentence is about what the posts will draw, as an estimate.
+                if let credits = standing.first(where: { $0.kind == "credit" }) {
+                    let each: Int = SeriesCost.perVideo(seconds: nil)
+                    let needed: Int = total * each
                     PlanSummaryRow(
                         symbol: "film",
                         label: "Uses",
-                        value: "\(total) of your \(videos.left) videos left this month"
+                        value: "about \(CreditFormat.text(needed)) of your \(CreditFormat.text(credits.left)) credits"
                     )
-                    if total > videos.left {
+                    if session.planRank == 0 {
                         Label(
-                            videos.limitValue == 0
-                                ? "Your plan doesn't include videos yet. Autocast Pro adds them."
-                                : "That's more than this month has left. The last \(total - videos.left) will wait for next month.",
+                            "Video is part of Autocast Pro. Your plan can write the posts, and Pro makes the videos.",
+                            systemImage: "exclamationmark.triangle"
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                    } else if needed > credits.left {
+                        Label(
+                            "That's more than this month has left, so the later posts will wait. A bigger plan has more credits.",
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.footnote)

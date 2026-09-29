@@ -155,7 +155,8 @@ struct ModelBrowser: View {
                                     model: model,
                                     price: costs[model.externalId] ?? model.cost,
                                     isSelected: model.externalId == selected,
-                                    isVideo: isVideo
+                                    isVideo: isVideo,
+                                    planRank: session.planRank
                                 )
                             }
                             .buttonStyle(SoftPressStyle())
@@ -268,6 +269,13 @@ struct ModelBrowser: View {
     // MARK: - Doing
 
     private func pick(_ model: ModelChoice) {
+        // A model for a higher plan opens the plans instead of being chosen:
+        // the tap is a wish to use it, and the answer is how.
+        if model.minimumTier(isVideo: isVideo) > session.planRank {
+            dismiss()
+            session.showingPaywall = true
+            return
+        }
         var picked = model
         // Carry the price this browser already showed, so the card does not
         // open on "Cost not stated" for something it just quoted.
@@ -325,8 +333,15 @@ private struct ModelRow: View {
     let price: ModelCost
     let isSelected: Bool
     let isVideo: Bool
+    let planRank: Int
 
     private var usable: Bool { model.suitable != false && model.affordable != false }
+
+    /// For a plan they are not on. Shown as a small pill, and tapping the row
+    /// opens the plans.
+    private var lockedTo: String? {
+        model.minimumTier(isVideo: isVideo) > planRank ? model.unlockedBy(isVideo: isVideo) : nil
+    }
 
     private var detail: String? {
         if model.suitable == false {
@@ -341,11 +356,25 @@ private struct ModelRow: View {
             ModelMakerMark(maker: ModelMaker.of(model))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(model.label)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(model.label)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                    if let lockedTo {
+                        HStack(spacing: 3) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 8, weight: .bold))
+                            Text(lockedTo)
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.track, in: Capsule())
+                    }
+                }
                 if let detail {
                     Text(detail)
                         .font(.subheadline)
@@ -362,9 +391,11 @@ private struct ModelRow: View {
                 Image(systemName: "diamond.fill")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
-                Text(price.amount == nil ? "—" : price.label)
+                // In credits, the same number the send button shows -- not a
+                // dollar figure beside a credit mark, which said two things.
+                Text(price.credits.map { CreditFormat.text($0) } ?? "—")
                     .font(.subheadline.weight(.medium).monospacedDigit())
-                    .foregroundStyle(price.amount == nil ? Color.secondary : Color.primary)
+                    .foregroundStyle(price.credits == nil ? Color.secondary : Color.primary)
             }
             .fixedSize()
         }

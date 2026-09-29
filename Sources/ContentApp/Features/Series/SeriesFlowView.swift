@@ -433,7 +433,8 @@ struct SeriesFlowView: View {
     /// account picked (`addTarget` in attach.ts), so the credits are the
     /// videos, not the accounts.
     private func creditsNote(accounts: Int) -> some View {
-        let left = standing.first { $0.kind == "video_gen" }?.left
+        let left = standing.first { $0.kind == "credit" }?.left
+        let each = SeriesCost.perVideo(seconds: length)
         let sentence: String
         if accounts > 1 {
             sentence = "One video is made for each post and posted to all \(accounts) accounts."
@@ -450,8 +451,11 @@ struct SeriesFlowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text("About \(CreditFormat.text(each)) credits a video.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
                 if let left {
-                    Text("\(left) videos left this month.")
+                    Text("\(CreditFormat.text(left)) credits left this month.")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.primary)
                 }

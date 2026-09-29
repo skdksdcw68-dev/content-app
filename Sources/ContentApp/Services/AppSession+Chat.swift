@@ -175,6 +175,10 @@ extension AppSession {
         /// Things worth saying next, as taps. A suggestion ending in a space is
         /// an invitation to finish the sentence rather than a message to send.
         case suggestions([String])
+        /// The server refused a generation for want of credits or a plan (0077)
+        /// and said so in the conversation. The plans are offered next.
+        /// `needs_credits`, `needs_pro` or `needs_tier`.
+        case paywall(String)
         case failed(String)
     }
 
@@ -350,6 +354,8 @@ extension AppSession {
                         detail: detail
                     )))
                 }
+            case "paywall":
+                onEvent(.paywall(event["code"] as? String ?? "needs_credits"))
             case "error":
                 onEvent(.failed(event["message"] as? String ?? "Something went wrong."))
             case "done":

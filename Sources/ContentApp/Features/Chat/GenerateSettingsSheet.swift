@@ -86,7 +86,7 @@ struct GenerateSettingsSheet: View {
                     if choices.hasSound {
                         Toggle("Generate Audio", isOn: $choices.audio)
                     } else if choices.isVideo {
-                        LabeledContent("Audio", value: "Silent video")
+                        LabeledContent("Audio", value: choices.makesSound ? "Sound included" : "Silent video")
                     }
                 }
 
@@ -121,7 +121,26 @@ struct GenerateSettingsSheet: View {
                 // How far this month goes. Abel, 26 Sep 2026: "the credits
                 // how far they can go" -- the same counters the server
                 // refuses from, read without spending.
-                if !standing.isEmpty {
+                //
+                // 29 Sep 2026: in CREDITS now. Videos and images stopped being
+                // counted the day generation started being paid for by what it
+                // costs (0077), and a "Videos 60 of 60 left" that never moved
+                // would have been a lie.
+                if let credits = standing.first(where: { $0.kind == "credit" }) {
+                    Section {
+                        HStack {
+                            Text("Credits")
+                            Spacer()
+                            Text("\(CreditFormat.text(credits.left)) of \(CreditFormat.text(credits.limitValue)) left")
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                        }
+                    } header: {
+                        Text("This month")
+                    } footer: {
+                        Text("Credits pay for what you make. The number beside the send button is what this one costs.")
+                    }
+                } else if !standing.isEmpty {
                     Section {
                         ForEach(standing, id: \.kind) { row in
                             HStack {

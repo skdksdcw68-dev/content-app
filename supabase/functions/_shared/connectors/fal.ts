@@ -877,8 +877,12 @@ export const falAdapter: Adapter = {
   async discover(auth: Authorization): Promise<Discovery> {
     const { status, body } = await call(auth, "GET", `${QUEUE}/fal-ai/wan-25-preview/text-to-video/requests/none`);
     // 401/403 means the key is wrong. 404 means the key was accepted and the
-    // request id simply does not exist, which is the answer we want.
-    if (status === 401 || status === 403) {
+    // request id simply does not exist, which is the answer we want. An EMPTY
+    // BALANCE is also a 403 (`User is locked. Reason: Exhausted balance.`), and
+    // the key is fine then -- refusing it here would expire a working
+    // connection because somebody had not topped up.
+    const empty = JSON.stringify(body ?? "").toLowerCase().includes("exhausted balance");
+    if ((status === 401 || status === 403) && !empty) {
       throw new Error(`fal refused the key: ${JSON.stringify(body).slice(0, 160)}`);
     }
 
@@ -1037,6 +1041,24 @@ export const falAdapter: Adapter = {
   classify(status: number, body: unknown): Verdict {
     const said = typeof body === "string" ? body : JSON.stringify(body ?? "");
     const words = said.toLowerCase();
+
+    // 🔴 An empty fal account answers 403, not 402: `{"detail":"User is locked.
+    // Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."}`
+    // on EVERY endpoint. Read as the 403 it looks like, that was `bad_key`, and
+    // `routeSubmit` answers `bad_key` by marking the whole connection expired --
+    // so on 29 Sep one empty balance turned the house generator off for everyone
+    // and every later job said "nothing you've connected can make video", the
+    // same words for a different failure. It is a balance, and a balance is
+    // `no_credits`: nothing wrong with the key, nothing to reconnect.
+    if (words.includes("exhausted balance") || words.includes("top up your balance")) {
+      return {
+        code: "no_credits",
+        retryable: false,
+        tryAnotherModel: false,
+        tryAnotherProvider: true,
+        detail: said.slice(0, 300),
+      };
+    }
 
     if (status === 401 || status === 403) {
       return {

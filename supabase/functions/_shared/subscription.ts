@@ -8,7 +8,22 @@ import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.1
 import type { AppleTransaction } from "./apple-jws.ts";
 
 export const BUNDLE_ID = "Autocast";
-export const PRODUCTS = new Set(["autocast.pro.monthly", "autocast.pro.yearly"]);
+/**
+ * Which plan each product is. Three tiers, each monthly and yearly (Netro,
+ * 29 Sep 2026: "pro, max and 1 more so they choose and subscribe"). Pro kept
+ * its original plan code, `creator`, so nothing already stored had to change.
+ * The plan decides the credits (migration 0077) and which models open.
+ */
+export const PLAN_BY_PRODUCT: Record<string, string> = {
+  "autocast.pro.monthly": "creator",
+  "autocast.pro.yearly": "creator",
+  "autocast.max.monthly": "max",
+  "autocast.max.yearly": "max",
+  "autocast.ultra.monthly": "ultra",
+  "autocast.ultra.yearly": "ultra",
+};
+
+export const PRODUCTS = new Set(Object.keys(PLAN_BY_PRODUCT));
 
 export async function applyTransaction(
   admin: SupabaseClient,
@@ -25,7 +40,9 @@ export async function applyTransaction(
 
   const row: Record<string, unknown> = {
     user_id: userId,
-    plan_code: "creator",
+    // From the product, not assumed: a Max receipt made this row `creator`
+    // for as long as there was only one plan to buy.
+    plan_code: PLAN_BY_PRODUCT[tx.productId] ?? "creator",
     provider: "apple",
     original_transaction_id: tx.originalTransactionId,
     status,

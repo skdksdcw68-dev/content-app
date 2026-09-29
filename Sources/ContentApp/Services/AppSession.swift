@@ -114,6 +114,12 @@ final class AppSession {
     /// The Pro products, fetched once at launch so the paywall opens on
     /// prices instead of the words "Loading plans…".
     internal(set) var storeProducts: [Product] = []
+    /// What this month's credits stand at (0077). Nil until first read; read
+    /// again after anything is made and whenever a screen that shows it opens.
+    internal(set) var credits: CreditsStanding?
+    /// The paid tiers as the server defines them, so the paywall never states a
+    /// number the server does not enforce.
+    internal(set) var planTiers: [PlanTierInfo] = []
     /// Set when a Pro limit is reached anywhere; the root shows the paywall.
     var showingPaywall = false
 

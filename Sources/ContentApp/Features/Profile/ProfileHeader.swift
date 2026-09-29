@@ -29,10 +29,6 @@ struct ProfileHeader: View {
     @State private var editing = false
     @State private var draft = ""
     @State private var connecting = false
-    /// This month's counters. Empty until read, and drawn as dashes rather
-    /// than as zeroes: a zero is a claim.
-    @State private var standing: [QuotaStanding] = []
-
     private var name: String { session.displayName ?? "Add your name" }
 
     /// The brand line, unless it is still the placeholder name.
@@ -43,20 +39,20 @@ struct ProfileHeader: View {
         return brand
     }
 
-    private var videos: QuotaStanding? { standing.first { $0.kind == "video_gen" } }
-    private var images: QuotaStanding? { standing.first { $0.kind == "image_gen" } }
-
     private var connectedCount: Int { session.connections.filter(\.isHealthy).count }
 
-    /// Everything made so far this month: videos and pictures together.
-    private var madeThisMonth: String {
-        guard videos != nil || images != nil else { return "–" }
-        return "\((videos?.used ?? 0) + (images?.used ?? 0))"
+    /// This month's credits, drawn as dashes until read rather than as zeroes:
+    /// a zero is a claim. (Videos and pictures stopped being counted on
+    /// 29 Sep 2026 -- generation is paid for in credits -- so "Made this month"
+    /// and "Videos left" would have stood still.)
+    private var creditsUsed: String {
+        guard let credits = session.credits else { return "–" }
+        return CreditFormat.text(credits.used)
     }
 
-    private var videosLeft: String {
-        guard let videos else { return "–" }
-        return "\(videos.left)"
+    private var creditsLeft: String {
+        guard let credits = session.credits else { return "–" }
+        return CreditFormat.text(credits.left)
     }
 
     var body: some View {
@@ -68,7 +64,7 @@ struct ProfileHeader: View {
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .task { standing = await session.quotaStanding() }
+        .task { await session.refreshCredits() }
         .alert("Your name", isPresented: $editing) {
             TextField("Name", text: $draft)
                 .textContentType(.name)
@@ -147,7 +143,7 @@ struct ProfileHeader: View {
         guard let date = plan.expires else { return "Autocast \(plan.title)" }
         let when = date.formatted(date: .abbreviated, time: .omitted)
         if plan.isTrial { return "Trial ends \(when)" }
-        return plan.autoRenew == false ? "Pro · ends \(when)" : "Pro · renews \(when)"
+        return plan.autoRenew == false ? "\(plan.title) · ends \(when)" : "\(plan.title) · renews \(when)"
     }
 
     // MARK: - How far
@@ -155,8 +151,8 @@ struct ProfileHeader: View {
     private var stats: some View {
         HStack(spacing: 10) {
             StatTile(value: "\(connectedCount)", label: connectedCount == 1 ? "Account" : "Accounts")
-            StatTile(value: madeThisMonth, label: "Made this month")
-            StatTile(value: videosLeft, label: "Videos left")
+            StatTile(value: creditsUsed, label: "Credits used")
+            StatTile(value: creditsLeft, label: "Credits left")
         }
     }
 

@@ -144,10 +144,16 @@ struct ModelConstraints: Equatable, Decodable {
     /// Has a control for the shape when it starts from a picture. Most take the
     /// picture's own.
     var pictureAspect: Bool?
+    /// Whether its sound can be switched off. False when it is always there
+    /// (MiniMax H3), and then there is no sound button -- only a note.
+    var audioSwitch: Bool?
+    /// The lowest plan that may use it: 2 is Max, 3 is Ultra. Nil for any paid
+    /// plan.
+    var minTier: Int?
 
     private enum CodingKeys: String, CodingKey {
         case durations, resolutions, qualities, aspectRatios, typicalSeconds, notes, defaults, choices
-        case audio, takesPicture, endFrame, negativePrompt, pictureAspect
+        case audio, takesPicture, endFrame, negativePrompt, pictureAspect, audioSwitch, minTier
     }
 
     init(from decoder: Decoder) throws {
@@ -165,6 +171,8 @@ struct ModelConstraints: Equatable, Decodable {
         endFrame = try? c.decodeIfPresent(Bool.self, forKey: .endFrame)
         negativePrompt = try? c.decodeIfPresent(Bool.self, forKey: .negativePrompt)
         pictureAspect = try? c.decodeIfPresent(Bool.self, forKey: .pictureAspect)
+        audioSwitch = try? c.decodeIfPresent(Bool.self, forKey: .audioSwitch)
+        minTier = try? c.decodeIfPresent(Int.self, forKey: .minTier)
     }
 }
 

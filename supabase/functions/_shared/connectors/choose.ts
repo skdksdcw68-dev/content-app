@@ -199,8 +199,13 @@ const PREFERRED: Record<string, string[]> = {
   // phone. Everything dearer is one tap away on the card; it is a default,
   // never a decision. "kling 3.0" stays first so a Higgsfield connection that
   // has it still gets what was asked for.
+  //
+  // Evening of 29 Sep: "kling 3.0" now matches Kling 3.0 Pro on fal ($0.56 to
+  // $0.84 for five seconds, and not yet proven with a real job), so the default
+  // stays on the one that is -- Kling 2.5 Turbo -- until the new models have
+  // each made something. Then this is one line to change.
   image_generation: ["nano banana", "seedream", "nano banana pro", "gpt image"],
-  video_generation: ["kling 3.0", "kling 2.5", "wan", "veo 3.1 fast", "kling", "veo", "seedance"],
+  video_generation: ["kling 2.5", "wan", "veo 3.1 fast", "kling", "veo", "seedance"],
 };
 
 /** The model a preference names, if they have it and it can do the job. */

@@ -11,9 +11,13 @@
  * things was never going to be right anyway -- a Wan clip costs us $0.25 and a
  * Veo one with sound $3.20, and both were "one video".
  *
- * One credit is a tenth of a cent of what the provider charges us, which is
- * also the number the generator bar has shown beside the send button since
- * 26 Sep. A plan is a monthly allowance of them (migration 0077).
+ * One credit is a cent of the RATE CARD'S base price (2 Oct 2026, migration
+ * 0079): each model carries its own markup over what the provider charges us,
+ * so a Kling clip is 35 credits and Veo 3.1 with sound 480, and no number the
+ * customer sees is a dollar amount. The adapter does the multiplying -- the
+ * `amount` it quotes is already the price we charge, in whole credits' worth of
+ * dollars -- so this file only turns it into a count. A plan is a monthly
+ * allowance of them (0077, re-scaled by 0079).
  *
  * The rules, and why each is there:
  *   - Spent BEFORE the job starts. A job that discovers it was over budget
@@ -35,21 +39,24 @@ import { PublicError } from "./http.ts";
 import { candidatesFor, quoteFor } from "./connectors/route.ts";
 import type { Capability, Cost } from "./connectors/contract.ts";
 
-/** One credit is a tenth of a cent of what the provider charges us. */
-export const CREDIT_USD = 0.001;
+/** One credit is a cent of the rate card's base price. Held equal to the same
+ *  constant in `connectors/fal.ts` by `scripts/rate-card-check.ts`. */
+export const CREDIT_USD = 0.01;
 
 /** What a job is assumed to cost when nothing can say. Deliberately high: it is
  *  settled to the real charge when the provider gives one, and a person who
  *  cannot afford the guess is told so rather than charged a surprise. */
 const UNPRICED: Record<string, number> = {
-  video_generation: 800,
-  image_generation: 150,
-  audio_generation: 100,
-  voice_generation: 100,
+  video_generation: 80,
+  image_generation: 15,
+  audio_generation: 10,
+  voice_generation: 10,
 };
 
 const TIER_NAMES = ["Free", "Pro", "Max", "Ultra"];
-const ALLOWANCES = ["100", "8,000", "26,000", "70,000"];
+/** What each plan gives, as the refusal sentence says it. Free has none:
+ *  nothing is free to make (2 Oct 2026). Kept equal to `plans_catalog`. */
+const ALLOWANCES = ["0", "800", "2,600", "7,000"];
 
 /** A price in dollars as credits. The rounding is the app's own
  *  (`GenerateChoices.credits`), so the number on the send button is the number

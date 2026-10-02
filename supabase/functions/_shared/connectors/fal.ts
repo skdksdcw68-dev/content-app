@@ -81,6 +81,10 @@ interface Entry {
   id: string;
   label: string;
   about: string;
+  /** What we charge as a multiple of what fal charges us. Absent is 1: the
+   *  everyday models are sold at cost and the plan itself carries the margin;
+   *  quality models carry 1.25 and the flagships 1.5. See `billable`. */
+  markup?: number;
   /** Dollars per second of output, by resolution. 🔴 Not one number: Wan is
    *  $0.05 at 480p, $0.10 at 720p and $0.15 at 1080p, and quoting the cheapest
    *  while submitting at the model's own default -- which is 1080p -- would
@@ -224,6 +228,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "minimax/h3-max/text-to-video",
     label: "MiniMax H3 Max",
+    markup: 1.25,
     about: "Ranked first for quality and prompt-following. Sharp faces, sound included.",
     perSecond: { "480p": 0.05, "768p": 0.08, "1080p": 0.14 },
     durations: [5, 8, 10, 15],
@@ -261,6 +266,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/veo3.1/fast",
     label: "Google Veo 3.1 Fast",
+    markup: 1.25,
     about: "Realistic, follows the prompt closely, makes its own sound.",
     perSecond: { "720p": 0.15, "1080p": 0.15, "4k": 0.35 },
     perSecondSilent: { "720p": 0.10, "1080p": 0.10, "4k": 0.30 },
@@ -277,6 +283,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/kling-video/v3/pro/text-to-video",
     label: "Kling 3.0 Pro",
+    markup: 1.25,
     about: "Kling's newest. Steady motion, sharp faces, native sound and lip-sync.",
     perSecond: { "720p": 0.168 },
     perSecondSilent: { "720p": 0.112 },
@@ -295,6 +302,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "bytedance/seedance-2.0/fast/text-to-video",
     label: "Seedance 2.0 Fast",
+    markup: 1.25,
     about: "ByteDance. Cinematic motion with sound, quick to make.",
     // Billed by the token, not the second: width x height x 24 x seconds / 1024
     // tokens at $0.0112 per thousand. These are that, per second, rounded up.
@@ -314,6 +322,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/veo3.1",
     label: "Google Veo 3.1",
+    markup: 1.5,
     about: "The best of them, with audio. Costs what that implies.",
     perSecond: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 },
     perSecondSilent: { "720p": 0.20, "1080p": 0.20, "4k": 0.40 },
@@ -331,6 +340,7 @@ const CATALOGUE: Entry[] = [
   {
     id: "bytedance/seedance-2.5/text-to-video",
     label: "Seedance 2.5",
+    markup: 1.5,
     about: "ByteDance's best. One shot up to 30 seconds, up to 1080p, with sound.",
     // $0.0214 per thousand tokens -- see Seedance 2.0 Fast above.
     perSecond: { "480p": 0.21, "720p": 0.47, "1080p": 1.05 },
@@ -357,6 +367,30 @@ function entry(id: string) {
 function rate(model: Entry, resolution: string, silent = false): number {
   const ladder = silent && model.perSecondSilent ? model.perSecondSilent : model.perSecond;
   return ladder[resolution] ?? ladder[model.resolution] ?? Object.values(ladder)[0];
+}
+
+/** One credit is a cent at the rate card's base price. The same number as
+ *  `CREDIT_USD` in `_shared/credits.ts` (a test holds them equal); it is not
+ *  imported because credits.ts imports the router, which imports this. */
+const CREDIT_USD = 0.01;
+
+/** Pictures are sold at a quarter over what they cost us. */
+const IMAGE_MARKUP = 1.25;
+
+/**
+ * The rate card, in one place. Netro, 2 Oct 2026: show people ordinary credits,
+ * not a money-looking number, and let each model carry the margin it should.
+ *
+ * `usd` is what fal charges us. The answer is what the customer is charged,
+ * as dollars in WHOLE credits -- rounded up, never to nothing -- so the phone
+ * (`amount * 100`) and the server (`amount / CREDIT_USD`) cannot land one
+ * credit apart on a half. `ours` keeps the real cost for the books.
+ *
+ * The 1e-6 keeps 35.00000000000001 from becoming 36.
+ */
+function billable(usd: number, markup = 1): { amount: number; ours: number } {
+  const credits = Math.max(1, Math.ceil(usd * markup * 100 - 1e-6));
+  return { amount: Number((credits * CREDIT_USD).toFixed(2)), ours: Number(usd.toFixed(4)) };
 }
 
 /** Whether this request asked for a silent video. */
@@ -769,7 +803,7 @@ async function makePicture(auth: Authorization, request: SubmitRequest): Promise
     capability: request.capability,
     charged: {
       unit: "usd",
-      amount: model ? imageCost(model, request).amount : 0,
+      ...(model ? billable(imageCost(model, request).amount, IMAGE_MARKUP) : { amount: 0 }),
       basis: count > 1 ? `${count} images` : "1 image",
       quoted: false,
     },
@@ -795,7 +829,7 @@ export function describeCatalogue(): ModelDescriptor[] {
       description: model.about,
       cost: {
         unit: "per_second",
-        amount: rate(model, model.resolution),
+        amount: Number((rate(model, model.resolution) * (model.markup ?? 1)).toFixed(4)),
         basis: "per second of finished video",
         quoted: false,
       } satisfies Cost,
@@ -837,7 +871,7 @@ export function describeCatalogue(): ModelDescriptor[] {
       description: model.about,
       cost: {
         unit: "per_image",
-        amount: model.each,
+        amount: Number((model.each * IMAGE_MARKUP).toFixed(4)),
         basis: "per image",
         quoted: false,
       } satisfies Cost,
@@ -944,7 +978,7 @@ export const falAdapter: Adapter = {
       capability: request.capability,
       charged: {
         unit: "usd",
-        amount: Number((length * rate(model, resolution, silent)).toFixed(4)),
+        ...billable(length * rate(model, resolution, silent), model.markup),
         basis: `${length}s of ${resolution}${silent && model.audio ? ", silent" : ""} at ${rate(model, resolution, silent)}/s`,
         quoted: false,
       },
@@ -1013,7 +1047,7 @@ export const falAdapter: Adapter = {
       const { amount, count } = imageCost(picture, request);
       return Promise.resolve({
         unit: "usd",
-        amount,
+        ...billable(amount, IMAGE_MARKUP),
         basis: count > 1 ? `${count} images` : "per image",
         quoted: false,
       });
@@ -1027,7 +1061,7 @@ export const falAdapter: Adapter = {
     const each = rate(model, resolution, silent);
     return Promise.resolve({
       unit: "usd",
-      amount: Number((length * each).toFixed(4)),
+      ...billable(length * each, model.markup),
       basis: `${length}s of ${resolution}${silent && model.audio ? ", silent" : ""} at ${each}/s`,
       quoted: false,
     });

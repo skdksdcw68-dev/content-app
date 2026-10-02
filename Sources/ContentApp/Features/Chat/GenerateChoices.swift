@@ -88,14 +88,16 @@ struct GenerateChoices: Equatable {
     ///
     /// The unit is deliberately not a dollar. Nobody wants to see $0.003 on a
     /// button, and the price we pay is not the price we charge; a credit is
-    /// Autocast's own money, and the rate between them is one constant to
-    /// change when the pricing is settled.
+    /// Autocast's own money.
+    ///
+    /// Netro, 2 Oct 2026: show ordinary credits, with a rate card per model.
+    /// The server (fal.ts `billable`) multiplies each model's cost by its own
+    /// markup and hands over a price that is already a whole number of credits,
+    /// so this only has to turn dollars into a count: a cent each. A five-second
+    /// Kling clip is 35, Veo 3.1 with sound is 480, a picture is 1 to 40.
     static func credits(from cost: ModelCost?) -> Int? {
         guard let amount = cost?.amount, cost?.unit == "usd" else { return nil }
-        // A tenth of a cent each, so the cheapest image is 3 and a long Veo
-        // clip is a few thousand -- the range people already read on other
-        // generators, and granular enough that nothing rounds to zero.
-        return max(1, Int((amount * 1000).rounded()))
+        return max(1, Int((amount * 100).rounded()))
     }
 
     var count: Int {

@@ -2,7 +2,8 @@ import SwiftUI
 import StoreKit
 import UIKit
 
-/// Autocast's plans: Pro, Max and Ultra, each monthly or yearly.
+/// Autocast's plans: Pro and Max monthly or yearly, Ultra monthly only. No free
+/// trial on any of them (Netro, 2 Oct 2026).
 ///
 /// Netro, 29 Sep 2026: "we do need to provide a pricing things as well, like we
 /// can split it, pro, max and 1 more so they choose and subscribe."
@@ -65,7 +66,15 @@ struct PaywallView: View {
         return products.first { $0.id == id }
     }
 
-    private var choice: Product? { product(tier, yearly: yearly) }
+    /// Whether this tier is billed yearly under the toggle as it stands. A tier
+    /// with no yearly product (Ultra) is sold monthly whichever side is picked --
+    /// without this its button had nothing to buy and did nothing.
+    private func billsYearly(_ tier: Tier) -> Bool {
+        guard yearly else { return false }
+        return products.isEmpty ? tier.sellsYearly : product(tier, yearly: true) != nil
+    }
+
+    private var choice: Product? { product(tier, yearly: billsYearly(tier)) }
 
     /// The tiers to show: all three until StoreKit has answered, then only the
     /// ones App Store Connect actually sells. A tier with no product is a row
@@ -300,25 +309,28 @@ struct PaywallView: View {
     }
 
     private func row(_ option: Tier) -> some View {
-        let price: String = priceText(option, yearly: yearly) ?? "—"
-        let footnote: String? = yearly ? perMonthText(option).map { "\($0)/mo, billed yearly" } : nil
+        let annual = billsYearly(option)
+        let price: String = priceText(option, yearly: annual) ?? "—"
+        let footnote: String? = annual
+            ? perMonthText(option).map { "\($0)/mo, billed yearly" }
+            : (yearly ? "Monthly only" : nil)
         return TierRow(
             name: option.name,
             badge: option == Tier.recommended ? "MOST POPULAR" : nil,
             credits: "\(CreditFormat.text(facts(option).credits)) credits a month",
             price: price,
-            period: yearly ? "/yr" : "/mo",
+            period: annual ? "/yr" : "/mo",
             footnote: footnote,
             chosen: option == tier,
             isCurrent: option == currentTier
         ) {
             tier = option
         }
-        .disabled(!canChoose && priceText(option, yearly: yearly) == nil)
+        .disabled(!canChoose && priceText(option, yearly: annual) == nil)
     }
 
     private var creditsNote: some View {
-        Text("Credits pay for what you make. A picture is 3 to 150 credits and a five-second video 60 to 800, and the number is shown before you make anything. They start again each month.")
+        Text("Credits pay for what you make. A picture is 1 to 40 credits and a five-second video 20 to 350, and the number is shown before you make anything. They start again each month.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
@@ -427,7 +439,7 @@ struct PaywallView: View {
         guard let choice else {
             return "Renews automatically until cancelled. Cancel anytime in your Apple ID settings."
         }
-        let period = yearly ? "year" : "month"
+        let period = billsYearly(tier) ? "year" : "month"
         if hasTrial(choice) && !isSubscriber {
             return "\(trialText(choice)), then \(choice.displayPrice) a \(period). Renews automatically until cancelled. Cancel anytime in your Apple ID settings."
         }

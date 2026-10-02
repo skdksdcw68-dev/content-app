@@ -36,6 +36,13 @@ enum Tier: String, CaseIterable, Identifiable, Sendable {
     /// The plan code the server stores. Pro kept its original code.
     var planCode: String { self == .pro ? "creator" : rawValue }
 
+    /// Whether this tier has a yearly product. Ultra does not: Apple's US price
+    /// ladder stops near $1,000, and $999.99 a year for 7,000 credits a month
+    /// earns about 1% at full use (Netro approved monthly-only, 2 Oct 2026). Only
+    /// a fallback for before StoreKit has answered; once it has, the products
+    /// themselves decide.
+    var sellsYearly: Bool { self != .ultra }
+
     /// The App Store product for this tier and billing period.
     func productID(yearly: Bool) -> String {
         "autocast.\(rawValue).\(yearly ? "yearly" : "monthly")"
@@ -61,9 +68,9 @@ enum Tier: String, CaseIterable, Identifiable, Sendable {
     /// blank. They are the numbers `plans_catalog` was seeded with (0077).
     var fallbackCredits: Int {
         switch self {
-        case .pro: return 8_000
-        case .max: return 26_000
-        case .ultra: return 70_000
+        case .pro: return 800
+        case .max: return 2_600
+        case .ultra: return 7_000
         }
     }
 
@@ -88,7 +95,7 @@ enum Tier: String, CaseIterable, Identifiable, Sendable {
     static let recommended: Tier = .max
 }
 
-/// "8,000", "26,000": a count of credits the way people read one.
+/// "800", "2,600": a count of credits the way people read one.
 enum CreditFormat {
     static func text(_ credits: Int) -> String {
         credits.formatted(.number.grouping(.automatic))

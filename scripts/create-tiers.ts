@@ -6,16 +6,17 @@
  *   npx tsx scripts/create-tiers.ts --apply    # creates what is missing
  *
  * Netro, 29 Sep 2026: "we can split it, pro, max and 1 more so they choose and
- * subscribe." The proposal, and the prices below, are written up in the
- * `credits-and-tiers` memory note; they are the numbers on the table, not
- * numbers that were agreed -- so this does nothing until it is told to, and
- * every price can be overridden on the command line:
+ * subscribe." APPROVED by him on 2 Oct 2026: Pro $29.99 / $249.99, Max $79.99 /
+ * $649.99, Ultra $199.99 a month and NO Ultra yearly (Apple's US ladder stops
+ * near $1,000, and $999.99 for 7,000 credits a month earns about 1% at full
+ * use). This still does nothing until it is told to, and every price can be
+ * overridden on the command line:
  *
- *   --max-monthly 79.99 --max-yearly 649.99 --ultra-monthly 199.99 --ultra-yearly 1599.99
+ *   --max-monthly 79.99 --max-yearly 649.99 --ultra-monthly 199.99
  *
  * WHAT IT DOES, in the group `create-subscriptions.ts` made ("Autocast Pro"):
- *   - creates autocast.max.{monthly,yearly} and autocast.ultra.{monthly,yearly},
- *     each with its English name and description, if they do not exist;
+ *   - creates autocast.max.{monthly,yearly} and autocast.ultra.monthly, each
+ *     with its English name and description, if they do not exist;
  *   - sets each one's US price to the price point that matches the amount
  *     exactly (other storefronts: run `reprice-subscriptions.ts --apply` after,
  *     with the new ids added to its list);
@@ -25,9 +26,9 @@
  *     takes effect at once, prorated; moving down waits for the renewal).
  *
  * WHAT IT DOES NOT DO: touch Pro's price (Pro yearly is $199.99 there today and
- * the proposal raises it to $249.99 -- that is a separate, deliberate step,
- * `--reprice-pro-yearly`), add a free trial (`--trial` adds the same 3-day trial
- * Pro yearly has, to the yearly products), or submit anything for review.
+ * the approved price is $249.99 -- that is a separate, deliberate step,
+ * `--reprice-pro-yearly`), add a free trial (there is none, for anyone: Netro,
+ * 2 Oct 2026), or submit anything for review.
  *
  * Safe to run twice: whatever exists is found and reused.
  */
@@ -47,7 +48,6 @@ const { ASC_KEY_ID: keyId, ASC_ISSUER_ID: issuerId, ASC_KEY_PATH: keyPath } = pr
 if (!keyId || !issuerId || !keyPath) throw new Error("ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH are required");
 
 const APPLY = process.argv.includes("--apply");
-const WITH_TRIAL = process.argv.includes("--trial");
 const REPRICE_PRO_YEARLY = process.argv.includes("--reprice-pro-yearly");
 
 /** `--name value` from the command line, as a price with two decimals. */
@@ -67,23 +67,19 @@ const PLANS = [
   {
     tier: "max", productId: "autocast.max.monthly", name: "Max Monthly", period: "ONE_MONTH",
     usd: priced("max-monthly", "79.99"), trial: false,
-    display: "Autocast Max", description: "26,000 credits a month, and every model including Veo 3.1 and Seedance 2.5.",
+    display: "Autocast Max", description: "2,600 credits a month, and every model including Veo 3.1 and Seedance 2.5.",
   },
   {
     tier: "max", productId: "autocast.max.yearly", name: "Max Yearly", period: "ONE_YEAR",
-    usd: priced("max-yearly", "649.99"), trial: WITH_TRIAL,
+    usd: priced("max-yearly", "649.99"), trial: false,
     display: "Autocast Max Yearly", description: "Everything in Max for a year, at a lower price.",
   },
   {
     tier: "ultra", productId: "autocast.ultra.monthly", name: "Ultra Monthly", period: "ONE_MONTH",
     usd: priced("ultra-monthly", "199.99"), trial: false,
-    display: "Autocast Ultra", description: "70,000 credits a month, for a series every day on the best models.",
+    display: "Autocast Ultra", description: "7,000 credits a month, for a series every day on the best models.",
   },
-  {
-    tier: "ultra", productId: "autocast.ultra.yearly", name: "Ultra Yearly", period: "ONE_YEAR",
-    usd: priced("ultra-yearly", "1599.99"), trial: WITH_TRIAL,
-    display: "Autocast Ultra Yearly", description: "Everything in Ultra for a year, at a lower price.",
-  },
+  // No Ultra yearly: see the header.
 ] as const;
 
 function token(): string {

@@ -1,7 +1,13 @@
 /**
  * Creates Autocast Pro in App Store Connect: one subscription group, a monthly
- * and a yearly plan, US prices ($29.99 / $199.99, other storefronts follow
- * Apple's equalisation), and a 3-day free trial on the yearly plan only.
+ * and a yearly plan, US prices ($29.99 / $199.99 here; the approved yearly price
+ * is $249.99 -- `create-tiers.ts --reprice-pro-yearly` moves it; other
+ * storefronts follow Apple's equalisation).
+ *
+ * NO FREE TRIAL. Netro, 2 Oct 2026: "there is no free trial for any new users
+ * ... they only get paid things." This script used to add a 3-day trial to the
+ * yearly plan; it does not any more, and `remove-trials.ts` took the existing
+ * ones off. Do not put `trial: true` back without his say-so.
  *
  *   npx tsx scripts/create-subscriptions.ts
  *
@@ -27,7 +33,7 @@ const GROUP = "Autocast Pro";
 const PLANS = [
   { productId: "autocast.pro.monthly", name: "Pro Monthly", period: "ONE_MONTH", usd: "29.99", trial: false,
     display: "Autocast Pro", description: "Plans, captions and posting, every month." },
-  { productId: "autocast.pro.yearly", name: "Pro Yearly", period: "ONE_YEAR", usd: "199.99", trial: true,
+  { productId: "autocast.pro.yearly", name: "Pro Yearly", period: "ONE_YEAR", usd: "199.99", trial: false,
     display: "Autocast Pro Yearly", description: "Everything in Pro for a year, at a lower price." },
 ];
 

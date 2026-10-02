@@ -3,9 +3,9 @@ import Supabase
 
 /// What this month's credits stand at, from `credits_standing()` (0077).
 ///
-/// Generation is paid for in credits: one is a tenth of a cent of what the
-/// provider charges. The number beside the send button is what one request
-/// costs; this is how many are left. Read without spending anything.
+/// Generation is paid for in credits, from a rate card with a price per model
+/// (2 Oct 2026). The number beside the send button is what one request costs;
+/// this is how many are left. Read without spending anything.
 struct CreditsStanding: Decodable, Equatable, Sendable {
     let plan: String
     let name: String?
@@ -53,8 +53,8 @@ struct PlanTierInfo: Decodable, Equatable, Sendable, Identifiable {
 /// price is the model's, at the length asked, and is shown before anything is
 /// made.
 enum SeriesCost {
-    /// About eight cents a second: the default model's rate at 768p.
-    static let creditsPerSecond = 80
+    /// About seven credits a second: the default model's (Kling 2.5 Turbo) rate.
+    static let creditsPerSecond = 7
     /// A clip is at most about ten seconds however long the series says (the
     /// models stop at 8 to 15), so the estimate stops there too.
     static let typicalCeiling = 10

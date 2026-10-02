@@ -106,6 +106,10 @@ export interface Cost {
   /** True when the number came from the provider, false when it is our own
    *  reading of their documentation. The picker says which. */
   quoted: boolean;
+  /** What the provider charges US, in dollars, when `amount` is the price we
+   *  charge the customer instead. Only the house generator sets it, so the
+   *  books keep the real cost while the customer sees the rate card. */
+  ours?: number;
 }
 
 /** An account's spendable balance, in the provider's own unit. */

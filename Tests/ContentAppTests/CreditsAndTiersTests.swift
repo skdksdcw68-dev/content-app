@@ -45,10 +45,18 @@ final class CreditsAndTiersTests: XCTestCase {
         XCTAssertEqual(Tier.recommended, .max)
     }
 
+    /// Netro, 2 Oct 2026: Ultra is monthly only. Its button must never be left
+    /// with a yearly product that does not exist.
+    func testUltraIsSoldMonthlyOnly() {
+        XCTAssertTrue(Tier.pro.sellsYearly)
+        XCTAssertTrue(Tier.max.sellsYearly)
+        XCTAssertFalse(Tier.ultra.sellsYearly)
+    }
+
     func testCreditsAreReadWithSeparators() {
-        XCTAssertEqual(CreditFormat.text(8000), "8,000")
-        XCTAssertEqual(CreditFormat.text(70_000), "70,000")
-        XCTAssertEqual(CreditFormat.text(350), "350")
+        XCTAssertEqual(CreditFormat.text(2600), "2,600")
+        XCTAssertEqual(CreditFormat.text(7_000), "7,000")
+        XCTAssertEqual(CreditFormat.text(35), "35")
     }
 
     // MARK: - What a plan reply looks like
@@ -72,7 +80,7 @@ final class CreditsAndTiersTests: XCTestCase {
         let new = #"""
         {"plan":"max","name":"Max","tier":2,"is_pro":true,"is_trial":false,"product_id":"autocast.max.yearly",
          "expires_at":null,"auto_renew":true,
-         "limits":{"ai_writes":1500,"chat":3000,"plan_days":60,"accounts":10,"credits":26000},
+         "limits":{"ai_writes":1500,"chat":2000,"plan_days":60,"accounts":10,"credits":2600},
          "used":{"ai_writes":1,"chat":2,"credits":0}}
         """#
         let plan = try JSONDecoder().decode(MyPlan.self, from: Data(new.utf8))
@@ -82,11 +90,11 @@ final class CreditsAndTiersTests: XCTestCase {
 
     func testTheCreditsStandingReadsAndReportsWhatIsLeft() throws {
         let json = #"""
-        {"plan":"creator","name":"Pro","tier":1,"allowance":8000,"used":2000,"left":6000,
+        {"plan":"creator","name":"Pro","tier":1,"allowance":800,"used":200,"left":600,
          "resets_at":"2026-10-01T00:00:00+00:00"}
         """#
         let standing = try JSONDecoder().decode(CreditsStanding.self, from: Data(json.utf8))
-        XCTAssertEqual(standing.left, 6000)
+        XCTAssertEqual(standing.left, 600)
         XCTAssertEqual(standing.fractionLeft, 0.75, accuracy: 0.0001)
     }
 
@@ -99,17 +107,19 @@ final class CreditsAndTiersTests: XCTestCase {
     // MARK: - The price the send button shows
 
     /// The phone and the server round the same way, so the number on the button
-    /// is the number taken. `GenerateChoices.credits` is what the send button
-    /// used from the start; the server's `creditsFor` matches it.
-    func testACreditIsATenthOfACent() {
+    /// is the number taken. The server's adapter hands over a price that is
+    /// already a whole number of credits (2 Oct 2026, the rate card), so a credit
+    /// is a cent here and a half can never split the two.
+    func testACreditIsACent() {
         func cost(_ dollars: Double) -> ModelCost {
             ModelCost(unit: "usd", amount: dollars, basis: nil, quoted: false)
         }
-        XCTAssertEqual(cost(0.35).credits, 350)
-        XCTAssertEqual(cost(0.003).credits, 3)
-        XCTAssertEqual(cost(0.0398).credits, 40)
+        XCTAssertEqual(cost(0.35).credits, 35, "a five-second Kling clip")
+        XCTAssertEqual(cost(0.01).credits, 1)
+        XCTAssertEqual(cost(0.05).credits, 5, "a Nano Banana picture")
+        XCTAssertEqual(cost(1.05).credits, 105, "a five-second Kling 3 clip")
         XCTAssertEqual(cost(0.0004).credits, 1, "never rounds to nothing")
-        XCTAssertEqual(cost(3.2).credits, 3200)
+        XCTAssertEqual(cost(4.8).credits, 480, "Veo 3.1 with sound, eight seconds")
     }
 
     func testAPriceNotInDollarsIsNotACreditCount() {
@@ -158,9 +168,9 @@ final class CreditsAndTiersTests: XCTestCase {
 
     // MARK: - What a series is expected to cost
 
-    func testASeriesClipIsEstimatedAtAboutEightyCreditsASecondUpToTen() {
-        XCTAssertEqual(SeriesCost.perVideo(seconds: 5), 400)
-        XCTAssertEqual(SeriesCost.perVideo(seconds: 30), 800, "clips stop at about ten seconds")
-        XCTAssertEqual(SeriesCost.perVideo(seconds: nil), 400)
+    func testASeriesClipIsEstimatedAtAboutSevenCreditsASecondUpToTen() {
+        XCTAssertEqual(SeriesCost.perVideo(seconds: 5), 35)
+        XCTAssertEqual(SeriesCost.perVideo(seconds: 30), 70, "clips stop at about ten seconds")
+        XCTAssertEqual(SeriesCost.perVideo(seconds: nil), 35)
     }
 }

@@ -158,3 +158,92 @@ workflows:
       - "*.ipa"
       - /tmp/xcodebuild_logs/*.log
       - ~/Library/Logs/gym/*.log
+
+  # ------------------------------------------------------------ simulator
+  # The real iOS Simulator, watched from Windows. There is no simulator for
+  # Windows -- it ships inside Xcode -- so this borrows the build Mac's: it
+  # builds the app, boots an iPhone, launches Autocast in it, and then holds the
+  # machine open so the desktop can be watched and clicked over VNC.
+  #
+  # Manual only, and started from the Codemagic UI, not the API: the remote
+  # screen exists only if "Enable SSH/VNC access" is ticked in the Start new
+  # build dialog, and the REST API has no parameter for it. The build page then
+  # shows a host, port, user and password for a VNC viewer.
+  #
+  # Every minute the Mac is held open is a build minute out of the 500, so the
+  # hold has its own, shorter limit (KEEP_MINUTES). Ending early is a file on
+  # the remote desktop: `touch ~/Desktop/STOP`, or cancel the build.
+  ios-simulator:
+    name: iOS Simulator (remote screen)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      vars:
+        KEEP_MINUTES: 30
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/SourcePackages
+        - $HOME/Library/Caches/Homebrew
+    scripts:
+      - *generate_project
+      - name: Build, boot an iPhone, launch the app
+        script: |
+          set -euo pipefail
+          # One script does build + install + launch, and a copy is left on the
+          # desktop, so new code is a `git pull` and a double-click inside the
+          # same session instead of a whole new build.
+          cat > "$HOME/Desktop/rebuild.command" <<'EOF'
+          #!/bin/bash
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          # Newest available iPhone, by UDID -- names change with every Xcode.
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          best = None
+          for runtime, devices in sorted(json.load(sys.stdin)['devices'].items()):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device['name'].startswith('iPhone'):
+                      best = device['udid']
+          print(best)
+          ")
+          build() {
+            xcodebuild build \
+              -project ContentApp.xcodeproj \
+              -scheme ContentApp \
+              -configuration Debug \
+              -destination "platform=iOS Simulator,id=$UDID" \
+              -derivedDataPath build/sim \
+              -clonedSourcePackagesDirPath SourcePackages \
+              "$@"
+          }
+          # Signed ad hoc, the way Xcode signs a simulator build on a desk: an
+          # unsigned one carries no entitlements, and the keychain (where the
+          # Supabase session lives) can refuse it. Unsigned is the fallback
+          # because it is what the test lane already proves compiles.
+          build CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO || build CODE_SIGNING_ALLOWED=NO
+          APP=$(find build/sim/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
+          xcrun simctl bootstatus "$UDID" -b
+          open -a Simulator --args -CurrentDeviceUDID "$UDID"
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl launch "$UDID" Autocast
+          # The same build, zipped: Appetize.io takes exactly this file and
+          # plays it in a browser, with no Mac held open.
+          ditto -c -k --keepParent "$APP" build/sim/Autocast-simulator.zip
+          EOF
+          sed -i '' "s|\$CM_BUILD_DIR|$CM_BUILD_DIR|" "$HOME/Desktop/rebuild.command"
+          chmod +x "$HOME/Desktop/rebuild.command"
+          "$HOME/Desktop/rebuild.command"
+      - name: Hold the Mac open for the remote screen
+        script: |
+          set -euo pipefail
+          echo "Connect with a VNC viewer now. Holding for $KEEP_MINUTES minutes."
+          echo "To finish early: touch ~/Desktop/STOP on the Mac, or cancel the build."
+          END=$(( $(date +%s) + KEEP_MINUTES * 60 ))
+          while [ "$(date +%s)" -lt "$END" ] && [ ! -f "$HOME/Desktop/STOP" ]; do
+            sleep 5
+          done
+    artifacts:
+      - build/sim/Autocast-simulator.zip

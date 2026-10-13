@@ -37,9 +37,7 @@ struct ProfileView: View {
         ScrollViewReader { scroll in
         List {
             Section {
-                ProfileHeader {
-                    withAnimation { scroll.scrollTo(Self.accountsAnchor, anchor: .top) }
-                }
+                ProfileHeader()
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             }
@@ -68,16 +66,18 @@ struct ProfileView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 
                 pro
+                credits
                 account
                 app
                 support
                 signOutAndDelete
             } else {
                 attention(scroll)
+                accounts.id(Self.accountsAnchor)
                 pro
+                credits
                 account
                 brandSection
-                accounts.id(Self.accountsAnchor)
                 autopilot
                 insights
                 app
@@ -95,7 +95,10 @@ struct ProfileView: View {
             await session.refreshPosts()
             await session.refreshSubscription()
         }
-        .task { await session.refreshSubscription() }
+        .task {
+            await session.refreshSubscription()
+            await session.refreshCredits()
+        }
         .sheet(item: $approving) { ApprovalSheet(post: $0) }
         .sheet(item: $web) { page in SafariSheet(url: page.url).ignoresSafeArea() }
         .sheet(item: $exported) { file in ShareSheet(items: [file.url]).presentationDetents([.medium, .large]) }
@@ -191,6 +194,34 @@ struct ProfileView: View {
         return plan.autoRenew == false ? "Ends \(when)" : "Renews \(when)"
     }
 
+    // MARK: - Credits
+
+    /// What is left this month, as a list under the plan rather than two tiles
+    /// under the name.
+    @ViewBuilder
+    private var credits: some View {
+        let standing = session.credits
+        Section {
+            CreditsMeter(credits: standing)
+            SettingsRow("Used this month", symbol: "chart.bar",
+                        value: standing.map { CreditFormat.text($0.used) } ?? "…")
+            if let standing, standing.allowance > 0 {
+                SettingsRow("Monthly allowance", symbol: "tray.full",
+                            value: CreditFormat.text(standing.allowance))
+                if let resets = standing.resets {
+                    SettingsRow("Resets", symbol: "calendar",
+                                value: resets.formatted(date: .abbreviated, time: .omitted))
+                }
+            }
+        } header: {
+            Text("Credits")
+        } footer: {
+            if let standing, standing.allowance == 0 {
+                Text("Credits come with a paid plan.")
+            }
+        }
+    }
+
     // MARK: - Account
 
     @ViewBuilder
@@ -237,28 +268,17 @@ struct ProfileView: View {
             ForEach([Platform.tiktok, .shorts, .reels]) { platform in
                 if let connection = session.connection(for: platform) {
                     NavigationLink { AccountDetailView(connection: connection).pushedPage() } label: {
-                        HStack(spacing: 8) {
-                            // The network's own mark. Profile still showed a
-                            // monochrome music note for TikTok after the marks
-                            // were wired up everywhere else.
-                            SettingsLabel(platform.networkName, logo: platform.logo)
-                            Spacer(minLength: 0)
-                            if !connection.isHealthy {
-                                Image(systemName: "exclamationmark.circle")
-                                    .foregroundStyle(Color.orange)
-                            }
-                            Text(connection.label)
-                                .foregroundStyle(Color(uiColor: .secondaryLabel))
-                                .lineLimit(1)
-                        }
+                        // The network's own mark, its name over the handle,
+                        // and "Sign in again" only when it needs it.
+                        AccountRow(platform: platform, connection: connection)
                     }
                 } else {
                     Button {
                         Task { await session.connect(platform) }
                     } label: {
-                        SettingsRow(platform.networkName, logo: platform.logo,
-                                    value: session.isConnecting ? "Opening…" : "Connect", accessory: .chevron)
+                        AccountRow(platform: platform, connection: nil, opening: session.isConnecting)
                     }
+                    .buttonStyle(.plain)
                     .disabled(session.isConnecting)
                 }
             }

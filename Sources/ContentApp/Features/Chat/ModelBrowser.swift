@@ -393,7 +393,7 @@ private struct ModelRow: View {
                     .foregroundStyle(.tertiary)
                 // In credits, the same number the send button shows -- not a
                 // dollar figure beside a credit mark, which said two things.
-                Text(price.credits.map { CreditFormat.text($0) } ?? "—")
+                Text(price.credits.map { CreditFormat.text($0) } ?? "N/A")
                     .font(.subheadline.weight(.medium).monospacedDigit())
                     .foregroundStyle(price.credits == nil ? Color.secondary : Color.primary)
             }

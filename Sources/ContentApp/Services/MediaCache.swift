@@ -260,49 +260,41 @@ final class MediaCache {
             try FileManager.default.createDirectory(
                 at: target.deletingLastPathComponent(), withIntermediateDirectories: true
             )
-            let (bytes, response) = try await URLSession.shared.bytes(from: url)
-            let expected = response.expectedContentLength > 0 ? response.expectedContentLength : nil
+        } catch {
+            return .failed
+        }
+
+        // 🔴 The system writes the file itself.
+        //
+        // This used to read `URLSession.bytes` one byte at a time with
+        // `for try await byte in bytes`. Every byte is an async hop, so a
+        // 20 MB video was twenty million of them and the phone, not the
+        // network, set the speed (Netro, 13 Oct 2026: "it's taking so much
+        // time to download videos that I made"). A download task streams to
+        // disk at the speed of the connection and still reports as it goes.
+        let download = FileDownload(into: part) { received, expected in
+            running.received = received
             running.expected = expected
-
-            FileManager.default.createFile(atPath: part.path, contents: nil)
-            let handle = try FileHandle(forWritingTo: part)
-            defer { try? handle.close() }
-
-            // Written in blocks, not byte by byte, and reported no more often
-            // than a screen can use -- `didReceive` per byte would rebuild the
-            // view hundreds of times a second.
-            var buffer = Data(capacity: 1 << 16)
-            var received: Int64 = 0
-            var lastTold: Int64 = 0
-
-            for try await byte in bytes {
-                buffer.append(byte)
-                if buffer.count >= 1 << 16 {
-                    try handle.write(contentsOf: buffer)
-                    received += Int64(buffer.count)
-                    buffer.removeAll(keepingCapacity: true)
-                    if received - lastTold > 262_144 {
-                        lastTold = received
-                        running.received = received
-                        for (_, watcher) in running.watchers {
-                            watcher.yield(.progress(received: received, expected: expected))
-                        }
-                    }
-                }
+            for (_, watcher) in running.watchers {
+                watcher.yield(.progress(received: received, expected: expected))
             }
-            if !buffer.isEmpty {
-                try handle.write(contentsOf: buffer)
-                received += Int64(buffer.count)
-            }
-            try handle.close()
+        }
 
-            // A truncated file is worse than no file, because nothing will
-            // ever fetch it again.
-            if let expected, received != expected {
-                try? FileManager.default.removeItem(at: part)
-                return .failed
-            }
+        guard case .saved(let expected) = await download.run(url) else {
+            try? FileManager.default.removeItem(at: part)
+            return .failed
+        }
 
+        // A truncated file is worse than no file, because nothing will
+        // ever fetch it again. Only "smaller than promised" counts: a
+        // response that was decoded on the way in can legitimately be larger.
+        let size = (try? part.resourceValues(forKeys: [.fileSizeKey]))?.fileSize.map { Int64($0) }
+        if let expected, let size, size < expected {
+            try? FileManager.default.removeItem(at: part)
+            return .failed
+        }
+
+        do {
             try? FileManager.default.removeItem(at: target)
             try FileManager.default.moveItem(at: part, to: target)
             return .done(target)
@@ -387,5 +379,85 @@ final class MediaCache {
         generator.maximumSize = CGSize(width: pixels, height: pixels)
         guard let frame = try? await generator.image(at: .zero) else { return nil }
         return UIImage(cgImage: frame.image)
+    }
+}
+
+/// One file coming down: the system streams it straight to `destination` and
+/// says how far it has got.
+///
+/// A download task rather than `URLSession.bytes`, which hands the file over
+/// one byte at a time. Progress is told no more often than a screen can use:
+/// the system calls `didWriteData` once per chunk, which is hundreds of times
+/// a second on a fast connection.
+private final class FileDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    enum Outcome {
+        /// On disk at `destination`. `expected` is what the server said the
+        /// size would be, when it said.
+        case saved(expected: Int64?)
+        case failed
+    }
+
+    private let destination: URL
+    private let progress: @MainActor (Int64, Int64?) -> Void
+
+    // Touched only on the session's own serial delegate queue, after `run`
+    // has set the continuation.
+    private var continuation: CheckedContinuation<Outcome, Never>?
+    private var expected: Int64?
+    private var moved = false
+    // Starts one step behind zero so the very first chunk is reported and the
+    // ring can switch from "working" to a real percentage straight away.
+    private var lastTold: Int64 = -262_144
+
+    init(into destination: URL, progress: @escaping @MainActor (Int64, Int64?) -> Void) {
+        self.destination = destination
+        self.progress = progress
+    }
+
+    func run(_ url: URL) async -> Outcome {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+
+            // A one-off session, because the delegate is fixed at creation.
+            // No URL cache: a 20 MB video does not belong in it twice.
+            let configuration = URLSessionConfiguration.default
+            configuration.urlCache = nil
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            session.downloadTask(with: url).resume()
+        }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let total: Int64? = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
+        expected = total
+        guard totalBytesWritten - lastTold > 262_144 else { return }
+        lastTold = totalBytesWritten
+        Task { @MainActor [progress] in progress(totalBytesWritten, total) }
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        // The system deletes `location` the moment this returns, so the file
+        // is moved here and not later. An error page is not a video.
+        if let http = downloadTask.response as? HTTPURLResponse,
+           !(200..<300).contains(http.statusCode) { return }
+        try? FileManager.default.removeItem(at: destination)
+        moved = (try? FileManager.default.moveItem(at: location, to: destination)) != nil
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        session.finishTasksAndInvalidate()
+        continuation?.resume(returning: error == nil && moved ? .saved(expected: expected) : .failed)
+        continuation = nil
     }
 }

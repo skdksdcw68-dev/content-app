@@ -702,7 +702,7 @@ private struct UpNextCard: View {
     let timezone: TimeZone
 
     private var day: (weekday: String, number: String) {
-        guard let date = post.scheduledFor else { return ("—", "—") }
+        guard let date = post.scheduledFor else { return ("TBD", "?") }
         let style = Date.FormatStyle(timeZone: timezone)
         return (
             date.formatted(style.weekday(.abbreviated)).uppercased(),
@@ -717,8 +717,8 @@ private struct UpNextCard: View {
     /// Where the post is, in a person's words.
     private var standing: (symbol: String, text: String) {
         switch post.status {
-        case .planned:       ("lightbulb", "Idea in place — Autocast writes it next")
-        case .scripted:      ("text.alignleft", "Written — the video comes next")
+        case .planned:       ("lightbulb", "Idea in place. Autocast writes it next")
+        case .scripted:      ("text.alignleft", "Written, the video comes next")
         case .sourcing:      ("wand.and.stars", "Being made now")
         case .needsApproval: ("hand.raised", "Ready for your approval")
         case .scheduled:     ("clock", "Approved and scheduled")

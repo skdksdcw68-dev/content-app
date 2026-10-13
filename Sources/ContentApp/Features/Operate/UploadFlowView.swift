@@ -222,7 +222,10 @@ struct UploadFlowView: View {
             if storagePath == nil {
                 current = .upload
                 storagePath = try await session.uploadVideo(at: url)
-                details[.upload] = String(format: "%.1f MB sent", Double((try? Data(contentsOf: url).count) ?? 0) / 1_048_576)
+                // The size from the file's own record. This used to read the
+                // whole video into memory a second time just to count it.
+                let sent = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                details[.upload] = String(format: "%.1f MB sent", Double(sent) / 1_048_576)
                 finished.insert(.upload)
             }
             guard let path = storagePath else { return }

@@ -105,14 +105,16 @@ extension AppSession {
     /// Sends the file to the person's own media folder and returns its path.
     func uploadVideo(at url: URL) async throws -> String {
         guard let userID else { throw AnalyticsError.noBrand }
-        let data = try Data(contentsOf: url)
         let ext = url.pathExtension.lowercased() == "mov" ? "mov" : "mp4"
         let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).\(ext)"
         do {
             try await retryingDroppedConnection {
-                _ = try await client.storage
-                    .from("media")
-                    .upload(path, data: data, options: FileOptions(contentType: ext == "mov" ? "video/quicktime" : "video/mp4"))
+                try await sendFile(
+                    url,
+                    bucket: "media",
+                    path: path,
+                    contentType: ext == "mov" ? "video/quicktime" : "video/mp4"
+                )
             }
         } catch {
             // The first try landed and only its answer was lost: the retry is
@@ -121,6 +123,38 @@ extension AppSession {
             guard text.contains("duplicate") || text.contains("already exists") || text.contains("409") else { throw error }
         }
         return path
+    }
+
+    /// Sends a file to Storage straight from disk.
+    ///
+    /// 🔴 Not `storage.upload(data:)`. That needs the whole video read into
+    /// memory first, then copied again into a multipart body, so a 100 MB clip
+    /// sat in RAM twice before the first byte left the phone (Netro, 13 Oct
+    /// 2026: uploads and downloads "taking so much time"). `upload(for:fromFile:)`
+    /// streams the file off the disk. Same endpoint, same policies, same
+    /// owner-folder rule: only how the bytes travel changes.
+    func sendFile(_ file: URL, bucket: String, path: String, contentType: String) async throws {
+        let token = try await client.auth.session.accessToken
+
+        var request = URLRequest(
+            url: Config.supabaseURL.appendingPathComponent("storage/v1/object/\(bucket)/\(path)")
+        )
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("false", forHTTPHeaderField: "x-upsert")
+        // A large clip on a slow connection can outlast the default minute.
+        request.timeoutInterval = 600
+
+        let (body, response) = try await URLSession.shared.upload(for: request, fromFile: file)
+        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        guard (200..<300).contains(http.statusCode) else {
+            throw StorageUploadError(
+                status: http.statusCode,
+                message: String(data: body, encoding: .utf8) ?? ""
+            )
+        }
     }
 
     /// One quiet retry when the network drops the request.
@@ -287,4 +321,13 @@ struct VideoFacts: Sendable {
             poster: poster
         )
     }
+}
+
+/// Storage said no. `description` carries the status and the server's own
+/// words, because callers recognise "already exists" / 409 in them.
+struct StorageUploadError: Error, CustomStringConvertible {
+    let status: Int
+    let message: String
+
+    var description: String { "storage upload failed (\(status)): \(message)" }
 }

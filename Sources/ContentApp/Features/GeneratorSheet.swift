@@ -50,7 +50,7 @@ struct GeneratorSheet: View {
                     // API keys only exist in Higgsfield Cloud. Sending someone
                     // to the wrong one means hunting for a page that is not
                     // there and concluding this feature is broken.
-                    Text("Made at cloud.higgsfield.ai — the Cloud dashboard, not the main higgsfield.ai app. Both halves are needed.")
+                    Text("Made at cloud.higgsfield.ai, the Cloud dashboard, not the main higgsfield.ai app. Both halves are needed.")
                 }
 
                 Section {

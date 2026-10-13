@@ -281,7 +281,7 @@ struct PostDetailView: View {
                            action: ("Open", { UIApplication.shared.open(url) }))
             } else {
                 MoveBanner(yours: false, text: post.privacy == "SELF_ONLY"
-                           ? "Published privately — only you can see it on \(post.platformName)."
+                           ? "Published privately. Only you can see it on \(post.platformName)."
                            : "Published. Autocast reads its numbers every hour and learns from them.")
             }
         case .inDrafts:

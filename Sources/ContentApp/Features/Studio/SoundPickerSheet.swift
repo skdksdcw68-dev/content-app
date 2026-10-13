@@ -142,7 +142,7 @@ struct SoundPickerSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("TikTok doesn't let other apps use its sounds. Finish your edit here, then choose Drafts on the post screen — the video opens in TikTok, where you can add any TikTok sound and post.")
+            Text("TikTok doesn't let other apps use its sounds. Finish your edit here, then choose Drafts on the post screen. The video opens in TikTok, where you can add any TikTok sound and post.")
         }
     }
 

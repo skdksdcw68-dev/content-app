@@ -117,7 +117,7 @@ struct ChatListView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Talk to Autocast")
                                 .font(.subheadline.weight(.semibold))
-                            Text("Plan, research, make — it keeps working when you close the app.")
+                            Text("Plan, research and make. It keeps working when you close the app.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

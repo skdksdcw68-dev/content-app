@@ -55,7 +55,7 @@ struct KeyMetricsCard: View {
         let figure: Double? = held?.value ?? reading.current
         return KeyTile(
             title: reading.metric.title,
-            value: figure.map { AnalyticsFormat.value($0, reading.metric) } ?? "—",
+            value: figure.map { AnalyticsFormat.value($0, reading.metric) } ?? "N/A",
             caption: caption(reading),
             captionColor: color(reading),
             isSelected: isSelected,
@@ -113,13 +113,13 @@ struct FollowersCard: View {
             HStack(spacing: 12) {
                 KeyTile(
                     title: "Total followers",
-                    value: total.map { AnalyticsFormat.number(Double($0)) } ?? "—",
+                    value: total.map { AnalyticsFormat.number(Double($0)) } ?? "N/A",
                     caption: "All time",
                     figure: TileFigure(value: total.map { Double($0) }, style: .number)
                 )
                 KeyTile(
                     title: "Net followers",
-                    value: netValue.map { FigureStyle.signedNumber.text($0) } ?? "—",
+                    value: netValue.map { FigureStyle.signedNumber.text($0) } ?? "N/A",
                     caption: netCaption,
                     captionColor: net.current == nil || net.since != nil ? .secondary : AnalyticsFormat.changeColor(net),
                     isSelected: true,

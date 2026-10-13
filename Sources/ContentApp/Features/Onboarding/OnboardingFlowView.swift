@@ -135,7 +135,7 @@ private struct OnboardingWelcome: View {
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 24)
 
-            Text("Plan a month, write the captions, and post to TikTok, YouTube and Instagram — you approve everything first.")
+            Text("Plan a month, write the captions, and post to TikTok, YouTube and Instagram. You approve everything first.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

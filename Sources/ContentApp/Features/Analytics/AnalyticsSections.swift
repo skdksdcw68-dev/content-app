@@ -38,7 +38,7 @@ enum TopPostSort: String, CaseIterable, Hashable {
 
     func label(_ video: AnalyticsReport.Video) -> String {
         if self == .engagement {
-            return video.engagementRate.map(AnalyticsFormat.percent) ?? "—"
+            return video.engagementRate.map(AnalyticsFormat.percent) ?? "N/A"
         }
         return AnalyticsFormat.number(value(video))
     }
@@ -530,7 +530,7 @@ struct BestTimeCard: View {
     private func label(_ slot: Int) -> String {
         if unit == .hours { return AnalyticsFormat.clock(slot) }
         let symbols = Calendar.current.shortWeekdaySymbols
-        return symbols.indices.contains(slot % 7) ? symbols[slot % 7] : "—"
+        return symbols.indices.contains(slot % 7) ? symbols[slot % 7] : "Unknown"
     }
 
     private func chart(best: Int?) -> some View {
@@ -637,7 +637,7 @@ struct CompareSection: View {
                     ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
                         VStack(alignment: .leading, spacing: 5) {
                             HStack {
-                                Text(group.label.map { Platform(rawValue: $0)?.displayName ?? $0.capitalized } ?? "—")
+                                Text(group.label.map { Platform(rawValue: $0)?.displayName ?? $0.capitalized } ?? "N/A")
                                     .font(.subheadline.weight(.semibold))
                                 Spacer()
                                 Text("\(AnalyticsFormat.number(group.medianViews ?? 0)) · \(group.posts) posts")
@@ -771,13 +771,13 @@ struct AutopilotSection: View {
                 stat("Published", "\(report.published)", "in this range")
                 stat("Waiting for you", "\(report.waitingApproval)", "to approve")
                 stat("Success rate",
-                     report.successRate.map(AnalyticsFormat.percent) ?? "—",
+                     report.successRate.map(AnalyticsFormat.percent) ?? "N/A",
                      report.successRate == nil ? "Nothing finished yet" : "\(report.failed) failed")
                 stat("Generation time",
-                     report.avgGenerationSeconds.map { AnalyticsFormat.duration(seconds: $0) } ?? "—",
+                     report.avgGenerationSeconds.map { AnalyticsFormat.duration(seconds: $0) } ?? "N/A",
                      report.avgGenerationSeconds == nil ? "Nothing finished yet" : "average")
                 stat("Cost",
-                     report.costCents.map { (Double($0) / 100).formatted(.number.precision(.fractionLength(2))) } ?? "—",
+                     report.costCents.map { (Double($0) / 100).formatted(.number.precision(.fractionLength(2))) } ?? "N/A",
                      report.costCents == nil ? "Not reported by the provider" : "reported on \(report.costReportedJobs) jobs")
             }
 

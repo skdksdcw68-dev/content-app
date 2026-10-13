@@ -278,7 +278,7 @@ struct RollingFigure: View {
                     Text(style.text(count.target * Self.eased(from: count.start, to: timeline.date)))
                 }
             } else {
-                Text(value.map { style.text($0) } ?? "—")
+                Text(value.map { style.text($0) } ?? "N/A")
                     .contentTransition(transition)
             }
         }

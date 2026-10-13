@@ -20,7 +20,7 @@ struct CreateView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var connecting = false
     @State private var caption = ""
-    @State private var pendingVideo: (data: Data, filename: String)?
+    @State private var pendingVideo: (file: URL, filename: String)?
     @State private var namingVideo = false
     @State private var pickingVideo = false
     /// What to make, in their words, and whether it has been sent.
@@ -163,6 +163,7 @@ struct CreateView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        if let file = pendingVideo?.file { try? FileManager.default.removeItem(at: file) }
                         pendingVideo = nil
                         namingVideo = false
                     }
@@ -180,9 +181,9 @@ struct CreateView: View {
         guard let pickerItem else { return }
         do {
             guard let movie = try await pickerItem.loadTransferable(type: Movie.self) else { return }
-            let data = try Data(contentsOf: movie.url)
-            try? FileManager.default.removeItem(at: movie.url)
-            pendingVideo = (data, movie.url.lastPathComponent)
+            // Kept as a file until it is sent. Reading it into memory first is
+            // what made a long clip slow to upload.
+            pendingVideo = (movie.url, movie.url.lastPathComponent)
             caption = ""
             namingVideo = true
         } catch {
@@ -195,10 +196,11 @@ struct CreateView: View {
         guard let pendingVideo else { return }
         namingVideo = false
         await session.addVideo(
-            data: pendingVideo.data,
+            file: pendingVideo.file,
             filename: pendingVideo.filename,
             caption: caption
         )
+        try? FileManager.default.removeItem(at: pendingVideo.file)
         self.pendingVideo = nil
     }
 }

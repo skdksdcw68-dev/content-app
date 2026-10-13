@@ -224,20 +224,20 @@ struct AnalyticsPostView: View {
                 )
                 KeyTile(
                     title: "Engagement rate",
-                    value: video.engagementRate.map(AnalyticsFormat.percent) ?? "—",
+                    value: video.engagementRate.map(AnalyticsFormat.percent) ?? "N/A",
                     caption: context?.medianEngagement.map { "Your usual: \(AnalyticsFormat.percent($0))" } ?? "Likes, comments and shares per view"
                 )
                 KeyTile(
                     title: "Likes per 100 views",
-                    value: views > 0 ? (Double(video.likes) / views * 100).formatted(.number.precision(.fractionLength(1))) : "—"
+                    value: views > 0 ? (Double(video.likes) / views * 100).formatted(.number.precision(.fractionLength(1))) : "N/A"
                 )
                 KeyTile(
                     title: "Comments per 1K views",
-                    value: views > 0 ? (Double(video.comments) / views * 1000).formatted(.number.precision(.fractionLength(1))) : "—"
+                    value: views > 0 ? (Double(video.comments) / views * 1000).formatted(.number.precision(.fractionLength(1))) : "N/A"
                 )
                 KeyTile(
                     title: "Share rate",
-                    value: views > 0 ? AnalyticsFormat.percent(Double(video.shares) / views) : "—",
+                    value: views > 0 ? AnalyticsFormat.percent(Double(video.shares) / views) : "N/A",
                     caption: "Shares per view"
                 )
                 KeyTile(
@@ -247,12 +247,12 @@ struct AnalyticsPostView: View {
                 )
                 KeyTile(
                     title: "Share of your views",
-                    value: context?.shareOfViews.map(AnalyticsFormat.percent) ?? "—",
+                    value: context?.shareOfViews.map(AnalyticsFormat.percent) ?? "N/A",
                     caption: "Across all your videos"
                 )
                 KeyTile(
                     title: "Length",
-                    value: video.durationS.map { "\($0)s" } ?? "—",
+                    value: video.durationS.map { "\($0)s" } ?? "N/A",
                     caption: context?.medianDuration.map { "Your usual: \(Int($0.rounded()))s" }
                 )
             }
@@ -260,7 +260,7 @@ struct AnalyticsPostView: View {
     }
 
     private func viewsPerHour(_ views: Double, _ hours: Double?) -> String {
-        guard let hours, hours > 0 else { return "—" }
+        guard let hours, hours > 0 else { return "N/A" }
         return AnalyticsFormat.number(views / hours)
     }
 
@@ -423,7 +423,7 @@ struct AnalyticsPostView: View {
                 KeyTile(title: "Likes", value: AnalyticsFormat.number(Double(data.video.likes)))
                 KeyTile(title: "Comments", value: AnalyticsFormat.number(Double(data.video.comments)))
                 KeyTile(title: "Shares", value: AnalyticsFormat.number(Double(data.video.shares)))
-                KeyTile(title: "Engagement rate", value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "—")
+                KeyTile(title: "Engagement rate", value: data.video.engagementRate.map(AnalyticsFormat.percent) ?? "N/A")
             }
         }
         engagementMix(data.video)

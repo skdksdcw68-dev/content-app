@@ -292,7 +292,7 @@ struct NewPlanSheet: View {
     private var about: some View {
         PlanStep(
             title: "What are these weeks about?",
-            subtitle: "Anything specific — a launch, a price change, a season. Your account description and themes are used either way.",
+            subtitle: "Anything specific, like a launch, a price change or a season. Your account description and themes are used either way.",
             button: typedBrief.isEmpty ? "Nothing special" : "Continue",
             tint: typedBrief.isEmpty ? Color.secondary : Theme.accent,
             action: { step = .focus }
@@ -372,7 +372,7 @@ struct NewPlanSheet: View {
                             symbol: platform.symbolName,
                             detail: connected
                                 ? "Connected"
-                                : "Not connected yet — connect it in You → Accounts before the first post",
+                                : "Not connected yet. Connect it in You → Accounts before the first post",
                             logo: platform.logo
                         ),
                         isChosen: destinations.contains(platform.rawValue)
@@ -526,7 +526,7 @@ struct NewPlanSheet: View {
     private var bring: some View {
         PlanStep(
             title: "Bring a plan you already have",
-            subtitle: "Days, dates, times, hooks, captions and scripts are all picked up. Anything that isn’t a post — goals, tips — is left out.",
+            subtitle: "Days, dates, times, hooks, captions and scripts are all picked up. Anything that isn’t a post, like goals or tips, is left out.",
             button: nil
         ) {
             VStack(spacing: 10) {
@@ -539,7 +539,7 @@ struct NewPlanSheet: View {
                 PlanChoiceRow(
                     symbol: "doc.on.clipboard",
                     title: "Paste a plan",
-                    detail: "From ChatGPT, Notes, an email — anywhere."
+                    detail: "From ChatGPT, Notes, an email, anywhere."
                 ) { step = .paste }
 
                 Text("Your posts are kept exactly as written and laid onto days for you to check.")
@@ -649,7 +649,7 @@ private enum PlanFocus: String, CaseIterable {
     var sentence: String {
         switch self {
         case .reach:       "The goal for these weeks is reaching people who have not heard of us before."
-        case .trial:       "The goal for these weeks is getting people to try it — end posts by asking for that."
+        case .trial:       "The goal for these weeks is getting people to try it. Posts end by asking for that."
         case .consistency: "The goal for these weeks is staying consistent across our usual themes."
         case .launch:      "These weeks build up to a launch; the last posts should land on it."
         }
@@ -932,7 +932,7 @@ private struct PastePlanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("Day 1 — Hook: …\nDay 2 — Hook: …", text: $text, axis: .vertical)
+                    TextField("Day 1: Hook …\nDay 2: Hook …", text: $text, axis: .vertical)
                         .lineLimit(12...30)
                         .focused($focused)
 
@@ -967,7 +967,7 @@ private struct PastePlanView: View {
                 .padding(14)
                 .background(Color.track, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                Text("Days, dates, times, hooks, captions and scripts are all picked up. Anything that isn’t a post — goals, tips — is left out.")
+                Text("Days, dates, times, hooks, captions and scripts are all picked up. Anything that isn’t a post, like goals or tips, is left out.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

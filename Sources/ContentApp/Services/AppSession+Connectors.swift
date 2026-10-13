@@ -38,7 +38,7 @@ struct ProviderConnection: Identifiable, Decodable, Hashable, Sendable {
             if modelCount == 0 { return "Connected, nothing available yet" }
             return "Connected · \(modelCount) model\(modelCount == 1 ? "" : "s")"
         case "expired": return "Sign in again to keep using it"
-        case "error":   return "Something went wrong — reconnect"
+        case "error":   return "Something went wrong. Reconnect"
         case "pending": return "Finishing…"
         default:        return "Disconnected"
         }

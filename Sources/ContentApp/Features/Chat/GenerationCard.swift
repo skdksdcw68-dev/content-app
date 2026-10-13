@@ -521,7 +521,7 @@ private struct ModelOptionRow: View {
                 Image(systemName: "diamond.fill")
                     .font(.system(size: 8))
                     .foregroundStyle(.tertiary)
-                Text(price.credits.map { CreditFormat.text($0) } ?? "—")
+                Text(price.credits.map { CreditFormat.text($0) } ?? "N/A")
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(usable ? Color.primary : Color.secondary)
             }

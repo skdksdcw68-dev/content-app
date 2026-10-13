@@ -134,7 +134,7 @@ struct PostsLibraryView: View {
 
     private func count(_ value: Int?, _ label: String) -> some View {
         VStack(spacing: 2) {
-            Text(value.map { AnalyticsFormat.number(Double($0)) } ?? "—")
+            Text(value.map { AnalyticsFormat.number(Double($0)) } ?? "N/A")
                 .font(.headline.monospacedDigit())
                 .contentTransition(.numericText())
             Text(label)

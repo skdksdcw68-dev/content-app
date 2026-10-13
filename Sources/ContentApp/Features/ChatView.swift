@@ -775,8 +775,8 @@ struct ChatView: View {
             turns[replyIndex] = ChatMessage(
                 role: .assistant,
                 text: ok
-                ? "Saved. That key is encrypted and I can't read it back — you'll only ever see \(key.maskedSecret). I'll use it to make your videos. Ask me for one whenever you like."
-                : "That key didn't work when I tried it against the provider. Nothing was saved. Check it was copied whole, and that it's the pair — the id and the secret, not just one of them."
+                ? "Saved. That key is encrypted and I can't read it back, so you'll only ever see \(key.maskedSecret). I'll use it to make your videos. Ask me for one whenever you like."
+                : "That key didn't work when I tried it against the provider. Nothing was saved. Check it was copied whole, and that it's the pair: the id and the secret, not just one of them."
             )
         }
     }
@@ -1098,7 +1098,7 @@ struct ChatView: View {
                 say("That approval didn't go through. Try again.")
                 return
             }
-            say("Approved. Writing the posts now — this takes about a minute.")
+            say("Approved. Writing the posts now. This takes about a minute.")
 
             let brief = [artifact.body.request, artifact.body.summary, artifact.body.angle]
                 .compactMap { $0 }
@@ -1114,7 +1114,7 @@ struct ChatView: View {
                 showingPlan = true
                 say("Wrote \(proposal.planned) posts. Look them over in the plan, then switch it on.")
             } else {
-                say("The posts didn't get written this time. Approve again to retry — the strategy is saved.")
+                say("The posts didn't get written this time. Approve again to retry. The strategy is saved.")
             }
         }
     }

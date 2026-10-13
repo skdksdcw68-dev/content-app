@@ -310,7 +310,7 @@ struct PaywallView: View {
 
     private func row(_ option: Tier) -> some View {
         let annual = billsYearly(option)
-        let price: String = priceText(option, yearly: annual) ?? "—"
+        let price: String = priceText(option, yearly: annual) ?? "N/A"
         let footnote: String? = annual
             ? perMonthText(option).map { "\($0)/mo, billed yearly" }
             : (yearly ? "Monthly only" : nil)

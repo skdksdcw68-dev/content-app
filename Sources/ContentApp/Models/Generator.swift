@@ -38,7 +38,7 @@ struct Generator: Identifiable, Decodable, Hashable, Sendable {
         guard let lastProbeOK else { return "Not checked yet" }
         if lastProbeOK {
             guard let lastProbeAt else { return "Working" }
-            return "Working — checked \(Self.relative.localizedString(for: lastProbeAt, relativeTo: .now))"
+            return "Working, checked \(Self.relative.localizedString(for: lastProbeAt, relativeTo: .now))"
         }
         return lastProbeDetail ?? "That key stopped working"
     }

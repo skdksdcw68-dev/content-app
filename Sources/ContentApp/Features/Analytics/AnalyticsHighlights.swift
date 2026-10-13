@@ -305,7 +305,7 @@ struct PostsGridCard: View {
 
     private func label(_ video: AnalyticsReport.Video) -> String {
         if sort == .engagement {
-            return video.engagementRate.map(AnalyticsFormat.percent) ?? "—"
+            return video.engagementRate.map(AnalyticsFormat.percent) ?? "N/A"
         }
         return AnalyticsFormat.number(Double(video.views))
     }

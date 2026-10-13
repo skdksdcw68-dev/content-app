@@ -267,7 +267,7 @@ enum AnalyticsFormat {
     }
 
     static func range(_ from: Date, _ to: Date) -> String {
-        Calendar.current.isDate(from, inSameDayAs: to) ? day(from) : "\(day(from)) – \(day(to))"
+        Calendar.current.isDate(from, inSameDayAs: to) ? day(from) : "\(day(from)) to \(day(to))"
     }
 
     /// One bucket's dates, and "so far" while it is still being counted.
@@ -276,9 +276,9 @@ enum AnalyticsFormat {
         return point.isOpen ? "\(dates) · so far" : dates
     }
 
-    /// A 3-hour block starting at `hour`: "6 PM – 9 PM".
+    /// A 3-hour block starting at `hour`: "6 PM to 9 PM".
     static func hourBlock(_ hour: Int) -> String {
-        "\(clock(hour)) – \(clock((hour + 3) % 24))"
+        "\(clock(hour)) to \(clock((hour + 3) % 24))"
     }
 
     static func clock(_ hour: Int) -> String {
@@ -290,7 +290,7 @@ enum AnalyticsFormat {
     /// ISO weekday, 1 = Monday.
     static func weekday(_ iso: Int) -> String {
         let symbols = Calendar.current.weekdaySymbols
-        return symbols.indices.contains(iso % 7) ? symbols[iso % 7] : "—"
+        return symbols.indices.contains(iso % 7) ? symbols[iso % 7] : "Unknown"
     }
 
     static func confidence(_ raw: String?) -> String {

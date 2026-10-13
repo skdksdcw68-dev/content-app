@@ -46,12 +46,12 @@ struct ProfileHeader: View {
     /// 29 Sep 2026 -- generation is paid for in credits -- so "Made this month"
     /// and "Videos left" would have stood still.)
     private var creditsUsed: String {
-        guard let credits = session.credits else { return "–" }
+        guard let credits = session.credits else { return "…" }
         return CreditFormat.text(credits.used)
     }
 
     private var creditsLeft: String {
-        guard let credits = session.credits else { return "–" }
+        guard let credits = session.credits else { return "…" }
         return CreditFormat.text(credits.left)
     }
 

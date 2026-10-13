@@ -553,7 +553,7 @@ private struct WritingNotice: View {
                     Text(importLine)
                         .font(.subheadline.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Your words, as written — nothing was added. Times from the file are kept; the rest use your usual hours. Check them, then approve.")
+                    Text("Your words, as written. Nothing was added. Times from the file are kept; the rest use your usual hours. Check them, then approve.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

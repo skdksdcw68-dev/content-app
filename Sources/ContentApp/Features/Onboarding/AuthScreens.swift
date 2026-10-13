@@ -121,7 +121,7 @@ struct EmailScreen: View {
                     .font(.title2.bold())
                 Text(mode == .signup
                      ? "We’ll send you a six-digit code"
-                     : "Log in with the email you signed up with — we’ll send you a code")
+                     : "Log in with the email you signed up with and we’ll send you a code")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -371,7 +371,7 @@ struct VerifiedScreen: View {
         case .alreadyRegistered:
             return "That email already had an account, so we loaded it. To start fresh, delete the account in Profile first."
         case .returning:
-            return "You’re signed in — your brand, plans and videos are where you left them\(named)."
+            return "You’re signed in. Your brand, plans and videos are where you left them\(named)."
         }
     }
 

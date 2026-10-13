@@ -597,7 +597,7 @@ final class AppSession {
                  NSURLErrorInternationalRoamingOff:
                 return "You're offline. Nothing was sent."
             case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost:
-                return "That took longer than expected. It may still be going through — pull down to refresh in a moment before trying again."
+                return "That took longer than expected. It may still be going through. Pull down to refresh in a moment before trying again."
             default:
                 return "The connection failed. Try again in a moment."
             }
@@ -644,7 +644,10 @@ extension AppSession {
     /// Passing `postID` fills in a post the plan already wrote instead of making
     /// a new one. Without it, adding a video for day 4 would create something
     /// unrelated and day 4 would stay empty.
-    func addVideo(data: Data, filename: String, caption: String, postID: UUID? = nil) async {
+    ///
+    /// `file` is read off the disk as it is sent, never loaded whole: a long
+    /// clip held in memory twice is what made this slow.
+    func addVideo(file: URL, filename: String, caption: String, postID: UUID? = nil) async {
         guard let connection = tiktok, let userID else {
             lastError = "Connect an account first."
             return
@@ -658,9 +661,9 @@ extension AppSession {
         let path = "\(userID.uuidString.lowercased())/\(UUID().uuidString.lowercased())/\(filename)"
 
         do {
-            _ = try await client.storage
-                .from("media")
-                .upload(path, data: data, options: FileOptions(contentType: mimeType(for: filename)))
+            try await retryingDroppedConnection {
+                try await sendFile(file, bucket: "media", path: path, contentType: mimeType(for: filename))
+            }
 
             let _: PreparedPost = try await client.functions.invoke(
                 "prepare-post",

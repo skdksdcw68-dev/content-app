@@ -56,11 +56,11 @@ enum BrandQuestions {
         subtitle: "Roughly how old your audience is.",
         selection: .multiple,
         options: [
-            .init(id: "13-17", label: "13–17", symbol: "person"),
-            .init(id: "18-24", label: "18–24", symbol: "person"),
-            .init(id: "25-34", label: "25–34", symbol: "person"),
-            .init(id: "35-44", label: "35–44", symbol: "person"),
-            .init(id: "45-54", label: "45–54", symbol: "person"),
+            .init(id: "13-17", label: "13 to 17", symbol: "person"),
+            .init(id: "18-24", label: "18 to 24", symbol: "person"),
+            .init(id: "25-34", label: "25 to 34", symbol: "person"),
+            .init(id: "35-44", label: "35 to 44", symbol: "person"),
+            .init(id: "45-54", label: "45 to 54", symbol: "person"),
             .init(id: "55+", label: "55 and over", symbol: "person"),
         ]
     )
@@ -110,8 +110,8 @@ enum BrandQuestions {
         selection: .single,
         options: [
             .init(id: "short", label: "Short, under 15 seconds", symbol: "hare"),
-            .init(id: "medium", label: "Medium, 15–30 seconds", symbol: "timer"),
-            .init(id: "long", label: "Longer, 30–60 seconds", symbol: "tortoise"),
+            .init(id: "medium", label: "Medium, 15 to 30 seconds", symbol: "timer"),
+            .init(id: "long", label: "Longer, 30 to 60 seconds", symbol: "tortoise"),
             .init(id: "mixed", label: "A mix", symbol: "shuffle"),
         ]
     )
@@ -213,8 +213,8 @@ enum BrandQuestions {
         selection: .single,
         options: [
             .init(id: "none", label: "None", symbol: "circle.slash"),
-            .init(id: "few", label: "2–3", symbol: "number"),
-            .init(id: "more", label: "4–6", symbol: "number.square"),
+            .init(id: "few", label: "2 to 3", symbol: "number"),
+            .init(id: "more", label: "4 to 6", symbol: "number.square"),
             .init(id: "many", label: "7 or more", symbol: "number.square.fill"),
         ]
     )

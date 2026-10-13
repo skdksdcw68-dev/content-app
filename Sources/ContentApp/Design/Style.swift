@@ -146,10 +146,10 @@ struct DayTile: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            Text(date?.formatted(Date.FormatStyle(timeZone: timezone).month(.abbreviated)).uppercased() ?? "—")
+            Text(date?.formatted(Date.FormatStyle(timeZone: timezone).month(.abbreviated)).uppercased() ?? "TBD")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.secondary)
-            Text(date?.formatted(Date.FormatStyle(timeZone: timezone).day()) ?? "—")
+            Text(date?.formatted(Date.FormatStyle(timeZone: timezone).day()) ?? "?")
                 .font(.system(size: size * 0.31, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.primary)

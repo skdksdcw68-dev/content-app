@@ -5,7 +5,7 @@ import SwiftUI
 /// Custom carrying a chevron because it opens something.
 struct AnalyticsRangeBar: View {
     @Binding var rangeKey: String
-    /// "Sep 1 – Sep 15" once a custom range is chosen.
+    /// "Sep 1 to Sep 15" once a custom range is chosen.
     let customLabel: String?
     let openCustom: () -> Void
 

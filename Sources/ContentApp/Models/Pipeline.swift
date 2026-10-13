@@ -283,7 +283,7 @@ struct AutopilotOverview: Decodable, Sendable {
         case "review":       .yours("\(counts.waitingForYou) post\(counts.waitingForYou == 1 ? " is" : "s are") ready for your review.")
         case "publish_next": .autocasts("Publishing the next post at its time.")
         case "plan":         .yours("Plan content or upload a video to get started.")
-        default:             .yours("Add content to the plan — upload a video or plan more posts.")
+        default:             .yours("Add content to the plan: upload a video or plan more posts.")
         }
     }
 }

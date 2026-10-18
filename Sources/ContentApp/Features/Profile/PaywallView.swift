@@ -127,7 +127,8 @@ struct PaywallView: View {
             lines.append("Video and picture models, including Kling 3 and Gemini Omni")
         case .max:
             lines.append("Everything in Pro")
-            lines.append("Veo 3.1 with sound and Seedance 2.5, up to 30 seconds")
+            // Not "Veo 3.1": fal turns it off on 17 Nov 2026.
+            lines.append("The flagship models, like Seedance 2.5, up to 30 seconds")
         case .ultra:
             lines.append("Everything in Max")
             lines.append("The most usage, for a series every day")

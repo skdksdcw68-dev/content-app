@@ -63,7 +63,7 @@ struct PurchaseWelcomeView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     usageRow
                     ForEach(Array(features.enumerated()), id: \.offset) { index, line in
-                        WelcomeRow(symbol: symbol(for: index), text: line)
+                        WelcomeRow(symbol: symbol(for: line), text: line)
                             .opacity(shown ? 1 : 0)
                             .offset(y: shown ? 0 : 10)
                             .animation(.smooth(duration: 0.45).delay(0.25 + Double(index) * 0.07), value: shown)
@@ -107,7 +107,7 @@ struct PurchaseWelcomeView: View {
                         Text("\(UsageFormat.percent(standing.percentLeft)) of this month")
                             .font(.body.weight(.semibold))
                     } icon: {
-                        Image(systemName: "gauge.with.dots.needle.67percent")
+                        Image(systemName: "chart.bar.fill")
                             .foregroundStyle(Theme.accent)
                     }
                     Spacer(minLength: 8)
@@ -132,8 +132,17 @@ struct PurchaseWelcomeView: View {
         }
     }
 
-    private func symbol(for index: Int) -> String {
-        ["sparkles", "film.stack", "calendar", "person.2"][min(index, 3)]
+    /// An icon that says what the line is about, read from the line itself:
+    /// the plans list different things in a different order, and an icon by
+    /// position put a calendar beside the models.
+    private func symbol(for line: String) -> String {
+        let words = line.lowercased()
+        if words.contains("usage") { return "gauge.with.dots.needle.67percent" }
+        if words.hasPrefix("everything in") { return "checkmark.circle" }
+        if words.contains("model") { return "film.stack" }
+        if words.contains("days ahead") { return "calendar" }
+        if words.contains("account") { return "person.2" }
+        return "sparkles"
     }
 }
 

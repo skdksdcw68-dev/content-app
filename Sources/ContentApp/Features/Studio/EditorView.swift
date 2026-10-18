@@ -144,15 +144,26 @@ struct EditorView: View {
                 // 18 Oct 2026: iOS 26's own prominent glass, tinted with the
                 // accent, so it reads on the dark editor as well as the light
                 // one ("there is no next button visible").
-                Button("Next") { startExport() }
-                    .font(.body.weight(.semibold))
-                    .buttonStyle(.glassProminent)
-                    .tint(Theme.accent)
-                    .fixedSize()
-                    .accessibilityLabel("Next")
+                //
+                // 🔴 Drawn, not styled. Seen in the simulator on 18 Oct: with
+                // the bar's shared glass hidden, `.glassProminent` lost its
+                // fill too and left white text on a light bar -- the "no next
+                // button" Netro reported. An accent capsule the label sits in
+                // cannot lose its fill, and `fixedSize` keeps the word whole.
+                Button { startExport() } label: {
+                    Text("Next")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.onAccent)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Theme.accent, in: Capsule())
+                        .fixedSize()
+                }
+                .buttonStyle(SoftPressStyle())
+                .accessibilityLabel("Next")
             }
             // The filled button stands on its own: iOS 26 otherwise puts its
-            // own glass behind every bar item, and a black button on a glass
+            // own glass behind every bar item, and a filled button on a glass
             // pill read as two buttons (Abel, 23 Sep 2026: "it has a
             // background glass, why?").
             .sharedBackgroundVisibility(.hidden)

@@ -86,12 +86,20 @@ struct PaywallView: View {
     /// ones App Store Connect actually sells. A tier with no product is a row
     /// that cannot be bought, and the paywall lights it up by itself the day
     /// the product exists.
+    ///
+    /// Under Annual, only the tiers that HAVE a yearly product. Netro, 18 Oct
+    /// 2026: "turn off the ultra yearly plan, the monthly stays" -- Ultra was
+    /// never sold yearly, but it sat under the Annual tab saying "Monthly only",
+    /// which read as a yearly Ultra. It shows under Monthly.
     private var offered: [Tier] {
-        guard !products.isEmpty else { return Tier.allCases }
-        let sold = Tier.allCases.filter {
-            product($0, yearly: true) != nil || product($0, yearly: false) != nil
+        guard !products.isEmpty else {
+            return yearly ? Tier.allCases.filter(\.sellsYearly) : Tier.allCases
         }
-        return sold.isEmpty ? Tier.allCases : sold
+        let sold = Tier.allCases.filter {
+            yearly ? product($0, yearly: true) != nil
+                   : product($0, yearly: false) != nil
+        }
+        return sold.isEmpty ? Tier.allCases.filter { !yearly || $0.sellsYearly } : sold
     }
 
     /// The product they already have, so the button can say so.
@@ -304,6 +312,12 @@ struct PaywallView: View {
         }
         .pickerStyle(.segmented)
         .labelsHidden()
+        // A tier that is not on this side (Ultra under Annual) hands the
+        // choice to the recommended one rather than leaving a hidden row
+        // chosen and a button that buys it.
+        .onChange(of: yearly) { _, _ in
+            if !offered.contains(tier) { tier = offered.contains(Tier.recommended) ? Tier.recommended : (offered.first ?? .pro) }
+        }
     }
 
     /// "Annual · save 31%", from the real prices, once they are known.
@@ -494,7 +508,9 @@ struct PaywallView: View {
         }
 
         // Start on the tier they are on, or the recommended one -- as long as
-        // it is one that is sold.
+        // it is one that is sold. A monthly subscriber starts on Monthly, so
+        // an Ultra one (monthly only) still sees their own plan.
+        if let id = session.subscription?.productId, id.hasSuffix(".monthly") { yearly = false }
         if let currentTier { tier = currentTier }
         if !offered.contains(tier) { tier = offered.first ?? .pro }
 

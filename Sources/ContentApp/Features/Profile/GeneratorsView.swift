@@ -123,7 +123,7 @@ struct GeneratorsView: View {
                 if !session.hasWorkingGenerator {
                     Text("Connect a generator above and Autocast can start each video a day before its slot, without being asked.")
                 } else if session.settings?.isOn == true {
-                    Text("Each video is made about a day before its slot and comes back to you for approval. You are billed by your generator. Nothing is posted until you approve it.")
+                    Text("Each video is made about a day before its slot, takes its share of your month, and comes back to you for approval. Nothing is posted until you approve it.")
                 } else {
                     Text("Turn this on and Autocast starts each video about a day before its slot. It still comes back to you before anything is posted.")
                 }

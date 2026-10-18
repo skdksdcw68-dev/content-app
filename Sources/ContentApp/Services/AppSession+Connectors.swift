@@ -106,6 +106,11 @@ extension AppSession {
         } catch {
             connectedProviders = []
         }
+        // Kept as it was on a failed read: a flat network for a moment should
+        // not switch Autopilot's AI videos off.
+        if let ready: Bool = try? await client.rpc("house_can_make", params: ["p_capability": "video_generation"]).execute().value {
+            houseMakesVideo = ready
+        }
     }
 
     func refreshConnectable() async {

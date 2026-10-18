@@ -181,7 +181,9 @@ struct ProfileView: View {
             }
         } footer: {
             if let plan = session.subscription, !plan.isPro {
-                Text("Free: \(plan.limits.planDays)-day plans, \(plan.limits.aiWrites) AI caption writes and \(plan.limits.chat) chat messages a month.")
+                // Not the old caps: chat and captions draw on one monthly
+                // meter now (0079), and Free's is a few messages.
+                Text("Free: \(plan.limits.planDays)-day plans and a few chat messages a month. Pictures and videos come with a paid plan.")
             }
         }
         .manageSubscriptionsSheet(isPresented: $managingSubscription)
@@ -297,7 +299,10 @@ struct ProfileView: View {
             }
             NavigationLink { GeneratorsView() } label: {
                 SettingsValueLabel("Video generators", symbol: "wand.and.stars",
-                                   value: session.hasWorkingGenerator ? "Connected" : nil)
+                                   // Autocast brings its own models; "Connected" was a claim about
+                                   // something the person never connected.
+                                   value: session.hasWorkingGenerator && !session.houseMakesVideo ? "Connected"
+                                       : session.houseMakesVideo ? "Built in" : nil)
             }
             NavigationLink { PostDefaultsView().pushedPage() } label: {
                 SettingsLabel("Post defaults", symbol: "slider.horizontal.3")

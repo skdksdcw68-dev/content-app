@@ -47,6 +47,13 @@ struct ChatOptionsSheet: View {
         // somebody actually came for, one quiet card of rows under them, and
         // the conversation still visible above the sheet. No navigation bar,
         // no section headers, no full screen.
+        //
+        // 🔴 In a scroll view, from the top. Netro, 18 Oct 2026: "the + icon
+        // hides the things like video and photo". This was a plain VStack in a
+        // 470pt sheet; once the connections card made it taller than that, the
+        // stack overflowed BOTH edges, so the Video and Image tiles were pushed
+        // off the top and only dragging the sheet up found them.
+        ScrollView {
         VStack(spacing: 16) {
             HStack(spacing: 12) {
                 tile(symbol: "video", title: "Video") { onPick(.create(.video)) }
@@ -88,10 +95,13 @@ struct ChatOptionsSheet: View {
                 .background(Color.raised, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
 
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, Style.gutter)
         .padding(.top, 20)
+        .padding(.bottom, 24)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
         .background(Color.canvas.ignoresSafeArea())
         .task {
             await session.refreshConnectedProviders()

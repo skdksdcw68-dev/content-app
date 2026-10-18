@@ -96,6 +96,9 @@ final class AppSession {
     /// Named apart from `connections`, which is TikTok accounts: the platforms
     /// you post TO versus the providers you make things WITH.
     internal(set) var connectedProviders: [ProviderConnection] = []
+    /// Autocast's own generator can make video right now (0080). Nobody has to
+    /// connect anything for that, so it counts as a working generator.
+    internal(set) var houseMakesVideo = false
     /// What could be connected that is not. Drives the Plus menu.
     internal(set) var connectable: [ConnectableProvider] = []
 
@@ -1265,8 +1268,13 @@ extension AppSession {
     /// provider connected by signing in that reported the capability. Counting
     /// only pasted keys left the Autopilot switch disabled for somebody who had
     /// connected Higgsfield properly.
+    /// 🔴 Autocast's own models count. This read only the person's OWN
+    /// connections, and the house generator belongs to a system account, so
+    /// for every customer it said no and Autopilot, the series flow and Create
+    /// asked them to connect a generator nobody needs (found 18 Oct 2026).
     var hasWorkingGenerator: Bool {
-        generators.contains(where: \.isWorking)
+        houseMakesVideo
+            || generators.contains(where: \.isWorking)
             || connectedProviders.contains { $0.isHealthy && $0.capabilities.contains("video_generation") }
     }
 

@@ -989,7 +989,7 @@ function refusal(code: string, what: string, house = false): string {
       // Our balance, not theirs: nothing to top up, nothing they did, and the
       // credits taken for this job are already back (0077).
       if (house) {
-        return `Making ${what === "image" ? "pictures" : what === "audio" ? "audio" : "videos"} is paused for a moment on our side, so the ${what} wasn't made. Your credits are back and nothing was charged. Try again in a little while.`;
+        return `Making ${what === "image" ? "pictures" : what === "audio" ? "audio" : "videos"} is paused for a moment on our side, so the ${what} wasn't made. Nothing was taken from your month. Try again in a little while.`;
       }
       // Not "you are out of credits": the first time this fired, the account
       // had 26 and the model wanted 75. The balance may be fine for a

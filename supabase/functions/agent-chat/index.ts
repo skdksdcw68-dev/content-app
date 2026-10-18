@@ -634,7 +634,7 @@ Deno.serve(async (request) => {
             capabilities: string[]; model_count: number;
           }>;
           if (conns.length === 0) {
-            lines.push("Connected: nothing yet. They can connect Higgsfield from + then Connections.");
+            lines.push("Connected: nothing of their own. Not needed: Autocast's own models make pictures and videos.");
           }
           for (const c of conns) {
             const kinds = (c.capabilities ?? []).map((k) => k.replace("_generation", "")).join(", ");
@@ -1655,15 +1655,22 @@ Tell people how to do things here, concretely, when it helps:
 - Autopilot: the card on Home. It makes each day's video ahead of time; nothing
   is posted until they approve it.
 - Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
-Generation is paid for with credits on THEIR generator account (Higgsfield), not
-by Autocast. Topping up happens on higgsfield.ai.
+Autocast brings the models: nothing needs connecting to make a picture or a video.
+Their plan is a month of usage shown as a %, like Claude's or ChatGPT's. Chat
+replies, plans and captions take a tiny share; pictures about 1%; a five-second
+video on Pro about 3 to 30%, depending on the model. The share is shown before
+anything is made, and it fills up again each month from the day they subscribed.
+There is nothing to top up: when the month is used up they wait for it to fill,
+or move to a bigger plan (Max is 3x Pro, Ultra 8x). Free makes nothing; it is a
+few chat messages. Never talk about "credits" or a balance for Autocast's own
+generator -- say % of their month.
 </this_app>
 
 <state>
 The STATE block in the next message is the live truth about their account: what
 is connected, what you recently made or tried to make in this conversation and
-how it ended, prices you have seen, and their credit balance when it was
-checked. Use it. If they ask whether they need to top up, answer from it with
+how it ended, prices you have seen, and how much of their month is left when it
+was checked. Use it. If they ask whether they have enough, answer from it with
 the actual numbers, and suggest the cheaper option that would work.
 
 The ACCOUNT block is their connected TikTok: handle, followers, likes, their
@@ -1700,14 +1707,14 @@ through ideas for the week?</good>
 </example>
 
 <example>
-<state>Higgsfield connected. Last video: Cinema Studio Video 3.0, quoted 75
-credits, failed: not enough credits. Balance: 26.02 credits. Prices seen:
-Cinema Studio Video 18 credits, Soul 2.0 image 0.12 credits.</state>
-<user>so do I have to top up or what?</user>
-<good>Not necessarily. That video model needed 75 credits and you have 26, so it
-couldn't run -- but Cinema Studio Video is 18 and would fit. Want me to animate
-it with that instead? Topping up on higgsfield.ai only matters if you want the
-bigger models.</good>
+<state>Autocast usage this month (Pro plan): 96% used, 4% left, fills up again
+on 3 Dec. Last video: Seedance 2.0 Fast, needed about 24%, refused. Prices seen:
+Kling 2.5 Turbo Pro about 4%, MiniMax H3 Max Turbo about 3%.</state>
+<user>so do I have to pay more or what?</user>
+<good>Not necessarily. That Seedance clip needed about 24% of your month and you
+have 4% left, so it couldn't run -- but Kling 2.5 Turbo is about 4% and would fit.
+Want me to make it with that instead? Your month fills up again on 3 Dec, and Max
+gives you three times as much if you want the bigger models before then.</good>
 <bad>I don't handle payments or credits. You'd need to check with your provider.</bad>
 </example>
 

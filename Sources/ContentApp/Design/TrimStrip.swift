@@ -23,7 +23,7 @@ struct TrimStrip: View {
     /// clip of several and the whole row is "the video".
     var dimsOutside = true
 
-    private let handleWidth: CGFloat = 22
+    private let handleWidth: CGFloat = TrimStyle.handleWidth
     private let minimumSeconds: Double = 1
 
     /// Which handle is under a finger right now, so it can say so.
@@ -36,14 +36,12 @@ struct TrimStrip: View {
             let scale = duration > 0 ? width / duration : 0
             let left = CGFloat(start) * scale
             let right = CGFloat(end) * scale
-            // 🔴 A card corner, not a lozenge.
-            //
-            // This was `height / 2` -- 46pt on a 92pt strip -- which sliced
-            // the first and last frames into half-moons and rounded the dim
-            // rectangles into blobs whenever a trim offset was only a few
-            // points wide. Theme.mediaRadius is what every other piece of
-            // media in the app is cut to.
-            let corner = Theme.mediaRadius
+            // 🔴 A rectangle, not a lozenge. Netro, 18 Oct 2026: "the
+            // timeline thing is shaped and I want it to be like a rectangle
+            // or like a line." It was `height / 2`, then the 20pt media
+            // radius, and the HANDLES kept `height / 2` all along -- so the
+            // ends were always half-circles. One small corner for all of it.
+            let corner = TrimStyle.corner
             let pill = RoundedRectangle(cornerRadius: corner, style: .continuous)
 
             ZStack(alignment: .leading) {
@@ -70,10 +68,10 @@ struct TrimStrip: View {
                     .allowsHitTesting(false)
                 }
 
-                // The bracket: a thick white frame with rounded ends, the
-                // handles being its two ends.
+                // The bracket: two straight white lines along the top and
+                // bottom, the handles being its two ends.
                 RoundedRectangle(cornerRadius: corner, style: .continuous)
-                    .strokeBorder(.white, lineWidth: 4)
+                    .strokeBorder(.white, lineWidth: TrimStyle.bracket)
                     .frame(width: max(handleWidth * 2, right - left))
                     .offset(x: left)
                     .allowsHitTesting(false)
@@ -102,24 +100,7 @@ struct TrimStrip: View {
     /// dragged, so a finger covering the handle can still tell it has hold of
     /// it. Borrowed here, in the app's accent rather than yellow.
     private func handle(height: CGFloat, leading: Bool, held: Bool) -> some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: leading ? height / 2 : 0,
-            bottomLeadingRadius: leading ? height / 2 : 0,
-            bottomTrailingRadius: leading ? 0 : height / 2,
-            topTrailingRadius: leading ? 0 : height / 2,
-            style: .continuous
-        )
-        .fill(held ? Theme.accent : .white)
-        .frame(width: handleWidth)
-        .overlay {
-            Capsule()
-                .fill(held ? Theme.onAccent.opacity(0.9) : Color(white: 0.3))
-                .frame(width: 3, height: 26)
-        }
-        .animation(.snappy(duration: 0.15), value: held)
-        // Reachable: the grip is 22pt but a thumb is not, so the touch area
-        // runs 12pt past it on every side.
-        .contentShape(Rectangle().inset(by: -12))
+        TrimHandle(leading: leading, held: held)
     }
 
     private func drag(scale: CGFloat, width: CGFloat, leading: Bool) -> some Gesture {
@@ -208,15 +189,57 @@ struct FrameRow: View {
     }
 }
 
+/// One look for every trim strip in the app: a rectangle with a small
+/// corner, a thin bracket, and flat handles with a chevron grip -- iOS Photos'
+/// trimmer, in white.
+enum TrimStyle {
+    static let corner: CGFloat = 6
+    static let bracket: CGFloat = 3
+    static let handleWidth: CGFloat = 18
+    /// Tall enough to hold, short enough to read as a line under the video.
+    static let height: CGFloat = 64
+}
+
+/// A handle: square on the inside, the strip's small corner on the outside,
+/// and a chevron that says which way it pulls.
+struct TrimHandle: View {
+    let leading: Bool
+    var held = false
+
+    var body: some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: leading ? TrimStyle.corner : 0,
+            bottomLeadingRadius: leading ? TrimStyle.corner : 0,
+            bottomTrailingRadius: leading ? 0 : TrimStyle.corner,
+            topTrailingRadius: leading ? 0 : TrimStyle.corner,
+            style: .continuous
+        )
+        // iOS Photos turns its trim markers a different colour the moment one
+        // is dragged, so a finger covering the handle can still tell it has
+        // hold of it. Here, the app's accent.
+        .fill(held ? Theme.accent : .white)
+        .frame(width: TrimStyle.handleWidth)
+        .overlay {
+            Image(systemName: leading ? "chevron.compact.left" : "chevron.compact.right")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(held ? Theme.onAccent : Color(white: 0.25))
+        }
+        .animation(.snappy(duration: 0.15), value: held)
+        // Reachable: the grip is 18pt but a thumb is not, so the touch area
+        // runs 12pt past it on every side.
+        .contentShape(Rectangle().inset(by: -12))
+    }
+}
+
 /// The line where playback is: thin, white, with a shadow so it reads on
 /// any frame.
 struct Playhead: View {
     let height: CGFloat
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 1.5)
+        RoundedRectangle(cornerRadius: 1)
             .fill(.white)
-            .frame(width: 3, height: height)
+            .frame(width: 2, height: height)
             .shadow(color: .black.opacity(0.6), radius: 2)
     }
 }

@@ -79,9 +79,16 @@ struct EditorView: View {
     @State private var exportTask: Task<Void, Never>?
     @State private var rendered: Rendered?
     @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
 
-    init(clips: [StudioClip]) {
+    /// True when the editor is the first screen of its own cover (opened from
+    /// a video in chat), where the system draws no back button. Netro, 18 Oct
+    /// 2026: "there is no back button" -- there was nothing to leave by.
+    private let ownsBackButton: Bool
+
+    init(clips: [StudioClip], ownsBackButton: Bool = false) {
         _project = State(initialValue: StudioProject(clips: clips))
+        self.ownsBackButton = ownsBackButton
     }
 
     private var selectedClip: StudioClip? {
@@ -111,6 +118,18 @@ struct EditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         .pushedPage()
         .toolbar {
+            if ownsBackButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        playback.player.pause()
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.backward")
+                            .font(.body.weight(.semibold))
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 // 🔴 The word has to fit. `RemiFilledButtonStyle` adds 14pt of
                 // horizontal padding inside a capsule, which pushed the label
@@ -121,11 +140,16 @@ struct EditorView: View {
                 //
                 // The system's own prominent style is sized for the bar, so it
                 // fits, and it keeps the filled look the screen wants.
+                //
+                // 18 Oct 2026: iOS 26's own prominent glass, tinted with the
+                // accent, so it reads on the dark editor as well as the light
+                // one ("there is no next button visible").
                 Button("Next") { startExport() }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.capsule)
-                    .controlSize(.small)
+                    .font(.body.weight(.semibold))
+                    .buttonStyle(.glassProminent)
+                    .tint(Theme.accent)
                     .fixedSize()
+                    .accessibilityLabel("Next")
             }
             // The filled button stands on its own: iOS 26 otherwise puts its
             // own glass behind every bar item, and a black button on a glass
@@ -186,31 +210,47 @@ struct EditorView: View {
             .padding(.horizontal, Style.gutter)
     }
 
-    /// Play, the time, add clips, undo. The scrubbing itself is the strip.
+    /// Play, the time, undo, redo, add. The scrubbing itself is the strip.
+    ///
+    /// Netro, 18 Oct 2026: "make the buttons around it perfect". Four
+    /// different glyph sizes, undo hidden in a menu behind a circled arrow, and
+    /// nothing a thumb could aim at. Now one round glass button each, the same
+    /// size, with the time between them.
     private var transport: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 10) {
             Button { playback.toggle(duration: project.duration) } label: {
-                Image(systemName: playback.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3)
-                    .frame(width: 32)
+                TransportGlyph(symbol: playback.isPlaying ? "pause.fill" : "play.fill")
+                    .contentTransition(.symbolEffect(.replace))
             }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
+            .accessibilityLabel(playback.isPlaying ? "Pause" : "Play")
+
             Text("\(Clock.format(playback.time)) / \(Clock.format(project.duration))")
-                .font(.caption.monospacedDigit())
+                .font(.subheadline.weight(.medium).monospacedDigit())
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .layoutPriority(1)
+
             Spacer(minLength: 0)
+
+            Button { undo() } label: { TransportGlyph(symbol: "arrow.uturn.backward") }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .disabled(!history.canUndo)
+                .accessibilityLabel("Undo")
+            Button { redo() } label: { TransportGlyph(symbol: "arrow.uturn.forward") }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .disabled(!history.canRedo)
+                .accessibilityLabel("Redo")
             PhotosPicker(selection: $adding, maxSelectionCount: 10, selectionBehavior: .ordered,
                          matching: .any(of: [.videos, .images])) {
-                Image(systemName: "plus.circle").font(.title3)
+                TransportGlyph(symbol: "plus")
             }
+            .buttonStyle(.glass)
+            .buttonBorderShape(.circle)
             .accessibilityLabel("Add clips")
-            Menu {
-                Button { undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                    .disabled(!history.canUndo)
-                Button { redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
-                    .disabled(!history.canRedo)
-            } label: {
-                Image(systemName: "arrow.uturn.backward.circle").font(.title3)
-            }
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, Style.gutter)
@@ -239,7 +279,7 @@ struct EditorView: View {
             onMove: { id, by in change { $0.move(id, by: by) } },
             onDelete: { id in change { $0.remove(id) } }
         )
-        .frame(height: 92)
+        .frame(height: TrimStyle.height)
         .padding(.horizontal, Style.gutter)
     }
 
@@ -344,6 +384,18 @@ struct EditorView: View {
                 if !Task.isCancelled { problem = "The video couldn't be made. Try again." }
             }
         }
+    }
+}
+
+/// One glyph in the transport row, all the same size, so the round buttons
+/// around them come out the same size too.
+private struct TransportGlyph: View {
+    let symbol: String
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .semibold))
+            .frame(width: 26, height: 26)
     }
 }
 
@@ -721,7 +773,7 @@ private struct ProjectStrip: View {
     @State private var drag: Drag?
 
     private let gap: CGFloat = 2
-    private let handleWidth: CGFloat = 22
+    private let handleWidth: CGFloat = TrimStyle.handleWidth
 
     /// How long each clip's whole source is on the timeline, at its speed.
     private func sourceLength(_ clip: StudioClip) -> Double {
@@ -747,10 +799,10 @@ private struct ProjectStrip: View {
                         let (start, end) = trim(of: clip)
                         let startX = CGFloat(start / clip.speed) * scale
                         let endX = CGFloat(end / clip.speed) * scale
-                        let shape = RoundedRectangle(
-                            cornerRadius: project.clips.count == 1 ? height / 2 : 12,
-                            style: .continuous
-                        )
+                        // 🔴 A rectangle. One clip used to be cut to
+                        // `height / 2` -- a pill -- which is what Netro saw
+                        // (18 Oct 2026: "I want it to be like a rectangle").
+                        let shape = RoundedRectangle(cornerRadius: TrimStyle.corner, style: .continuous)
 
                         SegmentFrames(clip: clip, width: segment, height: height)
                             .overlay(alignment: .leading) {
@@ -782,18 +834,16 @@ private struct ProjectStrip: View {
                     let (start, end) = trim(of: clip)
                     let left = lefts[index] + CGFloat(start / clip.speed) * scale
                     let right = lefts[index] + CGFloat(end / clip.speed) * scale
-                    let radius = project.clips.count == 1 ? height / 2 : 12
-
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .strokeBorder(.white, lineWidth: 4)
+                    RoundedRectangle(cornerRadius: TrimStyle.corner, style: .continuous)
+                        .strokeBorder(.white, lineWidth: TrimStyle.bracket)
                         .frame(width: max(handleWidth * 2, right - left))
                         .offset(x: left)
                         .allowsHitTesting(false)
 
-                    handle(height: height, radius: radius, leading: true)
+                    TrimHandle(leading: true, held: drag?.id == clip.id)
                         .offset(x: left)
                         .gesture(trimGesture(clip: clip, left: lefts[index], scale: scale, leading: true))
-                    handle(height: height, radius: radius, leading: false)
+                    TrimHandle(leading: false, held: drag?.id == clip.id)
                         .offset(x: right - handleWidth)
                         .gesture(trimGesture(clip: clip, left: lefts[index], scale: scale, leading: false))
                 }
@@ -834,24 +884,6 @@ private struct ProjectStrip: View {
         }
         let clip = project.clips[hit.index]
         return lefts[hit.index] + CGFloat(clip.trimStart / clip.speed + hit.offset) * scale
-    }
-
-    private func handle(height: CGFloat, radius: CGFloat, leading: Bool) -> some View {
-        UnevenRoundedRectangle(
-            topLeadingRadius: leading ? radius : 0,
-            bottomLeadingRadius: leading ? radius : 0,
-            bottomTrailingRadius: leading ? 0 : radius,
-            topTrailingRadius: leading ? 0 : radius,
-            style: .continuous
-        )
-        .fill(.white)
-        .frame(width: handleWidth)
-        .overlay {
-            Capsule()
-                .fill(Color(white: 0.3))
-                .frame(width: 3, height: 26)
-        }
-        .contentShape(Rectangle().inset(by: -12))
     }
 
     // MARK: - Gestures

@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @main
 struct ContentAppApp: App {
@@ -9,13 +10,17 @@ struct ContentAppApp: App {
 
     init() {
         AppTips.configure()
-        if Self.paywallPreview { Self.seedPreviewPrices() }
+        if Self.paywallPreview || Self.welcomePreview { Self.seedPreviewPrices() }
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if Self.paywallPreview {
+                if Self.welcomePreview {
+                    PaywallView(previewWelcome: .max)
+                } else if Self.editorPreview {
+                    NavigationStack { EditorView(clips: [Self.previewClip()], ownsBackButton: true) }
+                } else if Self.paywallPreview {
                     PaywallView()
                 } else {
                     RootView()
@@ -23,7 +28,9 @@ struct ContentAppApp: App {
             }
             .environment(session)
             .task {
-                if Self.paywallPreview {
+                if Self.welcomePreview || Self.editorPreview {
+                    await session.loadPlanTiers()
+                } else if Self.paywallPreview {
                     await session.loadPlanTiers()
                     await session.loadProducts()
                 } else {
@@ -47,12 +54,33 @@ private extension ContentAppApp {
     /// subscription needs one, and the `ios-paywall-shot` lane launches a
     /// simulator build with `-paywallPreview` and photographs it. Debug builds
     /// only, so nothing shipped can be opened this way.
-    static var paywallPreview: Bool {
+    static var paywallPreview: Bool { launchedWith("-paywallPreview") }
+
+    /// The welcome after a purchase, and the editor opened the way chat opens
+    /// it, for the same lane to photograph (18 Oct 2026).
+    static var welcomePreview: Bool { launchedWith("-welcomePreview") }
+    static var editorPreview: Bool { launchedWith("-editorPreview") }
+
+    static func launchedWith(_ argument: String) -> Bool {
         #if DEBUG
-        ProcessInfo.processInfo.arguments.contains("-paywallPreview")
+        ProcessInfo.processInfo.arguments.contains(argument)
         #else
         false
         #endif
+    }
+
+    /// A picture to edit, drawn here: the simulator has no photo library.
+    static func previewClip() -> StudioClip {
+        let size = CGSize(width: 1080, height: 1920)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let colors = [UIColor.systemIndigo.cgColor, UIColor.systemTeal.cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("preview-clip.jpg")
+        try? image.jpegData(compressionQuality: 0.9)?.write(to: url)
+        return .photo(url)
     }
 
     /// The approved US prices (Netro, 2 Oct 2026), for a simulator that has

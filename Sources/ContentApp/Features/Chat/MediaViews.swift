@@ -232,7 +232,7 @@ struct VideoCard: View {
             MediaViewer(artifact: artifact, preview: shownPoster)
         }
         .fullScreenCover(item: $editing) { editable in
-            NavigationStack { EditorView(clips: [editable.clip]) }
+            NavigationStack { EditorView(clips: [editable.clip], ownsBackButton: true) }
         }
     }
 }
@@ -824,7 +824,7 @@ struct MediaViewer: View {
         }
         .padding(.bottom, 16)
         .fullScreenCover(item: $editing) { editable in
-            NavigationStack { EditorView(clips: [editable.clip]) }
+            NavigationStack { EditorView(clips: [editable.clip], ownsBackButton: true) }
         }
     }
 

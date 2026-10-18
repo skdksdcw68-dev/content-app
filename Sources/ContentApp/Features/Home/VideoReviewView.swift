@@ -56,8 +56,7 @@ struct VideoReviewView: View {
                     position: position,
                     onScrub: { seek(to: $0) }
                 )
-                // Google Photos' size: a strip you can actually hold.
-                .frame(height: 92)
+                .frame(height: TrimStyle.height)
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .onChange(of: trimStart) { _, at in seek(to: at) }

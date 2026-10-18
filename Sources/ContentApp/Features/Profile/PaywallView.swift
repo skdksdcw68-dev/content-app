@@ -39,11 +39,17 @@ struct PaywallView: View {
     @State private var restoring = false
     @State private var managing = false
 
+    /// The tier just bought: the welcome is showing (18 Oct 2026).
+    @State private var welcomed: Tier?
+
     /// Set when shown as an onboarding step rather than a sheet.
     private let onClose: (() -> Void)?
 
-    init(onClose: (() -> Void)? = nil) {
+    /// `previewWelcome` opens straight on the welcome, for the simulator lane
+    /// that photographs it (Debug only, see ContentAppApp).
+    init(onClose: (() -> Void)? = nil, previewWelcome: Tier? = nil) {
         self.onClose = onClose
+        _welcomed = State(initialValue: previewWelcome)
     }
 
     private func close() {
@@ -212,6 +218,19 @@ struct PaywallView: View {
                 }
             }
         }
+        .overlay {
+            if let welcomed {
+                PurchaseWelcomeView(
+                    tier: welcomed,
+                    features: bullets(welcomed),
+                    standing: session.credits,
+                    confirmed: (session.subscription?.tier ?? (session.subscription?.isPro == true ? 1 : 0)) >= welcomed.rank,
+                    onDone: close
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.98)))
+            }
+        }
+        .animation(.smooth(duration: 0.35), value: welcomed)
         .manageSubscriptionsSheet(isPresented: $managing)
         .task { await load() }
     }
@@ -500,10 +519,24 @@ struct PaywallView: View {
         do {
             switch try await choice.purchase(options: options) {
             case .success(let verification):
+                guard case .verified = verification else {
+                    session.lastError = "Apple couldn’t confirm that purchase."
+                    return
+                }
+                // 🔴 The welcome first, the server after. Apple has confirmed
+                // the purchase on the phone already; waiting for
+                // `verify-purchase` before saying so left a spinner on the
+                // button for up to a minute (Netro, 18 Oct 2026). The welcome
+                // fills in the month's numbers when the server has them.
+                welcomed = tier
+                buying = false
                 await session.completePurchase(verification)
                 await session.refreshCredits()
-                if session.subscription?.isPro == true { close() }
-            case .pending, .userCancelled:
+            case .pending:
+                // Ask to Buy, or a card that needs another step: nothing is
+                // bought yet, and saying nothing looked like a frozen button.
+                session.lastError = "Your purchase is waiting for approval. Your plan starts as soon as it goes through."
+            case .userCancelled:
                 break
             @unknown default:
                 break

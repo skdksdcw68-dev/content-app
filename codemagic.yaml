@@ -296,10 +296,22 @@ workflows:
           xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
           xcrun simctl install "$UDID" "$APP"
           BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
-          xcrun simctl launch "$UDID" "$BUNDLE" -paywallPreview
-          sleep 25
           mkdir -p build/shots
-          xcrun simctl io "$UDID" screenshot build/shots/paywall.png
-          sips -g pixelWidth -g pixelHeight build/shots/paywall.png
+          # One launch per screen: the paywall (the review screenshot), the
+          # welcome after a purchase, and the editor opened the way chat
+          # opens it.
+          for SHOT in paywall welcome editor; do
+            xcrun simctl terminate "$UDID" "$BUNDLE" || true
+            xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview"
+            # The welcome is caught mid-confetti; the others once settled.
+            if [ "$SHOT" = welcome ]; then sleep 2.5; else sleep 20; fi
+            xcrun simctl io "$UDID" screenshot "build/shots/$SHOT.png"
+            if [ "$SHOT" = welcome ]; then
+              # And once the confetti has fallen, to see the screen itself.
+              sleep 4
+              xcrun simctl io "$UDID" screenshot "build/shots/welcome-settled.png"
+            fi
+          done
+          ls -la build/shots
     artifacts:
       - build/shots/*.png

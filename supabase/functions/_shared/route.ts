@@ -174,7 +174,14 @@ export function missingForPlan(known: Knowledge, strategy: Record<string, unknow
  * misread is a conversation instead of a month of content, which is the cheap
  * direction to be wrong in.
  */
-export async function route(message: string, apiKey: string, context = ""): Promise<Routed> {
+export async function route(
+  message: string,
+  apiKey: string,
+  context = "",
+  /** Told what the call cost, so it can be recorded and taken from the
+   *  person's meter. It runs on every message and was never counted. */
+  onUsage?: (model: string, usage: { prompt_tokens?: number; completion_tokens?: number } | null) => Promise<void>,
+): Promise<Routed> {
   const system = [
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
@@ -247,6 +254,7 @@ export async function route(message: string, apiKey: string, context = ""): Prom
     if (!response.ok) return fallback(message);
 
     const body = await response.json();
+    await onUsage?.(body.model ?? MODELS.chat, body.usage ?? null).catch(() => {});
     const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
     const intent = parsed?.intent;
     const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;

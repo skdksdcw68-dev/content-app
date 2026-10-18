@@ -17,6 +17,12 @@ struct QuotaStanding: Decodable, Equatable, Sendable {
 
     var left: Int { max(0, limitValue - used) }
 
+    /// How much of the month is still there, 0 to 100.
+    var percentLeft: Double {
+        guard limitValue > 0 else { return 0 }
+        return min(100, max(0, 100 * Double(left) / Double(limitValue)))
+    }
+
     enum CodingKeys: String, CodingKey {
         case kind, used
         case limitValue = "limit_value"

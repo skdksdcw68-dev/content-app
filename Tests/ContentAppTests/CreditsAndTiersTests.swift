@@ -1,7 +1,8 @@
 import XCTest
 @testable import ContentApp
 
-/// Credits, and the three plans they are spent in (29 Sep 2026, migration 0077).
+/// The usage meter, and the three plans it is spent in (29 Sep 2026, migration
+/// 0077; in % since 18 Oct 2026, migration 0079).
 ///
 /// Every one of these is a way the money side could be wrong without anything
 /// crashing: a product id typed one letter off is a paywall that sells nothing,
@@ -59,6 +60,26 @@ final class CreditsAndTiersTests: XCTestCase {
         XCTAssertEqual(CreditFormat.text(35), "35")
     }
 
+    /// Netro, 18 Oct 2026: "count with % like claude and chatgpt". A share is
+    /// read the way people read one -- never "0%" for something that costs.
+    func testASharesReadsLikeAUsageMeter() {
+        XCTAssertEqual(UsageFormat.percent(0), "0%")
+        XCTAssertEqual(UsageFormat.percent(0.01), "under 1%", "a chat reply")
+        XCTAssertEqual(UsageFormat.percent(4.4), "4%")
+        XCTAssertEqual(UsageFormat.percent(62.5), "63%")
+        XCTAssertEqual(UsageFormat.short(0.3), "<1%")
+        XCTAssertEqual(UsageFormat.short(12), "12%")
+    }
+
+    /// Max is 3x Pro and Ultra 8x, as 0079 sets the budgets ($8, $24, $64).
+    func testTheFallbackUsageMatchesTheServer() {
+        XCTAssertEqual(Tier.pro.fallbackUsage, 1)
+        XCTAssertEqual(Tier.max.fallbackUsage, 3)
+        XCTAssertEqual(Tier.ultra.fallbackUsage, 8)
+        XCTAssertEqual(Tier.max.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.max.fallbackUsage)
+        XCTAssertEqual(Tier.ultra.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.ultra.fallbackUsage)
+    }
+
     // MARK: - What a plan reply looks like
 
     /// An older server does not send `name` or `tier`. Reading who is Pro must
@@ -102,24 +123,32 @@ final class CreditsAndTiersTests: XCTestCase {
         let json = #"{"plan":"free","name":"Free","tier":0,"allowance":0,"used":0,"left":0,"resets_at":null}"#
         let standing = try JSONDecoder().decode(CreditsStanding.self, from: Data(json.utf8))
         XCTAssertEqual(standing.fractionLeft, 0)
+        XCTAssertEqual(standing.percentLeft, 0)
+    }
+
+    /// 0079's reply: the server's own % wins over the counts.
+    func testTheMeterReadsTheServersPercent() throws {
+        let json = #"""
+        {"plan":"creator","name":"Pro","tier":1,"allowance":80000,"used":20000,"left":60000,
+         "percent_used":25.0,"budget_usd":8.0,"unit_usd":0.0001,"resets_at":"2026-11-16T04:45:15+00:00"}
+        """#
+        let standing = try JSONDecoder().decode(CreditsStanding.self, from: Data(json.utf8))
+        XCTAssertEqual(standing.percentUsed, 25, accuracy: 0.001)
+        XCTAssertEqual(standing.percentLeft, 75, accuracy: 0.001)
+        XCTAssertEqual(standing.budgetUSD, 8)
     }
 
     // MARK: - The price the send button shows
 
-    /// The phone and the server round the same way, so the number on the button
-    /// is the number taken. The server's adapter hands over a price that is
-    /// already a whole number of credits (2 Oct 2026, the rate card), so a credit
-    /// is a cent here and a half can never split the two.
-    func testACreditIsACent() {
+    /// The phone and the server count the same units ($0.0001, 0079), and the
+    /// adapter hands over prices in whole cents, so the two can never split.
+    func testAMeterUnitIsAHundredthOfACent() {
         func cost(_ dollars: Double) -> ModelCost {
             ModelCost(unit: "usd", amount: dollars, basis: nil, quoted: false)
         }
-        XCTAssertEqual(cost(0.35).credits, 35, "a five-second Kling clip")
-        XCTAssertEqual(cost(0.01).credits, 1)
-        XCTAssertEqual(cost(0.05).credits, 5, "a Nano Banana picture")
-        XCTAssertEqual(cost(1.05).credits, 105, "a five-second Kling 3 clip")
-        XCTAssertEqual(cost(0.0004).credits, 1, "never rounds to nothing")
-        XCTAssertEqual(cost(4.8).credits, 480, "Veo 3.1 with sound, eight seconds")
+        XCTAssertEqual(cost(0.35).credits, 3_500, "a five-second Kling clip")
+        XCTAssertEqual(cost(0.01).credits, 100)
+        XCTAssertEqual(cost(0.00004).credits, 1, "never rounds to nothing")
     }
 
     func testAPriceNotInDollarsIsNotACreditCount() {
@@ -146,7 +175,7 @@ final class CreditsAndTiersTests: XCTestCase {
         let plain = try model(#"{"audio":true}"#)
         XCTAssertEqual(plain.minimumTier(isVideo: true), 1)
         XCTAssertEqual(plain.unlockedBy(isVideo: true), "Pro")
-        XCTAssertEqual(plain.minimumTier(isVideo: false), 0, "a cheap picture is free")
+        XCTAssertEqual(plain.minimumTier(isVideo: false), 1, "nothing is free to make (2 Oct 2026)")
 
         let premium = try model(#"{"audio":true,"minTier":2}"#)
         XCTAssertEqual(premium.minimumTier(isVideo: true), 2)
@@ -168,9 +197,9 @@ final class CreditsAndTiersTests: XCTestCase {
 
     // MARK: - What a series is expected to cost
 
-    func testASeriesClipIsEstimatedAtAboutSevenCreditsASecondUpToTen() {
-        XCTAssertEqual(SeriesCost.perVideo(seconds: 5), 35)
-        XCTAssertEqual(SeriesCost.perVideo(seconds: 30), 70, "clips stop at about ten seconds")
-        XCTAssertEqual(SeriesCost.perVideo(seconds: nil), 35)
+    func testASeriesClipIsEstimatedAtTheDefaultModelsRateUpToTenSeconds() {
+        XCTAssertEqual(SeriesCost.perVideoUSD(seconds: 5), 0.35, accuracy: 0.0001)
+        XCTAssertEqual(SeriesCost.perVideoUSD(seconds: 30), 0.70, accuracy: 0.0001, "clips stop at about ten seconds")
+        XCTAssertEqual(SeriesCost.perVideoUSD(seconds: nil), 0.35, accuracy: 0.0001)
     }
 }

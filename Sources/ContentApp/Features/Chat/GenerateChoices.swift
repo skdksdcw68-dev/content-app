@@ -78,7 +78,9 @@ struct GenerateChoices: Equatable {
         [startFrame?.path, endFrame?.path].compactMap { $0 }
     }
 
-    /// What this exact request would cost, in credits.
+    /// What this exact request would cost, in meter units ($0.0001 each,
+    /// migration 0079). Not shown anywhere: screens show a share of the month
+    /// (`AppSession.usageShare`). Kept for code that compares two prices.
     ///
     /// Abel, 26 Sep 2026: "for generating videos and images make sure the send
     /// button has the credits thing also". Now possible to answer honestly,
@@ -97,7 +99,7 @@ struct GenerateChoices: Equatable {
     /// Kling clip is 35, Veo 3.1 with sound is 480, a picture is 1 to 40.
     static func credits(from cost: ModelCost?) -> Int? {
         guard let amount = cost?.amount, cost?.unit == "usd" else { return nil }
-        return max(1, Int((amount * 100).rounded()))
+        return max(1, Int((amount * 10_000).rounded()))
     }
 
     var count: Int {
@@ -279,10 +281,12 @@ extension ModelCost {
 }
 
 extension ModelChoice {
-    /// The plan rank a person needs to use it: 1 Pro, 2 Max, 3 Ultra. Video is
-    /// a paid feature at all; a model's own `minTier` can raise that.
+    /// The plan rank a person needs to use it: 1 Pro, 2 Max, 3 Ultra. Making
+    /// anything at all is a paid feature -- pictures too, since "they only get
+    /// paid things" (2 Oct 2026), and the server refuses them on Free
+    /// (`chargeForGeneration`). A model's own `minTier` can raise that.
     func minimumTier(isVideo: Bool) -> Int {
-        constraints.minTier ?? (isVideo ? 1 : 0)
+        max(1, constraints.minTier ?? 1)
     }
 
     /// "Pro", "Max", "Ultra": the name of the plan that unlocks it.

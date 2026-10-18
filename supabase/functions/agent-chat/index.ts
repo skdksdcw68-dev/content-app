@@ -29,8 +29,7 @@ import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose
 import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
-import { requireQuota } from "../_shared/quota.ts";
-import { type Charge, chargeForGeneration, refundCredits } from "../_shared/credits.ts";
+import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -167,9 +166,10 @@ Deno.serve(async (request) => {
 
     const body = (await request.json().catch(() => ({}))) as Body;
 
-    // One message, one unit of this month's chat allowance.
-    await requireQuota(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id, "chat",
-      "You’ve used this month’s chat messages. Autocast Pro gives you 1,000 a month.");
+    // Chat draws on the same monthly meter as everything else (0079): the
+    // reply's real cost is taken from its tokens once it is written. Here it
+    // is only refused when the month is already used up.
+    await requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
 
     const history = (body.messages ?? [])
       .filter((turn) => typeof turn?.content === "string" && turn.content.trim())
@@ -388,7 +388,9 @@ Deno.serve(async (request) => {
             }),
           });
           if (!response.ok) throw new Error(`strategy ${response.status}`);
-          const drafted = JSON.parse((await response.json()).choices?.[0]?.message?.content ?? "{}");
+          const completion = await response.json();
+          await recordUsage(admin, { userId: auth.user!.id, brandId: brand.id, kind: "campaign_write", model: completion.model ?? MODELS.deep, usage: completion.usage });
+          const drafted = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}");
 
           const pillars = (Array.isArray(drafted.pillars) ? drafted.pillars : [])
             .slice(0, 4)
@@ -748,15 +750,18 @@ Deno.serve(async (request) => {
 
         /** The balance, as one line of STATE. Only when they asked about money. */
         const balanceLine = async (): Promise<string> => {
+          // Autocast's own meter first: it is what pays for everything made on
+          // our generator, and for chat itself (0079). In %, never units.
+          const usage = await usageLine(admin, auth.user!.id);
           const { data } = await asUser.rpc("my_connections");
           const door = ((data ?? []) as Array<{ id: string; provider_name: string; auth_kind: string | null; status: string }>)
             .find((c) => c.auth_kind !== "api_key" && c.status === "active");
-          if (!door) return "Balance: nothing connected that has one.";
+          if (!door) return usage;
           send({ t: "step", kind: "reading", detail: `Checking your ${door.provider_name} credits` });
           const balance = await balanceFor(admin, door.id);
-          return balance
+          return `${usage}\n` + (balance
             ? `Balance on ${door.provider_name}: ${trim(balance.amount)} ${balance.unit}${balance.plan ? ` (${balance.plan} plan)` : ""}.`
-            : `Balance: ${door.provider_name} didn't say just now.`;
+            : `Balance: ${door.provider_name} didn't say just now.`);
         };
 
         const trim = (n: number) => String(Number(n.toFixed(2)));
@@ -1080,7 +1085,8 @@ Deno.serve(async (request) => {
           // for a plain reply, but waiting for the router before starting it
           // put seconds in front of the first word.
           const [routed, brandRead, recentRead, baseState] = await Promise.all([
-            route(asked, OPENAI_KEY, context),
+            route(asked, OPENAI_KEY, context, (model, usage) =>
+              recordUsage(admin, { userId: auth.user!.id, brandId: brandWanted ?? null, kind: "chat_route", model, usage })),
             brandWanted
               ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
               : asUser.from("brands").select("id, name, niche, audience")
@@ -1307,6 +1313,8 @@ How to answer:
                 // is worth it, and the smaller one read them out like a table.
                 model: MODEL,
                 stream: true,
+                // The last chunk then carries the real token counts.
+                stream_options: { include_usage: true },
                 messages: [
                   { role: "system", content: rules },
                   { role: "system", content: `DATA:\n${JSON.stringify(data)}` },
@@ -1325,6 +1333,7 @@ How to answer:
             const reader = upstream.body.getReader();
             const decoder = new TextDecoder();
             let buffered = "";
+            let insightUsage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
@@ -1337,7 +1346,9 @@ How to answer:
                 const payload = line.slice(6).trim();
                 if (payload === "[DONE]") continue;
                 try {
-                  const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
+                  const parsed = JSON.parse(payload);
+                  if (parsed?.usage) insightUsage = parsed.usage;
+                  const delta = parsed?.choices?.[0]?.delta?.content;
                   if (typeof delta === "string" && delta.length > 0) speak(delta);
                 } catch {
                   // One unreadable frame is one frame; the answer continues.
@@ -1346,6 +1357,7 @@ How to answer:
             }
 
             await remember();
+            await recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "insight_reply", model: MODEL, usage: insightUsage });
             return finish();
           }
 

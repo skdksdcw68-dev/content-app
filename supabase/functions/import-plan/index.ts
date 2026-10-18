@@ -19,6 +19,8 @@ import { strFromU8, unzipSync } from "https://esm.sh/fflate@0.8.2";
 import { extractText, getDocumentProxy } from "npm:unpdf@0.12.1";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { MODELS } from "../_shared/route.ts";
+import { requireUsage } from "../_shared/credits.ts";
+import { costUSD, takeUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -76,6 +78,9 @@ Deno.serve(async (request) => {
     const { data: auth } = await asUser.auth.getUser();
     if (!auth.user) throw new PublicError("Sign in first.", 401);
     const userId = auth.user.id;
+    // Refused only when this month's usage is already gone; what the call
+    // really costs is taken from its tokens afterwards (0079).
+    await requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
 
     const body = (await request.json().catch(() => ({}))) as Body;
 
@@ -111,10 +116,12 @@ Deno.serve(async (request) => {
     let objective = "";
     const found: Found[] = [];
     let tokens = 0;
+    let costUsd = 0;
     for (let start = 0; start < text.length; start += CHUNK) {
       const piece = text.slice(start, start + CHUNK);
       const result = await extract(piece, found.length, todayIn(brand.timezone));
       tokens += result.tokens;
+      costUsd += result.costUsd ?? 0;
       if (!title && result.title) title = result.title;
       if (!objective && result.objective) objective = result.objective;
       found.push(...result.posts);
@@ -280,7 +287,10 @@ Deno.serve(async (request) => {
       cost_cents: 0,
       ref_table: "content_plans",
       ref_id: plan.id,
+      model: MODEL,
+      cost_usd: costUsd || null,
     }).then(() => {}, () => {});
+    await takeUsage(admin, userId, costUsd, "plan_import");
 
     return json({
       plan_id: plan.id,
@@ -371,7 +381,7 @@ function decodeEntities(text: string): string {
 
 // --------------------------------------------------------------- extracting
 
-async function extract(piece: string, already: number, today: string): Promise<{ title: string; objective: string; posts: Found[]; tokens: number }> {
+async function extract(piece: string, already: number, today: string): Promise<{ title: string; objective: string; posts: Found[]; tokens: number; costUsd: number | null }> {
   const system = [
     "You read a content plan somebody wrote and list the posts that are in it.",
     'Return JSON only: {"title":string,"posts":[{"day":number|null,"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,"hook":string,"caption":string,"concept":string,"hashtags":[string],"cta":string,"format":"video"|"photo"|"carousel"}]}.',
@@ -412,10 +422,11 @@ async function extract(piece: string, already: number, today: string): Promise<{
       objective: typeof parsed.objective === "string" ? parsed.objective.trim() : "",
       posts: Array.isArray(parsed.posts) ? parsed.posts : [],
       tokens: completion.usage?.total_tokens ?? 0,
+      costUsd: costUSD(completion.model ?? MODEL, completion.usage),
     };
   } catch {
     console.error("unparseable extraction");
-    return { title: "", objective: "", posts: [], tokens: completion.usage?.total_tokens ?? 0 };
+    return { title: "", objective: "", posts: [], tokens: completion.usage?.total_tokens ?? 0, costUsd: costUSD(completion.model ?? MODEL, completion.usage) };
   }
 }
 

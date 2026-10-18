@@ -25,7 +25,7 @@ import { MODELS } from "../_shared/route.ts";
 import { addTarget, attachUpload } from "../_shared/attach.ts";
 import { accountOptions } from "../_shared/accounts.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
-import { requireQuota } from "../_shared/quota.ts";
+import { requireUsage } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -92,13 +92,15 @@ Deno.serve(async (request) => {
     if (!brand) throw new PublicError("That brand is not yours.", 404);
 
     switch (body.step) {
-      case "understand": return json(await understand(admin, userId, brand, body));
+      case "understand":
+        await requireUsage(admin, userId);
+        return json(await understand(admin, userId, brand, body));
       case "prepare":    return json(await prepare(admin, userId, brand, body));
       case "validate":   return json(await validate(admin, userId, brand, body));
       case "compose":    return json(await compose(admin, userId, brand, body));
       case "write":
-        await requireQuota(admin, userId, "ai_write",
-          "You’ve used this month’s AI caption writes. Autocast Pro gives you 500 a month.");
+        // Captions draw on the same monthly meter as everything else (0079).
+        await requireUsage(admin, userId);
         return json(await write(brand, body, admin, userId));
       default:           throw new PublicError("Unknown step.");
     }

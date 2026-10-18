@@ -14,6 +14,8 @@
 // is slower, costlier and less predictable than the arithmetic.
 
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
+import { recordUsage } from "../_shared/usage.ts";
+import { requireUsage } from "../_shared/credits.ts";
 
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -192,6 +194,8 @@ not been told, write about the pillar's subject generally rather than making up
 a specific.`;
 
 async function write(
+  db: SupabaseClient,
+  userId: string,
   pillar: Pillar,
   settings: Settings,
   platform: string,
@@ -239,6 +243,8 @@ ${alreadySaid || "(nothing yet -- this is the first post)"}`;
   if (!response.ok) {
     throw new Error(payload?.error?.message ?? `provider returned ${response.status}`);
   }
+  // Drawn from the owner's usage meter like every other AI call (0079).
+  await recordUsage(db, { userId, kind: "plan_write", model: payload.model ?? WRITE_MODEL, usage: payload.usage });
 
   const draft = JSON.parse(payload.choices[0].message.content) as Draft;
 
@@ -270,6 +276,12 @@ async function planFor(db: SupabaseClient, userId: string): Promise<Record<strin
 
   if (!settings) return { userId, planned: 0, reason: "no settings row" };
   if (!settings.is_on) return { userId, planned: 0, reason: "autopilot is off" };
+  // A month that is used up plans nothing more until it fills again.
+  try {
+    await requireUsage(db, userId);
+  } catch {
+    return { userId, planned: 0, reason: "this month's usage is used up" };
+  }
 
   // An account that cannot publish should not accumulate a queue. An unposted
   // backlog is worse than an empty one.
@@ -340,7 +352,7 @@ async function planFor(db: SupabaseClient, userId: string): Promise<Record<strin
     }
 
     try {
-      const draft = await write(pillar, settings, platform, working);
+      const draft = await write(db, userId, pillar, settings, platform, working);
 
       const { data: inserted, error } = await db
         .from("content_posts")

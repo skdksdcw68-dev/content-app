@@ -26,7 +26,8 @@ import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
 import { canAffordVideo } from "../_shared/connectors/route.ts";
 import { maxPlanDays, NEEDS_PRO } from "../_shared/quota.ts";
-import { costUSD } from "../_shared/usage.ts";
+import { costUSD, takeUsage } from "../_shared/usage.ts";
+import { requireUsage } from "../_shared/credits.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -222,6 +223,9 @@ Deno.serve(async (request) => {
     });
     const { data: auth } = await asUser.auth.getUser();
     if (!auth.user) throw new PublicError("Sign in first.", 401);
+    // Refused only when this month's usage is already gone; what the call
+    // really costs is taken from its tokens afterwards (0079).
+    await requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
 
     const body = (await request.json().catch(() => ({}))) as Body;
     const days = clamp(body.days ?? 30, 1, 60);
@@ -665,6 +669,7 @@ Deno.serve(async (request) => {
       output_tokens: tokensOut,
       cost_usd: costUSD(MODEL, { prompt_tokens: tokensIn, completion_tokens: tokensOut }),
     });
+    await takeUsage(admin, auth.user.id, costUSD(MODEL, { prompt_tokens: tokensIn, completion_tokens: tokensOut }), "plan_write");
 
     return json({
       plan_id: plan.id,

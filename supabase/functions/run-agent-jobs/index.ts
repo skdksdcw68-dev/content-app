@@ -29,6 +29,7 @@ import type { Capability, Submitted } from "../_shared/connectors/contract.ts";
 import { buildDocx, buildPdf, buildZip, type Document } from "../_shared/exports.ts";
 import { imageSize, inspect } from "../_shared/media.ts";
 import { settleCredits } from "../_shared/credits.ts";
+import { recordUsage } from "../_shared/usage.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -162,6 +163,8 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
 
   if (run.step === "queued" || run.step === "planning") {
     const asked = await ask(
+      admin,
+      run,
       MODELS.deep,
       "You plan research. Return JSON only: {\"title\":string,\"questions\":[string]}. " +
         "title: what the finished report is about, under eight words, no quotes, not phrased as a request. " +
@@ -205,6 +208,8 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
     // One question per tick. Slower than looping, and the reason is that a
     // tick which dies loses one answer rather than all of them.
     const answer = await ask(
+      admin,
+      run,
       MODELS.chat,
       "Answer in at most 120 words. Say plainly when you do not know something " +
         "rather than filling the gap -- an invented fact here ends up in somebody's content.",
@@ -234,6 +239,8 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
   if (run.step === "synthesising") {
     const body = findings.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join("\n\n");
     const summary = await ask(
+      admin,
+      run,
       MODELS.deep,
       "Write the findings as something a person can act on. Short paragraphs, no headings, " +
         "no hype. Name what is still unknown rather than papering over it.",
@@ -1016,7 +1023,10 @@ async function tell(admin: Admin, run: Run, text: string, hint: Record<string, u
   });
 }
 
-async function ask(model: string, system: string, user: string): Promise<string> {
+/** One question to a model, recorded and taken from the run owner's usage
+ *  meter (0079) -- research makes five to seven of these and none were
+ *  counted before. */
+async function ask(admin: Admin, run: Run, model: string, system: string, user: string): Promise<string> {
   if (!OPENAI_KEY) throw new Error("no model configured");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -1032,6 +1042,13 @@ async function ask(model: string, system: string, user: string): Promise<string>
     throw new Error(`model ${response.status}: ${(await response.text()).slice(0, 200)}`);
   }
   const completion = await response.json();
+  await recordUsage(admin, {
+    userId: run.user_id,
+    brandId: run.brand_id ?? null,
+    kind: "research",
+    model: completion.model ?? model,
+    usage: completion.usage,
+  });
   return completion.choices?.[0]?.message?.content ?? "";
 }
 

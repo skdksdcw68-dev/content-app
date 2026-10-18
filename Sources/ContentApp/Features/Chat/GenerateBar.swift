@@ -41,7 +41,8 @@ struct GenerateBar: View {
     /// What this exact request costs, asked of the provider whenever the
     /// choices change. Nil while unknown, and shown as nothing rather than
     /// as zero -- free and unpriced are different facts.
-    @State private var credits: Int?
+    /// What the request will take, as a share of the month (0 to 100).
+    @State private var share: Double?
     @State private var pricing: Task<Void, Never>?
 
     var body: some View {
@@ -168,23 +169,24 @@ struct GenerateBar: View {
 
             // What it will cost, beside the send button. Abel, 26 Sep 2026:
             // "make sure the send button has the credits thing also."
-            if let credits {
+            // Netro, 18 Oct 2026: in % of the month, like Claude's usage.
+            if let share {
                 HStack(spacing: 3) {
-                    Image(systemName: "diamond.fill")
-                        .font(.system(size: 8))
-                    Text("\(credits)")
+                    Image(systemName: "gauge.with.dots.needle.33percent")
+                        .font(.system(size: 10))
+                    Text(UsageFormat.short(share))
                         .font(.caption.weight(.semibold).monospacedDigit())
                         .contentTransition(.numericText())
                 }
                 .foregroundStyle(.secondary)
                 .padding(.trailing, 2)
                 .transition(.opacity)
-                .accessibilityLabel("\(credits) credits")
+                .accessibilityLabel("Uses \(UsageFormat.percent(share)) of your month")
             }
         }
         .padding(.leading, 30)
         .padding(.trailing, 4)
-        .animation(.easeOut(duration: 0.2), value: credits)
+        .animation(.easeOut(duration: 0.2), value: share)
         // Re-priced when anything that changes the bill changes: the model,
         // the length, how many, and the resolution. Not on every keystroke --
         // the prompt does not move the price on any provider here.
@@ -227,7 +229,7 @@ private extension GenerateBar {
         guard let model = choices.model else {
             // No model chosen means the router picks, and what it picks
             // decides the price -- so there is no honest number to show yet.
-            credits = nil
+            share = nil
             return
         }
         let cost = await session.quote(
@@ -236,7 +238,7 @@ private extension GenerateBar {
             prompt: request,
             settings: choices.settings
         )
-        credits = GenerateChoices.credits(from: cost)
+        share = session.usageShare(of: cost)
     }
 }
 

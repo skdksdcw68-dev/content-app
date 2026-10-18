@@ -33,6 +33,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { fail, json, preflight, PublicError } from "../_shared/http.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { requireUsage } from "../_shared/credits.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -254,6 +255,9 @@ Deno.serve(async (request) => {
     const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authorization } } });
     const { data: auth } = await asUser.auth.getUser();
     if (!auth.user) throw new PublicError("Sign in first.", 401);
+    // Refused only when this month's usage is already gone; what the call
+    // really costs is taken from its tokens afterwards (0079).
+    await requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
 
     const body = (await request.json().catch(() => ({}))) as Body;
 

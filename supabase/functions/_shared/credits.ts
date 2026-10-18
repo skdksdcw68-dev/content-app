@@ -11,13 +11,13 @@
  * things was never going to be right anyway -- a Wan clip costs us $0.25 and a
  * Veo one with sound $3.20, and both were "one video".
  *
- * One credit is a cent of the RATE CARD'S base price (2 Oct 2026, migration
- * 0079): each model carries its own markup over what the provider charges us,
- * so a Kling clip is 35 credits and Veo 3.1 with sound 480, and no number the
- * customer sees is a dollar amount. The adapter does the multiplying -- the
- * `amount` it quotes is already the price we charge, in whole credits' worth of
- * dollars -- so this file only turns it into a count. A plan is a monthly
- * allowance of them (0077, re-scaled by 0079).
+ * Netro, 18 Oct 2026: count it in % "like claude and chatgpt", with OpenAI and
+ * fal drawing on the same 100. So a "credit" is now one unit of a usage meter,
+ * $0.0001 of the rate card's price (migration 0079), and nobody sees one: the
+ * app shows the month as a %. Each model still carries its own markup over
+ * what the provider charges us (fal.ts `billable`); the adapter does the
+ * multiplying, so this file only turns a price into units. A plan is a
+ * monthly budget of them, sized so no plan can cost more than it earns.
  *
  * The rules, and why each is there:
  *   - Spent BEFORE the job starts. A job that discovers it was over budget
@@ -39,31 +39,53 @@ import { PublicError } from "./http.ts";
 import { candidatesFor, quoteFor } from "./connectors/route.ts";
 import type { Capability, Cost } from "./connectors/contract.ts";
 
-/** One credit is a cent of the rate card's base price. Held equal to the same
- *  constant in `connectors/fal.ts` by `scripts/rate-card-check.ts`. */
-export const CREDIT_USD = 0.01;
+import { CREDIT_USD } from "./usage.ts";
+export { CREDIT_USD };
 
 /** What a job is assumed to cost when nothing can say. Deliberately high: it is
  *  settled to the real charge when the provider gives one, and a person who
  *  cannot afford the guess is told so rather than charged a surprise. */
 const UNPRICED: Record<string, number> = {
-  video_generation: 80,
-  image_generation: 15,
-  audio_generation: 10,
-  voice_generation: 10,
+  video_generation: 30_000,
+  image_generation: 2_000,
+  audio_generation: 1_000,
+  voice_generation: 1_000,
 };
 
 const TIER_NAMES = ["Free", "Pro", "Max", "Ultra"];
-/** What each plan gives, as the refusal sentence says it. Free has none:
- *  nothing is free to make (2 Oct 2026). Kept equal to `plans_catalog`. */
-const ALLOWANCES = ["0", "800", "2,600", "7,000"];
+/** How much each plan gives next to Pro, as the refusal sentence says it.
+ *  Kept equal to `plans_catalog` (0079: $8, $24, $64). */
+const USAGE = ["", "", "3×", "8×"];
 
-/** A price in dollars as credits. The rounding is the app's own
- *  (`GenerateChoices.credits`), so the number on the send button is the number
- *  taken. */
+/** A price in dollars as meter units. The adapter hands over whole cents, so
+ *  this is exact, and the phone's share (price / budget) is the share taken. */
 export function creditsFor(cost: Cost | null | undefined): number | null {
   if (!cost || cost.unit !== "usd" || typeof cost.amount !== "number" || !(cost.amount >= 0)) return null;
   return Math.max(1, Math.round(cost.amount / CREDIT_USD));
+}
+
+/** A share of the month the way people read one: "under 1%", "4%", "100%". */
+export function percentText(units: number, allowance: number): string {
+  if (!(allowance > 0)) return "100%";
+  const share = (100 * units) / allowance;
+  if (share > 0 && share < 1) return "under 1%";
+  return `${Math.round(share)}%`;
+}
+
+/** "18 Nov": when the meter fills up again. */
+function dayText(iso: unknown): string | null {
+  const when = typeof iso === "string" ? new Date(iso) : null;
+  if (!when || Number.isNaN(when.getTime())) return null;
+  return when.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
+/** What to say when the month is used up, or a job needs more than is left. */
+function upsell(tier: number, resetsAt: unknown): string {
+  const day = dayText(resetsAt);
+  const back = day ? `It fills up again on ${day}.` : "It fills up again next month.";
+  if (tier >= 3) return back;
+  if (tier === 0) return "Pick a plan to keep going.";
+  return `${back} ${TIER_NAMES[tier + 1]} gives you ${USAGE[tier + 1]} the usage of Pro.`;
 }
 
 export interface Standing {
@@ -107,14 +129,16 @@ export async function chargeForGeneration(
   const standing = await standingOf(admin, userId);
 
   // Some models are for higher plans: Veo with sound, Seedance 2.5, a 4K
-  // Kling. Video at all is a paid feature. A model's own `minTier` wins.
+  // Kling. Making anything at all is a paid feature -- "there is no free
+  // trial for any new users. They only get paid things" (2 Oct 2026). Free's
+  // small budget is for chat only. A model's own `minTier` can raise it.
   const wanted = Number(candidate?.metadata?.minTier);
-  const minTier = Number.isFinite(wanted) ? wanted : capability === "video_generation" ? 1 : 0;
+  const minTier = Math.max(1, Number.isFinite(wanted) ? wanted : 1);
   if (standing.tier < minTier) {
     const label = candidate?.label ?? "That model";
     throw new PublicError(
       minTier <= 1
-        ? "Video is part of Autocast Pro. Pick a plan and I'll make it."
+        ? `${capability === "image_generation" ? "Pictures are" : "Video is"} part of Autocast Pro. Pick a plan and I'll make it.`
         : `${label} is on ${TIER_NAMES[Math.min(minTier, 3)]}. Your ${standing.name} plan can use the others.`,
       402,
       false,
@@ -167,18 +191,70 @@ export async function reserveCredits(
   }
   if ((data as { ok?: boolean } | null)?.ok === true) return;
 
-  const left = Number((data as { left?: number } | null)?.left ?? 0);
+  const answer = (data ?? {}) as { left?: number; limit?: number; resets_at?: string };
+  const left = Number(answer.left ?? 0);
+  const limit = Number(answer.limit ?? 0);
   const tier = standing?.tier ?? 0;
-  const money = (n: number) => n.toLocaleString("en-US");
-  const next = tier >= 3
-    ? "They come back on the 1st."
-    : `${TIER_NAMES[tier + 1]} has ${ALLOWANCES[tier + 1]} a month.`;
   throw new PublicError(
-    `That needs ${money(credits)} credits and you have ${money(left)} left this month. ${next}`,
+    left <= 0
+      ? `You've used all of this month's usage. ${upsell(tier, answer.resets_at)}`
+      : `That needs about ${percentText(credits, limit)} of your month and you have ${percentText(left, limit)} left. ${upsell(tier, answer.resets_at)}`,
     402,
     false,
     "needs_credits",
   );
+}
+
+/** Reads the meter without spending: a zero spend answers with the standing. */
+async function meter(admin: SupabaseClient, userId: string) {
+  const { data, error } = await admin.rpc("spend_credits", {
+    p_user: userId,
+    p_amount: 0,
+    p_ref: "check",
+    p_strict: true,
+  });
+  return { error, answer: (data ?? {}) as { ok?: boolean; left?: number; limit?: number; resets_at?: string } };
+}
+
+/**
+ * Stops an AI call before it is made when this month's usage is gone. The
+ * call's real cost is taken afterwards, from its tokens (`recordUsage`), so a
+ * last reply can run a fraction of a cent past 100% -- never further, because
+ * the next one is refused here.
+ *
+ * Fails OPEN on a counter it cannot read, unlike generation: an AI reply costs
+ * a tenth of a cent, and a broken counter should not take the whole app down
+ * for that. A video costs dollars, and `reserveCredits` fails closed.
+ */
+export async function requireUsage(admin: SupabaseClient, userId: string): Promise<void> {
+  const { error, answer } = await meter(admin, userId);
+  if (error) {
+    console.error("requireUsage", error.message);
+    return;
+  }
+  if (answer.ok !== false) return;
+  const standing = await standingOf(admin, userId);
+  throw new PublicError(
+    standing.tier === 0
+      ? "You've used this month's free messages. Pick a plan to keep going."
+      : `You've used all of this month's usage. ${upsell(standing.tier, answer.resets_at)}`,
+    402,
+    false,
+    standing.tier === 0 ? "needs_pro" : "needs_credits",
+  );
+}
+
+/** One line for the chat to answer "how much do I have left" from. */
+export async function usageLine(admin: SupabaseClient, userId: string): Promise<string> {
+  const { error, answer } = await meter(admin, userId);
+  if (error) return "Autocast usage: could not be read just now.";
+  const limit = Number(answer.limit ?? 0);
+  const left = Number(answer.left ?? 0);
+  const standing = await standingOf(admin, userId);
+  const day = dayText(answer.resets_at);
+  return `Autocast usage this month (${standing.name} plan): ${percentText(limit - left, limit)} used, ` +
+    `${percentText(left, limit)} left${day ? `, fills up again on ${day}` : ""}. ` +
+    "Chat, plans and captions take a small share; pictures and videos take more, and the share is shown before anything is made.";
 }
 
 /** Gives back everything a reference spent. Idempotent. */

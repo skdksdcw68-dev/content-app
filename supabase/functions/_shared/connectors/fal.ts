@@ -127,6 +127,18 @@ interface Entry {
    *  ("auto" follows the picture); the others take their shape from the
    *  picture and reject or ignore the field. */
   pictureAspect: boolean;
+  /** False when that field has no "auto" and must be told the shape (Gemini
+   *  Omni takes only "9:16" or "16:9"; "auto" is a 422, and leaving it out
+   *  makes 16:9). */
+  pictureAuto?: boolean;
+  /** The day fal turns this endpoint off, and the model that takes its place
+   *  from then on. 🔴 fal, 18 Oct 2026: every Veo 3.1 endpoint "will be
+   *  deprecated on November 17, 2026". The catalogue on record names the old
+   *  id, and a series scheduled weeks ahead names it too -- so on that day a
+   *  request for it is quietly made by the successor, priced as the successor,
+   *  rather than failing. */
+  retires?: string;
+  successor?: string;
   /** Makes its own sound. */
   audio: boolean;
   /** What the switch for it is called: `generate_audio` for nearly everyone,
@@ -173,7 +185,7 @@ const CATALOGUE: Entry[] = [
     id: "minimax/h3-max-turbo/text-to-video",
     label: "MiniMax H3 Max Turbo",
     about: "The same look as H3 Max, twice as fast. Sound included.",
-    perSecond: { "480p": 0.025, "768p": 0.04, "1080p": 0.07 },
+    perSecond: { "480p": 0.025, "768p": 0.04, "1080p": 0.08 },
     durations: [5, 8, 10, 15],
     durationSuffix: false,
     durationInt: true,
@@ -194,7 +206,7 @@ const CATALOGUE: Entry[] = [
     id: "alibaba/wan-3.0/text-to-video",
     label: "Wan 3.0",
     about: "Alibaba's newest. Sharp and cheap, with sound. The everyday choice.",
-    perSecond: { "480p": 0.05, "720p": 0.10, "1080p": 0.15 },
+    perSecond: { "480p": 0.05, "720p": 0.10, "1080p": 0.20 },
     durations: [5, 10],
     durationSuffix: false,
     durationInt: true,
@@ -215,6 +227,7 @@ const CATALOGUE: Entry[] = [
     label: "Google Veo 3.1 Lite",
     about: "Google's Veo at a fraction of the price, with sound.",
     perSecond: { "720p": 0.05, "1080p": 0.08 },
+    perSecondSilent: { "720p": 0.03, "1080p": 0.05 },
     durations: [4, 6, 8],
     durationSuffix: true,
     resolutions: ["720p", "1080p"],
@@ -224,13 +237,15 @@ const CATALOGUE: Entry[] = [
     pictureAspect: true,
     audio: true,
     negative: true,
+    retires: "2026-11-17",
+    successor: "google/gemini-omni-flash/v1.1/text-to-video",
   },
   {
     id: "minimax/h3-max/text-to-video",
     label: "MiniMax H3 Max",
     markup: 1.25,
     about: "Ranked first for quality and prompt-following. Sharp faces, sound included.",
-    perSecond: { "480p": 0.05, "768p": 0.08, "1080p": 0.14 },
+    perSecond: { "480p": 0.05, "768p": 0.08, "1080p": 0.16 },
     durations: [5, 8, 10, 15],
     durationSuffix: false,
     durationInt: true,
@@ -264,6 +279,31 @@ const CATALOGUE: Entry[] = [
     endField: "tail_image_url",
   },
   {
+    // Google's model after Veo, and where every Veo 3.1 request goes from 17
+    // Nov. Read off its schema and page on 18 Oct 2026: 3 to 10 seconds as an
+    // integer, 9:16 or 16:9 only, sound always on with no switch and no price
+    // split. ⚠️ Not yet proven with a real job.
+    id: "google/gemini-omni-flash/v1.1/text-to-video",
+    label: "Google Gemini Omni Flash",
+    markup: 1.25,
+    about: "Google's newest, after Veo. Realistic, follows the prompt, makes its own sound.",
+    perSecond: { "720p": 0.10, "1080p": 0.15, "4k": 0.30 },
+    durations: [4, 6, 8, 10],
+    durationSuffix: false,
+    durationInt: true,
+    resolutions: ["720p", "1080p", "4k"],
+    resolution: "720p",
+    aspects: ["9:16", "16:9"],
+    imageEndpoint: "google/gemini-omni-flash/v1.1/image-to-video",
+    pictureAspect: true,
+    pictureAuto: false,
+    audio: true,
+    audioSwitch: false,
+    negative: false,
+    endFrame: true,
+    endField: "end_image_url",
+  },
+  {
     id: "fal-ai/veo3.1/fast",
     label: "Google Veo 3.1 Fast",
     markup: 1.25,
@@ -279,6 +319,8 @@ const CATALOGUE: Entry[] = [
     pictureAspect: true,
     audio: true,
     negative: true,
+    retires: "2026-11-17",
+    successor: "google/gemini-omni-flash/v1.1/text-to-video",
   },
   {
     id: "fal-ai/kling-video/v3/pro/text-to-video",
@@ -305,8 +347,10 @@ const CATALOGUE: Entry[] = [
     markup: 1.25,
     about: "ByteDance. Cinematic motion with sound, quick to make.",
     // Billed by the token, not the second: width x height x 24 x seconds / 1024
-    // tokens at $0.0112 per thousand. These are that, per second, rounded up.
-    perSecond: { "480p": 0.11, "720p": 0.25 },
+    // tokens. 🔴 Its page gives two rates (18 Oct 2026): $0.0112 per thousand
+    // in the headline and $0.014 in the docs ($0.2419 vs $0.3034 a second at
+    // 720p). The higher one, per second, rounded up.
+    perSecond: { "480p": 0.14, "720p": 0.31 },
     durations: [4, 5, 8, 10, 15],
     durationSuffix: false,
     resolutions: ["480p", "720p"],
@@ -336,14 +380,17 @@ const CATALOGUE: Entry[] = [
     audio: true,
     negative: true,
     minTier: 2,
+    retires: "2026-11-17",
+    successor: "google/gemini-omni-flash/v1.1/text-to-video",
   },
   {
     id: "bytedance/seedance-2.5/text-to-video",
     label: "Seedance 2.5",
     markup: 1.5,
     about: "ByteDance's best. One shot up to 30 seconds, up to 1080p, with sound.",
-    // $0.0214 per thousand tokens -- see Seedance 2.0 Fast above.
-    perSecond: { "480p": 0.21, "720p": 0.47, "1080p": 1.05 },
+    // $0.0214 per thousand tokens at 480p and 720p, $0.0234 at 1080p (18 Oct
+    // 2026) -- see Seedance 2.0 Fast above. Rounded up.
+    perSecond: { "480p": 0.23, "720p": 0.48, "1080p": 1.17 },
     durations: [5, 10, 15, 20, 30],
     durationSuffix: false,
     resolutions: ["480p", "720p", "1080p"],
@@ -359,8 +406,19 @@ const CATALOGUE: Entry[] = [
   },
 ];
 
+/** Whether fal has turned this endpoint off by now. */
+function retired(model: Entry, now = Date.now()): boolean {
+  return model.retires !== undefined && now >= Date.parse(`${model.retires}T00:00:00Z`);
+}
+
+/** The model that will really make a request for `id`: itself, or its
+ *  successor once it has retired. Price, settings and endpoint all follow. */
 function entry(id: string) {
-  return CATALOGUE.find((model) => model.id === id);
+  const found = CATALOGUE.find((model) => model.id === id);
+  if (found && retired(found) && found.successor) {
+    return CATALOGUE.find((model) => model.id === found.successor) ?? found;
+  }
+  return found;
 }
 
 /** What a second costs at the resolution actually being asked for. */
@@ -369,28 +427,29 @@ function rate(model: Entry, resolution: string, silent = false): number {
   return ladder[resolution] ?? ladder[model.resolution] ?? Object.values(ladder)[0];
 }
 
-/** One credit is a cent at the rate card's base price. The same number as
- *  `CREDIT_USD` in `_shared/credits.ts` (a test holds them equal); it is not
- *  imported because credits.ts imports the router, which imports this. */
-const CREDIT_USD = 0.01;
+/** Prices are whole cents. NOT the usage meter's unit (`CREDIT_USD` in
+ *  `_shared/usage.ts`, $0.0001): a price in cents is a whole number of meter
+ *  units, so the share the phone shows (price / budget) is the share taken. */
+const PRICE_STEP_USD = 0.01;
 
 /** Pictures are sold at a quarter over what they cost us. */
 const IMAGE_MARKUP = 1.25;
 
 /**
- * The rate card, in one place. Netro, 2 Oct 2026: show people ordinary credits,
- * not a money-looking number, and let each model carry the margin it should.
+ * The rate card, in one place. Netro, 2 Oct 2026: let each model carry the
+ * margin it should. (Since 18 Oct people see the result as a share of their
+ * month, not a number of credits.)
  *
- * `usd` is what fal charges us. The answer is what the customer is charged,
- * as dollars in WHOLE credits -- rounded up, never to nothing -- so the phone
- * (`amount * 100`) and the server (`amount / CREDIT_USD`) cannot land one
- * credit apart on a half. `ours` keeps the real cost for the books.
+ * `usd` is what fal charges us. The answer is what the usage meter is charged,
+ * as dollars in WHOLE cents -- rounded up, never to nothing -- so the phone's
+ * share (`amount / budget`) and the server's units (`amount / CREDIT_USD`)
+ * cannot drift apart on a rounding. `ours` keeps the real cost for the books.
  *
  * The 1e-6 keeps 35.00000000000001 from becoming 36.
  */
 function billable(usd: number, markup = 1): { amount: number; ours: number } {
-  const credits = Math.max(1, Math.ceil(usd * markup * 100 - 1e-6));
-  return { amount: Number((credits * CREDIT_USD).toFixed(2)), ours: Number(usd.toFixed(4)) };
+  const cents = Math.max(1, Math.ceil(usd * markup * 100 - 1e-6));
+  return { amount: Number((cents * PRICE_STEP_USD).toFixed(2)), ours: Number(usd.toFixed(4)) };
 }
 
 /** Whether this request asked for a silent video. */
@@ -462,9 +521,12 @@ function videoInput(
 
   if (picture) {
     input[model.startField ?? "image_url"] = picture;
-    // Picture-to-video takes its shape from the picture. Veo alone has a field
-    // for it, and "auto" is the answer that keeps the picture's own frame.
-    if (model.pictureAspect) input.aspect_ratio = "auto";
+    // Picture-to-video takes its shape from the picture. Veo has a field for
+    // it, and "auto" is the answer that keeps the picture's own frame; Gemini
+    // Omni has the field but no "auto", so it is told the shape asked for.
+    if (model.pictureAspect) {
+      input.aspect_ratio = model.pictureAuto === false ? pick(model.aspects, askedAspect(request)) : "auto";
+    }
     if (tail && model.endFrame) input[model.endField ?? "tail_image_url"] = tail;
   } else {
     input.aspect_ratio = pick(model.aspects, askedAspect(request));
@@ -821,7 +883,9 @@ async function makePicture(auth: Authorization, request: SubmitRequest): Promise
  * (`record_discovery` takes this list as it is).
  */
 export function describeCatalogue(): ModelDescriptor[] {
-  const videos: ModelDescriptor[] = CATALOGUE.map((model, index) => ({
+  // A retired model is not offered; a request that still names one is made by
+  // its successor (`entry`).
+  const videos: ModelDescriptor[] = CATALOGUE.filter((model) => !retired(model)).map((model, index) => ({
     capability: "video_generation",
     external_id: model.id,
     label: model.label,
@@ -942,8 +1006,9 @@ export const falAdapter: Adapter = {
     const tail = stills[1];
 
     // A picture means the model's picture-to-video endpoint, not an extra
-    // field on the text one.
-    const endpoint = picture ? model.imageEndpoint : request.model;
+    // field on the text one. `model.id`, not the id asked for: a retired
+    // model's request goes to its successor's endpoint.
+    const endpoint = picture ? model.imageEndpoint : model.id;
     const input = videoInput(model, request, picture, tail);
     const length = lengthFor(model, request);
     const resolution = resolutionFor(model, request);

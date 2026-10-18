@@ -1149,8 +1149,8 @@ struct ChatView: View {
         parts.append(contentsOf: settings.answers.values.sorted())
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {
-            // In credits, the unit everything else on the page is in.
-            let cost: String = price.credits.map { "\(CreditFormat.text($0)) credits" } ?? price.label
+            // A share of the month, the unit everything else on the page is in.
+            let cost: String = session.usageShare(of: price).map { "\(UsageFormat.percent($0)) of your month" } ?? price.label
             turns[index].chosenModel = "\(summary) · \(cost)"
         } else {
             turns[index].chosenModel = summary

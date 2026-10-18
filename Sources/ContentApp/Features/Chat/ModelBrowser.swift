@@ -329,6 +329,7 @@ struct ModelBrowser: View {
 
 /// The maker's tile, the name, one line about it, and the price.
 private struct ModelRow: View {
+    @Environment(AppSession.self) private var session
     let model: ModelChoice
     let price: ModelCost
     let isSelected: Bool
@@ -388,14 +389,15 @@ private struct ModelRow: View {
             Spacer(minLength: 8)
 
             HStack(spacing: 4) {
-                Image(systemName: "diamond.fill")
-                    .font(.system(size: 9))
+                Image(systemName: "gauge.with.dots.needle.33percent")
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
-                // In credits, the same number the send button shows -- not a
-                // dollar figure beside a credit mark, which said two things.
-                Text(price.credits.map { CreditFormat.text($0) } ?? "N/A")
+                // A share of the month, the same number the send button shows
+                // -- never a dollar figure.
+                let share = session.usageShare(of: price)
+                Text(share.map { UsageFormat.short($0) } ?? "N/A")
                     .font(.subheadline.weight(.medium).monospacedDigit())
-                    .foregroundStyle(price.credits == nil ? Color.secondary : Color.primary)
+                    .foregroundStyle(share == nil ? Color.secondary : Color.primary)
             }
             .fixedSize()
         }

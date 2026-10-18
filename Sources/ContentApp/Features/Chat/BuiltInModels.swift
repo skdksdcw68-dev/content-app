@@ -51,7 +51,7 @@ enum BuiltInModels {
         var choice: ModelChoice {
             ModelChoice(
                 modelId: id,
-                provider: "higgsfield",
+                provider: "fal",
                 label: name,
                 externalId: id,
                 // No price. Writing one down would be inventing a number, and
@@ -76,23 +76,34 @@ enum BuiltInModels {
     /// comment at the top of this file warns about, committed in the same
     /// hour. Read off the fal adapter's own catalogue.
     private static let video: [Entry] = [
-        Entry(id: "fal-ai/wan-25-preview/text-to-video", name: "Wan 2.5",
-              about: "Sharp and cheap. The everyday choice for a short clip.", frames: true),
+        // 18 Oct 2026: re-read off the adapter. Wan 2.5 and Kling 2.1 Master
+        // had left the catalogue on 29 Sep, so picking either here failed on
+        // send ("not a model this generator offers"); Veo 3.1 leaves fal on
+        // 17 Nov and Gemini Omni takes its place.
+        Entry(id: "alibaba/wan-3.0/text-to-video", name: "Wan 3.0",
+              about: "Sharp and cheap, with sound. The everyday choice.", frames: true),
         Entry(id: "fal-ai/kling-video/v2.5-turbo/pro/text-to-video", name: "Kling 2.5 Turbo Pro",
               about: "Steady motion and faces that hold together.", frames: true),
-        Entry(id: "fal-ai/veo3.1/fast", name: "Google Veo 3.1 Fast",
-              about: "Realistic, follows the prompt closely, makes its own sound.", frames: true),
-        Entry(id: "fal-ai/kling-video/v2.1/master/text-to-video", name: "Kling 2.1 Master",
-              about: "Kling at full quality, for the shot that matters.", frames: true),
-        Entry(id: "fal-ai/veo3.1", name: "Google Veo 3.1",
-              about: "The best of them, with audio. Costs what that implies.", frames: true),
+        Entry(id: "google/gemini-omni-flash/v1.1/text-to-video", name: "Google Gemini Omni Flash",
+              about: "Google's newest, after Veo. Makes its own sound.", frames: true),
+        Entry(id: "fal-ai/kling-video/v3/pro/text-to-video", name: "Kling 3.0 Pro",
+              about: "Kling's newest, with native sound.", frames: true),
+        Entry(id: "bytedance/seedance-2.0/fast/text-to-video", name: "Seedance 2.0 Fast",
+              about: "Cinematic motion with sound, quick to make.", frames: true),
     ]
 
-    /// Empty on purpose. The house generator offers no image models yet, and
-    /// the Higgsfield ids that used to be here would fail on the first tap.
-    /// An empty picker that says so is honest; a full one that does not work
-    /// is not. Fills in the day the adapter declares image models.
-    private static let image: [Entry] = []
+    /// The everyday picture models the adapter offers (29 Sep 2026 on), for a
+    /// cold start. Each id is the adapter's own.
+    private static let image: [Entry] = [
+        Entry(id: "fal-ai/nano-banana", name: "Google Nano Banana",
+              about: "Quick, high-quality generation and editing.", frames: false),
+        Entry(id: "openai/gpt-image-2", name: "GPT Image 2",
+              about: "The most accurate, and the best with text.", frames: false),
+        Entry(id: "bytedance/seedream/v5/pro/text-to-image", name: "Seedream 5 Pro",
+              about: "Photographic, great with people and products.", frames: false),
+        Entry(id: "fal-ai/flux/schnell", name: "FLUX Schnell",
+              about: "The quick one. Good for trying a composition.", frames: false),
+    ]
 
     /// Whether a video model can start from a picture, so the composer offers a
     /// start frame -- Abel: "the start and end frame thing when it comes to

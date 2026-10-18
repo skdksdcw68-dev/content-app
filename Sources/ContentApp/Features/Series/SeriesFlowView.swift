@@ -433,8 +433,8 @@ struct SeriesFlowView: View {
     /// account picked (`addTarget` in attach.ts), so the credits are the
     /// videos, not the accounts.
     private func creditsNote(accounts: Int) -> some View {
-        let left = standing.first { $0.kind == "credit" }?.left
-        let each = SeriesCost.perVideo(seconds: length)
+        let left = standing.first { $0.kind == "credit" }?.percentLeft
+        let each = session.usageShare(usd: SeriesCost.perVideoUSD(seconds: length)) ?? 0
         let sentence: String
         if accounts > 1 {
             sentence = "One video is made for each post and posted to all \(accounts) accounts."
@@ -451,11 +451,11 @@ struct SeriesFlowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("About \(CreditFormat.text(each)) credits a video.")
+                Text("About \(UsageFormat.percent(each)) of your month a video.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 if let left {
-                    Text("\(CreditFormat.text(left)) credits left this month.")
+                    Text("\(UsageFormat.percent(left)) of this month left.")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.primary)
                 }
@@ -753,15 +753,16 @@ struct SeriesFlowView: View {
                 }
 
                 // What it will spend, before it is started: a series makes
-                // about a video a day, and the month only holds so many. The
-                // number is the server's own counter, not an estimate.
-                if chosen?.needsFilming != true, let left = standing.first(where: { $0.kind == "video_gen" })?.left {
+                // about a video a day. 🔴 Read from the usage meter (0079). It
+                // read the old "video_gen" counter, which stopped moving on 29
+                // Sep when generation began to be paid for by what it costs --
+                // so it said the same number all month.
+                if chosen?.needsFilming != true, let meter = standing.first(where: { $0.kind == "credit" }) {
+                    let month = session.usageShare(usd: 30 * SeriesCost.perVideoUSD(seconds: nil)) ?? 0
                     Label(
-                        left == 0
-                            ? "No videos left this month, so the series waits until they renew -- or you upgrade."
-                            : (left >= 30
-                                ? "About a video a day, so about 30 a month. \(left) left this month."
-                                : "About a video a day, and only \(left) left this month."),
+                        meter.percentLeft <= 0
+                            ? "This month's usage is used up, so the series waits until it fills up again, or you upgrade."
+                            : "About a video a day, which is about \(UsageFormat.percent(month)) of a month. \(UsageFormat.percent(meter.percentLeft)) left.",
                         systemImage: "bolt.fill"
                     )
                     .font(.footnote)

@@ -317,15 +317,17 @@ struct GenerationCard: View {
                 Spacer(minLength: 8)
                 if pricing {
                     ProgressView().controlSize(.small).tint(Theme.onAccent)
-                } else if let shown = price ?? selected?.cost, let credits = shown.credits {
-                    // In credits: the number the server will take, and the one
-                    // the bar and the model list show.
+                } else if let share = session.usageShare(of: price ?? selected?.cost) {
+                    // As a share of the month: what the server will take, and
+                    // what the bar and the model list show.
                     HStack(spacing: 4) {
-                        Image(systemName: "diamond.fill")
-                            .font(.system(size: 9))
-                        Text(CreditFormat.text(credits))
+                        Image(systemName: "gauge.with.dots.needle.33percent")
+                            .font(.system(size: 11))
+                        Text(UsageFormat.short(share))
                             .font(.subheadline.weight(.semibold).monospacedDigit())
                     }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Uses \(UsageFormat.percent(share)) of your month")
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 30)
@@ -463,6 +465,7 @@ struct GenerationCard: View {
 
 /// One model: a radio mark, its name and what it is for, and its price.
 private struct ModelOptionRow: View {
+    @Environment(AppSession.self) private var session
     let option: ModelChoice
     let isSelected: Bool
     let price: ModelCost
@@ -516,12 +519,12 @@ private struct ModelOptionRow: View {
 
             Spacer(minLength: 8)
 
-            // In credits: the same number as the button and the bar.
+            // A share of the month: the same number as the button and the bar.
             HStack(spacing: 3) {
-                Image(systemName: "diamond.fill")
-                    .font(.system(size: 8))
+                Image(systemName: "gauge.with.dots.needle.33percent")
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
-                Text(price.credits.map { CreditFormat.text($0) } ?? "N/A")
+                Text(session.usageShare(of: price).map { UsageFormat.short($0) } ?? "N/A")
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(usable ? Color.primary : Color.secondary)
             }

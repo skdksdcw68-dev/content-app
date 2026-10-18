@@ -129,16 +129,16 @@ struct GenerateSettingsSheet: View {
                 if let credits = standing.first(where: { $0.kind == "credit" }) {
                     Section {
                         HStack {
-                            Text("Credits")
+                            Text("Usage")
                             Spacer()
-                            Text("\(CreditFormat.text(credits.left)) of \(CreditFormat.text(credits.limitValue)) left")
+                            Text("\(UsageFormat.percent(credits.percentLeft)) left")
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
                     } header: {
                         Text("This month")
                     } footer: {
-                        Text("Credits pay for what you make. The number beside the send button is what this one costs.")
+                        Text("Your month of usage, in %. The share beside the send button is what this one takes.")
                     }
                 } else if !standing.isEmpty {
                     Section {

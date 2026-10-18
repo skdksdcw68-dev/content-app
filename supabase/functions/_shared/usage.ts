@@ -35,7 +35,30 @@ export function costUSD(model: string, usage: TokenUsage | null | undefined): nu
   return ((usage.prompt_tokens ?? 0) * price.input + (usage.completion_tokens ?? 0) * price.output) / 1_000_000;
 }
 
-/** Best effort: a failed write here must never fail the person's request. */
+/**
+ * One unit of the usage meter, in dollars of what a thing costs at the rate
+ * card's price (migration 0079). Small enough that a chat reply counts: about
+ * nine units of a Pro month's 80,000. People never see a unit -- the app shows
+ * the month as a %.
+ */
+export const CREDIT_USD = 0.0001;
+
+/** Dollars as meter units, rounded up so nothing that cost us is free. */
+export function unitsFor(usd: number): number {
+  return Math.max(1, Math.ceil(usd / CREDIT_USD - 1e-9));
+}
+
+/**
+ * Records what one AI call cost, and takes it from the person's usage meter.
+ *
+ * Netro, 18 Oct 2026: "uses fal or uses open ai it counts from the 100." Until
+ * then an OpenAI call was written down here and charged to nobody: chat had a
+ * message cap and nothing else, so the OpenAI bill sat outside every plan.
+ *
+ * Taken AFTER the call, because only then are the tokens known; the gate that
+ * stops a call when the month is used up is `requireUsage`, before it. Best
+ * effort: a failed write here must never fail the person's request.
+ */
 export async function recordUsage(
   admin: SupabaseClient,
   row: { userId: string; brandId?: string | null; kind: string; model: string; usage: TokenUsage | null | undefined },
@@ -53,4 +76,23 @@ export async function recordUsage(
     cost_usd: cost,
   });
   if (error) console.warn("usage not recorded", error.message);
+  await takeUsage(admin, row.userId, cost, row.kind);
+}
+
+/** Takes what an AI call cost from the person's meter, after the fact. For a
+ *  caller that writes its own `usage_events` row. */
+export async function takeUsage(
+  admin: SupabaseClient,
+  userId: string,
+  costUsd: number | null,
+  kind: string,
+): Promise<void> {
+  if (costUsd === null || !(costUsd > 0)) return;
+  const { error } = await admin.rpc("spend_credits", {
+    p_user: userId,
+    p_amount: unitsFor(costUsd),
+    p_ref: `ai:${kind}:${crypto.randomUUID()}`,
+    p_strict: false,
+  });
+  if (error) console.warn("usage not taken from the meter", error.message);
 }

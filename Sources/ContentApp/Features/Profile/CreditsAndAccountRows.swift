@@ -1,7 +1,10 @@
 import SwiftUI
 
-/// What is left this month, as the first row of the Credits section: the number
+/// What is left this month, as the first row of the Usage section: the share
 /// big, and a bar that is the same fact drawn.
+///
+/// Netro, 18 Oct 2026: count it in % "like claude and chatgpt" -- chat and
+/// generation both draw on one month, so the number is a share, not a count.
 ///
 /// Netro, 13 Oct 2026: "Credits Used" and "Credits Left" were two tiles in a row
 /// under the name. Numbers in a row say nothing about how much of the month is
@@ -16,14 +19,14 @@ struct CreditsMeter: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(credits.map { CreditFormat.text($0.left) } ?? "…")
+                Text(credits.map { UsageFormat.percent($0.percentLeft) } ?? "…")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.primary)
                     .contentTransition(.numericText())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                Text("credits left")
+                Text("of this month left")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer(minLength: 0)
@@ -37,8 +40,8 @@ struct CreditsMeter: View {
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Credits left")
-        .accessibilityValue(credits.map { CreditFormat.text($0.left) } ?? "Loading")
+        .accessibilityLabel("Usage left this month")
+        .accessibilityValue(credits.map { UsageFormat.percent($0.percentLeft) } ?? "Loading")
     }
 }
 

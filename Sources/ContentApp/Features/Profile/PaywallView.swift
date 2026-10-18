@@ -97,31 +97,40 @@ struct PaywallView: View {
     // MARK: - What a tier gives, from the server
 
     private struct Facts {
-        let credits: Int
+        /// How much it gives next to Pro: 1, 3, 8.
+        let usage: Double
         let planDays: Int
         let accounts: Int
     }
 
     private func facts(_ tier: Tier) -> Facts {
         if let row = session.planTiers.first(where: { $0.code == tier.planCode }) {
-            return Facts(credits: row.credits, planDays: row.planDays, accounts: row.accounts)
+            return Facts(usage: row.usage ?? tier.fallbackUsage, planDays: row.planDays, accounts: row.accounts)
         }
-        return Facts(credits: tier.fallbackCredits, planDays: tier.fallbackPlanDays, accounts: tier.fallbackAccounts)
+        return Facts(usage: tier.fallbackUsage, planDays: tier.fallbackPlanDays, accounts: tier.fallbackAccounts)
+    }
+
+    /// "Standard usage", "3× the usage of Pro": how a meter in % is compared.
+    private func usageText(_ tier: Tier) -> String {
+        let usage = facts(tier).usage
+        guard tier != .pro, usage > 1 else { return "A full month of usage" }
+        let times = usage == usage.rounded() ? String(Int(usage)) : String(format: "%.1f", usage)
+        return "\(times)× the usage of Pro"
     }
 
     /// What is included, as short lines. Only things the tier really has.
     private func bullets(_ tier: Tier) -> [String] {
         let facts = facts(tier)
-        var lines: [String] = ["\(CreditFormat.text(facts.credits)) credits every month"]
+        var lines: [String] = [usageText(tier) + ", for chat and for making"]
         switch tier {
         case .pro:
-            lines.append("Video and picture models, including Kling 3 and Veo 3.1 Fast")
+            lines.append("Video and picture models, including Kling 3 and Gemini Omni")
         case .max:
             lines.append("Everything in Pro")
             lines.append("Veo 3.1 with sound and Seedance 2.5, up to 30 seconds")
         case .ultra:
             lines.append("Everything in Max")
-            lines.append("The most credits, for a series every day")
+            lines.append("The most usage, for a series every day")
         }
         lines.append("Plan \(facts.planDays) days ahead")
         lines.append("Post to \(facts.accounts) accounts")
@@ -233,7 +242,7 @@ struct PaywallView: View {
     }
 
     /// A status header, not a sales pitch: which plan, when it renews, and how
-    /// much of this month's credits is left.
+    /// much of this month's usage is left.
     private var status: some View {
         VStack(spacing: 10) {
             HStack(spacing: 6) {
@@ -259,7 +268,7 @@ struct PaywallView: View {
             }
 
             if let credits = session.credits, credits.allowance > 0 {
-                CreditsMeter(credits: credits)
+                PaywallUsageMeter(credits: credits)
                     .padding(.top, 6)
             }
         }
@@ -317,7 +326,7 @@ struct PaywallView: View {
         return TierRow(
             name: option.name,
             badge: option == Tier.recommended ? "MOST POPULAR" : nil,
-            credits: "\(CreditFormat.text(facts(option).credits)) credits a month",
+            credits: usageText(option),
             price: price,
             period: annual ? "/yr" : "/mo",
             footnote: footnote,
@@ -330,7 +339,7 @@ struct PaywallView: View {
     }
 
     private var creditsNote: some View {
-        Text("Credits pay for what you make. A picture is 1 to 40 credits and a five-second video 20 to 350, and the number is shown before you make anything. They start again each month.")
+        Text("Your plan is a month of usage, shown as a %. A chat reply takes a tiny share, a picture about 1%, and a five-second video on Pro about 3 to 30%. You see the share before you make anything, and it fills up again each month from the day you subscribed.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
@@ -525,9 +534,10 @@ struct PaywallView: View {
 
 // MARK: - Pieces
 
-/// This month's credits as a bar and a sentence: how many are left, and when
-/// they start again.
-struct CreditsMeter: View {
+/// This month's usage as a bar and a sentence: how much is left, and when it
+/// fills up again. (Was a second `CreditsMeter`, the same name as the You
+/// page's -- two types of one name in one module do not compile.)
+struct PaywallUsageMeter: View {
     let credits: CreditsStanding
 
     private var resets: String {
@@ -539,7 +549,7 @@ struct CreditsMeter: View {
         VStack(spacing: 6) {
             ProgressView(value: credits.fractionLeft)
                 .tint(Theme.proGreen)
-            Text("\(CreditFormat.text(credits.left)) of \(CreditFormat.text(credits.allowance)) credits left\(resets)")
+            Text("\(UsageFormat.percent(credits.percentLeft)) of this month left\(resets)")
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.secondary)
                 .monospacedDigit()

@@ -472,13 +472,15 @@ struct NewPlanSheet: View {
                 // In CREDITS since 29 Sep 2026 (0077): a video is not a unit of
                 // cost -- a Wan clip is $0.25 and a Veo one $3.20 -- so the
                 // sentence is about what the posts will draw, as an estimate.
+                // Since 18 Oct 2026 as a share of the month, like the rest.
                 if let credits = standing.first(where: { $0.kind == "credit" }) {
-                    let each: Int = SeriesCost.perVideo(seconds: nil)
-                    let needed: Int = total * each
+                    let needed = session.usageShare(usd: Double(total) * SeriesCost.perVideoUSD(seconds: nil)) ?? 0
                     PlanSummaryRow(
                         symbol: "film",
                         label: "Uses",
-                        value: "about \(CreditFormat.text(needed)) of your \(CreditFormat.text(credits.left)) credits"
+                        value: needed > 100
+                            ? "more than a month of usage (\(UsageFormat.percent(credits.percentLeft)) left)"
+                            : "about \(UsageFormat.percent(needed)) of your month (\(UsageFormat.percent(credits.percentLeft)) left)"
                     )
                     if session.planRank == 0 {
                         Label(
@@ -489,9 +491,9 @@ struct NewPlanSheet: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 4)
-                    } else if needed > credits.left {
+                    } else if needed > credits.percentLeft {
                         Label(
-                            "That's more than this month has left, so the later posts will wait. A bigger plan has more credits.",
+                            "That's more than this month has left, so the later posts will wait. A bigger plan has more usage.",
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.footnote)

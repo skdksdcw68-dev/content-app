@@ -65,12 +65,23 @@ enum Tier: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// Used until the server's own numbers arrive, so the paywall is never
-    /// blank. They are the numbers `plans_catalog` was seeded with (0077).
-    var fallbackCredits: Int {
+    /// blank. How much each gives next to Pro, as `plans_catalog` sets it
+    /// (0079): a meter in % is compared as "3x the usage", never as a count.
+    var fallbackUsage: Double {
         switch self {
-        case .pro: return 800
-        case .max: return 2_600
-        case .ultra: return 7_000
+        case .pro: return 1
+        case .max: return 3
+        case .ultra: return 8
+        }
+    }
+
+    /// The month's budget in rate-card dollars (0079), for working out what
+    /// share a price is before the server has answered.
+    var fallbackBudgetUSD: Double {
+        switch self {
+        case .pro: return 8
+        case .max: return 24
+        case .ultra: return 64
         }
     }
 

@@ -34,7 +34,16 @@ async function all(p: string): Promise<any[]> {
 }
 const territories = (await all("/v1/territories?limit=200")).map((t) => t.id);
 console.log("App Store territories:", territories.length);
-for (const [name, id] of [["monthly", "6813777379"], ["yearly", "6813777306"]]) {
+// Every product Autocast sells. Pass ids to do only those: a new subscription
+// cannot be priced in ANY territory until it is made available there ("The
+// provided territory is not supported for your subscription and planType").
+const ALL_PRODUCTS: Array<[string, string]> = [
+  ["pro monthly", "6813777379"], ["pro yearly", "6813777306"],
+  ["max monthly", "6818623085"], ["max yearly", "6818623325"],
+  ["ultra monthly", "6818623354"],
+];
+const only = process.argv.slice(2);
+for (const [name, id] of ALL_PRODUCTS.filter(([, id]) => only.length === 0 || only.includes(id))) {
   let before = "not set";
   try { before = `${(await all(`/v1/subscriptionAvailabilities/${id}/availableTerritories?limit=200`)).length} territories`; } catch { /* none yet */ }
   await call("POST", "/v1/subscriptionAvailabilities", {

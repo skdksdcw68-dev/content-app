@@ -49,10 +49,14 @@ if (!keyId || !issuerId || !keyPath) throw new Error("ASC_KEY_ID, ASC_ISSUER_ID,
 
 const APPLY = process.argv.includes("--apply");
 
-/** The two products, and what the app promises for each. */
+/** Every product, and the US price Netro approved on 2 Oct 2026. Ultra has no
+ *  yearly. */
 const PLANS = [
   { id: "6813777379", productId: "autocast.pro.monthly", usd: 29.99 },
-  { id: "6813777306", productId: "autocast.pro.yearly", usd: 199.99 },
+  { id: "6813777306", productId: "autocast.pro.yearly", usd: 249.99 },
+  { id: "6818623085", productId: "autocast.max.monthly", usd: 79.99 },
+  { id: "6818623325", productId: "autocast.max.yearly", usd: 649.99 },
+  { id: "6818623354", productId: "autocast.ultra.monthly", usd: 199.99 },
 ];
 
 function token(): string {

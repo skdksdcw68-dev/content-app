@@ -67,7 +67,7 @@ const PLANS = [
   {
     tier: "max", productId: "autocast.max.monthly", name: "Max Monthly", period: "ONE_MONTH",
     usd: priced("max-monthly", "79.99"), trial: false,
-    display: "Autocast Max", description: "2,600 credits a month, and every model including Veo 3.1 and Seedance 2.5.",
+    display: "Autocast Max", description: "2,600 credits a month and every model we offer.",
   },
   {
     tier: "max", productId: "autocast.max.yearly", name: "Max Yearly", period: "ONE_YEAR",
@@ -77,7 +77,7 @@ const PLANS = [
   {
     tier: "ultra", productId: "autocast.ultra.monthly", name: "Ultra Monthly", period: "ONE_MONTH",
     usd: priced("ultra-monthly", "199.99"), trial: false,
-    display: "Autocast Ultra", description: "7,000 credits a month, for a series every day on the best models.",
+    display: "Autocast Ultra", description: "7,000 credits a month, for a series every day.",
   },
   // No Ultra yearly: see the header.
 ] as const;
@@ -226,7 +226,7 @@ for (const plan of PLANS) {
           },
         },
       }).then(() => console.log("  priced", plan.usd, "USD"))
-        .catch((e) => console.log("  PRICE REFUSED (Paid Apps Agreement?):", String(e).slice(0, 160)));
+        .catch((e) => console.log("  PRICE REFUSED (Paid Apps Agreement?):", String(e).replace(/\s+/g, " ").slice(0, 700)));
     }
   } else {
     console.log("  already priced");

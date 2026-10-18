@@ -247,3 +247,59 @@ workflows:
           done
     artifacts:
       - build/sim/Autocast-simulator.zip
+
+  # ------------------------------------------------------- review screenshot
+  # App Store Connect will not send a subscription for review without a
+  # screenshot of where it is bought. This builds the simulator app, opens the
+  # paywall on its own (`-paywallPreview`, Debug only, see ContentAppApp) and
+  # photographs it. The PNG is the artefact; scripts upload it to every product.
+  ios-paywall-shot:
+    name: iOS Paywall screenshot
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      xcode: latest
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/SourcePackages
+    scripts:
+      - *generate_project
+      - name: Build, launch on the paywall, photograph it
+        script: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          best = None
+          for runtime, devices in sorted(json.load(sys.stdin)['devices'].items()):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device['name'] in ('iPhone 16 Pro Max', 'iPhone 17 Pro Max', 'iPhone 16 Plus', 'iPhone 17 Pro'):
+                      best = device['udid']
+              if best is None:
+                  for device in devices:
+                      if device['name'].startswith('iPhone'):
+                          best = device['udid']
+          print(best)
+          ")
+          xcodebuild build \
+            -project ContentApp.xcodeproj \
+            -scheme ContentApp \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build/sim \
+            -clonedSourcePackagesDirPath SourcePackages \
+            CODE_SIGNING_ALLOWED=NO | tail -5
+          APP=$(find build/sim/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl install "$UDID" "$APP"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          xcrun simctl launch "$UDID" "$BUNDLE" -paywallPreview
+          sleep 25
+          mkdir -p build/shots
+          xcrun simctl io "$UDID" screenshot build/shots/paywall.png
+          sips -g pixelWidth -g pixelHeight build/shots/paywall.png
+    artifacts:
+      - build/shots/*.png

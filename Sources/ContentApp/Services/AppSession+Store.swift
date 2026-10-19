@@ -244,3 +244,27 @@ extension AppSession {
         #endif
     }
 }
+
+#if DEBUG
+/// A login kept in memory, for the App Store screenshot lane's unsigned
+/// simulator build (no keychain there). Debug builds only.
+final class DemoAuthStorage: AuthLocalStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String: Data] = [:]
+
+    func store(key: String, value: Data) throws {
+        lock.lock(); defer { lock.unlock() }
+        items[key] = value
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        return items[key]
+    }
+
+    func remove(key: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        items[key] = nil
+    }
+}
+#endif

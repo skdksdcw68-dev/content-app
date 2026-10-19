@@ -84,9 +84,9 @@ private extension ContentAppApp {
         var note = ""
         do {
             let result = try await session.client.auth.signIn(email: email, password: password)
-            note = "signed in: (result.user.id)"
+            note = "signed in: \(result.user.id)"
         } catch {
-            note = "sign-in failed: (error)"
+            note = "sign-in failed: \(error)"
         }
         let url = URL.documentsDirectory.appending(path: "demo-status.txt")
         try? note.write(to: url, atomically: true, encoding: .utf8)

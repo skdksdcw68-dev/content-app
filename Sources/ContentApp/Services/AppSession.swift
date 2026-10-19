@@ -173,6 +173,19 @@ final class AppSession {
     let client: SupabaseClient
 
     init() {
+        #if DEBUG
+        // The App Store screenshot lane runs an UNSIGNED simulator build, which
+        // has no keychain: the sign-in succeeded and the session then vanished
+        // ("Auth session missing"). A demo run keeps it in memory instead.
+        if UserDefaults.standard.string(forKey: "demoEmail") != nil {
+            client = SupabaseClient(
+                supabaseURL: Config.supabaseURL,
+                supabaseKey: Config.supabaseAnonKey,
+                options: SupabaseClientOptions(auth: .init(storage: DemoAuthStorage()))
+            )
+            return
+        }
+        #endif
         client = SupabaseClient(
             supabaseURL: Config.supabaseURL,
             supabaseKey: Config.supabaseAnonKey

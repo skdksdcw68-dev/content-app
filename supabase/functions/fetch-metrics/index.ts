@@ -68,9 +68,12 @@ function sameSecret(given: string, expected: string): boolean {
 
 /** Every page of video.list, up to a cap. One page of 20 was the old limit, and
  *  an account's 21st video simply never had a history. */
-async function listVideos(token: string): Promise<{ videos: Video[]; error?: string }> {
+/** `complete` is true only when every page was read without an error -- the
+ *  one case in which a video NOT in the list is known to be gone (0083). */
+async function listVideos(token: string): Promise<{ videos: Video[]; error?: string; complete: boolean }> {
   const videos: Video[] = [];
   let cursor: number | undefined;
+  let complete = false;
   for (let page = 0; page < 5; page++) {
     const response = await fetch(`https://open.tiktokapis.com/v2/video/list/?fields=${VIDEO_FIELDS}`, {
       method: "POST",
@@ -85,13 +88,41 @@ async function listVideos(token: string): Promise<{ videos: Video[]; error?: str
       error?: { code?: string; message?: string };
     };
     if (listed.error?.code && listed.error.code !== "ok") {
-      return { videos, error: listed.error.message ?? listed.error.code };
+      return { videos, error: listed.error.message ?? listed.error.code, complete: false };
     }
     videos.push(...(listed.data?.videos ?? []));
-    if (!listed.data?.has_more || !listed.data.cursor) break;
+    if (!listed.data?.has_more || !listed.data.cursor) {
+      complete = true;
+      break;
+    }
     cursor = listed.data.cursor;
   }
-  return { videos };
+  return { videos, complete };
+}
+
+/**
+ * Writes down which videos are up. Netro, 19 Oct 2026: a deleted or private
+ * video kept showing its views. TikTok only lists public videos, so one that
+ * stops being listed is no longer public -- but only a WHOLE listing can say
+ * so, which is why a partial one changes nothing but "seen".
+ */
+async function recordPresence(admin: SupabaseClient, connectionId: string, videos: Video[], complete: boolean, now: string) {
+  const seen = videos.map((v) => v.id).filter(Boolean);
+  if (seen.length > 0) {
+    const { error } = await admin.from("video_presence").upsert(
+      seen.map((id) => ({ connection_id: connectionId, video_id: id, last_seen_at: now, missing_since: null })),
+      { onConflict: "connection_id,video_id" },
+    );
+    if (error) console.error("fetch-metrics: presence", connectionId, error.message);
+  }
+  if (!complete) return;
+  let gone = admin.from("video_presence")
+    .update({ missing_since: now })
+    .eq("connection_id", connectionId)
+    .is("missing_since", null);
+  if (seen.length > 0) gone = gone.not("video_id", "in", `(${seen.map((id) => `"${id}"`).join(",")})`);
+  const { error } = await gone;
+  if (error) console.error("fetch-metrics: missing", connectionId, error.message);
 }
 
 async function measure(admin: SupabaseClient, connection: Connection) {
@@ -115,6 +146,7 @@ async function measure(admin: SupabaseClient, connection: Connection) {
   const listed = await listVideos(token);
   const videos = listed.videos;
   const now = new Date().toISOString();
+  await recordPresence(admin, connection.id, videos, listed.complete, now);
 
   // Which of these videos we posted, by the platform's id. Posts published
   // before this existed simply have no match, which is not an error.

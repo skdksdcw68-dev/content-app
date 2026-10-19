@@ -214,3 +214,20 @@ struct MyPlan: Decodable, Sendable, Equatable {
         return isPro ? "Pro" : "Free"
     }
 }
+
+extension AppSession {
+    /// For the simulator screenshot lane only: a Pro monthly subscriber, so the
+    /// Pro page can be photographed the way a subscriber sees it. Does nothing
+    /// outside a Debug build.
+    func previewAsSubscriber() {
+        #if DEBUG
+        let json = #"""
+        {"plan":"creator","name":"Pro","tier":1,"is_pro":true,"is_trial":false,
+         "product_id":"autocast.pro.monthly","expires_at":"2026-11-19T10:00:00+00:00","auto_renew":true,
+         "limits":{"ai_writes":500,"chat":1000,"plan_days":30,"accounts":5},
+         "used":{"ai_writes":0,"chat":0}}
+        """#
+        subscription = try? JSONDecoder().decode(MyPlan.self, from: Data(json.utf8))
+        #endif
+    }
+}

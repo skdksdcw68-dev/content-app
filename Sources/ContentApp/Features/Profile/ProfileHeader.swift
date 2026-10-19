@@ -17,8 +17,8 @@ import SwiftUI
 struct ProfileHeader: View {
     @Environment(AppSession.self) private var session
 
+    /// Edit profile is a page of its own (Netro, 19 Oct 2026), not an alert.
     @State private var editing = false
-    @State private var draft = ""
     private var name: String { session.displayName ?? "Add your name" }
 
     /// The brand line, unless it is still the placeholder name.
@@ -34,40 +34,33 @@ struct ProfileHeader: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 8)
             .padding(.bottom, 4)
-            .alert("Your name", isPresented: $editing) {
-                TextField("Name", text: $draft)
-                    .textContentType(.name)
-                Button("Cancel", role: .cancel) {}
-                Button("Save") {
-                    let name = draft
-                    Task { await session.saveName(name, promoting: "") }
-                }
-            }
+            .sheet(isPresented: $editing) { EditProfileView() }
     }
 
     // MARK: - Who
 
     private var identity: some View {
         VStack(spacing: 0) {
-            InitialAvatar(initial: session.initial, size: 88)
-
-            Button {
-                draft = session.displayName ?? ""
-                editing = true
-            } label: {
-                HStack(spacing: 6) {
-                    Text(name)
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(session.displayName == nil ? Color.secondary : Color.primary)
-                        .lineLimit(1)
-                    Image(systemName: "pencil")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
+            Button { editing = true } label: {
+                ProfileAvatar(size: 88)
+                    .overlay(alignment: .bottomTrailing) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Theme.onAccent)
+                            .frame(width: 28, height: 28)
+                            .background(Theme.accent, in: Circle())
+                            .overlay(Circle().stroke(Color(uiColor: .systemGroupedBackground), lineWidth: 3))
+                    }
             }
             .buttonStyle(.plain)
-            .padding(.top, 12)
-            .accessibilityHint("Change your name")
+            .accessibilityLabel("Profile picture")
+            .accessibilityHint("Edit your profile")
+
+            Text(name)
+                .font(.title2.weight(.bold))
+                .foregroundStyle(session.displayName == nil ? Color.secondary : Color.primary)
+                .lineLimit(1)
+                .padding(.top, 12)
 
             if let subtitle {
                 Text(subtitle)
@@ -78,6 +71,13 @@ struct ProfileHeader: View {
 
             planPill
                 .padding(.top, 10)
+
+            Button("Edit profile") { editing = true }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .padding(.top, 12)
         }
     }
 

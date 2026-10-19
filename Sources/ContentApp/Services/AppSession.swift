@@ -111,6 +111,10 @@ final class AppSession {
     /// What the person asked to be called. The account is the person, never
     /// their TikTok or YouTube (Abel, 19 Sep 2026).
     internal(set) var displayName: String?
+    /// Their profile picture, as a path in the private `brand` bucket (0084),
+    /// and the picture itself once read.
+    internal(set) var avatarPath: String?
+    internal(set) var avatarImage: UIImage?
 
     /// Autocast Pro, as the server decided it. Nil until first read.
     internal(set) var subscription: MyPlan?
@@ -120,6 +124,9 @@ final class AppSession {
     /// What this month's credits stand at (0077). Nil until first read; read
     /// again after anything is made and whenever a screen that shows it opens.
     internal(set) var credits: CreditsStanding?
+    /// Videos TikTok no longer lists publicly: deleted, made private or
+    /// removed (0083). Their views are shown as unavailable, not as live.
+    internal(set) var unavailableVideoIDs: Set<String> = []
     /// The paid tiers as the server defines them, so the paywall never states a
     /// number the server does not enforce.
     internal(set) var planTiers: [PlanTierInfo] = []
@@ -339,6 +346,8 @@ final class AppSession {
         isAnonymous = true
         accountEmail = nil
         displayName = nil
+        avatarPath = nil
+        avatarImage = nil
         subscription = nil
         UserDefaults.standard.removeObject(forKey: Self.chosenBrandKey)
         await start()

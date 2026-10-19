@@ -124,15 +124,19 @@ extension AppSession {
     // MARK: - Your name
 
     func refreshName() async {
-        struct Row: Decodable, Sendable { let display_name: String? }
+        struct Row: Decodable, Sendable { let display_name: String?; let avatar_path: String? }
         guard let userID else { return }
         let rows: [Row]? = try? await client
             .from("profiles")
-            .select("display_name")
+            .select("display_name, avatar_path")
             .eq("user_id", value: userID.uuidString)
             .execute()
             .value
         displayName = rows?.first?.display_name
+        let path = rows?.first?.avatar_path
+        if path != avatarPath { avatarImage = nil }
+        avatarPath = path
+        if avatarImage == nil { avatarImage = await loadAvatar() }
     }
 
     /// Onboarding's first question. The name is the person's; "what you're

@@ -110,6 +110,12 @@ struct AnalyticsPostView: View {
                     .foregroundStyle(.secondary)
             }
 
+            // Said before the numbers, so nobody reads a deleted video's last
+            // count as a live one (Netro, 19 Oct 2026).
+            if session.isUnavailable(video.videoId) {
+                UnavailableNotice()
+            }
+
             HStack(spacing: 0) {
                 stat("eye", video.views, "Views")
                 stat("heart", video.likes, "Likes")

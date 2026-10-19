@@ -312,6 +312,20 @@ workflows:
               xcrun simctl io "$UDID" screenshot "build/shots/welcome-settled.png"
             fi
           done
+          # The first-launch intro, caught at four moments of its nine seconds:
+          # the chat, the video being made, the Dynamic Island, the close.
+          xcrun simctl terminate "$UDID" "$BUNDLE" || true
+          xcrun simctl launch "$UDID" "$BUNDLE" -introPreview
+          sleep 2.4; xcrun simctl io "$UDID" screenshot build/shots/intro-1-chat.png
+          sleep 2.2; xcrun simctl io "$UDID" screenshot build/shots/intro-2-making.png
+          sleep 2.2; xcrun simctl io "$UDID" screenshot build/shots/intro-3-island.png
+          sleep 3.2; xcrun simctl io "$UDID" screenshot build/shots/intro-4-end.png
+          for SHOT in profile subscriber; do
+            xcrun simctl terminate "$UDID" "$BUNDLE" || true
+            xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview"
+            sleep 15
+            xcrun simctl io "$UDID" screenshot "build/shots/$SHOT.png"
+          done
           ls -la build/shots
     artifacts:
       - build/shots/*.png

@@ -246,6 +246,7 @@ struct PostsLibraryView: View {
 /// One cover, TikTok's way: cropped to 3:4, the view count bottom left over a
 /// soft shade, and a small mark on what Autocast posted.
 private struct VideoCell: View {
+    @Environment(AppSession.self) private var session
     let video: PostsLibrary.Video
 
     var body: some View {
@@ -273,13 +274,19 @@ private struct VideoCell: View {
                     .frame(height: 44)
             }
             .overlay(alignment: .bottomLeading) {
-                HStack(spacing: 3) {
-                    Image(systemName: "play")
-                        .font(.caption2.weight(.bold))
-                    Text(AnalyticsFormat.number(Double(video.views)))
-                        .font(.caption.weight(.semibold).monospacedDigit())
+                Group {
+                    if session.isUnavailable(video.videoId) {
+                        UnavailableTag(onDark: true)
+                    } else {
+                        HStack(spacing: 3) {
+                            Image(systemName: "play")
+                                .font(.caption2.weight(.bold))
+                            Text(AnalyticsFormat.number(Double(video.views)))
+                                .font(.caption.weight(.semibold).monospacedDigit())
+                        }
+                        .foregroundStyle(.white)
+                    }
                 }
-                .foregroundStyle(.white)
                 .shadow(color: .black.opacity(0.4), radius: 2)
                 .padding(6)
             }

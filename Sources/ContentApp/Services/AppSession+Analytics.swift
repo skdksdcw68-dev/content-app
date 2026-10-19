@@ -475,7 +475,20 @@ extension AppSession {
                 p_plan: query.planId?.uuidString
             ))
             .execute()
+        await refreshUnavailableVideos()
         return try Self.analyticsDecoder.decode(AnalyticsReport.self, from: response.data)
+    }
+
+    /// Which of this brand's videos are no longer public (0083). Best effort:
+    /// a failed read keeps what was known.
+    func refreshUnavailableVideos() async {
+        guard let brand else { return }
+        struct Gone: Decodable { let video_id: String }
+        if let rows: [Gone] = try? await client
+            .rpc("unavailable_videos", params: ["p_brand": brand.id.uuidString])
+            .execute().value {
+            unavailableVideoIDs = Set(rows.map(.video_id))
+        }
     }
 
     func postsLibrary() async throws -> PostsLibrary {
@@ -483,6 +496,7 @@ extension AppSession {
         let response = try await client
             .rpc("library_videos", params: ["p_brand": brand.id.uuidString])
             .execute()
+        await refreshUnavailableVideos()
         return try Self.analyticsDecoder.decode(PostsLibrary.self, from: response.data)
     }
 

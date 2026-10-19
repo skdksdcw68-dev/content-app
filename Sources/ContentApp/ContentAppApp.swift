@@ -10,13 +10,19 @@ struct ContentAppApp: App {
 
     init() {
         AppTips.configure()
-        if Self.paywallPreview || Self.welcomePreview { Self.seedPreviewPrices() }
+        if Self.paywallPreview || Self.welcomePreview || Self.launchedWith("-subscriberPreview") { Self.seedPreviewPrices() }
     }
 
     var body: some Scene {
         WindowGroup {
             Group {
-                if Self.welcomePreview {
+                if Self.launchedWith("-introPreview") {
+                    HomeIntroView {}
+                } else if Self.launchedWith("-profilePreview") {
+                    EditProfileView()
+                } else if Self.launchedWith("-subscriberPreview") {
+                    PaywallView()
+                } else if Self.welcomePreview {
                     PaywallView(previewWelcome: .max)
                 } else if Self.editorPreview {
                     NavigationStack { EditorView(clips: [Self.previewClip()], ownsBackButton: true) }
@@ -28,7 +34,13 @@ struct ContentAppApp: App {
             }
             .environment(session)
             .task {
-                if Self.welcomePreview || Self.editorPreview {
+                if Self.launchedWith("-subscriberPreview") {
+                    // Pro, as a subscriber sees it: the status page and the
+                    // way up, never "Subscribe to Pro".
+                    session.previewAsSubscriber()
+                    await session.loadPlanTiers()
+                    await session.loadProducts()
+                } else if Self.welcomePreview || Self.editorPreview {
                     await session.loadPlanTiers()
                 } else if Self.paywallPreview {
                     await session.loadPlanTiers()

@@ -38,6 +38,8 @@ struct PaywallView: View {
     @State private var buying = false
     @State private var restoring = false
     @State private var managing = false
+    /// A subscriber who tapped Upgrade: the plans above theirs are showing.
+    @State private var upgrading = false
 
     /// The tier just bought: the welcome is showing (18 Oct 2026).
     @State private var welcomed: Tier?
@@ -92,14 +94,24 @@ struct PaywallView: View {
     /// never sold yearly, but it sat under the Annual tab saying "Monthly only",
     /// which read as a yearly Ultra. It shows under Monthly.
     private var offered: [Tier] {
+        // A subscriber is shown only what is above their plan (Netro, 19 Oct
+        // 2026: "if you are a pro, you are on the pro subscriber page... there
+        // should be an upgrade button").
+        let above: (Tier) -> Bool = { tier in (currentTier?.rank ?? 0) < tier.rank }
         guard !products.isEmpty else {
-            return yearly ? Tier.allCases.filter(\.sellsYearly) : Tier.allCases
+            return (yearly ? Tier.allCases.filter(\.sellsYearly) : Tier.allCases).filter(above)
         }
         let sold = Tier.allCases.filter {
             yearly ? product($0, yearly: true) != nil
                    : product($0, yearly: false) != nil
-        }
-        return sold.isEmpty ? Tier.allCases.filter { !yearly || $0.sellsYearly } : sold
+        }.filter(above)
+        return sold.isEmpty ? Tier.allCases.filter { (!yearly || $0.sellsYearly) && above($0) } : sold
+    }
+
+    /// The plan above theirs, for the one Upgrade button.
+    private var nextTier: Tier? {
+        guard let currentTier else { return nil }
+        return Tier.allCases.first { $0.rank == currentTier.rank + 1 }
     }
 
     /// The product they already have, so the button can say so.
@@ -196,6 +208,11 @@ struct PaywallView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
+                if isSubscriber && !upgrading {
+                    subscriberPage
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 32)
+                } else {
                 VStack(spacing: 0) {
                     header
                     billingPicker
@@ -211,8 +228,10 @@ struct PaywallView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 32)
+                }
             }
             .scrollIndicators(.hidden)
+            .animation(.smooth(duration: 0.3), value: upgrading)
             .background(Color(uiColor: .systemBackground).ignoresSafeArea())
             .navigationTitle("Autocast")
             .navigationBarTitleDisplayMode(.inline)
@@ -248,9 +267,61 @@ struct PaywallView: View {
     @ViewBuilder
     private var header: some View {
         if isSubscriber {
-            status
+            VStack(spacing: 8) {
+                Text("Upgrade your plan")
+                    .font(.system(size: 28, weight: .heavy))
+                Text("Moving up starts now. Apple credits what is left of your current plan.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button {
+                    upgrading = false
+                } label: {
+                    Label("Back to your plan", systemImage: "chevron.backward")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(.top, 4)
+            }
+            .padding(.vertical, 16)
         } else {
             pitch
+        }
+    }
+
+    /// What a subscriber sees: their plan, as a status page, and the way up.
+    /// Never "Subscribe to Pro" to somebody already on Pro.
+    private var subscriberPage: some View {
+        VStack(spacing: 0) {
+            status
+            if let currentTier {
+                FeaturesCard(label: "YOUR \(currentTier.name.uppercased()) PLAN INCLUDES", features: bullets(currentTier))
+                    .padding(.top, 12)
+            }
+            VStack(spacing: 12) {
+                if let nextTier {
+                    Button {
+                        tier = nextTier
+                        if !nextTier.sellsYearly { yearly = false }
+                        upgrading = true
+                    } label: {
+                        Label("Upgrade to \(nextTier.name)", systemImage: "arrow.up.circle.fill")
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                    }
+                    .buttonStyle(RemiFilledButtonStyle())
+                    .controlSize(.large)
+                    Text("\(nextTier.name) gives you \(usageText(nextTier)).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Label("You're on our biggest plan", systemImage: "crown.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                accountLinks
+            }
+            .padding(.top, 24)
         }
     }
 
@@ -406,6 +477,13 @@ struct PaywallView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
+            accountLinks
+        }
+    }
+
+    /// Manage, Restore, and the two links Apple requires.
+    private var accountLinks: some View {
+        VStack(spacing: 12) {
             if isSubscriber {
                 Button {
                     managing = true
@@ -450,7 +528,7 @@ struct PaywallView: View {
     private var buttonTitle: String {
         guard let choice else { return "Subscribe to \(tier.name)" }
         if isSubscriber {
-            return isCurrentChoice ? "Your current plan" : "Switch to \(tier.name)"
+            return isCurrentChoice ? "Your current plan" : "Upgrade to \(tier.name)"
         }
         if hasTrial(choice) { return "Start \(trialText(choice).lowercased())" }
         return "Subscribe to \(tier.name)"

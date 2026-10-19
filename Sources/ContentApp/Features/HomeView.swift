@@ -36,6 +36,8 @@ struct HomeView: View {
     @State private var series: PlanProposal?
     /// Connecting where it posts, as a sheet over Home.
     @State private var connecting = false
+    /// The intro plays once, the first time Home opens (Netro, 19 Oct 2026).
+    @AppStorage("home.intro.seen") private var introSeen = false
 
     private var videos: [BoardPost] { loadedVideos ?? [] }
 
@@ -226,7 +228,7 @@ struct HomeView: View {
                             .font(.subheadline.weight(.semibold))
                     }
                     NavigationLink { ProfileView() } label: {
-                        InitialAvatar(initial: session.initial, size: 30)
+                        ProfileAvatar(size: 30)
                     }
                     .accessibilityLabel("Your profile")
                 }
@@ -274,6 +276,9 @@ struct HomeView: View {
         }
         .fullScreenCover(item: $reviewing) { post in
             VideoReviewView(post: post)
+        }
+        .fullScreenCover(isPresented: Binding(get: { !introSeen }, set: { if !$0 { introSeen = true } })) {
+            HomeIntroView { introSeen = true }
         }
         .sheet(isPresented: $connecting) { ConnectAccountsSheet() }
         .sheet(isPresented: $startingSeries, onDismiss: {

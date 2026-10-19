@@ -226,6 +226,7 @@ enum GridSort: String, CaseIterable, Hashable {
 
 /// Studio's posts, three across: the cover, its rank and its views.
 struct PostsGridCard: View {
+    @Environment(AppSession.self) private var session
     let report: AnalyticsReport
 
     @State private var sort: GridSort = .views
@@ -292,11 +293,17 @@ struct PostsGridCard: View {
                     .padding(7)
             }
             .overlay(alignment: .bottomLeading) {
-                Label(label(video), systemImage: sort == .engagement ? "hand.tap.fill" : "play.fill")
-                    .font(.caption.weight(.bold).monospacedDigit())
-                    .labelStyle(.titleAndIcon)
-                    .foregroundStyle(.white)
-                    .padding(7)
+                Group {
+                    if session.isUnavailable(video.videoId) {
+                        UnavailableTag(onDark: true)
+                    } else {
+                        Label(label(video), systemImage: sort == .engagement ? "hand.tap.fill" : "play.fill")
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .labelStyle(.titleAndIcon)
+                            .foregroundStyle(.white)
+                    }
+                }
+                .padding(7)
             }
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .accessibilityElement(children: .ignore)

@@ -133,6 +133,7 @@ struct AnalyticsThumbnail: View {
 }
 
 struct RankedPostRow: View {
+    @Environment(AppSession.self) private var session
     let rank: Int
     let video: AnalyticsReport.Video
     let sort: TopPostSort
@@ -171,6 +172,9 @@ struct RankedPostRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
 
+                if session.isUnavailable(video.videoId) {
+                    UnavailableTag()
+                } else {
                 HStack(spacing: 5) {
                     Image(systemName: sort.symbol)
                         .font(.caption)
@@ -183,6 +187,7 @@ struct RankedPostRow: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(relative >= 1 ? Color.green : Color.secondary)
                     }
+                }
                 }
             }
 

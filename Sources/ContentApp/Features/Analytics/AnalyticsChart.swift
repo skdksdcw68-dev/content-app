@@ -237,14 +237,23 @@ private struct TrendPlot: View {
         let scrubbing: Bool = selected != nil
         let shown: Bool = settled || reduceMotion
         let markerOpacity: Double = shown ? (scrubbing ? 0.3 : 1) : 0
+        // 🔴 The chart itself no longer changes while a finger moves. Netro,
+        // 19 Oct 2026: "while you move your hand around it, it's not that
+        // smooth". Every new bucket under the finger re-animated the whole
+        // Chart -- line, area and thirty custom dots -- and the rule jumped
+        // from day to day. Now the marks only change when scrubbing starts or
+        // stops, and the line, dot and callout live in an overlay that springs
+        // from bucket to bucket on its own.
         return Chart {
             previousLine(label: label, dimmed: scrubbing)
-            currentLine(label: label, selectedID: selected?.id)
+            currentLine(label: label)
             markers(label: label, opacity: markerOpacity)
             openBucket(label: label, shown: shown)
-            selection(selected, label: label)
         }
         .chartXSelection(value: $selectedDate)
+        .chartOverlay { proxy in
+            ScrubOverlay(proxy: proxy, selected: selected, metric: metric, reduceMotion: reduceMotion)
+        }
         .chartYAxis {
             AxisMarks(position: .trailing) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [3, 3]))
@@ -259,7 +268,7 @@ private struct TrendPlot: View {
         .chartPlotStyle { plot in
             plot.modifier(DrawIn(progress: drawn, isDrawing: isDrawing && !reduceMotion))
         }
-        .animation(reduceMotion ? nil : AnalyticsMotion.glide, value: selected?.id)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: scrubbing)
     }
 
     // MARK: Marks
@@ -303,7 +312,7 @@ private struct TrendPlot: View {
     }
 
     @ChartContentBuilder
-    private func currentLine(label: String, selectedID: Int?) -> some ChartContent {
+    private func currentLine(label: String) -> some ChartContent {
         ForEach(points) { point in
             AreaMark(
                 x: .value("Date", point.date),
@@ -321,7 +330,7 @@ private struct TrendPlot: View {
             .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
             .interpolationMethod(.monotone)
             .symbol {
-                TrendDot(dimmed: selectedID != nil && selectedID != point.id)
+                TrendDot()
             }
         }
     }
@@ -360,22 +369,6 @@ private struct TrendPlot: View {
         }
     }
 
-    @ChartContentBuilder
-    private func selection(_ selected: TrendPoint?, label: String) -> some ChartContent {
-        if let selected {
-            RuleMark(x: .value("Date", selected.date))
-                .foregroundStyle(Color.secondary.opacity(0.35))
-                .annotation(position: .top, spacing: 0, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
-                    TrendCallout(point: selected, metric: metric)
-                }
-
-            PointMark(x: .value("Date", selected.date), y: .value(label, selected.value))
-                .symbol {
-                    SelectedDot()
-                }
-        }
-    }
-
     // MARK: Behaviour
 
     private func nearest(to date: Date?) -> TrendPoint? {
@@ -406,16 +399,57 @@ private struct TrendPlot: View {
     }
 }
 
-/// A point on the line: dims while the finger is on another one.
+/// A point on the line. The same every frame, so a moving finger never asks
+/// the chart to redraw thirty of them.
 private struct TrendDot: View {
-    let dimmed: Bool
-
     var body: some View {
         Circle()
             .strokeBorder(Color.accentColor, lineWidth: 1.5)
             .background(Circle().fill(Color.raised))
             .frame(width: 7, height: 7)
-            .opacity(dimmed ? 0.35 : 1)
+    }
+}
+
+/// What follows the finger: a hairline, the point it is on, and the callout,
+/// placed from the chart's own coordinates and sprung from one bucket to the
+/// next. Drawn over the chart without catching touches, so the chart's own
+/// selection keeps reading the finger.
+private struct ScrubOverlay: View {
+    let proxy: ChartProxy
+    let selected: TrendPoint?
+    let metric: AnalyticsMetric
+    let reduceMotion: Bool
+
+    /// About the callout's width, to keep it inside the card at either edge.
+    private let calloutHalf: CGFloat = 64
+
+    var body: some View {
+        GeometryReader { geo in
+            if let selected, let anchor = proxy.plotFrame,
+               let x = proxy.position(forX: selected.date),
+               let y = proxy.position(forY: selected.value) {
+                let plot = geo[anchor]
+                let px = plot.minX + x
+                let py = plot.minY + y
+                ZStack {
+                    Rectangle()
+                        .fill(Color.secondary.opacity(0.35))
+                        .frame(width: 1, height: plot.height)
+                        .position(x: px, y: plot.midY)
+                    SelectedDot()
+                        .position(x: px, y: py)
+                    TrendCallout(point: selected, metric: metric)
+                        .fixedSize()
+                        .position(
+                            x: min(max(px, calloutHalf), geo.size.width - calloutHalf),
+                            y: max(plot.minY + 22, min(py - 44, plot.maxY - 22))
+                        )
+                }
+                .animation(reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.86), value: selected.id)
+                .transition(.opacity)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

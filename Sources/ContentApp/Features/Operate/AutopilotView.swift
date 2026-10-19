@@ -18,6 +18,10 @@ struct AutopilotView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                // Netro, 19 Oct 2026: "This page is looking bad... the recent
+                // activity shouldn't be there. It should be somewhere like logs."
+                // A 3D hero that moves once and stops, the counts flipping in,
+                // and the activity behind its own row.
                 if let overview {
                     status(overview)
                     nextMove(overview)
@@ -26,7 +30,7 @@ struct AutopilotView: View {
                     if let plan = overview.plan { campaign(plan, overview.counts) }
                     if let last = overview.lastPublished { lastPublished(last) }
                     controls(overview)
-                    activity(overview.activity)
+                    activityLink(overview)
                 } else if failed {
                     ContentUnavailableView("Couldn't load Autopilot", systemImage: "exclamationmark.triangle",
                                            description: Text("Pull to try again."))
@@ -60,28 +64,20 @@ struct AutopilotView: View {
     // MARK: - Status
 
     private func status(_ o: AutopilotOverview) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 14) {
-                ZStack {
-                    Circle()
-                        .fill((o.publishingOn ? Color.green : Color.orange).opacity(0.15))
-                        .frame(width: 54, height: 54)
-                    if o.publishingOn {
-                        BreathingDot(size: 14)
-                            .foregroundStyle(.green)
-                    } else {
-                        Image(systemName: "pause.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.orange)
-                    }
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(o.publishingOn ? "Active" : "Paused")
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                    Text(o.brand.name)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .center, spacing: 14) {
+            AutopilotHero(active: o.publishingOn)
+                .frame(height: 190)
+                .frame(maxWidth: .infinity)
+
+            VStack(spacing: 2) {
+                Text(o.publishingOn ? "Active" : "Paused")
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                Text(o.publishingOn ? "Posting for \(o.brand.name)" : "\(o.brand.name) is on hold")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
                 Spacer()
                 Button {
                     if o.publishingOn { confirmingPause = true } else { Task { await setPublishing(true) } }
@@ -95,6 +91,7 @@ struct AutopilotView: View {
                 }
                 .buttonStyle(SoftPressStyle())
                 .disabled(toggling)
+                Spacer()
             }
 
             Divider()
@@ -174,9 +171,13 @@ struct AutopilotView: View {
     private func counts(_ o: AutopilotOverview) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
             countTile("Published", o.counts.published, "checkmark.circle.fill", .green)
+                .flipIn(order: 0)
             countTile("Queued", o.counts.queued + o.counts.inFlight, "clock.badge.checkmark", .blue)
+                .flipIn(order: 1)
             countTile("Waiting for you", o.counts.waitingForYou, "eye", o.counts.waitingForYou > 0 ? .orange : .secondary)
+                .flipIn(order: 2)
             countTile("Needs attention", o.counts.needsAttention, "exclamationmark.triangle.fill", o.counts.needsAttention > 0 ? .red : .secondary)
+                .flipIn(order: 3)
         }
     }
 
@@ -277,7 +278,7 @@ struct AutopilotView: View {
                 "Make videos with AI",
                 detail: session.hasWorkingGenerator
                     ? "Autopilot makes each planned video about a day before it's due, then sends it to you for review."
-                    : "Connect a video generator with credits to turn this on. Your own videos work without it.",
+                    : "Making videos is paused on our side for a moment. Your own videos work without it.",
                 trailing: AnyView(Toggle("", isOn: Binding(
                     get: { o.aiVideosOn },
                     set: { value in Task { _ = await session.setAutopilot(value); await load() } }
@@ -310,23 +311,33 @@ struct AutopilotView: View {
         }
     }
 
-    private func activity(_ events: [ActivityEvent]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent activity")
-                .font(.headline)
-            if events.isEmpty {
-                Text("Nothing yet. Everything Autocast does for \(overview?.brand.name ?? "this brand") shows up here.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                ForEach(events) { event in
-                    ActivityRow(event: event, timezone: timezone)
+    /// The log, one tap away instead of filling the page.
+    private func activityLink(_ o: AutopilotOverview) -> some View {
+        NavigationLink {
+            AutopilotLogView(events: o.activity, brandName: o.brand.name, timezone: timezone)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "list.bullet.rectangle.portrait")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 34, height: 34)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Activity log")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(o.activity.first.map { "Latest: \($0.title)" } ?? "Everything Autopilot does shows up here")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
+            .padding(14)
+            .raisedCard(radius: Style.rowCard)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .raisedCard(radius: Style.rowCard)
+        .buttonStyle(SoftPressStyle())
     }
 
     // MARK: - Loading
@@ -356,6 +367,124 @@ struct AutopilotView: View {
         defer { toggling = false }
         if await session.setPublishing(on) { await load() }
     }
+}
+
+/// Everything Autopilot has done, newest first, as its own page.
+struct AutopilotLogView: View {
+    let events: [ActivityEvent]
+    let brandName: String
+    let timezone: TimeZone
+
+    var body: some View {
+        List {
+            if events.isEmpty {
+                ContentUnavailableView("Nothing yet", systemImage: "list.bullet.rectangle.portrait",
+                                       description: Text("Everything Autocast does for \(brandName) shows up here."))
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(events) { event in
+                    ActivityRow(event: event, timezone: timezone)
+                        .padding(.vertical, 4)
+                }
+            }
+        }
+        .navigationTitle("Activity log")
+        .navigationBarTitleDisplayMode(.inline)
+        .pushedPage()
+    }
+}
+
+// MARK: - The 3D pieces
+
+/// Autopilot's engine: a glowing orb inside three tilted rings. It swings in
+/// from an angle, the rings spin into place and the plane turns once -- about
+/// two seconds -- and then everything stops. Nothing loops. Paused, it is
+/// grey and the rings settle without spinning.
+private struct AutopilotHero: View {
+    let active: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var settled = false
+
+    private var tint: Color { active ? .accentColor : .gray }
+
+    var body: some View {
+        ZStack {
+            // A soft floor shadow, so the whole thing sits in space.
+            Ellipse()
+                .fill(tint.opacity(0.18))
+                .frame(width: 150, height: 26)
+                .blur(radius: 10)
+                .offset(y: 78)
+
+            ForEach(0..<3, id: \.self) { ring in
+                let size = CGFloat(176 - ring * 34)
+                Ellipse()
+                    .strokeBorder(
+                        AngularGradient(colors: [tint, tint.opacity(0.1), tint.opacity(0.6), tint], center: .center),
+                        lineWidth: ring == 0 ? 2.5 : 2
+                    )
+                    .frame(width: size, height: size)
+                    // Spin in the ring's own plane first, then tilt the plane:
+                    // that is what makes it read as a ring in space.
+                    .rotationEffect(.degrees(settled || reduceMotion ? Double(ring) * 40 : Double(ring) * 40 - (active ? 300 : 40)))
+                    .rotation3DEffect(.degrees(68 - Double(ring) * 10), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+                    .rotation3DEffect(.degrees(Double(ring - 1) * 18), axis: (x: 0, y: 0, z: 1))
+            }
+
+            Circle()
+                .fill(RadialGradient(
+                    colors: [tint.opacity(0.95), tint.opacity(0.55), tint.opacity(0.25)],
+                    center: UnitPoint(x: 0.35, y: 0.3),
+                    startRadius: 4,
+                    endRadius: 52
+                ))
+                .frame(width: 84, height: 84)
+                .overlay {
+                    // A highlight, so the orb reads as a sphere.
+                    Circle()
+                        .fill(LinearGradient(colors: [.white.opacity(0.55), .clear], startPoint: .topLeading, endPoint: .center))
+                        .frame(width: 84, height: 84)
+                        .mask(Circle().frame(width: 60, height: 60).offset(x: -10, y: -12))
+                }
+                .shadow(color: tint.opacity(0.45), radius: 18, y: 8)
+                .overlay {
+                    Image(systemName: active ? "paperplane.fill" : "pause.fill")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.white)
+                        .rotation3DEffect(.degrees(settled || reduceMotion ? 0 : (active ? -360 : 0)), axis: (x: 0, y: 1, z: 0))
+                }
+                .scaleEffect(settled || reduceMotion ? 1 : 0.6)
+        }
+        // The whole engine swings in from an angle and settles face on.
+        .rotation3DEffect(.degrees(settled || reduceMotion ? 0 : 38), axis: (x: 1, y: -0.6, z: 0), perspective: 0.6)
+        .opacity(settled || reduceMotion ? 1 : 0)
+        .onAppear {
+            guard !settled, !reduceMotion else { return }
+            withAnimation(.spring(duration: 1.9, bounce: 0.22)) { settled = true }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct FlipIn: ViewModifier {
+    let order: Int
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content
+            .rotation3DEffect(.degrees(shown || reduceMotion ? 0 : -75), axis: (x: 1, y: 0, z: 0), anchor: .top, perspective: 0.5)
+            .opacity(shown || reduceMotion ? 1 : 0)
+            .onAppear {
+                guard !shown, !reduceMotion else { return }
+                withAnimation(.spring(duration: 0.7, bounce: 0.3).delay(0.35 + Double(order) * 0.09)) { shown = true }
+            }
+    }
+}
+
+private extension View {
+    /// Flips down into place once, after the ones before it.
+    func flipIn(order: Int) -> some View { modifier(FlipIn(order: order)) }
 }
 
 struct ActivityRow: View {

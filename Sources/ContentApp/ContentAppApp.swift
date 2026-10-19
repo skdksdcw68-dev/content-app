@@ -61,6 +61,7 @@ struct ContentAppApp: App {
                     await Self.signInForStoreShots(session)
                     await session.start()
                     await Self.openForStoreShots(session)
+                    Task { await Self.scrollForStoreShots() }
                 }
             }
             // Google hands its result back through the reversed-client-id
@@ -99,6 +100,36 @@ private extension ContentAppApp {
         #endif
     }
 
+    /// Scrolls the biggest scroll view on screen to a given offset, so the part
+    /// of a long screen that matters is the part photographed (-scrollOffset 700
+    /// -scrollAfter 20). Debug only.
+    static func scrollForStoreShots() async {
+        #if DEBUG
+        let defaults = UserDefaults.standard
+        let offset = defaults.double(forKey: "scrollOffset")
+        guard offset > 0 else { return }
+        let after = defaults.double(forKey: "scrollAfter")
+        try? await Task.sleep(for: .seconds(after > 0 ? after : 22))
+        await MainActor.run {
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first,
+                  let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first else { return }
+            var best: UIScrollView?
+            func walk(_ view: UIView) {
+                if let scroll = view as? UIScrollView, scroll.bounds.width > 300, scroll.contentSize.height > scroll.bounds.height + 50 {
+                    if best == nil || scroll.contentSize.height > best!.contentSize.height { best = scroll }
+                }
+                view.subviews.forEach(walk)
+            }
+            walk(window)
+            if let scroll = best {
+                let top = -scroll.adjustedContentInset.top
+                let limit = max(top, scroll.contentSize.height - scroll.bounds.height + scroll.adjustedContentInset.bottom)
+                scroll.setContentOffset(CGPoint(x: 0, y: min(top + offset, limit)), animated: false)
+            }
+        }
+        #endif
+    }
+
     /// And the one conversation to open, when asked (-openThread <id>).
     static func openForStoreShots(_ session: AppSession) async {
         #if DEBUG
@@ -106,11 +137,14 @@ private extension ContentAppApp {
         try? await Task.sleep(for: .seconds(1))
         if let raw = defaults.string(forKey: "openThread"), let id = UUID(uuidString: raw) {
             session.push(.chat(id))
+        } else if let raw = defaults.string(forKey: "openPost"), let id = UUID(uuidString: raw) {
+            session.push(.post(id))
         } else if let route = defaults.string(forKey: "openRoute") {
             switch route {
             case "generated": session.push(.generated)
             case "library": session.push(.library)
             case "inspiration": session.push(.inspiration)
+            case "plan": session.push(.plan(nil))
             default: break
             }
         }

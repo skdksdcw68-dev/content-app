@@ -402,18 +402,31 @@ workflows:
           # top of the screen for a while; let it go before anything is shot.
           xcrun simctl launch "$UDID" "$BUNDLE" -onboarding.step done > /dev/null
           sleep 75
-          shoot home 32 -startTab home
-          shoot analytics 34 -startTab analytics -analytics.range 60
-          shoot chats 28 -startTab chat
-          shoot you 28 -startTab you
-          shoot autopilot 32 -autopilotPreview
-          shoot usage 30 -usagePreview
-          shoot generated 36 -openRoute generated
-          shoot library 32 -openRoute library
-          shoot thread-image 36 -openThread "$T_IMAGE"
+          # Every screen at the places that matter: results, not headers.
+          # (-scrollOffset moves the page to where the finished work is.)
+          POST=${DEMO_POST:-}
+          shoot home-0 24 -startTab home
+          shoot home-1 30 -startTab home -scrollOffset 520 -scrollAfter 18
+          shoot home-2 30 -startTab home -scrollOffset 1100 -scrollAfter 18
+          shoot an-over-0 26 -startTab analytics -analytics.range 60
+          shoot an-over-1 32 -startTab analytics -analytics.range 60 -scrollOffset 650 -scrollAfter 22
+          shoot an-over-2 32 -startTab analytics -analytics.range 60 -scrollOffset 1300 -scrollAfter 22
+          shoot an-content-0 28 -startTab analytics -analytics.range 60 -analyticsPage content
+          shoot an-content-1 34 -startTab analytics -analytics.range 60 -analyticsPage content -scrollOffset 650 -scrollAfter 22
+          shoot an-insights-0 28 -startTab analytics -analytics.range 60 -analyticsPage autocast
+          shoot an-insights-1 34 -startTab analytics -analytics.range 60 -analyticsPage autocast -scrollOffset 650 -scrollAfter 22
+          shoot ap-0 28 -autopilotPreview
+          shoot ap-1 34 -autopilotPreview -scrollOffset 650 -scrollAfter 24
+          shoot ap-2 34 -autopilotPreview -scrollOffset 1300 -scrollAfter 24
+          shoot plan-0 30 -openRoute plan
+          shoot plan-1 36 -openRoute plan -scrollOffset 700 -scrollAfter 26
+          shoot post-0 30 -openPost "$POST"
+          shoot post-1 36 -openPost "$POST" -scrollOffset 700 -scrollAfter 26
+          shoot you-0 26 -startTab you
+          shoot library-0 30 -openRoute library
+          shoot generated-0 32 -openRoute generated
+          shoot thread-insight 30 -openThread "$T_INSIGHT"
           shoot thread-research 40 -openThread "$T_RESEARCH" -openReport YES
-          shoot thread-insight 32 -openThread "$T_INSIGHT"
-          shoot thread-caption 32 -openThread "$T_CAPTION"
           for SHOT in paywall editor subscriber; do
             xcrun simctl terminate "$UDID" "$BUNDLE" || true
             xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview" > /dev/null

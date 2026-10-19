@@ -33,7 +33,15 @@ struct AnalyticsView: View {
     @AppStorage("analytics.customFrom") private var customFrom: Double = 0
     @AppStorage("analytics.customTo") private var customTo: Double = 0
 
-    @State private var page: Page = .overview
+    @State private var page: Page = AnalyticsView.launchPage
+
+    /// Debug only: which page a screenshot run opens on (-analyticsPage content).
+    private static var launchPage: Page {
+        #if DEBUG
+        if let raw = UserDefaults.standard.string(forKey: "analyticsPage"), let page = Page(rawValue: raw) { return page }
+        #endif
+        return .overview
+    }
     @State private var platform: String?
     @State private var format: String?
     @State private var pillarId: UUID?

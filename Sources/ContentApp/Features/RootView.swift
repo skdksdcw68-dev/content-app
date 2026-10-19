@@ -16,7 +16,7 @@ struct RootView: View {
     /// onboarding step finishing, a notification, a card on Home.
     @Environment(AppSession.self) private var session
     @Environment(\.scenePhase) private var scenePhase
-    @State private var tab: AppTab = .home
+    @State private var tab: AppTab = AppTab.launchValue
     /// Light unless the person chose otherwise (Remi's default). Read here, at
     /// the root, so the choice reaches every screen -- sheets included -- at once.
     @State private var appearance = AppAppearance.current

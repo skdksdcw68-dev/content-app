@@ -126,3 +126,21 @@ private struct TabChromeModifier: ViewModifier {
             .preference(key: TabChromeKey.self, value: tab.map { [$0: chrome] } ?? [:])
     }
 }
+
+extension AppTab {
+    /// Which tab a Debug build opens on (-startTab analytics): for the App
+    /// Store screenshot lane. Always Home in a Release build.
+    static var launchValue: AppTab {
+        #if DEBUG
+        switch UserDefaults.standard.string(forKey: "startTab") {
+        case "chat": return .chat
+        case "analytics": return .analytics
+        case "you": return .you
+        case "create": return .create
+        default: return .home
+        }
+        #else
+        return .home
+        #endif
+    }
+}

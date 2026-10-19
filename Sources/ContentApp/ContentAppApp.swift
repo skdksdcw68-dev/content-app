@@ -18,6 +18,10 @@ struct ContentAppApp: App {
             Group {
                 if Self.launchedWith("-composerPreview") {
                     ComposerPreview()
+                } else if Self.launchedWith("-autopilotPreview") {
+                    NavigationStack { AutopilotView() }
+                } else if Self.launchedWith("-usagePreview") {
+                    NavigationStack { UsageView() }
                 } else if Self.launchedWith("-introPreview") {
                     HomeIntroView {}
                 } else if Self.launchedWith("-profilePreview") {
@@ -48,7 +52,9 @@ struct ContentAppApp: App {
                     await session.loadPlanTiers()
                     await session.loadProducts()
                 } else {
+                    await Self.signInForStoreShots(session)
                     await session.start()
+                    await Self.openForStoreShots(session)
                 }
             }
             // Google hands its result back through the reversed-client-id
@@ -64,6 +70,29 @@ struct ContentAppApp: App {
 }
 
 private extension ContentAppApp {
+    /// App Store screenshots: a Debug simulator build can sign in to the demo
+    /// account from tokens handed over on the command line (-demoAccess,
+    /// -demoRefresh), so the real screens are photographed with real data.
+    /// Compiled out of Release.
+    static func signInForStoreShots(_ session: AppSession) async {
+        #if DEBUG
+        let defaults = UserDefaults.standard
+        guard let access = defaults.string(forKey: "demoAccess"),
+              let refresh = defaults.string(forKey: "demoRefresh") else { return }
+        _ = try? await session.client.auth.setSession(accessToken: access, refreshToken: refresh)
+        #endif
+    }
+
+    /// And the one conversation to open, when asked (-openThread <id>).
+    static func openForStoreShots(_ session: AppSession) async {
+        #if DEBUG
+        guard let raw = UserDefaults.standard.string(forKey: "openThread"),
+              let id = UUID(uuidString: raw) else { return }
+        try? await Task.sleep(for: .seconds(1))
+        session.push(.chat(id))
+        #endif
+    }
+
     /// The paywall on its own, for App Store Connect's review screenshot: every
     /// subscription needs one, and the `ios-paywall-shot` lane launches a
     /// simulator build with `-paywallPreview` and photographs it. Debug builds

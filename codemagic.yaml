@@ -341,3 +341,77 @@ workflows:
     artifacts:
       - build/shots/*.png
       - build/shots/*.mp4
+
+  # The App Store screenshots: the real app, signed in to the demo account
+  # (Brew & Co.) with tokens handed over as secret variables, one launch per
+  # screen. Debug build, iPhone Pro Max simulator (1320 x 2868, the 6.9" size).
+  ios-store-shots:
+    name: iOS App Store screenshots
+    instance_type: mac_mini_m2
+    max_build_duration: 40
+    environment:
+      xcode: latest
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/SourcePackages
+    scripts:
+      - *generate_project
+      - name: Build, sign in as the demo account, photograph each screen
+        script: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          best = None
+          for runtime, devices in sorted(json.load(sys.stdin)['devices'].items()):
+              if 'iOS' not in runtime:
+                  continue
+              for device in devices:
+                  if device['name'] in ('iPhone 16 Pro Max', 'iPhone 17 Pro Max'):
+                      best = device['udid']
+          print(best)
+          ")
+          xcodebuild build \
+            -project ContentApp.xcodeproj \
+            -scheme ContentApp \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath build/sim \
+            -clonedSourcePackagesDirPath SourcePackages \
+            CODE_SIGNING_ALLOWED=NO | tail -5
+          APP=$(find build/sim/Build/Products/Debug-iphonesimulator -maxdepth 1 -name '*.app' | head -1)
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4 --wifiBars 3 || true
+          xcrun simctl ui "$UDID" appearance light || true
+          xcrun simctl install "$UDID" "$APP"
+          BUNDLE=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Info.plist")
+          mkdir -p build/shots
+          shoot() {
+            NAME="$1"; WAIT="$2"; shift 2
+            xcrun simctl terminate "$UDID" "$BUNDLE" || true
+            xcrun simctl launch "$UDID" "$BUNDLE" \
+              -onboarding.step done -home.intro.seen YES \
+              -demoAccess "$DEMO_ACCESS" -demoRefresh "$DEMO_REFRESH" "$@" > /dev/null
+            sleep "$WAIT"
+            xcrun simctl io "$UDID" screenshot "build/shots/$NAME.png"
+          }
+          IFS=',' read -r T_IMAGE T_RESEARCH T_INSIGHT T_CAPTION <<< "$DEMO_THREADS"
+          shoot home 28 -startTab home
+          shoot analytics 28 -startTab analytics
+          shoot chats 24 -startTab chat
+          shoot you 24 -startTab you
+          shoot autopilot 28 -autopilotPreview
+          shoot usage 24 -usagePreview
+          shoot thread-image 34 -openThread "$T_IMAGE"
+          shoot thread-research 34 -openThread "$T_RESEARCH"
+          shoot thread-insight 30 -openThread "$T_INSIGHT"
+          shoot thread-caption 30 -openThread "$T_CAPTION"
+          for SHOT in paywall editor subscriber; do
+            xcrun simctl terminate "$UDID" "$BUNDLE" || true
+            xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview" > /dev/null
+            sleep 20
+            xcrun simctl io "$UDID" screenshot "build/shots/$SHOT.png"
+          done
+          ls -la build/shots
+    artifacts:
+      - build/shots/*.png

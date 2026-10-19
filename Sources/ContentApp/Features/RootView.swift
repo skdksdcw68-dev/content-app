@@ -123,7 +123,7 @@ struct RootView: View {
             "That did not work",
             isPresented: Binding(
                 // An empty message is a cancelled request, not a failure.
-                get: { !(session.lastError ?? "").isEmpty && !session.showingPaywall },
+                get: { !(session.lastError ?? "").isEmpty && !session.showingPaywall && !Self.demoRun },
                 set: { if !$0 { session.lastError = nil } }
             )
         ) {
@@ -282,5 +282,17 @@ private struct StartupFailedView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Theme.canvas.ignoresSafeArea())
+    }
+}
+
+extension RootView {
+    /// A screenshot run signs in to the demo account, whose TikTok link is a
+    /// stand-in: errors about it are not drawn over the pictures. Debug only.
+    static var demoRun: Bool {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "demoEmail") != nil
+        #else
+        return false
+        #endif
     }
 }

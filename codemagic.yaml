@@ -398,16 +398,22 @@ workflows:
             echo "$NAME: $(cat "$DATA/Documents/demo-status.txt" 2>/dev/null || echo 'no status file')"
           }
           IFS=',' read -r T_IMAGE T_RESEARCH T_INSIGHT T_CAPTION <<< "$DEMO_THREADS"
-          shoot home 28 -startTab home
-          shoot analytics 28 -startTab analytics
-          shoot chats 24 -startTab chat
-          shoot you 24 -startTab you
-          shoot autopilot 28 -autopilotPreview
-          shoot usage 24 -usagePreview
-          shoot thread-image 34 -openThread "$T_IMAGE"
-          shoot thread-research 34 -openThread "$T_RESEARCH"
-          shoot thread-insight 30 -openThread "$T_INSIGHT"
-          shoot thread-caption 30 -openThread "$T_CAPTION"
+          # A first launch of a fresh simulator throws a system banner over the
+          # top of the screen for a while; let it go before anything is shot.
+          xcrun simctl launch "$UDID" "$BUNDLE" -onboarding.step done > /dev/null
+          sleep 75
+          shoot home 32 -startTab home
+          shoot analytics 34 -startTab analytics -analytics.range 60
+          shoot chats 28 -startTab chat
+          shoot you 28 -startTab you
+          shoot autopilot 32 -autopilotPreview
+          shoot usage 30 -usagePreview
+          shoot generated 36 -openRoute generated
+          shoot library 32 -openRoute library
+          shoot thread-image 36 -openThread "$T_IMAGE"
+          shoot thread-research 40 -openThread "$T_RESEARCH" -openReport YES
+          shoot thread-insight 32 -openThread "$T_INSIGHT"
+          shoot thread-caption 32 -openThread "$T_CAPTION"
           for SHOT in paywall editor subscriber; do
             xcrun simctl terminate "$UDID" "$BUNDLE" || true
             xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview" > /dev/null

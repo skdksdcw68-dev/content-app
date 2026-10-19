@@ -280,7 +280,16 @@ private struct ReportCard: View {
     let artifact: Artifact
     let onExport: (Artifact, String) -> Void
 
-    @State private var reading = false
+    @State private var reading = ReportCard.openedForShots
+
+    /// Debug only: a screenshot run opens the report itself (-openReport YES).
+    private static var openedForShots: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "openReport")
+        #else
+        return false
+        #endif
+    }
 
     private var findings: [Artifact.Finding] { artifact.body.findings ?? [] }
 

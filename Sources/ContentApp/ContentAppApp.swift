@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import UIKit
 
 @main
@@ -9,6 +10,10 @@ struct ContentAppApp: App {
     @State private var session = AppSession()
 
     init() {
+        #if DEBUG
+        // Screenshots: no tip popovers over the screens.
+        if UserDefaults.standard.string(forKey: "demoEmail") != nil { Tips.hideAllTipsForTesting() }
+        #endif
         AppTips.configure()
         if Self.paywallPreview || Self.welcomePreview || Self.launchedWith("-subscriberPreview") { Self.seedPreviewPrices() }
     }
@@ -19,9 +24,10 @@ struct ContentAppApp: App {
                 if Self.launchedWith("-composerPreview") {
                     ComposerPreview()
                 } else if Self.launchedWith("-autopilotPreview") {
-                    NavigationStack { AutopilotView() }
+                    // Only once signed in: these read the account as soon as they appear.
+                    if session.state == .ready { NavigationStack { AutopilotView() } } else { Color(uiColor: .systemGroupedBackground).ignoresSafeArea() }
                 } else if Self.launchedWith("-usagePreview") {
-                    NavigationStack { UsageView() }
+                    if session.state == .ready { NavigationStack { UsageView() } } else { Color(uiColor: .systemGroupedBackground).ignoresSafeArea() }
                 } else if Self.launchedWith("-introPreview") {
                     HomeIntroView {}
                 } else if Self.launchedWith("-profilePreview") {
@@ -96,10 +102,18 @@ private extension ContentAppApp {
     /// And the one conversation to open, when asked (-openThread <id>).
     static func openForStoreShots(_ session: AppSession) async {
         #if DEBUG
-        guard let raw = UserDefaults.standard.string(forKey: "openThread"),
-              let id = UUID(uuidString: raw) else { return }
+        let defaults = UserDefaults.standard
         try? await Task.sleep(for: .seconds(1))
-        session.push(.chat(id))
+        if let raw = defaults.string(forKey: "openThread"), let id = UUID(uuidString: raw) {
+            session.push(.chat(id))
+        } else if let route = defaults.string(forKey: "openRoute") {
+            switch route {
+            case "generated": session.push(.generated)
+            case "library": session.push(.library)
+            case "inspiration": session.push(.inspiration)
+            default: break
+            }
+        }
         #endif
     }
 

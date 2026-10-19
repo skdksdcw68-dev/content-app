@@ -82,7 +82,10 @@ struct ChatComposer: View {
             // 25 Sep 2026: "the text input is so much narrow and it looks so
             // much annoying"). 20 keeps the capsule floating rather than
             // edge-to-edge, and gives back 28pt of words.
-            .padding(.horizontal, isExpanded ? 12 : 20)
+            // Narrower at rest when the Create video pill shares the row, so the
+            // field keeps room for its words on one line (Netro, 19 Oct 2026:
+            // the pill and the text sat on separate lines).
+            .padding(.horizontal, isExpanded ? 10 : (onCreateVideo != nil && footer == nil ? 14 : 20))
             .padding(.top, 6)
             .animation(.easeOut(duration: 0.22), value: isExpanded)
             .sensoryFeedback(.impact(weight: .light), trigger: showsOptions)
@@ -97,7 +100,7 @@ struct ChatComposer: View {
                 pendingStrip
             }
 
-            HStack(alignment: .bottom, spacing: 6) {
+            HStack(alignment: .bottom, spacing: onCreateVideo != nil && footer == nil ? 4 : 6) {
                 if footer == nil { plusButton }
                 if footer == nil, onCreateVideo != nil { createVideoButton }
 
@@ -107,6 +110,9 @@ struct ChatComposer: View {
                     // One line at rest, growing to six, then scrolling inside
                     // itself. The buttons stay on the bottom edge while it grows.
                     .lineLimit(1...6)
+                    // The placeholder stays on one line; it used to wrap to
+                    // two when the row was tight.
+                    .minimumScaleFactor(0.85)
                     .focused($isFocused)
                     .padding(.horizontal, footer == nil ? 4 : 8)
                     .padding(.vertical, 7)
@@ -199,13 +205,13 @@ struct ChatComposer: View {
                     .font(.system(size: 13, weight: .semibold))
                 if !isExpanded {
                     Text("Create video")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                         .fixedSize()
                 }
             }
             .foregroundStyle(Theme.onAccent)
-            .padding(.horizontal, isExpanded ? 0 : 11)
+            .padding(.horizontal, isExpanded ? 0 : 9)
             .frame(minWidth: 32, minHeight: 32)
             .background(Theme.accent, in: Capsule())
             .contentShape(Capsule())

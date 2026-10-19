@@ -16,7 +16,9 @@ struct ContentAppApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if Self.launchedWith("-introPreview") {
+                if Self.launchedWith("-composerPreview") {
+                    ComposerPreview()
+                } else if Self.launchedWith("-introPreview") {
                     HomeIntroView {}
                 } else if Self.launchedWith("-profilePreview") {
                     EditProfileView()
@@ -110,5 +112,35 @@ private extension ContentAppApp {
             ],
             currency: "USD"
         ).save()
+    }
+}
+
+/// The chat composer at rest with the Create video pill, and the research
+/// indicator above it, for the screenshot lane. Launched with -composerPreview.
+private struct ComposerPreview: View {
+    var body: some View {
+        ZStack {
+            Theme.canvas.ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    ShimmerText(text: "Researching…")
+                }
+                .padding(.horizontal, 20)
+                Spacer()
+                ChatComposer(
+                    text: .constant(""),
+                    showsOptions: .constant(false),
+                    isWorking: false,
+                    resetToken: 0,
+                    focusToken: 0,
+                    onCreateVideo: {},
+                    onSend: {},
+                    onStop: {}
+                )
+                .padding(.bottom, 24)
+            }
+            .padding(.top, 120)
+        }
     }
 }

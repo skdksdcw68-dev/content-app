@@ -300,7 +300,7 @@ workflows:
           # One launch per screen: the paywall (the review screenshot), the
           # welcome after a purchase, and the editor opened the way chat
           # opens it.
-          for SHOT in paywall welcome editor; do
+          for SHOT in paywall welcome editor composer; do
             xcrun simctl terminate "$UDID" "$BUNDLE" || true
             xcrun simctl launch "$UDID" "$BUNDLE" "-${SHOT}Preview"
             # The welcome is caught mid-confetti; the others once settled.

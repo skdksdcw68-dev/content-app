@@ -325,6 +325,18 @@ Deno.serve(async (request) => {
             throw error ?? new Error("the run did not start");
           }
           send({ t: "run", id: runId, kind });
+          // Start the worker NOW instead of waiting for the next minute's tick
+          // (Netro, 19 Oct 2026: research "slower than Sage"). Safe next to the
+          // cron: due_agent_runs leases what it takes, so nobody runs a step twice.
+          const cronSecret = Deno.env.get("CRON_SECRET");
+          if (cronSecret) {
+            const kick = fetch(`${SUPABASE_URL}/functions/v1/run-agent-jobs`, {
+              method: "POST",
+              headers: { "x-cron-secret": cronSecret, "Content-Type": "application/json" },
+              body: "{}",
+            }).catch(() => {});
+            (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(kick);
+          }
           await remember({ kind: "run", run_id: runId, run_kind: kind });
           finish();
         };

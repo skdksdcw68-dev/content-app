@@ -64,30 +64,43 @@ struct RunCard: View {
     }
 
     private var working: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        // The word first and at once -- never "Queued" -- then what it is
+        // doing, line by line, as the server reports it. No box around it:
+        // it is the agent working, not a card to read.
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                BreathingDot(size: 8)
-                Text(steps.last?.detail ?? title)
-                    .font(.subheadline.weight(.semibold))
-                    .fixedSize(horizontal: false, vertical: true)
+                ProgressView()
+                    .controlSize(.small)
+                ShimmerText(text: title + "…")
                 Spacer(minLength: 0)
+            }
+
+            ForEach(steps.suffix(4)) { step in
+                HStack(spacing: 8) {
+                    if step.isDone {
+                        Image(systemName: "checkmark")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 14)
+                    } else {
+                        BreathingDot(size: 6)
+                            .frame(width: 14)
+                    }
+                    Text(step.detail)
+                        .font(.footnote)
+                        .foregroundStyle(step.isDone ? .secondary : .primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
             if let progress, progress.of > 0 {
                 ProgressView(value: Double(progress.done), total: Double(progress.of))
                     .tint(Theme.accent)
             }
-
-            Text("Keeps going if you leave the app")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
-        .padding(14)
+        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                .fill(Theme.surface)
-        }
         .animation(.easeOut(duration: 0.2), value: steps.count)
     }
 
@@ -111,7 +124,7 @@ struct RunCard: View {
                 return
             }
             sawRunning = true
-            try? await Task.sleep(for: .seconds(3))
+            try? await Task.sleep(for: .seconds(1))
         }
     }
 
@@ -139,7 +152,7 @@ struct RunCard: View {
 
         case "status":
             // "Queued" is true and worthless once anything else has happened.
-            guard let detail = payload.detail, payload.step != "queued" || steps.isEmpty else { return }
+            guard let detail = payload.detail, payload.step != "queued" else { return }
             add(detail)
 
         default:

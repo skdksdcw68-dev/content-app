@@ -293,3 +293,40 @@ struct SkeletonBubble: View {
         .accessibilityHidden(true)
     }
 }
+
+// MARK: - Shimmering text
+
+/// A word with light travelling across it: "Researching", while it is.
+///
+/// Netro, 19 Oct 2026: research showed a pill that said "Queued" and then sat
+/// there; he wanted the word itself, alive, the way Sage does it. One clock for
+/// the whole sweep, so it never stutters or drifts out of step.
+struct ShimmerText: View {
+    let text: String
+    var font: Font = .subheadline.weight(.semibold)
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let seconds = context.date.timeIntervalSinceReferenceDate
+            let phase = seconds.truncatingRemainder(dividingBy: 1.5) / 1.5
+            Text(text)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .overlay {
+                    GeometryReader { proxy in
+                        let width = proxy.size.width
+                        LinearGradient(
+                            colors: [.clear, .primary, .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: max(width * 0.55, 40))
+                        .offset(x: -width * 0.55 + phase * (width * 1.55))
+                    }
+                    .mask(alignment: .leading) { Text(text).font(font) }
+                }
+        }
+        .fixedSize()
+        .accessibilityLabel(text)
+    }
+}

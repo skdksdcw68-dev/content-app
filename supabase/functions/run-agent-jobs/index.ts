@@ -41,6 +41,10 @@ const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
  *  taken this tick is taken next tick; the queue is durable. */
 const BATCH = 2;
 
+/** Stop starting new rounds after this long. A single step can take a minute,
+ *  and the function must be done well inside the platform's wall clock. */
+const ROUND_BUDGET_MS = 40_000;
+
 type Admin = ReturnType<typeof createClient>;
 
 interface Run {
@@ -61,16 +65,26 @@ Deno.serve(async (request) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
+  // 🔴 Rounds, not one step a minute. Research is five or six steps in a row
+  // with nothing to wait for between them, and a tick that did one and went
+  // home made a report take as many minutes as it had steps (Netro, 19 Oct
+  // 2026: "slower than Sage"). Keep taking what is due until the budget is
+  // spent; whatever is left waits for the next tick as before.
+  const startedAt = Date.now();
+  const results: Record<string, string> = {};
+  let advanced = 0;
+
+  while (true) {
   const { data: due, error } = await admin.rpc("due_agent_runs", { p_limit: BATCH });
   if (error) {
     console.error("due_agent_runs", error);
-    return json({ error: "claim failed" }, 500);
+    if (advanced === 0) return json({ error: "claim failed" }, 500);
+    break;
   }
 
   const runs = (due ?? []) as Run[];
-  if (runs.length === 0) return json({ advanced: 0 });
-
-  const results: Record<string, string> = {};
+  if (runs.length === 0) break;
+  advanced += runs.length;
 
   for (const run of runs) {
     try {
@@ -110,7 +124,10 @@ Deno.serve(async (request) => {
     }
   }
 
-  return json({ advanced: runs.length, results });
+  if (Date.now() - startedAt > ROUND_BUDGET_MS) break;
+  }
+
+  return json({ advanced, results });
 });
 
 /**
@@ -122,14 +139,20 @@ Deno.serve(async (request) => {
 async function advance(admin: Admin, run: Run): Promise<string> {
   // Held for two minutes so a second tick cannot take the same run while this
   // one is mid-call. `reap_leases` puts it back if this function dies.
-  await admin
+  // Taken only if nobody else holds it: the chat now starts this worker the
+  // moment a run exists, so it can overlap the minute's tick, and a step must
+  // never be paid for twice.
+  const { data: taken } = await admin
     .from("agent_runs")
     .update({
       claimed_by: `tick-${crypto.randomUUID().slice(0, 8)}`,
       lease_until: new Date(Date.now() + 120_000).toISOString(),
       status: "running",
     })
-    .eq("id", run.id);
+    .eq("id", run.id)
+    .or(`lease_until.is.null,lease_until.lt.${new Date().toISOString()}`)
+    .select("id");
+  if (!taken || taken.length === 0) return "held_elsewhere";
 
   if (run.kind === "research") return await researchStep(admin, run);
   if (run.kind === "export") return await exportStep(admin, run);

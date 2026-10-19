@@ -35,6 +35,10 @@ import { fail, json, preflight, PublicError } from "../_shared/http.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { requireUsage } from "../_shared/credits.ts";
 import { write as writeWithClaude } from "../_shared/writer.ts";
+import { MODELS } from "../_shared/route.ts";
+
+/** ChatGPT for ideas (19 Oct 2026): the full model, not the small one. */
+const IDEAS_MODEL = Deno.env.get("IDEAS_MODEL") ?? MODELS.deep;
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -187,10 +191,12 @@ async function write(
   // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
   let completion;
   try {
+    // ChatGPT writes Home's ideas (Netro, 19 Oct 2026: "its smarter for
+    // this"), on the full gpt-4.1 rather than mini.
     completion = await writeWithClaude({
       json: true,
-      effort: "low",
-      openaiModel: MODEL,
+      prefer: "openai",
+      openaiModel: IDEAS_MODEL,
       messages: [
         { role: "system", content: systemPrompt(measured) },
         { role: "user", content: parts.join("\n") },

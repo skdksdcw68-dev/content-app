@@ -644,10 +644,12 @@ async function write(brand: Brand, body: Body, admin: Admin, userId: string) {
   // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
   let completion;
   try {
+    // ChatGPT writes captions (Netro, 19 Oct 2026: "its smarter for this"),
+    // on the full gpt-4.1 rather than mini.
     completion = await writeWithClaude({
       json: true,
-      effort: "low",
-      openaiModel: MODEL,
+      prefer: "openai",
+      openaiModel: MODELS.deep,
       messages: [{ role: "system", content: system }, { role: "user", content }] as WriterMessage[],
     });
   } catch (thrown) {

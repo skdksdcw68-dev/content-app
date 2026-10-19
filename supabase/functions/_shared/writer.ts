@@ -52,6 +52,10 @@ export interface WriterRequest {
   effort?: "low" | "medium" | "high";
   /** The OpenAI model this call used before, for the fallback. */
   openaiModel: string;
+  /** Who writes it. Claude unless said otherwise. Netro, 19 Oct 2026:
+   *  captions and Home's ideas are ChatGPT's -- "its smarter for this" -- so
+   *  those two say `openai` and never touch Claude. */
+  prefer?: "claude" | "openai";
   maxTokens?: number;
 }
 
@@ -123,7 +127,7 @@ function textOf(message: Anthropic.Message): string {
 
 /** One answer, from Claude, or from OpenAI when Claude cannot. */
 export async function write(request: WriterRequest): Promise<Completion> {
-  const anthropic = claude();
+  const anthropic = request.prefer === "openai" ? null : claude();
   if (anthropic) {
     try {
       const { system, messages } = toClaude(request);
@@ -154,7 +158,7 @@ export async function write(request: WriterRequest): Promise<Completion> {
  * analytics answer, which the person watches arrive.
  */
 export async function writeStreaming(request: WriterRequest, onText: (piece: string) => void): Promise<Completion> {
-  const anthropic = claude();
+  const anthropic = request.prefer === "openai" ? null : claude();
   if (anthropic) {
     let wrote = false;
     try {

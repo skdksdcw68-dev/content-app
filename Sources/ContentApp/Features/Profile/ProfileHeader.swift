@@ -44,7 +44,7 @@ struct ProfileHeader: View {
             Button { editing = true } label: {
                 ProfileAvatar(size: 88)
                     .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "camera.fill")
+                        Image(systemName: "pencil")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Theme.onAccent)
                             .frame(width: 28, height: 28)
@@ -53,8 +53,8 @@ struct ProfileHeader: View {
                     }
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Profile picture")
-            .accessibilityHint("Edit your profile")
+            .accessibilityLabel("Edit profile")
+            .accessibilityHint("Change your picture, name and account details")
 
             Text(name)
                 .font(.title2.weight(.bold))
@@ -71,13 +71,6 @@ struct ProfileHeader: View {
 
             planPill
                 .padding(.top, 10)
-
-            Button("Edit profile") { editing = true }
-                .font(.subheadline.weight(.semibold))
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
-                .padding(.top, 12)
         }
     }
 

@@ -345,6 +345,7 @@ struct ChatView: View {
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
+                        onCreateVideo: isGenerating ? nil : { createVideo() },
                         onSend: { send() },
                         onStop: stop
                     )
@@ -497,16 +498,7 @@ struct ChatView: View {
                     // A tag, not text. The composer flips into the generator
                     // -- pills above, the bar below, send submits the job --
                     // and the × on the tag flips it back to plain chat.
-                    creating = mode
-                    choices.mode = mode
-                    choices.model = nil
-                    composerFocus += 1
-                    Task {
-                        let models = await session.models(capability: mode.capability, withPicture: false)
-                        if choices.model == nil {
-                            choices.model = models.first(where: \.recommended) ?? models.first
-                        }
-                    }
+                    beginCreating(mode)
 
                 case .planMonth:
                     planning = true
@@ -850,6 +842,34 @@ struct ChatView: View {
         }
     }
 
+    /// Flips plain chat into the generator: pills above, the bar below, and
+    /// Send submits the job. The model is the recommended one for the kind.
+    @discardableResult
+    private func beginCreating(_ mode: GenerateChoices.Mode) -> Task<Void, Never> {
+        creating = mode
+        choices.mode = mode
+        choices.model = nil
+        composerFocus += 1
+        return Task {
+            let models = await session.models(capability: mode.capability, withPicture: false)
+            if choices.model == nil {
+                choices.model = models.first(where: \.recommended) ?? models.first
+            }
+        }
+    }
+
+    /// The Create video button beside the plus. Words already typed are made
+    /// into the video at once; an empty field opens the video controls.
+    private func createVideo() {
+        let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let ready = beginCreating(.video)
+        guard !words.isEmpty else { return }
+        Task {
+            await ready.value
+            send()
+        }
+    }
+
     private func send(action: AppSession.ChatAction? = nil) {
         var asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1025,7 +1045,12 @@ struct ChatView: View {
                 if !Task.isCancelled, !(error is CancellationError) {
                     turns[replyIndex].isPending = false
                     turns[replyIndex].failed = true
-                    turns[replyIndex].text = "That did not get through. Try again."
+                    // The reason, when there is one: offline, signed out, a
+                    // server message -- not a shrug (Netro, 19 Oct 2026).
+                    let reason = session.readableMessage(error)
+                    turns[replyIndex].text = reason.isEmpty
+                        ? "That did not get through. Try again."
+                        : "That did not get through: \(reason)"
                 }
                 return
             }

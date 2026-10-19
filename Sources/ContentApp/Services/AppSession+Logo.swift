@@ -42,7 +42,7 @@ extension AppSession {
 
         // Namespaced by user first: the storage policy reads folder one and
         // compares it to auth.uid(), exactly as `artifacts` does.
-        let path = "\(userID.uuidString)/\(brandID.uuidString)/logo.png"
+        let path = "\(userID.uuidString.lowercased())/\(brandID.uuidString.lowercased())/logo.png"
 
         do {
             _ = try await client.storage

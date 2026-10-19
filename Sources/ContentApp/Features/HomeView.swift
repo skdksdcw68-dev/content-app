@@ -324,23 +324,54 @@ struct HomeView: View {
     /// through a capsule with no room, on a screen with no reply -- so the tap
     /// opens the page that has both, with the cursor already in it.
     private var askField: some View {
+        // Netro, 19 Oct 2026: it works well, so it keeps working the same way
+        // -- one tap lands on the page with the cursor in the field -- but it
+        // is now a card that says what it does, with the button that does it.
         Button { session.push(.makeVideo("")) } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 16, weight: .semibold))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Theme.accent)
-                // "Your first" only while there is nothing to show for it.
-                Text(videos.isEmpty ? "Describe your first video" : "Describe a video to make")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+                Text(videos.isEmpty ? "Make your first video" : "Make a video")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 48)
-            .frame(maxWidth: .infinity)
-            .background(Color.raised, in: Capsule())
+
+            // Looks like the field and opens the page that has it.
+            Text("Describe it — a scene, a story, an idea…")
+                .font(.body)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
+
+            HStack(spacing: 10) {
+                Label("9:16", systemImage: "rectangle.portrait")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.track, in: Capsule())
+                Spacer(minLength: 0)
+                HStack(spacing: 6) {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("Create video")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .foregroundStyle(Theme.onAccent)
+                .padding(.horizontal, 16)
+                .frame(height: 38)
+                .background(Theme.accent, in: Capsule())
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.raised, in: RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
         }
         .buttonStyle(SoftPressStyle())
+        .accessibilityLabel("Create video")
+        .accessibilityHint("Describe the video you want to make")
     }
 
     // MARK: - Keep creating

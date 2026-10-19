@@ -703,7 +703,7 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
         if (house && thrown.code === "no_credits") {
           console.error("HOUSE GENERATOR IS OUT OF CREDIT: top up the fal balance (fal.ai/dashboard/billing)");
         }
-        await tell(admin, run, refusal(thrown.code, what, house));
+        await tell(admin, run, refusal(thrown.code, what, house, thrown.detail));
         return `failed ${thrown.code}`;
       }
       throw thrown;
@@ -752,7 +752,7 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
       if (polled.status === "failed" || polled.status === "nsfw") {
         const code = polled.status === "nsfw" ? "refused" : polled.code ?? "bad_output";
         await admin.rpc("finish_agent_run", { p_run: run.id, p_status: "failed", p_error: code });
-        await tell(admin, run, refusal(code, what));
+        await tell(admin, run, refusal(code, what, false, polled.error ?? undefined));
         return `failed ${code}`;
       }
 
@@ -984,7 +984,28 @@ async function saveGenerated(
 
 /** A failure code, said the way a person needs to hear it. The provider's own
  *  words stay on the run row for diagnosis and never reach the chat. */
-function refusal(code: string, what: string, house = false): string {
+/**
+ * The provider's own reason, made readable: fal answers with JSON bodies like
+ * {"detail":[{"msg":"..."}]}. Cut short, and never a stack or a key.
+ * (Netro, 19 Oct 2026: "the interface should display any errors, such as why
+ * it failed or whether it violates a policy.")
+ */
+function reasonOf(detail?: string): string {
+  if (!detail) return "";
+  let text = detail.trim();
+  try {
+    const parsed = JSON.parse(text.slice(text.indexOf("{")));
+    const first = Array.isArray(parsed?.detail) ? parsed.detail[0] : parsed?.detail ?? parsed;
+    text = String(first?.msg ?? first?.message ?? parsed?.message ?? parsed?.error ?? text);
+  } catch {
+    // Plain text already.
+  }
+  return text.replace(/\s+/g, " ").slice(0, 220);
+}
+
+function refusal(code: string, what: string, house = false, detail?: string): string {
+  const why = reasonOf(detail);
+  const because = why ? ` The provider said: "${why}".` : "";
   switch (code) {
     case "no_credits":
       // Our balance, not theirs: nothing to top up, nothing they did, and the
@@ -1002,13 +1023,13 @@ function refusal(code: string, what: string, house = false): string {
     case "no_models":
       return `Nothing you've connected can make ${what === "image" ? "images" : what === "audio" ? "audio" : "video"} right now.`;
     case "refused":
-      return `The provider refused that prompt, so no ${what} was made. Try describing it differently.`;
+      return `That request was refused, so no ${what} was made and nothing was charged.${because} If it was about content, it may break the model's policy: describe it differently.`;
     case "rate_limited":
       return `The provider is limiting requests right now. Ask again in a few minutes.`;
     case "provider_down":
-      return `The provider isn't answering right now, so the ${what} wasn't made. Try again shortly.`;
+      return `The provider isn't answering right now, so the ${what} wasn't made. Try again shortly.${because}`;
     default:
-      return `The ${what} didn't come back in a form I could use, so nothing was saved.`;
+      return `The ${what} wasn't made, so nothing was saved.${because || " The model sent back something I couldn't use."}`;
   }
 }
 

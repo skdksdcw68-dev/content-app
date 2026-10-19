@@ -109,10 +109,31 @@ struct GenerationFeed: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .padding(.top, 6)
             } else if let failure = entry.failure {
-                Label(failure, systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
+                // Why it failed, in full and in view: a policy refusal, a
+                // setting the model won't take, a balance. Netro, 19 Oct 2026:
+                // "the interface should display any errors, such as why it
+                // failed or whether it violates a policy."
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("Couldn’t make it", systemImage: "exclamationmark.triangle.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.red)
+                    Text(failure)
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                    Button { onRetry(entry.prompt) } label: {
+                        Label("Try again", systemImage: "arrow.counterclockwise")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(.top, 4)
             } else if let reply = entry.reply {
                 // What the agent said back to a greeting: "Sure, what should
                 // the video be of?" Plain ink, under what was said, with no

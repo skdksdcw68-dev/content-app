@@ -49,6 +49,9 @@ struct ChatComposer: View {
     /// does without tapping it.
     var footer: AnyView?
     var onRemoveAttachment: (UUID) -> Void = { _ in }
+    /// A Create video button beside the plus (Netro, 19 Oct 2026). Nil on the
+    /// video page itself, where the whole screen already is that.
+    var onCreateVideo: (() -> Void)?
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -96,6 +99,7 @@ struct ChatComposer: View {
 
             HStack(alignment: .bottom, spacing: 6) {
                 if footer == nil { plusButton }
+                if footer == nil, onCreateVideo != nil { createVideoButton }
 
                 TextField(attachments.isEmpty ? placeholder : "Say what to do with it", text: $text, axis: .vertical)
                     .font(.system(size: 16))
@@ -180,6 +184,36 @@ struct ChatComposer: View {
         }
         .buttonStyle(PressButtonStyle())
         .accessibilityLabel("Options")
+    }
+
+    /// Make a video from here. With words typed it makes them; with none it
+    /// opens the video controls. Labelled while the field is at rest, and just
+    /// the icon once somebody is typing, so the field keeps its width.
+    private var createVideoButton: some View {
+        Button {
+            isFocused = false
+            onCreateVideo?()
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "video.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                if !isExpanded {
+                    Text("Create video")
+                        .font(.system(size: 14, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .foregroundStyle(Theme.onAccent)
+            .padding(.horizontal, isExpanded ? 0 : 11)
+            .frame(minWidth: 32, minHeight: 32)
+            .background(Theme.accent, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressButtonStyle())
+        .disabled(isWorking)
+        .animation(.easeOut(duration: 0.2), value: isExpanded)
+        .accessibilityLabel("Create video")
     }
 
     /// Send, or -- while an answer is being written -- stop.

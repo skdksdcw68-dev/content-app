@@ -51,7 +51,10 @@ extension AppSession {
             return false
         }
         // A new name each time, so no cache anywhere serves yesterday's face.
-        let path = "\(userID.uuidString)/avatar-\(Int(Date().timeIntervalSince1970)).jpg"
+        // Lowercase: Postgres compares the folder to auth.uid()::text, which is
+        // lowercase, while uuidString is UPPERCASE (the "violates row-level
+        // security" error on every upload, 19 Oct).
+        let path = "\(userID.uuidString.lowercased())/avatar-\(Int(Date().timeIntervalSince1970)).jpg"
         do {
             _ = try await client.storage.from("brand")
                 .upload(path, data: data, options: FileOptions(contentType: "image/jpeg", upsert: true))

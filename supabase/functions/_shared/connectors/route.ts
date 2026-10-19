@@ -54,6 +54,9 @@ export class NothingCanDoThis extends Error {
     readonly code: string,
     /** What was tried, for the job row. Never shown to a person as-is. */
     readonly attempts: string[],
+    /** The provider's own last words (a policy refusal, a bad setting), so
+     *  the chat can say WHY instead of "none of your providers could". */
+    readonly detail?: string,
   ) {
     super(message);
     this.name = "NothingCanDoThis";
@@ -243,6 +246,7 @@ export async function routeSubmit(
 
   const attempts: string[] = [];
   let lastCode = "no_models";
+  let lastDetail: string | undefined;
   let blockedConnections = new Set<string>();
 
   for (const candidate of ordered) {
@@ -279,6 +283,7 @@ export async function routeSubmit(
       const verdict = verdictOf(thrown, candidate.providerSlug, candidate.authKind);
       attempts.push(`${candidate.label}: ${verdict.code}`);
       lastCode = verdict.code;
+      lastDetail = verdict.detail || lastDetail;
 
       // Told by the adapter, not guessed here. `bad_key` is a fact about the
       // account, so every other model on it would answer the same way.
@@ -313,6 +318,7 @@ export async function routeSubmit(
       : `None of your connected providers could make ${readable(args.capability)}.`,
     lastCode,
     attempts,
+    lastDetail,
   );
 }
 

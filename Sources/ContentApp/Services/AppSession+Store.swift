@@ -131,6 +131,19 @@ extension AppSession {
         // They just tapped Subscribe: a failure here is worth saying.
         await send([result.jwsRepresentation], announce: true)
         await transaction.finish()
+
+        // 🔴 Never leave "Setting up your plan" spinning on a plan that is not
+        // coming (Netro, 19 Oct 2026: Max was bought and stored, the server
+        // still answered Free). Ask a few more times, then say so.
+        var tries = 0
+        while subscription?.isPro != true, tries < 3 {
+            try? await Task.sleep(for: .seconds(2))
+            await refreshSubscription()
+            tries += 1
+        }
+        if subscription?.isPro != true, (lastError ?? "").isEmpty {
+            lastError = "Apple took your payment, but your plan didn’t switch on. Tap Restore on the plans screen, and if it still says Free, write to us — you won’t be charged twice."
+        }
     }
 
     /// Renewals, refunds and purchases from elsewhere while the app is open.

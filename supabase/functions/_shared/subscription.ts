@@ -65,5 +65,16 @@ export async function applyTransaction(
 
   const { error } = await admin.from("subscriptions").upsert(row, { onConflict: "user_id" });
   if (error) throw error;
+
+  // 🔴 A test override must not outlive a purchase made after it. Netro asked
+  // on 29 Sep to be treated as Free for testing; on 19 Oct he bought Max, the
+  // row was stored, and my_plan() kept saying Free because plan_overrides wins
+  // over subscriptions -- "Setting up your plan" forever. A purchase or renewal
+  // dated AFTER the override ends it; an older receipt re-sent at launch does not.
+  if (status === "active") {
+    await admin.from("plan_overrides").delete()
+      .eq("user_id", userId)
+      .lt("created_at", new Date(tx.purchaseDate).toISOString());
+  }
   return { status, expiresAt: row.current_period_end as string | null, isTrial };
 }

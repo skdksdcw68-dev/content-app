@@ -204,7 +204,11 @@ const PREFERRED: Record<string, string[]> = {
   // $0.84 for five seconds, and not yet proven with a real job), so the default
   // stays on the one that is -- Kling 2.5 Turbo -- until the new models have
   // each made something. Then this is one line to change.
-  image_generation: ["nano banana", "seedream", "nano banana pro", "gpt image"],
+  //
+  // 19 Oct 2026, Netro: pictures default to ChatGPT's own model, GPT Image 2
+  // (medium quality, $0.07 -- about 1% of a Pro month), for the better result.
+  // Nano Banana stays next, for when GPT Image is not on offer.
+  image_generation: ["gpt image", "nano banana", "seedream", "nano banana pro"],
   video_generation: ["kling 2.5", "wan", "veo 3.1 fast", "kling", "veo", "seedance"],
 };
 

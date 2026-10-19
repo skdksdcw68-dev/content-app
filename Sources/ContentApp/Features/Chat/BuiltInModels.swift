@@ -95,10 +95,10 @@ enum BuiltInModels {
     /// The everyday picture models the adapter offers (29 Sep 2026 on), for a
     /// cold start. Each id is the adapter's own.
     private static let image: [Entry] = [
-        Entry(id: "fal-ai/nano-banana", name: "Google Nano Banana",
-              about: "Quick, high-quality generation and editing.", frames: false),
         Entry(id: "openai/gpt-image-2", name: "GPT Image 2",
               about: "The most accurate, and the best with text.", frames: false),
+        Entry(id: "fal-ai/nano-banana", name: "Google Nano Banana",
+              about: "Quick, high-quality generation and editing.", frames: false),
         Entry(id: "bytedance/seedream/v5/pro/text-to-image", name: "Seedream 5 Pro",
               about: "Photographic, great with people and products.", frames: false),
         Entry(id: "fal-ai/flux/schnell", name: "FLUX Schnell",

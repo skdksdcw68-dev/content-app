@@ -77,9 +77,19 @@ private extension ContentAppApp {
     static func signInForStoreShots(_ session: AppSession) async {
         #if DEBUG
         let defaults = UserDefaults.standard
-        guard let access = defaults.string(forKey: "demoAccess"),
-              let refresh = defaults.string(forKey: "demoRefresh") else { return }
-        _ = try? await session.client.auth.setSession(accessToken: access, refreshToken: refresh)
+        guard let email = defaults.string(forKey: "demoEmail"),
+              let password = defaults.string(forKey: "demoPassword") else { return }
+        // Written where the lane can read it: whether the sign-in worked, and
+        // if not, why. (-demoEmail / -demoPassword: a throwaway demo account.)
+        var note = ""
+        do {
+            let result = try await session.client.auth.signIn(email: email, password: password)
+            note = "signed in: (result.user.id)"
+        } catch {
+            note = "sign-in failed: (error)"
+        }
+        let url = URL.documentsDirectory.appending(path: "demo-status.txt")
+        try? note.write(to: url, atomically: true, encoding: .utf8)
         #endif
     }
 

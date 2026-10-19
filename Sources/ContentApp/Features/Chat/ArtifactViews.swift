@@ -21,6 +21,9 @@ import UIKit
 struct RunCard: View {
     let runId: UUID
     let kind: String?
+    /// What a generation will be -- "image", "video", "audio" -- when the chat
+    /// knows, so the count paces itself to it.
+    var expectedKind: String? = nil
     /// Told once, when the run reaches an end, so the conversation can pull in
     /// the result the worker wrote.
     var onFinished: () -> Void = {}
@@ -63,7 +66,22 @@ struct RunCard: View {
         .task(id: runId) { await follow() }
     }
 
+    @ViewBuilder
     private var working: some View {
+        if kind == "generate" {
+            // Making a picture or a video: the same card the video page shows
+            // -- light down an empty frame and a count -- not a line of text
+            // (Netro, 19 Oct 2026: "it says Queued instead of that beautiful
+            // animation... match Sage, exactly").
+            MakingCard(kind: expectedKind)
+                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            thinkingTrail
+        }
+    }
+
+    private var thinkingTrail: some View {
         // The word first and at once -- never "Queued" -- then what it is
         // doing, line by line, as the server reports it. No box around it:
         // it is the agent working, not a card to read.

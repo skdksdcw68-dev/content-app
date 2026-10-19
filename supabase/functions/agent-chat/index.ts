@@ -26,7 +26,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { leftToUs, missingForPlan, MODELS, route, vagueSubject } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
-import { balanceFor, candidatesFor } from "../_shared/connectors/route.ts";
+import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
@@ -808,7 +808,7 @@ Deno.serve(async (request) => {
           const brings = await bringsOf(job.references, job.sourceArtifactId);
           const withPicture = brings.image;
 
-          const pool = await candidatesFor(admin, auth.user!.id, job.capability);
+          const pool = oneEach(await candidatesFor(admin, auth.user!.id, job.capability));
           const door = pool.find((c) => c.authKind !== "api_key") ?? pool[0];
           if (pool.length > 0) {
             send({ t: "step", kind: "reading", detail: `Checking prices for ${job.prompt}` });
@@ -1455,7 +1455,7 @@ How to answer:
             if (namedModel) {
               const pools = await Promise.all(
                 KINDS.map(async (cap) =>
-                  (await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap as Capability }))
+                  oneEach(await candidatesFor(admin, auth.user!.id, cap)).map((c) => ({ ...c, capability: cap as Capability }))
                 ),
               );
               const matches = matchModels(pools.flat(), namedModel);

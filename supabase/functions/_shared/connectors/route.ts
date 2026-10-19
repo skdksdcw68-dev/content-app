@@ -63,6 +63,14 @@ export class NothingCanDoThis extends Error {
   }
 }
 
+/** One row per model id, first wins. GPT Image 2 is made by OpenAI directly
+ *  AND by fal under the same id: a LIST shows it once, while the router keeps
+ *  both so the second is the fallback. */
+export function oneEach<T extends { externalId: string }>(list: T[]): T[] {
+  const seen = new Set<string>();
+  return list.filter((item) => (seen.has(item.externalId) ? false : (seen.add(item.externalId), true)));
+}
+
 /** Everything this person could use for one capability, best first. */
 export async function candidatesFor(
   admin: SupabaseClient,

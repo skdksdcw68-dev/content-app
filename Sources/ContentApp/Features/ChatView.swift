@@ -758,6 +758,12 @@ struct ChatView: View {
         turns.append(.user("\(key.preamble.isEmpty ? "" : key.preamble + "\n")\(key.maskedSecret)"))
         let replyIndex = turns.count
         turns.append(.thinking)
+        // What a generation will be, known from the request itself, so the
+        // making card paces its count to a picture or a video.
+        if case .generate(let capability, _, _, _, _, _) = action {
+            turns[replyIndex].artifactKind = capability == "image_generation" ? "image"
+                : capability == "video_generation" ? "video" : "audio"
+        }
         isWorking = true
 
         Task {

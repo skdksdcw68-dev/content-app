@@ -15,6 +15,7 @@ import type { Adapter } from "./contract.ts";
 import { falAdapter } from "./fal.ts";
 import { higgsfieldRest } from "./higgsfield-rest.ts";
 import { mcpAdapter } from "./mcp.ts";
+import { openaiAdapter } from "./openai.ts";
 
 /**
  * Keyed by `providers.slug` and `connections.auth_kind` together.
@@ -33,6 +34,9 @@ const ADAPTERS: Record<string, Adapter> = {
   // fal bills per second against a card rather than from a credit pool, so it
   // has no ceiling to grow into. See `fal.ts` for why both are here.
   "fal:api_key": falAdapter,
+  // OpenAI's own Images API: GPT Image 2 without fal, and cheaper. The house
+  // generator only -- nobody is offered it to connect (Netro, 19 Oct 2026).
+  "openai:api_key": openaiAdapter,
 };
 
 export function adapterFor(providerSlug: string, authKind: string): Adapter {

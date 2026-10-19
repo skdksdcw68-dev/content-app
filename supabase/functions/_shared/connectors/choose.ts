@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import type { Balance, Capability, Constraints, Cost } from "./contract.ts";
-import { candidatesFor, quoteFor } from "./route.ts";
+import { candidatesFor, oneEach, quoteFor } from "./route.ts";
 import { suits } from "./suits.ts";
 
 /** One row in the picker, already said the way a person reads it. */
@@ -293,7 +293,7 @@ export async function choicesFor(
   capability: Capability,
   intent: Intent = {},
 ): Promise<Choices> {
-  const everything = await candidatesFor(admin, userId, capability);
+  const everything = oneEach(await candidatesFor(admin, userId, capability));
   // Only what can do this request. If the filter would leave nothing, the
   // metadata is more likely incomplete than every model unable -- so the full
   // list stands rather than a false "nothing can make this".
@@ -455,7 +455,9 @@ export async function catalogueFor(
   capability: Capability,
   withPicture = false,
 ): Promise<Choice[]> {
-  const everything = await candidatesFor(admin, userId, capability);
+  // One row per model. GPT Image 2 is made by OpenAI directly AND by fal under
+  // the same id; the list shows it once, from the first (OpenAI, the cheaper).
+  const everything = oneEach(await candidatesFor(admin, userId, capability));
   const families = familiesOf(everything);
 
   const options = everything.map((candidate) => {

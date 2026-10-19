@@ -62,3 +62,21 @@ extension MakingProgress {
         }
     }
 }
+
+/// The empty 9:16 card with light running down it and the count in the middle:
+/// what the video page shows while something is made, and now the normal chat
+/// too (Netro, 19 Oct 2026: it said "Queued" instead of "that beautiful
+/// animation"). One view so the two can never drift apart.
+struct MakingCard: View {
+    /// "image", "audio", or anything else for a video: sets the count's pace.
+    var kind: String?
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Theme.surface)
+            .frame(width: 200, height: 356)
+            .overlay { MakingSheen() }
+            .overlay { MakingProgress(expected: MakingProgress.expected(for: kind)) }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}

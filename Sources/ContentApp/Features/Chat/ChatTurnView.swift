@@ -103,7 +103,7 @@ struct ChatTurnView: View {
                     }
 
                     if let runId = turn.runId {
-                        RunCard(runId: runId, kind: turn.runKind) { onRunFinished(runId) }
+                        RunCard(runId: runId, kind: turn.runKind, expectedKind: turn.artifactKind) { onRunFinished(runId) }
                     }
 
                     if let artifactId = turn.artifactId {

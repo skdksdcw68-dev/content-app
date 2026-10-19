@@ -62,7 +62,12 @@ export interface WriterRequest {
 /** The OpenAI-shaped answer every caller already reads. */
 export interface Completion {
   model: string;
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  usage: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
+  };
   choices: Array<{ message: { content: string } }>;
 }
 
@@ -114,11 +119,20 @@ function toClaude(request: WriterRequest): { system: string; messages: Anthropic
   return { system, messages };
 }
 
+/** Claude's usage in OpenAI's shape, with the cached and cache-written tokens
+ *  kept apart so `costUSD` prices each at its own rate. */
 function usageOf(message: Anthropic.Message): Completion["usage"] {
   const u = message.usage;
-  const prompt = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+  const read = u.cache_read_input_tokens ?? 0;
+  const written = u.cache_creation_input_tokens ?? 0;
+  const prompt = (u.input_tokens ?? 0) + read + written;
   const completion = u.output_tokens ?? 0;
-  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: prompt + completion };
+  return {
+    prompt_tokens: prompt,
+    completion_tokens: completion,
+    total_tokens: prompt + completion,
+    prompt_tokens_details: { cached_tokens: read, cache_write_tokens: written },
+  };
 }
 
 function textOf(message: Anthropic.Message): string {
@@ -209,6 +223,7 @@ async function openai(request: WriterRequest): Promise<Completion> {
       prompt_tokens: body.usage?.prompt_tokens ?? 0,
       completion_tokens: body.usage?.completion_tokens ?? 0,
       total_tokens: body.usage?.total_tokens ?? 0,
+      prompt_tokens_details: { cached_tokens: body.usage?.prompt_tokens_details?.cached_tokens ?? 0 },
     },
     choices: [{ message: { content: body.choices?.[0]?.message?.content ?? "" } }],
   };

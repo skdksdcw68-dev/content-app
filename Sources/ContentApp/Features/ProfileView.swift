@@ -201,24 +201,21 @@ struct ProfileView: View {
     /// What is left this month, as a list under the plan rather than two tiles
     /// under the name. In %, like Claude's and ChatGPT's usage (Netro, 18 Oct
     /// 2026): chat and making things draw on the same month.
+    ///
+    /// Netro, 19 Oct 2026: "The user must click Usage to see how their usage
+    /// is running." One row, the share used beside it, and the meter and
+    /// where the month went on the screen it opens (`UsageView`).
     @ViewBuilder
     private var credits: some View {
         let standing = session.credits
         Section {
-            CreditsMeter(credits: standing)
-            SettingsRow("Used this month", symbol: "chart.bar",
-                        value: standing.map { UsageFormat.percent($0.percentUsed) } ?? "…")
-            if let standing, standing.allowance > 0, let resets = standing.resets {
-                SettingsRow("Fills up again", symbol: "calendar",
-                            value: resets.formatted(date: .abbreviated, time: .omitted))
+            NavigationLink { UsageView().pushedPage() } label: {
+                SettingsValueLabel("Usage", symbol: "gauge.with.dots.needle.33percent",
+                                   value: standing.map { "\(UsageFormat.percent($0.percentUsed)) used" })
             }
-        } header: {
-            Text("Usage")
         } footer: {
             if let standing, standing.tier == 0 {
                 Text("Free covers a few chat messages. Pictures and videos come with a paid plan.")
-            } else {
-                Text("Chat, plans and captions take a small share. Pictures and videos take more, and the share is shown before you make anything.")
             }
         }
     }

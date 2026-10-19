@@ -373,7 +373,7 @@ struct PaywallView: View {
     }
 
     private var creditsNote: some View {
-        Text("Your plan is a month of usage, shown as a %. A chat reply takes a tiny share, a picture about 1%, and a five-second video on Pro about 3 to 30%. You see the share before you make anything, and it fills up again each month from the day you subscribed.")
+        Text("Your plan is a month of usage, shown as a %. A chat reply takes a tiny share, a picture well under 1%, and a five-second video on Pro about 1 to 16%. You see the share before you make anything, and it fills up again each month from the day you subscribed.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)

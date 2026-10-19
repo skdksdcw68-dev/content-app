@@ -123,10 +123,13 @@ struct ChatOptionsSheet: View {
         } message: { provider in
             Text("\(provider.door) · \(provider.summary)")
         }
-        // Remi's height: the two tiles, the rows, and the conversation still
-        // in view above it. Pulls to full only when the generator list needs
-        // the room.
-        .presentationDetents([.height(470), .large])
+        // Half the screen, and it stays half. Netro, 19 Oct 2026: scrolling
+        // grew the sheet to nearly full screen -- "I want it to be half of
+        // it". With one detent and `.scrolls`, a scroll moves the content
+        // inside (Video and Image scroll away, which he is fine with) and
+        // never resizes the sheet.
+        .presentationDetents([.medium])
+        .presentationContentInteraction(.scrolls)
         .presentationDragIndicator(.visible)
         .presentationCornerRadius(28)
     }

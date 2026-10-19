@@ -81,10 +81,6 @@ interface Entry {
   id: string;
   label: string;
   about: string;
-  /** What we charge as a multiple of what fal charges us. Absent is 1: the
-   *  everyday models are sold at cost and the plan itself carries the margin;
-   *  quality models carry 1.25 and the flagships 1.5. See `billable`. */
-  markup?: number;
   /** Dollars per second of output, by resolution. 🔴 Not one number: Wan is
    *  $0.05 at 480p, $0.10 at 720p and $0.15 at 1080p, and quoting the cheapest
    *  while submitting at the model's own default -- which is 1080p -- would
@@ -243,7 +239,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "minimax/h3-max/text-to-video",
     label: "MiniMax H3 Max",
-    markup: 1.25,
     about: "Ranked first for quality and prompt-following. Sharp faces, sound included.",
     perSecond: { "480p": 0.05, "768p": 0.08, "1080p": 0.16 },
     durations: [5, 8, 10, 15],
@@ -285,7 +280,6 @@ const CATALOGUE: Entry[] = [
     // split. ⚠️ Not yet proven with a real job.
     id: "google/gemini-omni-flash/v1.1/text-to-video",
     label: "Google Gemini Omni Flash",
-    markup: 1.25,
     about: "Google's newest, after Veo. Realistic, follows the prompt, makes its own sound.",
     perSecond: { "720p": 0.10, "1080p": 0.15, "4k": 0.30 },
     durations: [4, 6, 8, 10],
@@ -306,7 +300,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/veo3.1/fast",
     label: "Google Veo 3.1 Fast",
-    markup: 1.25,
     about: "Realistic, follows the prompt closely, makes its own sound.",
     perSecond: { "720p": 0.15, "1080p": 0.15, "4k": 0.35 },
     perSecondSilent: { "720p": 0.10, "1080p": 0.10, "4k": 0.30 },
@@ -325,7 +318,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/kling-video/v3/pro/text-to-video",
     label: "Kling 3.0 Pro",
-    markup: 1.25,
     about: "Kling's newest. Steady motion, sharp faces, native sound and lip-sync.",
     perSecond: { "720p": 0.168 },
     perSecondSilent: { "720p": 0.112 },
@@ -344,7 +336,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "bytedance/seedance-2.0/fast/text-to-video",
     label: "Seedance 2.0 Fast",
-    markup: 1.25,
     about: "ByteDance. Cinematic motion with sound, quick to make.",
     // Billed by the token, not the second: width x height x 24 x seconds / 1024
     // tokens. 🔴 Its page gives two rates (18 Oct 2026): $0.0112 per thousand
@@ -366,7 +357,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "fal-ai/veo3.1",
     label: "Google Veo 3.1",
-    markup: 1.5,
     about: "The best of them, with audio. Costs what that implies.",
     perSecond: { "720p": 0.40, "1080p": 0.40, "4k": 0.60 },
     perSecondSilent: { "720p": 0.20, "1080p": 0.20, "4k": 0.40 },
@@ -386,7 +376,6 @@ const CATALOGUE: Entry[] = [
   {
     id: "bytedance/seedance-2.5/text-to-video",
     label: "Seedance 2.5",
-    markup: 1.5,
     about: "ByteDance's best. One shot up to 30 seconds, up to 1080p, with sound.",
     // $0.0214 per thousand tokens at 480p and 720p, $0.0234 at 1080p (18 Oct
     // 2026) -- see Seedance 2.0 Fast above. Rounded up.
@@ -427,29 +416,26 @@ function rate(model: Entry, resolution: string, silent = false): number {
   return ladder[resolution] ?? ladder[model.resolution] ?? Object.values(ladder)[0];
 }
 
-/** Prices are whole cents. NOT the usage meter's unit (`CREDIT_USD` in
- *  `_shared/usage.ts`, $0.0001): a price in cents is a whole number of meter
- *  units, so the share the phone shows (price / budget) is the share taken. */
-const PRICE_STEP_USD = 0.01;
-
-/** Pictures are sold at a quarter over what they cost us. */
-const IMAGE_MARKUP = 1.25;
+/** The usage meter's unit (`CREDIT_USD` in `_shared/usage.ts`). Not
+ *  imported: credits.ts imports the router, which imports this. Held equal by
+ *  `scripts/rate-card-check.ts`. */
+const METER_UNIT_USD = 0.0001;
 
 /**
- * The rate card, in one place. Netro, 2 Oct 2026: let each model carry the
- * margin it should. (Since 18 Oct people see the result as a share of their
- * month, not a number of credits.)
+ * What a job takes from the person's month: EXACTLY what fal charges us.
  *
- * `usd` is what fal charges us. The answer is what the usage meter is charged,
- * as dollars in WHOLE cents -- rounded up, never to nothing -- so the phone's
- * share (`amount / budget`) and the server's units (`amount / CREDIT_USD`)
- * cannot drift apart on a rounding. `ours` keeps the real cost for the books.
+ * Netro, 19 Oct 2026: "deduct the exact cost from the user's 100% limit. For
+ * example, if one text costs $1, subtract $1." So no markup any more (2 Oct had
+ * x1.25 and x1.5 per model, and x1.25 on every picture) and no rounding to a
+ * cent -- a $0.003 FLUX picture was taken as $0.01. Only rounded up to the
+ * meter's own unit, $0.0001, so nothing that costs us is free. The plan's
+ * budget is what keeps it profitable: it is a ceiling on our cost (0079).
  *
- * The 1e-6 keeps 35.00000000000001 from becoming 36.
+ * The 1e-9 keeps 3500.0000000001 from becoming 3501.
  */
-function billable(usd: number, markup = 1): { amount: number; ours: number } {
-  const cents = Math.max(1, Math.ceil(usd * markup * 100 - 1e-6));
-  return { amount: Number((cents * PRICE_STEP_USD).toFixed(2)), ours: Number(usd.toFixed(4)) };
+function billable(usd: number): { amount: number; ours: number } {
+  const units = Math.max(1, Math.ceil(usd / METER_UNIT_USD - 1e-9));
+  return { amount: Number((units * METER_UNIT_USD).toFixed(4)), ours: Number(usd.toFixed(4)) };
 }
 
 /** Whether this request asked for a silent video. */
@@ -865,7 +851,7 @@ async function makePicture(auth: Authorization, request: SubmitRequest): Promise
     capability: request.capability,
     charged: {
       unit: "usd",
-      ...(model ? billable(imageCost(model, request).amount, IMAGE_MARKUP) : { amount: 0 }),
+      ...(model ? billable(imageCost(model, request).amount) : { amount: 0 }),
       basis: count > 1 ? `${count} images` : "1 image",
       quoted: false,
     },
@@ -893,7 +879,7 @@ export function describeCatalogue(): ModelDescriptor[] {
       description: model.about,
       cost: {
         unit: "per_second",
-        amount: Number((rate(model, model.resolution) * (model.markup ?? 1)).toFixed(4)),
+        amount: Number(rate(model, model.resolution).toFixed(4)),
         basis: "per second of finished video",
         quoted: false,
       } satisfies Cost,
@@ -935,7 +921,7 @@ export function describeCatalogue(): ModelDescriptor[] {
       description: model.about,
       cost: {
         unit: "per_image",
-        amount: Number((model.each * IMAGE_MARKUP).toFixed(4)),
+        amount: Number(model.each.toFixed(4)),
         basis: "per image",
         quoted: false,
       } satisfies Cost,
@@ -1043,7 +1029,7 @@ export const falAdapter: Adapter = {
       capability: request.capability,
       charged: {
         unit: "usd",
-        ...billable(length * rate(model, resolution, silent), model.markup),
+        ...billable(length * rate(model, resolution, silent)),
         basis: `${length}s of ${resolution}${silent && model.audio ? ", silent" : ""} at ${rate(model, resolution, silent)}/s`,
         quoted: false,
       },
@@ -1112,7 +1098,7 @@ export const falAdapter: Adapter = {
       const { amount, count } = imageCost(picture, request);
       return Promise.resolve({
         unit: "usd",
-        ...billable(amount, IMAGE_MARKUP),
+        ...billable(amount),
         basis: count > 1 ? `${count} images` : "per image",
         quoted: false,
       });
@@ -1126,7 +1112,7 @@ export const falAdapter: Adapter = {
     const each = rate(model, resolution, silent);
     return Promise.resolve({
       unit: "usd",
-      ...billable(length * each, model.markup),
+      ...billable(length * each),
       basis: `${length}s of ${resolution}${silent && model.audio ? ", silent" : ""} at ${each}/s`,
       quoted: false,
     });

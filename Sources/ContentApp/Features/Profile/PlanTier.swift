@@ -71,17 +71,17 @@ enum Tier: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .pro: return 1
         case .max: return 3
-        case .ultra: return 8
+        case .ultra: return 8.3
         }
     }
 
-    /// The month's budget in rate-card dollars (0079), for working out what
+    /// The month's budget in rate-card dollars (0082), for working out what
     /// share a price is before the server has answered.
     var fallbackBudgetUSD: Double {
         switch self {
-        case .pro: return 8
-        case .max: return 24
-        case .ultra: return 64
+        case .pro: return 15
+        case .max: return 45
+        case .ultra: return 125
         }
     }
 

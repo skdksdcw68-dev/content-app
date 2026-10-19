@@ -1625,11 +1625,11 @@ Tell people how to do things here, concretely, when it helps:
 - Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
 Autocast brings the models: nothing needs connecting to make a picture or a video.
 Their plan is a month of usage shown as a %, like Claude's or ChatGPT's. Chat
-replies, plans and captions take a tiny share; pictures about 1%; a five-second
-video on Pro about 3 to 30%, depending on the model. The share is shown before
+replies, plans and captions take a tiny share; a picture well under 1%; a
+five-second video on Pro about 1 to 16%, depending on the model. The share is shown before
 anything is made, and it fills up again each month from the day they subscribed.
 There is nothing to top up: when the month is used up they wait for it to fill,
-or move to a bigger plan (Max is 3x Pro, Ultra 8x). Free makes nothing; it is a
+or move to a bigger plan (Max is 3x Pro, Ultra about 8x). Free makes nothing; it is a
 few chat messages. Never talk about "credits" or a balance for Autocast's own
 generator -- say % of their month.
 </this_app>

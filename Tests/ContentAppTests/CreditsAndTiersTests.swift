@@ -71,13 +71,14 @@ final class CreditsAndTiersTests: XCTestCase {
         XCTAssertEqual(UsageFormat.short(12), "12%")
     }
 
-    /// Max is 3x Pro and Ultra 8x, as 0079 sets the budgets ($8, $24, $64).
+    /// Max is 3x Pro and Ultra about 8.3x, as 0082 sets the budgets ($15,
+    /// $45, $125).
     func testTheFallbackUsageMatchesTheServer() {
         XCTAssertEqual(Tier.pro.fallbackUsage, 1)
         XCTAssertEqual(Tier.max.fallbackUsage, 3)
-        XCTAssertEqual(Tier.ultra.fallbackUsage, 8)
-        XCTAssertEqual(Tier.max.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.max.fallbackUsage)
-        XCTAssertEqual(Tier.ultra.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.ultra.fallbackUsage)
+        XCTAssertEqual(Tier.ultra.fallbackUsage, 8.3, accuracy: 0.01)
+        XCTAssertEqual(Tier.max.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.max.fallbackUsage, accuracy: 0.05)
+        XCTAssertEqual(Tier.ultra.fallbackBudgetUSD / Tier.pro.fallbackBudgetUSD, Tier.ultra.fallbackUsage, accuracy: 0.05)
     }
 
     // MARK: - What a plan reply looks like
@@ -129,13 +130,13 @@ final class CreditsAndTiersTests: XCTestCase {
     /// 0079's reply: the server's own % wins over the counts.
     func testTheMeterReadsTheServersPercent() throws {
         let json = #"""
-        {"plan":"creator","name":"Pro","tier":1,"allowance":80000,"used":20000,"left":60000,
-         "percent_used":25.0,"budget_usd":8.0,"unit_usd":0.0001,"resets_at":"2026-11-16T04:45:15+00:00"}
+        {"plan":"creator","name":"Pro","tier":1,"allowance":150000,"used":37500,"left":112500,
+         "percent_used":25.0,"budget_usd":15.0,"unit_usd":0.0001,"resets_at":"2026-11-16T04:45:15+00:00"}
         """#
         let standing = try JSONDecoder().decode(CreditsStanding.self, from: Data(json.utf8))
         XCTAssertEqual(standing.percentUsed, 25, accuracy: 0.001)
         XCTAssertEqual(standing.percentLeft, 75, accuracy: 0.001)
-        XCTAssertEqual(standing.budgetUSD, 8)
+        XCTAssertEqual(standing.budgetUSD, 15)
     }
 
     // MARK: - The price the send button shows

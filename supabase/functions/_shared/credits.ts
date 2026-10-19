@@ -54,8 +54,8 @@ const UNPRICED: Record<string, number> = {
 
 const TIER_NAMES = ["Free", "Pro", "Max", "Ultra"];
 /** How much each plan gives next to Pro, as the refusal sentence says it.
- *  Kept equal to `plans_catalog` (0079: $8, $24, $64). */
-const USAGE = ["", "", "3×", "8×"];
+ *  Kept equal to `plans_catalog` (0082: $15, $45, $125). */
+const USAGE = ["", "", "3×", "8.3×"];
 
 /** A price in dollars as meter units. The adapter hands over whole cents, so
  *  this is exact, and the phone's share (price / budget) is the share taken. */
@@ -161,7 +161,9 @@ export async function chargeForGeneration(
   }
   credits ??= UNPRICED[capability] ?? 200;
 
-  const ref = crypto.randomUUID();
+  // Named for what it pays for, so the Usage screen can say where the month
+  // went (0081): "gen:video_generation:<id>".
+  const ref = `gen:${capability}:${crypto.randomUUID()}`;
   await reserveCredits(admin, userId, credits, ref, standing);
   return { ref, credits, model: candidate?.externalId ?? null };
 }

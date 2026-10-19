@@ -8,28 +8,37 @@
 
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 
-const PRICES: Record<string, { input: number; output: number }> = {
-  "gpt-4.1": { input: 2.0, output: 8.0 },
-  "gpt-4.1-mini": { input: 0.4, output: 1.6 },
-  "gpt-4.1-nano": { input: 0.1, output: 0.4 },
-  "gpt-5": { input: 1.25, output: 10.0 },
-  "gpt-5-mini": { input: 0.25, output: 2.0 },
-  "gpt-5-nano": { input: 0.05, output: 0.4 },
+/**
+ * Per 1M tokens. `cached` is what a token read from the provider's prompt
+ * cache costs; `cacheWrite` what writing one costs (Claude only). Netro, 19 Oct
+ * 2026: take EXACTLY what it costs -- pricing a cached token as fresh input
+ * charged people up to 10x for that part of the message. Where a cached price
+ * is not listed, the token is priced as input: never under what we pay.
+ */
+const PRICES: Record<string, { input: number; output: number; cached?: number; cacheWrite?: number }> = {
+  "gpt-4.1": { input: 2.0, output: 8.0, cached: 0.5 },
+  "gpt-4.1-mini": { input: 0.4, output: 1.6, cached: 0.1 },
+  "gpt-4.1-nano": { input: 0.1, output: 0.4, cached: 0.025 },
+  "gpt-5": { input: 1.25, output: 10.0, cached: 0.125 },
+  "gpt-5-mini": { input: 0.25, output: 2.0, cached: 0.025 },
+  "gpt-5-nano": { input: 0.05, output: 0.4, cached: 0.005 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
   "gpt-5.4-nano": { input: 0.2, output: 1.25 },
   "gpt-5.6-luna": { input: 0.2, output: 1.2 },
   // Claude, from Anthropic's price list (19 Oct 2026). Thinking is billed as
-  // output and is inside `output_tokens`, so it is counted. Cache reads are
-  // cheaper than this; pricing them as fresh input over-counts slightly, the
-  // safe direction for the meter.
-  "claude-sonnet-5-5": { input: 2.0, output: 10.0 },
-  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
-  "claude-opus-5-5": { input: 4.0, output: 20.0 },
+  // output and is inside `output_tokens`, so it is counted.
+  "claude-sonnet-5-5": { input: 2.0, output: 10.0, cached: 0.2, cacheWrite: 2.5 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5, cached: 0.01, cacheWrite: 0.125 },
+  "claude-opus-5-5": { input: 4.0, output: 20.0, cached: 0.2, cacheWrite: 5.0 },
 };
 
 export interface TokenUsage {
+  /** Every input token, cached or not (OpenAI's meaning). */
   prompt_tokens?: number;
   completion_tokens?: number;
+  /** How many of `prompt_tokens` were read from the cache (OpenAI's field;
+   *  the writer fills it for Claude too). */
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number };
 }
 
 export function costUSD(model: string, usage: TokenUsage | null | undefined): number | null {
@@ -39,7 +48,16 @@ export function costUSD(model: string, usage: TokenUsage | null | undefined): nu
     .sort((a, b) => b.length - a.length)[0];
   if (!key || !usage) return null;
   const price = PRICES[key];
-  return ((usage.prompt_tokens ?? 0) * price.input + (usage.completion_tokens ?? 0) * price.output) / 1_000_000;
+  const prompt = usage.prompt_tokens ?? 0;
+  const cached = Math.min(prompt, usage.prompt_tokens_details?.cached_tokens ?? 0);
+  const written = Math.min(prompt - cached, usage.prompt_tokens_details?.cache_write_tokens ?? 0);
+  const fresh = prompt - cached - written;
+  return (
+    fresh * price.input +
+    cached * (price.cached ?? price.input) +
+    written * (price.cacheWrite ?? price.input) +
+    (usage.completion_tokens ?? 0) * price.output
+  ) / 1_000_000;
 }
 
 /**

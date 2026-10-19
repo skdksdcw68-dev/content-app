@@ -77,7 +77,7 @@ const PLANS = [
   {
     tier: "ultra", productId: "autocast.ultra.monthly", name: "Ultra Monthly", period: "ONE_MONTH",
     usd: priced("ultra-monthly", "199.99"), trial: false,
-    display: "Autocast Ultra", description: "8x the usage of Pro, for a series every day.",
+    display: "Autocast Ultra", description: "Over 8x the usage of Pro, for a series every day.",
   },
   // No Ultra yearly: see the header.
 ] as const;

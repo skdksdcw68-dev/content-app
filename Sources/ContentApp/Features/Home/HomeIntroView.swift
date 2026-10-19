@@ -22,9 +22,16 @@ struct HomeIntroView: View {
     static let length: Double = 9.2
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: nil, paused: finished)) { context in
-            let t = reduceMotion ? Self.length : min(context.date.timeIntervalSince(start), Self.length)
-            stage(t)
+        ZStack {
+            // 🔴 Drawn ONCE, outside the clock. Netro, 19 Oct 2026: "the video
+            // looks lagging". The 90pt blur behind the phone was being blurred
+            // again on every frame -- the single most expensive thing on the
+            // screen, and it never changes.
+            IntroBackdrop()
+            TimelineView(.animation(minimumInterval: nil, paused: finished)) { context in
+                let t = reduceMotion ? Self.length : min(context.date.timeIntervalSince(start), Self.length)
+                stage(t)
+            }
         }
         .task {
             try? await Task.sleep(for: .seconds(Self.length + 0.1))
@@ -38,22 +45,19 @@ struct HomeIntroView: View {
     private func stage(_ t: Double) -> some View {
         let camera = Camera(t)
         return ZStack {
-            LinearGradient(
-                colors: [Color(red: 0.06, green: 0.05, blue: 0.14), Color(red: 0.14, green: 0.10, blue: 0.32), .black],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            // A glow behind the phone that follows the scene's colour.
-            Circle()
-                .fill(Theme.accent.opacity(0.35))
-                .frame(width: 320, height: 320)
-                .blur(radius: 90)
-                .offset(y: -40)
-
             VStack(spacing: 0) {
                 Spacer(minLength: 0)
                 IntroPhone(t: t)
+                    // Room for the drop shadow and side buttons: a drawing
+                    // group cuts off whatever falls outside its own frame.
+                    .padding(.horizontal, 40)
+                    .padding(.top, 30)
+                    .padding(.bottom, 64)
+                    // Rendered by Metal into one image, THEN scaled and turned
+                    // in 3D: the frame, glass, island and screen are drawn once
+                    // a frame as a single texture instead of each layer being
+                    // transformed and composited on its own.
+                    .drawingGroup(opaque: false, colorMode: .extendedLinear)
                     .scaleEffect(camera.scale)
                     .offset(y: camera.lift)
                     .rotation3DEffect(.degrees(camera.tiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.45)
@@ -89,13 +93,19 @@ struct HomeIntroView: View {
     }
 
     /// What each part of the piece is about, under the phone.
+    ///
+    /// While the camera is up at the Dynamic Island the phone fills the screen
+    /// and covers this place, so the caption steps aside and the island says
+    /// it ("Posted to TikTok") -- the first cut had "It posts itself" sitting on
+    /// the phone's screen (seen in the 19 Oct recording).
     private func caption(_ t: Double) -> some View {
         let lines: [(String, String, Double, Double)] = [
             ("Ask for a video", "Say what you want, in your words.", 0.6, 3.1),
-            ("Autocast makes it", "On the best video models.", 3.1, 5.6),
-            ("It posts itself", "And tells you how it's doing.", 5.6, 8.2),
-            ("Your content, on autopilot", "Plans, videos, captions and posting.", 8.2, 99),
+            ("Autocast makes it", "On the best video models.", 3.1, 5.0),
+            ("It posts itself", "And tells you how it's doing.", 5.0, 8.4),
+            ("Your content, on autopilot", "Plans, videos, captions and posting.", 8.4, 99),
         ]
+        let zoomedIn = ease(t, 5.4, 5.8) * (1 - ease(t, 7.9, 8.3))
         return ZStack {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 let shown = fade(t, line.2, line.2 + 0.35) * (1 - fade(t, line.3 - 0.25, line.3))
@@ -113,6 +123,27 @@ struct HomeIntroView: View {
             }
         }
         .frame(height: 70)
+        .opacity(1 - zoomedIn)
+    }
+}
+
+/// The still part of the stage: the night gradient and the glow behind the
+/// phone. Its own view, outside the clock, so it is drawn once and kept.
+private struct IntroBackdrop: View {
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(red: 0.06, green: 0.05, blue: 0.14), Color(red: 0.14, green: 0.10, blue: 0.32), .black],
+                startPoint: .top, endPoint: .bottom
+            )
+            Circle()
+                .fill(Theme.accent.opacity(0.35))
+                .frame(width: 320, height: 320)
+                .blur(radius: 90)
+                .offset(y: -40)
+        }
+        .drawingGroup()
+        .ignoresSafeArea()
     }
 }
 

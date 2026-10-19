@@ -18,6 +18,8 @@ struct ProfileView: View {
     /// Asked before setup is restarted, because it throws somebody out of the
     /// app they are using.
     @State private var confirmingSetup = false
+    /// The first-launch intro, played again on request (19 Oct 2026).
+    @State private var watchingIntro = false
     @State private var web: WebPage?
     @State private var exporting = false
     @State private var exported: ExportShare?
@@ -342,6 +344,12 @@ struct ProfileView: View {
             // whole app's setup".
             Button { confirmingSetup = true } label: {
                 SettingsRow("Show setup again", symbol: "arrow.counterclockwise")
+            }
+            Button { watchingIntro = true } label: {
+                SettingsRow("Watch the intro", symbol: "play.rectangle")
+            }
+            .fullScreenCover(isPresented: $watchingIntro) {
+                HomeIntroView { watchingIntro = false }
             }
         } header: {
             // Two unlabelled blocks ran together here, so "Usage this month"

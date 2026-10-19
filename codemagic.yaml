@@ -314,6 +314,17 @@ workflows:
           done
           # The first-launch intro, caught at four moments of its nine seconds:
           # the chat, the video being made, the Dynamic Island, the close.
+          # And the whole intro as a video, for Netro to watch (19 Oct 2026):
+          # the simulator's own screen recording, started before the launch.
+          xcrun simctl terminate "$UDID" "$BUNDLE" || true
+          xcrun simctl io "$UDID" recordVideo --codec=h264 --force build/shots/intro.mp4 &
+          RECORDER=$!
+          sleep 2
+          xcrun simctl launch "$UDID" "$BUNDLE" -introPreview
+          sleep 11
+          kill -INT $RECORDER || true
+          wait $RECORDER || true
+          ls -la build/shots/intro.mp4 || true
           xcrun simctl terminate "$UDID" "$BUNDLE" || true
           xcrun simctl launch "$UDID" "$BUNDLE" -introPreview
           sleep 2.4; xcrun simctl io "$UDID" screenshot build/shots/intro-1-chat.png
@@ -329,3 +340,4 @@ workflows:
           ls -la build/shots
     artifacts:
       - build/shots/*.png
+      - build/shots/*.mp4

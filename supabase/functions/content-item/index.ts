@@ -27,6 +27,7 @@ import { accountOptions } from "../_shared/accounts.ts";
 import { preferenceBlock } from "../_shared/brand-profile.ts";
 import { requireUsage } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { type WriterMessage, write as writeWithClaude } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -196,16 +197,14 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
   type Draft = { concept?: string; hook?: string; caption?: string; cta?: string; hashtags?: string[]; format?: string };
   let draft: Draft = {};
   let tokens = 0;
-  const messages: unknown[] = [{ role: "system", content: system }, { role: "user", content }];
+  const messages = [{ role: "system", content: system }, { role: "user", content }] as WriterMessage[];
   for (let attempt = 0; attempt < 2; attempt++) {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: MODEL, temperature: 0.4, response_format: { type: "json_object" }, messages }),
-    });
-    const completion = await response.json();
-    if (!response.ok) {
-      console.error("openai", completion?.error);
+    // Claude Sonnet 5.5 reads the frames (19 Oct 2026); OpenAI if it cannot.
+    let completion;
+    try {
+      completion = await writeWithClaude({ json: true, effort: "low", openaiModel: MODEL, messages });
+    } catch (thrown) {
+      console.error("writer", thrown instanceof Error ? thrown.message : thrown);
       throw new PublicError("Autocast couldn't look at the video just now. Try again.", 502);
     }
     tokens += completion.usage?.total_tokens ?? 0;
@@ -642,19 +641,17 @@ async function write(brand: Brand, body: Body, admin: Admin, userId: string) {
     ].join("\n"),
   }, ...frames.map((frame) => ({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${frame}`, detail: "low" } }))];
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0.6,
-      response_format: { type: "json_object" },
-      messages: [{ role: "system", content: system }, { role: "user", content }],
-    }),
-  });
-  const completion = await response.json();
-  if (!response.ok) {
-    console.error("openai", completion?.error);
+  // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
+  let completion;
+  try {
+    completion = await writeWithClaude({
+      json: true,
+      effort: "low",
+      openaiModel: MODEL,
+      messages: [{ role: "system", content: system }, { role: "user", content }] as WriterMessage[],
+    });
+  } catch (thrown) {
+    console.error("writer", thrown instanceof Error ? thrown.message : thrown);
     throw new PublicError("The writer couldn't be reached just now. Try again.", 502);
   }
   await recordUsage(admin, { userId, brandId: brand.id, kind: "caption_write", model: completion.model ?? MODEL, usage: completion.usage });

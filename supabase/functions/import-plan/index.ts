@@ -21,6 +21,7 @@ import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { MODELS } from "../_shared/route.ts";
 import { requireUsage } from "../_shared/credits.ts";
 import { costUSD, takeUsage } from "../_shared/usage.ts";
+import { write } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -397,22 +398,22 @@ async function extract(piece: string, already: number, today: string): Promise<{
     already > 0 ? `This is a later part of the same document; ${already} posts were already listed from earlier parts. Keep the document's own day numbers.` : "",
   ].filter(Boolean).join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      temperature: 0,
-      response_format: { type: "json_object" },
+  // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
+  // No temperature: Sonnet 5.5 refuses a non-default one, and "copy the
+  // document's words" is in the prompt.
+  let completion;
+  try {
+    completion = await write({
+      json: true,
+      effort: "low",
+      openaiModel: MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: `DOCUMENT:\n${piece}` },
       ],
-    }),
-  });
-  const completion = await response.json();
-  if (!response.ok) {
-    console.error("openai", completion?.error);
+    });
+  } catch (thrown) {
+    console.error("writer", thrown instanceof Error ? thrown.message : thrown);
     throw new PublicError("The reader could not be reached just now.", 502);
   }
   try {

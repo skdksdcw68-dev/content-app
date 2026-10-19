@@ -30,6 +30,7 @@ import { buildDocx, buildPdf, buildZip, type Document } from "../_shared/exports
 import { imageSize, inspect } from "../_shared/media.ts";
 import { settleCredits } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { write as writeWithClaude } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -1027,21 +1028,13 @@ async function tell(admin: Admin, run: Run, text: string, hint: Record<string, u
  *  meter (0079) -- research makes five to seven of these and none were
  *  counted before. */
 async function ask(admin: Admin, run: Run, model: string, system: string, user: string): Promise<string> {
-  if (!OPENAI_KEY) throw new Error("no model configured");
-
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: system }, { role: "user", content: user }],
-    }),
+  // Claude Sonnet 5.5 researches (19 Oct 2026), thinking at medium -- this is
+  // the work that most needs it. `model` is the OpenAI fallback.
+  const completion = await writeWithClaude({
+    effort: "medium",
+    openaiModel: model,
+    messages: [{ role: "system", content: system }, { role: "user", content: user }],
   });
-
-  if (!response.ok) {
-    throw new Error(`model ${response.status}: ${(await response.text()).slice(0, 200)}`);
-  }
-  const completion = await response.json();
   await recordUsage(admin, {
     userId: run.user_id,
     brandId: run.brand_id ?? null,

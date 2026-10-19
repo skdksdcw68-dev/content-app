@@ -28,6 +28,7 @@ import { canAffordVideo } from "../_shared/connectors/route.ts";
 import { maxPlanDays, NEEDS_PRO } from "../_shared/quota.ts";
 import { costUSD, takeUsage } from "../_shared/usage.ts";
 import { requireUsage } from "../_shared/credits.ts";
+import { write } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -450,6 +451,8 @@ Deno.serve(async (request) => {
     const written: Written[] = [];
     let tokensIn = 0;
     let tokensOut = 0;
+    // Which model actually wrote it: Claude, or OpenAI when Claude could not.
+    let writtenBy = MODEL;
 
     for (let start = 0; start < laidOut.length; start += BATCH) {
       const result = await writeBatch({
@@ -467,6 +470,7 @@ Deno.serve(async (request) => {
 
       tokensIn += result.tokensIn;
       tokensOut += result.tokensOut;
+      writtenBy = result.model;
 
       for (const post of result.posts) {
         if (post.hook) used.add(post.hook.toLowerCase());
@@ -568,10 +572,11 @@ Deno.serve(async (request) => {
         workflow: workflowText,
       }).catch((thrown) => {
         console.error("propose-plan second pass", thrown instanceof Error ? thrown.message : thrown);
-        return { posts: [] as Written[], tokensIn: 0, tokensOut: 0 };
+        return { posts: [] as Written[], tokensIn: 0, tokensOut: 0, model: MODEL };
       });
       tokensIn += retry.tokensIn;
       tokensOut += retry.tokensOut;
+      writtenBy = retry.model;
       // The retry numbered its slots 1..k in the order given; map them back.
       for (const post of retry.posts) {
         if (typeof post.n !== "number") continue;
@@ -664,12 +669,12 @@ Deno.serve(async (request) => {
       cost_cents: costCents,
       ref_table: "content_plans",
       ref_id: plan.id,
-      model: MODEL,
+      model: writtenBy,
       input_tokens: tokensIn,
       output_tokens: tokensOut,
-      cost_usd: costUSD(MODEL, { prompt_tokens: tokensIn, completion_tokens: tokensOut }),
+      cost_usd: costUSD(writtenBy, { prompt_tokens: tokensIn, completion_tokens: tokensOut }),
     });
-    await takeUsage(admin, auth.user.id, costUSD(MODEL, { prompt_tokens: tokensIn, completion_tokens: tokensOut }), "plan_write");
+    await takeUsage(admin, auth.user.id, costUSD(writtenBy, { prompt_tokens: tokensIn, completion_tokens: tokensOut }), "plan_write");
 
     return json({
       plan_id: plan.id,
@@ -701,7 +706,7 @@ Deno.serve(async (request) => {
       // none it writes "here is what went into it this week", which says
       // nothing. The app asks for more when this is low.
       facts_used: facts.length,
-      model: MODEL,
+      model: writtenBy,
       tokens: tokensIn + tokensOut,
     });
   } catch (error) {
@@ -728,7 +733,7 @@ async function writeBatch(args: {
   style?: string;
   /** How every video gets made (a style's workflow, 0058), as prompt lines. */
   workflow?: string;
-}): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number }> {
+}): Promise<{ posts: Written[]; tokensIn: number; tokensOut: number; model: string }> {
   const { brand, brief, memory, pillars, pillarName, slots, offset, avoid, strict, style, workflow } = args;
 
   const system = [
@@ -809,26 +814,20 @@ async function writeBatch(args: {
     ? `\nAlready used, do not repeat or paraphrase:\n${avoid.map((h) => `- ${h}`).join("\n")}`
     : "";
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      response_format: { type: "json_object" },
+  // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
+  let completion;
+  try {
+    completion = await write({
+      json: true,
+      effort: "low",
+      openaiModel: MODEL,
       messages: [
         { role: "system", content: system },
         { role: "user", content: `${about}${avoidBlock}\n\nSlots:\n${lines}` },
       ],
-    }),
-  });
-
-  const completion = await response.json();
-
-  if (!response.ok) {
-    console.error("openai", completion?.error);
+    });
+  } catch (thrown) {
+    console.error("writer", thrown instanceof Error ? thrown.message : thrown);
     throw new PublicError("The writer could not be reached just now.", 502);
   }
 
@@ -847,6 +846,7 @@ async function writeBatch(args: {
     posts,
     tokensIn: completion.usage?.prompt_tokens ?? 0,
     tokensOut: completion.usage?.completion_tokens ?? 0,
+    model: completion.model,
   };
 }
 

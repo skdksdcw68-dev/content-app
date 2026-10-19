@@ -18,6 +18,13 @@ const PRICES: Record<string, { input: number; output: number }> = {
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
   "gpt-5.4-nano": { input: 0.2, output: 1.25 },
   "gpt-5.6-luna": { input: 0.2, output: 1.2 },
+  // Claude, from Anthropic's price list (19 Oct 2026). Thinking is billed as
+  // output and is inside `output_tokens`, so it is counted. Cache reads are
+  // cheaper than this; pricing them as fresh input over-counts slightly, the
+  // safe direction for the meter.
+  "claude-sonnet-5-5": { input: 2.0, output: 10.0 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
+  "claude-opus-5-5": { input: 4.0, output: 20.0 },
 };
 
 export interface TokenUsage {

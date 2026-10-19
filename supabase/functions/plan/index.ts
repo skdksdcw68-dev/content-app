@@ -16,6 +16,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { recordUsage } from "../_shared/usage.ts";
 import { requireUsage } from "../_shared/credits.ts";
+import { write as writeWithClaude } from "../_shared/writer.ts";
 
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -223,26 +224,17 @@ Already planned or posted -- do not repeat these, and do not write a near-miss
 of one:
 ${alreadySaid || "(nothing yet -- this is the first post)"}`;
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${OPENAI_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: WRITE_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM },
-        { role: "user", content: user },
-      ],
-      response_format: { type: "json_object" },
-    }),
+  // Claude Sonnet 5.5, through the writer (Netro, 19 Oct 2026: Autopilot's
+  // posts too); OpenAI if it cannot.
+  const payload = await writeWithClaude({
+    json: true,
+    effort: "low",
+    openaiModel: WRITE_MODEL,
+    messages: [
+      { role: "system", content: SYSTEM },
+      { role: "user", content: user },
+    ],
   });
-
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload?.error?.message ?? `provider returned ${response.status}`);
-  }
   // Drawn from the owner's usage meter like every other AI call (0079).
   await recordUsage(db, { userId, kind: "plan_write", model: payload.model ?? WRITE_MODEL, usage: payload.usage });
 

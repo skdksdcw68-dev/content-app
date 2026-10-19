@@ -31,6 +31,7 @@ import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -357,12 +358,12 @@ Deno.serve(async (request) => {
 
           send({ t: "step", kind: "planning", detail: "Working out the strategy" });
 
-          const response = await fetch("https://api.openai.com/v1/chat/completions", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: MODELS.deep,
-              response_format: { type: "json_object" },
+          // Claude Sonnet 5.5 designs the strategy (19 Oct 2026), thinking at
+          // medium; OpenAI if it cannot.
+          const completion = await writeWithClaude({
+              json: true,
+              effort: "medium",
+              openaiModel: MODELS.deep,
               messages: [
                 {
                   role: "system",
@@ -385,10 +386,7 @@ Deno.serve(async (request) => {
                   ].join("\n"),
                 },
               ],
-            }),
           });
-          if (!response.ok) throw new Error(`strategy ${response.status}`);
-          const completion = await response.json();
           await recordUsage(admin, { userId: auth.user!.id, brandId: brand.id, kind: "campaign_write", model: completion.model ?? MODELS.deep, usage: completion.usage });
           const drafted = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}");
 
@@ -1305,59 +1303,29 @@ How to answer:
 - If they want a plan built from this, say you can: they only need to ask for the plan.
 - Short, plain sentences. No headings. No tables unless asked.`;
 
-            const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                // The same model as ordinary replies: explaining numbers well
-                // is worth it, and the smaller one read them out like a table.
-                model: MODEL,
-                stream: true,
-                // The last chunk then carries the real token counts.
-                stream_options: { include_usage: true },
+            // 🔴 Claude Sonnet 5.5 reads the numbers (Netro, 19 Oct 2026: "maybe
+            // the open ai is dumb for the analytics"), thinking at medium,
+            // streamed as it is written; OpenAI if it cannot.
+            let answered;
+            try {
+              answered = await writeStreaming({
+                effort: "medium",
+                openaiModel: MODEL,
                 messages: [
                   { role: "system", content: rules },
                   { role: "system", content: `DATA:\n${JSON.stringify(data)}` },
                   ...history.slice(-6),
                 ],
-              }),
-            });
-
-            if (!upstream.ok || !upstream.body) {
-              console.error("insights openai", upstream.status, (await upstream.text().catch(() => "")).slice(0, 300));
+              }, (piece) => speak(piece));
+            } catch (thrown) {
+              console.error("insights writer", thrown instanceof Error ? thrown.message : thrown);
               send({ t: "error", message: "The writer could not be reached just now." });
               controller.close();
               return;
             }
 
-            const reader = upstream.body.getReader();
-            const decoder = new TextDecoder();
-            let buffered = "";
-            let insightUsage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffered += decoder.decode(value, { stream: true });
-              const frames = buffered.split("\n\n");
-              buffered = frames.pop() ?? "";
-              for (const frame of frames) {
-                const line = frame.split("\n").find((part) => part.startsWith("data: "));
-                if (!line) continue;
-                const payload = line.slice(6).trim();
-                if (payload === "[DONE]") continue;
-                try {
-                  const parsed = JSON.parse(payload);
-                  if (parsed?.usage) insightUsage = parsed.usage;
-                  const delta = parsed?.choices?.[0]?.delta?.content;
-                  if (typeof delta === "string" && delta.length > 0) speak(delta);
-                } catch {
-                  // One unreadable frame is one frame; the answer continues.
-                }
-              }
-            }
-
             await remember();
-            await recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "insight_reply", model: MODEL, usage: insightUsage });
+            await recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "insight_reply", model: answered.model, usage: answered.usage });
             return finish();
           }
 

@@ -34,6 +34,7 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import { fail, json, preflight, PublicError } from "../_shared/http.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { requireUsage } from "../_shared/credits.ts";
+import { write as writeWithClaude } from "../_shared/writer.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -169,7 +170,7 @@ async function write(
   facts: string[],
   insights: Insight[],
   avoid: string[],
-): Promise<{ ideas: Idea[]; usage: { prompt_tokens: number; completion_tokens: number } }> {
+): Promise<{ ideas: Idea[]; model: string; usage: { prompt_tokens: number; completion_tokens: number } }> {
   const measured = insights.length > 0;
   const parts = ["ABOUT THIS ACCOUNT:", ...facts];
   if (measured) {
@@ -183,22 +184,20 @@ async function write(
     for (const line of avoid) parts.push(`- ${line}`);
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: MODEL,
-      response_format: { type: "json_object" },
+  // Claude Sonnet 5.5, through the writer (19 Oct 2026); OpenAI if it cannot.
+  let completion;
+  try {
+    completion = await writeWithClaude({
+      json: true,
+      effort: "low",
+      openaiModel: MODEL,
       messages: [
         { role: "system", content: systemPrompt(measured) },
         { role: "user", content: parts.join("\n") },
       ],
-    }),
-  });
-
-  const completion = await response.json();
-  if (!response.ok) {
-    console.error("openai", completion?.error);
+    });
+  } catch (thrown) {
+    console.error("writer", thrown instanceof Error ? thrown.message : thrown);
     throw new PublicError("Ideas could not be written just now.", 502);
   }
 
@@ -212,6 +211,7 @@ async function write(
 
   return {
     ideas,
+    model: completion.model,
     usage: {
       prompt_tokens: completion.usage?.prompt_tokens ?? 0,
       completion_tokens: completion.usage?.completion_tokens ?? 0,
@@ -331,12 +331,12 @@ Deno.serve(async (request) => {
       ...existing.map((row) => row.hook as string),
     ].slice(0, 40);
 
-    const { ideas: written, usage } = await write(facts, insights, avoid);
+    const { ideas: written, usage, model: writtenBy } = await write(facts, insights, avoid);
     await recordUsage(admin, {
       userId: auth.user.id,
       brandId: brand.id,
       kind: "inspiration",
-      model: MODEL,
+      model: writtenBy,
       usage,
     });
 

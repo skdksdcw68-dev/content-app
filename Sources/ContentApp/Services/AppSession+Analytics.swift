@@ -487,7 +487,7 @@ extension AppSession {
         if let rows: [Gone] = try? await client
             .rpc("unavailable_videos", params: ["p_brand": brand.id.uuidString])
             .execute().value {
-            unavailableVideoIDs = Set(rows.map(.video_id))
+            unavailableVideoIDs = Set(rows.map { $0.video_id })
         }
     }
 

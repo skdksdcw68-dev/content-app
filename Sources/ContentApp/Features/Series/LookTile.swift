@@ -13,6 +13,9 @@ import SwiftUI
 struct LookTile: View {
     let look: SeriesLook
     let isChosen: Bool
+    /// A word in the top corner -- "Best match" on the look a style is
+    /// usually made in.
+    var badge: String? = nil
     let choose: () -> Void
 
     private static let height: CGFloat = 132
@@ -59,6 +62,17 @@ struct LookTile: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(isChosen ? Theme.accent : Color.clear, lineWidth: 3)
             }
+            .overlay(alignment: .topLeading) {
+                if let badge {
+                    Text(badge)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(.white.opacity(0.92)))
+                        .padding(8)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if isChosen {
                     ZStack {
@@ -75,7 +89,7 @@ struct LookTile: View {
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(SoftPressStyle())
-        .accessibilityLabel("\(look.name). \(look.tagline)")
+        .accessibilityLabel([look.name, look.tagline, badge].compactMap { $0 }.joined(separator: ". "))
         .accessibilityAddTraits(isChosen ? [.isSelected, .isButton] : .isButton)
     }
 }

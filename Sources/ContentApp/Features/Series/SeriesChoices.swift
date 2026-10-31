@@ -82,6 +82,54 @@ struct SeriesLook: Identifiable, Hashable, Sendable {
     ]
 }
 
+// MARK: - Looks made for each style
+
+/// The six looks drawn for one style, from `CategoryLooks.json`.
+///
+/// Abel, 31 Oct 2026: "every different category needs to have its own
+/// styles... for a scary moment, why do we have to choose anime? It's scary,
+/// not anime." The twelve general looks were the same barista for every
+/// style; these are each style's own subject drawn six ways, and the twelve
+/// stay behind "See every look".
+///
+/// A look's id is `<style>-<look>`, so its picture is `look-<style>-<look>`
+/// by the same convention as the general ones, and no two tiles on the screen
+/// can share an id. The first look of each style is its best match.
+enum CategoryLooks {
+    private struct Style: Decodable {
+        let looks: [Look]
+    }
+    private struct Look: Decodable {
+        let id: String
+        let name: String
+        let tagline: String
+        let prompt: String
+    }
+
+    /// Every style's looks, keyed by `content_templates.slug`.
+    static let all: [String: [SeriesLook]] = {
+        // The app's own bundle; any loaded one when the tests are not hosted.
+        guard let url = ([Bundle.main] + Bundle.allBundles).lazy
+                .compactMap({ $0.url(forResource: "CategoryLooks", withExtension: "json") }).first,
+              let data = try? Data(contentsOf: url),
+              let styles = try? JSONDecoder().decode([String: Style].self, from: data)
+        else { return [:] }
+        var bySlug: [String: [SeriesLook]] = [:]
+        for (slug, style) in styles {
+            bySlug[slug] = style.looks.map {
+                SeriesLook(id: "\(slug)-\($0.id)", name: $0.name, tagline: $0.tagline, prompt: $0.prompt)
+            }
+        }
+        return bySlug
+    }()
+
+    /// The looks for one style, or none when it has no looks of its own.
+    static func looks(for slug: String?) -> [SeriesLook] {
+        guard let slug else { return [] }
+        return all[slug] ?? []
+    }
+}
+
 // MARK: - Voice
 
 /// Who speaks over the video. A required answer, because "does it have a

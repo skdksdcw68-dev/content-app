@@ -45,6 +45,24 @@ final class SeriesChoicesTests: XCTestCase {
         XCTAssertEqual(Set(ids).count, ids.count, "two options would be the same voice")
     }
 
+    /// Every style has six looks of its own -- "for a scary moment, why do we
+    /// have to choose anime?" -- each with an id that names its picture and
+    /// cannot collide with another style's, or with the twelve general looks.
+    func testEveryStyleHasSixLooksOfItsOwn() {
+        XCTAssertEqual(CategoryLooks.all.count, 37, "CategoryLooks.json did not load, or a style is missing")
+        var seen = Set(SeriesLook.all.map(\.id))
+        for (slug, looks) in CategoryLooks.all {
+            XCTAssertEqual(looks.count, 6, "\(slug) should have six looks")
+            for look in looks {
+                XCTAssertTrue(look.id.hasPrefix("\(slug)-"), "\(look.id) does not say whose look it is")
+                XCTAssertEqual(look.artName, "look-\(look.id)")
+                XCTAssertFalse(look.prompt.isEmpty, "\(look.id) has nothing to tell the writer")
+                XCTAssertTrue(seen.insert(look.id).inserted, "\(look.id) is used twice")
+            }
+        }
+        XCTAssertTrue(CategoryLooks.looks(for: "scary").allSatisfy { !$0.name.localizedCaseInsensitiveContains("anime") })
+    }
+
     /// The server keeps only the styles it can draw (propose-plan's
     /// CAPTION_STYLES, and the check in 0087). A new tile needs both.
     func testEveryCaptionStyleIsOneTheServerKeeps() {

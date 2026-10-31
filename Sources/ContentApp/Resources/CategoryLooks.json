@@ -1,0 +1,409 @@
+{
+  "scary": {
+    "scene": "an old wooden bridge over a black creek at midnight with a single red lantern on it, fog on the water, pine forest",
+    "looks": [
+      { "id": "dark_comic", "name": "Dark comic", "tagline": "Bold ink, night blues", "prompt": "hand-drawn adult-animation cartoon illustration, not a photograph: thick black ink outlines on everything, flat cel-shaded colours, deep navy and teal night palette with warm red lamplight" },
+      { "id": "horror_film", "name": "Horror film", "tagline": "Cold, grainy, real", "prompt": "cinematic horror film still, cold desaturated colours, heavy film grain, low-key lighting, shallow depth of field, unsettling stillness" },
+      { "id": "found_footage", "name": "Found footage", "tagline": "Night vision, VHS", "prompt": "found-footage night-vision camera frame, green monochrome, VHS scan lines and noise, handheld, no on-screen text" },
+      { "id": "old_photos", "name": "Old photographs", "tagline": "Sepia, 1900s archive", "prompt": "1900s archival photograph, sepia tone, scratches and dust, soft vignette, long-exposure ghosting" },
+      { "id": "silhouette", "name": "Silhouettes", "tagline": "Black shapes, red sky", "prompt": "stark pure-black silhouettes against a blood-red and orange sky, minimal shapes, very high contrast" },
+      { "id": "gothic", "name": "Gothic painting", "tagline": "Oil and candlelight", "prompt": "dark gothic oil painting, chiaroscuro candlelight, thick brushstrokes, deep browns and golds" }
+    ]
+  },
+  "storytime": {
+    "scene": "a cosy living room in the evening, an empty armchair by a window, a mug of tea and an open notebook on a side table",
+    "looks": [
+      { "id": "warm_window", "name": "Window light", "tagline": "Soft, close, honest", "prompt": "soft warm window light, intimate framing, natural colours, shallow depth of field" },
+      { "id": "film_35", "name": "35mm film", "tagline": "Grain and warmth", "prompt": "35mm film photograph look, warm tones, visible grain, slightly faded blacks" },
+      { "id": "cozy_night", "name": "Cozy night", "tagline": "Lamps and shadows", "prompt": "evening interior lit by warm lamps, deep soft shadows, amber and brown palette" },
+      { "id": "storybook", "name": "Storybook", "tagline": "Illustrated, gentle", "prompt": "gentle storybook illustration, soft watercolour textures, warm pastel palette" },
+      { "id": "mono_doc", "name": "Black and white", "tagline": "Quiet and serious", "prompt": "black and white documentary photograph, natural light, soft contrast" },
+      { "id": "bright_casual", "name": "Bright and casual", "tagline": "Daylight, phone-real", "prompt": "bright daylight, casual phone-camera realism, clean whites, true colours" }
+    ]
+  },
+  "mystery": {
+    "scene": "a detective's desk in a dark room with a lamp, old photographs, a map and a magnifying glass",
+    "looks": [
+      { "id": "evidence_board", "name": "Evidence board", "tagline": "Pins, string, lamp", "prompt": "detective evidence-board look, pinned photographs and red string, single desk lamp, dark room, desaturated" },
+      { "id": "archive", "name": "Archive photos", "tagline": "Faded and scratched", "prompt": "faded archival photographs, scratches, muted colours, slow documentary feel" },
+      { "id": "noir", "name": "Film noir", "tagline": "Hard shadows, mono", "prompt": "1940s film noir, black and white, hard venetian-blind shadows, cigarette smoke haze, high contrast" },
+      { "id": "satellite", "name": "Maps from above", "tagline": "Cold and clinical", "prompt": "top-down satellite map imagery, cold blue-grey grade, faint grid lines, clinical" },
+      { "id": "cold_case", "name": "Cold case", "tagline": "Teal grade, rain", "prompt": "modern crime-documentary look, teal and grey colour grade, rain on glass, shallow depth of field" },
+      { "id": "sketch", "name": "Courtroom sketch", "tagline": "Pencil and pastel", "prompt": "courtroom sketch illustration, loose pencil and pastel strokes on cream paper" }
+    ]
+  },
+  "history": {
+    "scene": "an old harbour town at dawn with tall sailing ships, cobblestone streets and a stone fortress",
+    "looks": [
+      { "id": "old_masters", "name": "Old masters", "tagline": "Oil painting, museum", "prompt": "classical oil painting in the manner of the old masters, rich varnish, dramatic sky, museum quality" },
+      { "id": "sepia", "name": "Sepia photograph", "tagline": "Early camera, 1880s", "prompt": "1880s sepia photograph, glass-plate camera, soft focus at the edges, aged paper" },
+      { "id": "engraving", "name": "Engraving", "tagline": "Ink lines, woodcut", "prompt": "antique engraving, fine black ink cross-hatching on yellowed paper, woodcut style" },
+      { "id": "old_map", "name": "Old maps", "tagline": "Parchment and routes", "prompt": "antique parchment map look, hand-drawn coastlines and compass roses, ink and watercolour, no lettering" },
+      { "id": "epic_film", "name": "Epic film", "tagline": "Cinematic recreation", "prompt": "cinematic historical epic film still, golden light, dust in the air, wide lens" },
+      { "id": "mosaic", "name": "Mosaic and fresco", "tagline": "Ancient, tiled", "prompt": "ancient mosaic and fresco style, small stone tiles, earthy reds and ochres" }
+    ]
+  },
+  "facts": {
+    "scene": "a glass globe, a magnifying glass and a pocket watch arranged on a table",
+    "looks": [
+      { "id": "macro", "name": "Macro close-up", "tagline": "Tiny details, sharp", "prompt": "extreme macro photography, razor-sharp detail, bright even light, clean background" },
+      { "id": "clean_studio", "name": "Clean studio", "tagline": "White, bright, simple", "prompt": "bright white studio, one object at a time, soft shadows, minimal and clean" },
+      { "id": "bold_graphics", "name": "Bold graphics", "tagline": "Flat shapes, big colour", "prompt": "flat vector infographic style, bold simple shapes, bright primary colours, no text" },
+      { "id": "render_3d", "name": "3D render", "tagline": "Glossy, playful", "prompt": "glossy 3D render, soft studio lighting, rounded shapes, pastel colours" },
+      { "id": "documentary", "name": "Documentary", "tagline": "Real places, natural", "prompt": "nature-documentary still, natural light, rich real colours, wide lens" },
+      { "id": "chalkboard", "name": "Chalkboard", "tagline": "Drawn by hand", "prompt": "chalk drawing on a dark green chalkboard, hand-drawn, slightly smudged, no writing" }
+    ]
+  },
+  "tips": {
+    "scene": "hands working at a tidy desk with a laptop, a notebook and a coffee mug",
+    "looks": [
+      { "id": "clean_desk", "name": "Clean desk", "tagline": "Hands, wood, daylight", "prompt": "clean wooden desk, hands at work, bright daylight, simple and tidy" },
+      { "id": "bright_minimal", "name": "Bright minimal", "tagline": "White, one colour", "prompt": "bright minimal white set with one accent colour, soft shadows, crisp" },
+      { "id": "over_shoulder", "name": "Over the shoulder", "tagline": "See it being done", "prompt": "over-the-shoulder view of someone working, focus on the hands and screen, natural light" },
+      { "id": "whiteboard", "name": "Whiteboard", "tagline": "Drawn as it is said", "prompt": "whiteboard animation style, black marker line drawing on white, hand-drawn" },
+      { "id": "icons_3d", "name": "3D icons", "tagline": "Soft, round, playful", "prompt": "soft 3D icons, rounded shapes, pastel colours, floating in a light studio" },
+      { "id": "screen_hands", "name": "Screen and hands", "tagline": "Phone and laptop close", "prompt": "close-up of hands on a phone and laptop, dark desk, screen glow, modern" }
+    ]
+  },
+  "myths": {
+    "scene": "a cracked old lightbulb next to a glowing new lightbulb on a plain backdrop",
+    "looks": [
+      { "id": "split", "name": "Split screen", "tagline": "Wrong side, right side", "prompt": "clean split-screen composition, left half cool grey, right half warm and bright, matching angles" },
+      { "id": "clean_backdrop", "name": "Clean backdrop", "tagline": "Bright and direct", "prompt": "plain seamless colour backdrop, bright even light, crisp and simple" },
+      { "id": "lab", "name": "Lab test", "tagline": "Glass and cool light", "prompt": "science-lab look, glassware, cool white and blue light, clinical" },
+      { "id": "bold_poster", "name": "Bold poster", "tagline": "Two colours, big shapes", "prompt": "bold flat poster illustration, two strong colours, big simple shapes, no text" },
+      { "id": "under_lens", "name": "Under the lens", "tagline": "Magnified detail", "prompt": "seen through a magnifying glass, sharp centre, softly blurred edges" },
+      { "id": "comic", "name": "Comic panel", "tagline": "Ink and halftone", "prompt": "comic-book panel, bold black ink, halftone dots, bright limited colours, no speech bubbles" }
+    ]
+  },
+  "compare": {
+    "scene": "two coffee cups side by side, a paper takeaway cup and a fine porcelain cup, matching angles",
+    "looks": [
+      { "id": "side_by_side", "name": "Side by side", "tagline": "Matching angles", "prompt": "two items side by side, identical lighting and angles, clean white background" },
+      { "id": "split_colour", "name": "Split colour", "tagline": "Two-tone halves", "prompt": "frame split down the middle, two contrasting background colours, bold and clean" },
+      { "id": "showroom", "name": "Showroom", "tagline": "Glossy, premium", "prompt": "premium showroom look, glossy surfaces, reflections, dramatic spotlights" },
+      { "id": "flatlay", "name": "Flat lay", "tagline": "Top-down, tidy", "prompt": "top-down flat lay, objects arranged neatly in a grid, soft daylight" },
+      { "id": "versus", "name": "Versus poster", "tagline": "Arena energy", "prompt": "dramatic versus fight-poster style, rim lights, smoke, saturated colours, no text" },
+      { "id": "blueprint", "name": "Blueprint", "tagline": "Technical lines", "prompt": "technical blueprint style, white line drawing on deep blue, no lettering" }
+    ]
+  },
+  "explainer": {
+    "scene": "a lightbulb connected to turning gears, showing how an idea works",
+    "looks": [
+      { "id": "flat_motion", "name": "Flat motion", "tagline": "Simple shapes", "prompt": "flat motion-graphics style, simple geometric shapes, plain background, one object at a time" },
+      { "id": "paper_cutout", "name": "Paper cut-out", "tagline": "Layered paper", "prompt": "layered paper cut-out style, soft shadows between the layers, warm pastel colours" },
+      { "id": "whiteboard", "name": "Whiteboard", "tagline": "Drawn as you talk", "prompt": "whiteboard animation style, black marker line drawing on white, hand-drawn" },
+      { "id": "isometric", "name": "Isometric 3D", "tagline": "Tiny worlds", "prompt": "isometric 3D miniature scene, soft lighting, clean pastel palette" },
+      { "id": "cutaway", "name": "Cutaway", "tagline": "How it works inside", "prompt": "technical cutaway diagram style, white lines on blue, clean and precise, no labels" },
+      { "id": "clay", "name": "Clay models", "tagline": "Handmade, friendly", "prompt": "claymation-style models, visible fingerprints, soft studio light, bright colours" }
+    ]
+  },
+  "language": {
+    "scene": "a café table with a coffee, an open notebook and a phrasebook, a sunny street behind",
+    "looks": [
+      { "id": "bright_friendly", "name": "Bright and friendly", "tagline": "Plain colour, clean", "prompt": "bright plain colour backdrop, soft even light, friendly and clean" },
+      { "id": "street", "name": "Street life", "tagline": "Real places, local", "prompt": "street-level travel photo, local shopfronts, natural light, lively" },
+      { "id": "illustrated", "name": "Illustrated", "tagline": "Flat and cheerful", "prompt": "cheerful flat illustration, rounded shapes, bright warm colours" },
+      { "id": "postcard", "name": "Vintage postcard", "tagline": "Faded travel print", "prompt": "vintage travel postcard style, faded print colours, halftone texture, no lettering" },
+      { "id": "cafe", "name": "Café", "tagline": "Warm and cosy", "prompt": "warm café interior, wood and steam, soft window light" },
+      { "id": "night_city", "name": "Night city", "tagline": "Neon and glow", "prompt": "night city street, neon glow reflected on wet pavement, colourful bokeh" }
+    ]
+  },
+  "product": {
+    "scene": "a minimal unbranded skincare bottle on a stone pedestal",
+    "looks": [
+      { "id": "studio_white", "name": "Studio white", "tagline": "Clean shop shot", "prompt": "clean white studio product shot, soft shadow, sharp focus" },
+      { "id": "in_use", "name": "In real life", "tagline": "Hands and daylight", "prompt": "lifestyle product photo, hands using it, natural daylight, real home setting" },
+      { "id": "colour_pop", "name": "Colour pop", "tagline": "Bold backdrop", "prompt": "bold single-colour backdrop, hard light, crisp shadows, punchy" },
+      { "id": "dark_luxury", "name": "Dark luxury", "tagline": "Black, gold, glossy", "prompt": "dark luxury product shot, black background, gold rim light, reflections" },
+      { "id": "natural", "name": "Natural", "tagline": "Stone, plants, sun", "prompt": "product on natural stone with plants and dappled sunlight" },
+      { "id": "render_3d", "name": "3D render", "tagline": "Floating, perfect", "prompt": "photoreal 3D render, product floating, soft studio light, perfect reflections" }
+    ]
+  },
+  "founder": {
+    "scene": "a desk late at night with a laptop, sticky notes and a cold coffee, city lights through the window",
+    "looks": [
+      { "id": "late_night", "name": "Late night", "tagline": "Screen glow, quiet", "prompt": "late-night desk lit by screen glow, dark room, honest and unpolished" },
+      { "id": "morning", "name": "Early morning", "tagline": "Fresh and hopeful", "prompt": "early morning light across a desk, fresh and calm, natural colours" },
+      { "id": "film_diary", "name": "Film diary", "tagline": "Grain, handheld", "prompt": "handheld 16mm film look, grain, warm tones, slightly imperfect framing" },
+      { "id": "garage", "name": "Garage startup", "tagline": "Raw and real", "prompt": "small garage workspace, cables and prototypes, warm work lights, raw and real" },
+      { "id": "mono", "name": "Black and white", "tagline": "Serious, focused", "prompt": "black and white photograph, strong contrast, focused and quiet" },
+      { "id": "bright_office", "name": "Bright office", "tagline": "Clean, team", "prompt": "bright modern office, glass and plants, soft daylight, clean" }
+    ]
+  },
+  "marketing": {
+    "scene": "a laptop on a desk showing colourful charts, a phone and a notepad beside it",
+    "looks": [
+      { "id": "desk_screens", "name": "Desk and screens", "tagline": "Clean and bright", "prompt": "screens framed on a clean bright desk, modern and quick" },
+      { "id": "bold_graphics", "name": "Bold graphics", "tagline": "Flat and punchy", "prompt": "bold flat graphic style, arrows and charts as shapes, saturated colours, no text" },
+      { "id": "neon_growth", "name": "Neon growth", "tagline": "Glowing charts", "prompt": "dark background with glowing neon chart lines, futuristic" },
+      { "id": "strategy_board", "name": "Strategy board", "tagline": "Markers and notes", "prompt": "whiteboard with sticky notes and marker diagrams, bright office, no readable writing" },
+      { "id": "icons_3d", "name": "3D icons", "tagline": "Soft and playful", "prompt": "soft 3D icons, pastel colours, floating, studio light" },
+      { "id": "editorial", "name": "Magazine", "tagline": "Editorial, glossy", "prompt": "glossy business-magazine editorial photo, crisp lighting, confident mood" }
+    ]
+  },
+  "ecommerce": {
+    "scene": "a pretty parcel being unboxed on a bright tabletop with tissue paper",
+    "looks": [
+      { "id": "tabletop", "name": "Bright tabletop", "tagline": "Hands and unboxing", "prompt": "bright tabletop, hands unboxing, warm light, satisfying close-ups" },
+      { "id": "pastel", "name": "Pastel set", "tagline": "Soft colour blocks", "prompt": "pastel colour-block set, soft shadows, playful props" },
+      { "id": "haul", "name": "Haul flat lay", "tagline": "Everything at once", "prompt": "top-down flat lay of many items arranged neatly, bright daylight" },
+      { "id": "aesthetic", "name": "Aesthetic room", "tagline": "Beige and calm", "prompt": "minimal beige aesthetic room, natural textures, soft afternoon light" },
+      { "id": "pop_neon", "name": "Pop and neon", "tagline": "Bright and loud", "prompt": "bright pop-art colours, neon accents, fun and loud" },
+      { "id": "phone_real", "name": "Phone-real", "tagline": "Casual and candid", "prompt": "casual phone-camera look, natural light, candid, no faces" }
+    ]
+  },
+  "dayinlife": {
+    "scene": "a sunny kitchen in the morning, coffee being poured, keys and a backpack by the door",
+    "looks": [
+      { "id": "warm_pov", "name": "Warm POV", "tagline": "Handheld, natural", "prompt": "handheld point-of-view, warm natural light, real rooms, unpolished" },
+      { "id": "film_35", "name": "35mm film", "tagline": "Nostalgic", "prompt": "35mm film photo look, warm grain, soft faded colours" },
+      { "id": "clean_vlog", "name": "Clean vlog", "tagline": "Bright and crisp", "prompt": "bright clean vlog look, crisp colours, airy daylight" },
+      { "id": "city_day", "name": "City day", "tagline": "Streets and coffee", "prompt": "street-level city life, cafés and crossings, golden afternoon light" },
+      { "id": "cozy_evening", "name": "Cozy evening", "tagline": "Lamps and blankets", "prompt": "cozy evening at home, warm lamps, blankets, soft shadows" },
+      { "id": "slice_of_life", "name": "Slice-of-life anime", "tagline": "Soft, everyday", "prompt": "soft slice-of-life anime illustration, gentle colours, detailed everyday background" }
+    ]
+  },
+  "luxury": {
+    "scene": "an unbadged sports car parked outside a seaside villa at golden hour",
+    "looks": [
+      { "id": "golden_gloss", "name": "Golden gloss", "tagline": "Sunset and polish", "prompt": "glossy golden-hour look, polished surfaces, reflections, smooth and slow" },
+      { "id": "black_gold", "name": "Black and gold", "tagline": "Dark and rich", "prompt": "dark luxury palette, black marble and gold details, dramatic lighting" },
+      { "id": "riviera", "name": "Riviera", "tagline": "Sea, white, sun", "prompt": "mediterranean riviera look, white villas, turquoise sea, bright sun" },
+      { "id": "penthouse", "name": "Penthouse night", "tagline": "Skyline and glass", "prompt": "penthouse view over a night skyline, warm interior lights, glass reflections" },
+      { "id": "editorial", "name": "Editorial", "tagline": "Magazine fashion", "prompt": "high-fashion magazine editorial photography, crisp and elegant" },
+      { "id": "old_money", "name": "Old money", "tagline": "Quiet wealth", "prompt": "old-money aesthetic, muted film colours, tweed and dark wood, quiet elegance" }
+    ]
+  },
+  "pets": {
+    "scene": "a happy golden puppy and a curious kitten on a sunny living-room rug",
+    "looks": [
+      { "id": "bright_play", "name": "Bright and playful", "tagline": "Eye level, sunny", "prompt": "bright playful photo at the animal's eye level, natural light, warm colours" },
+      { "id": "cartoon", "name": "Cartoon", "tagline": "Bouncy and cute", "prompt": "cute cartoon illustration, thick outlines, bright flat colours, bouncy" },
+      { "id": "animated_3d", "name": "3D animated", "tagline": "Big eyes, soft", "prompt": "stylised 3D animation, soft lighting, big expressive eyes, rounded shapes" },
+      { "id": "outdoors", "name": "Outdoors", "tagline": "Grass, sky, run", "prompt": "outdoor action photo, green grass, blue sky, motion and joy" },
+      { "id": "portrait", "name": "Pet portrait", "tagline": "Studio, elegant", "prompt": "elegant studio pet portrait, dark backdrop, soft rim light" },
+      { "id": "watercolour", "name": "Watercolour", "tagline": "Soft and sweet", "prompt": "soft watercolour painting, gentle washes, visible paper texture" }
+    ]
+  },
+  "travel": {
+    "scene": "a winding coastal road above a turquoise bay with a small white village",
+    "looks": [
+      { "id": "golden_hour", "name": "Golden hour", "tagline": "Wide, warm, epic", "prompt": "wide golden-hour travel shot, warm light, cinematic" },
+      { "id": "travel_film", "name": "Travel film", "tagline": "Grain, nostalgia", "prompt": "analog travel film photo, grain, slightly faded warm colours" },
+      { "id": "drone", "name": "Drone view", "tagline": "From above", "prompt": "aerial drone view from above, crisp, vivid colours" },
+      { "id": "street_level", "name": "Street level", "tagline": "Walk the city", "prompt": "street-level walk through an old town, natural light, lively" },
+      { "id": "poster", "name": "Travel poster", "tagline": "Vintage print", "prompt": "vintage travel-poster illustration, flat bold shapes, limited palette, no lettering" },
+      { "id": "blue_hour", "name": "Blue hour", "tagline": "Lights coming on", "prompt": "blue-hour scene, lights turning on, deep blue sky, calm" }
+    ]
+  },
+  "food": {
+    "scene": "a steaming bowl of ramen with chopsticks on a wooden table",
+    "looks": [
+      { "id": "overhead", "name": "Overhead", "tagline": "Top-down, tidy", "prompt": "top-down overhead food shot, neat styling, warm light" },
+      { "id": "steam_sizzle", "name": "Steam and sizzle", "tagline": "Close, hot, juicy", "prompt": "extreme close-up, rising steam, glistening textures, warm light" },
+      { "id": "dark_moody", "name": "Dark and moody", "tagline": "Black, one light", "prompt": "dark moody food photography, black background, single soft light" },
+      { "id": "bright_fresh", "name": "Bright and fresh", "tagline": "White and daylight", "prompt": "bright airy food photo, white surfaces, fresh daylight" },
+      { "id": "street_food", "name": "Street food", "tagline": "Night market", "prompt": "night-market street food, smoke, string lights and neon, handheld" },
+      { "id": "food_art", "name": "Food illustration", "tagline": "Cute and tasty", "prompt": "cute food illustration, soft shading, cheerful colours" }
+    ]
+  },
+  "fitness": {
+    "scene": "a gym with dumbbells and a barbell, early morning light through tall windows",
+    "looks": [
+      { "id": "gym_grit", "name": "Gym grit", "tagline": "Dark, sweat, steel", "prompt": "dark gritty gym, hard side light, sweat and steel, high contrast" },
+      { "id": "bright_clean", "name": "Bright and clean", "tagline": "Studio gym", "prompt": "bright clean modern gym, white walls, soft daylight" },
+      { "id": "outdoor_run", "name": "Outdoor run", "tagline": "Dawn and open road", "prompt": "runner silhouette on an open road at dawn, fresh air, wide shot" },
+      { "id": "mono_power", "name": "Black and white", "tagline": "Raw power", "prompt": "black and white sports photography, dramatic light, grain" },
+      { "id": "neon_gym", "name": "Neon night", "tagline": "Club lighting", "prompt": "gym at night with neon accent lights, purple and blue, energetic" },
+      { "id": "anatomy", "name": "Anatomy", "tagline": "Muscles explained", "prompt": "clean anatomy illustration, highlighted muscle groups, medical style, no labels" }
+    ]
+  },
+  "sleep": {
+    "scene": "a calm bedroom at night with a glowing bedside lamp and soft blankets",
+    "looks": [
+      { "id": "blue_hour", "name": "Blue hour", "tagline": "Calm, cool, slow", "prompt": "calm blue-hour bedroom, cool soft light, slow and quiet" },
+      { "id": "warm_lamp", "name": "Warm lamp", "tagline": "Amber and soft", "prompt": "warm amber lamplight, soft shadows, cozy and still" },
+      { "id": "dreamy", "name": "Dreamy", "tagline": "Clouds and stars", "prompt": "dreamy illustration, clouds, stars and moon, soft purple and blue" },
+      { "id": "nature_calm", "name": "Nature calm", "tagline": "Rain and mist", "prompt": "calm nature scene, rain on leaves, mist, muted greens" },
+      { "id": "minimal", "name": "Minimal", "tagline": "Soft shapes", "prompt": "minimal soft shapes, muted pastel palette, lots of empty space" },
+      { "id": "moonlit", "name": "Moonlit", "tagline": "Silver and quiet", "prompt": "moonlit night, silver light through curtains, deep blues" }
+    ]
+  },
+  "nutrition": {
+    "scene": "a bright kitchen counter with a colourful salad bowl, fruit and a glass of water",
+    "looks": [
+      { "id": "bright_kitchen", "name": "Bright kitchen", "tagline": "Clean and fresh", "prompt": "bright clean kitchen, fresh food close-ups, daylight" },
+      { "id": "flatlay", "name": "Flat lay", "tagline": "Ingredients laid out", "prompt": "top-down flat lay of ingredients, colourful, neat" },
+      { "id": "fresh_macro", "name": "Fresh macro", "tagline": "Juicy details", "prompt": "macro close-up of fresh produce, water droplets, crisp" },
+      { "id": "scandi", "name": "Scandi", "tagline": "Wood and white", "prompt": "scandinavian minimal kitchen, light wood and white, soft daylight" },
+      { "id": "vibrant", "name": "Vibrant", "tagline": "Bold colours", "prompt": "vibrant saturated food colours on a bold coloured backdrop" },
+      { "id": "plate_guide", "name": "Plate guide", "tagline": "Simple graphics", "prompt": "simple flat illustration of a balanced plate, clean shapes, no text" }
+    ]
+  },
+  "motivation": {
+    "scene": "a lone runner on a hill at sunrise above a city",
+    "looks": [
+      { "id": "golden_hour", "name": "Golden hour", "tagline": "Warm, cinematic dawn", "prompt": "cinematic golden-hour light, warm sunrise tones, lens flare, slow steady camera" },
+      { "id": "gym_grit", "name": "Gym grit", "tagline": "Dark, sweat, steel", "prompt": "dark gritty gym, hard side light, sweat and steel, high contrast" },
+      { "id": "mono", "name": "Black and white", "tagline": "Hard light, no colour", "prompt": "black and white photograph, hard light, deep blacks, grain" },
+      { "id": "mountain_epic", "name": "Mountain epic", "tagline": "Big sky, small figure", "prompt": "epic mountain landscape, tiny lone figure, vast sky, crisp air" },
+      { "id": "city_night", "name": "City night", "tagline": "Neon, rain, focus", "prompt": "city at night, neon reflections on wet streets, cinematic and focused" },
+      { "id": "vintage_film", "name": "Vintage film", "tagline": "Grain and light leaks", "prompt": "vintage film look, warm grain, light leaks, nostalgic colours" }
+    ]
+  },
+  "quotes": {
+    "scene": "a calm ocean horizon at sunrise with a lone rock in the water",
+    "looks": [
+      { "id": "ocean_sky", "name": "Ocean and sky", "tagline": "Wide and calm", "prompt": "wide calm ocean and sky, soft light, minimal" },
+      { "id": "minimal_mono", "name": "Minimal mono", "tagline": "Grey and quiet", "prompt": "minimal black and white landscape, fog, lots of empty space" },
+      { "id": "golden_light", "name": "Golden light", "tagline": "Warm and hopeful", "prompt": "warm golden light through trees, hopeful and soft" },
+      { "id": "ink_paper", "name": "Ink on paper", "tagline": "Handmade texture", "prompt": "textured paper with an ink-wash painting, quiet and handmade" },
+      { "id": "night_sky", "name": "Night sky", "tagline": "Stars, small figure", "prompt": "starry night sky over a lone figure on a hill" },
+      { "id": "forest_mist", "name": "Forest mist", "tagline": "Green and still", "prompt": "misty forest, tall trees, muted greens, stillness" }
+    ]
+  },
+  "stoic": {
+    "scene": "a marble statue of an ancient philosopher in a stone courtyard, rain falling",
+    "looks": [
+      { "id": "marble", "name": "Marble statues", "tagline": "Stone and light", "prompt": "classical marble statue, soft dramatic light, black background" },
+      { "id": "rain_glass", "name": "Rain on glass", "tagline": "Grey and slow", "prompt": "rain on a window, grey light, slow and reflective, black and white" },
+      { "id": "ancient_rome", "name": "Ancient Rome", "tagline": "Columns at dusk", "prompt": "ancient roman ruins at dusk, columns, warm stone, long shadows" },
+      { "id": "charcoal", "name": "Charcoal sketch", "tagline": "Rough and timeless", "prompt": "charcoal sketch on rough paper, heavy shading, timeless" },
+      { "id": "storm", "name": "Storm", "tagline": "Sea, cliffs, weather", "prompt": "stormy sea against dark cliffs, dramatic clouds, desaturated" },
+      { "id": "candle_study", "name": "Candlelit study", "tagline": "Books and flame", "prompt": "old study lit by a single candle, books and parchment, deep shadows" }
+    ]
+  },
+  "productivity": {
+    "scene": "a tidy desk seen from above with a notebook, a laptop and a cup of coffee",
+    "looks": [
+      { "id": "topdown_desk", "name": "Top-down desk", "tagline": "Calm and tidy", "prompt": "top-down clean desk, bright, calm, neat" },
+      { "id": "pastel_planner", "name": "Pastel planner", "tagline": "Soft and organised", "prompt": "pastel stationery and planners, soft daylight, organised" },
+      { "id": "dark_focus", "name": "Dark focus", "tagline": "Night, lamp, flow", "prompt": "dark room, single desk lamp, deep-focus mood" },
+      { "id": "icons_3d", "name": "3D icons", "tagline": "Checklists and clocks", "prompt": "soft 3D icons of checklists and clocks, pastel, floating" },
+      { "id": "desk_view", "name": "Desk with a view", "tagline": "Plants and window", "prompt": "desk by a big window with plants, green and bright" },
+      { "id": "minimal", "name": "Minimal", "tagline": "Black and white", "prompt": "minimal black and white workspace, clean lines" }
+    ]
+  },
+  "finance": {
+    "scene": "coins, a bank card and a small notebook on a clean surface, seen from above",
+    "looks": [
+      { "id": "clean_topdown", "name": "Clean top-down", "tagline": "Coins and cards", "prompt": "top-down clean surface, coins, cards and receipts, bright" },
+      { "id": "dark_premium", "name": "Dark premium", "tagline": "Black and gold", "prompt": "dark premium look, black surfaces, gold coins, dramatic light" },
+      { "id": "charts_3d", "name": "3D charts", "tagline": "Soft and rising", "prompt": "soft 3D rising bar charts and coins, pastel, playful, no numbers" },
+      { "id": "pen_paper", "name": "Pen and paper", "tagline": "Budget on paper", "prompt": "pen-and-paper budget notes, warm desk light, real, no readable writing" },
+      { "id": "cartoon_savings", "name": "Cartoon savings", "tagline": "Friendly and simple", "prompt": "friendly cartoon illustration about saving money, bright flat colours" },
+      { "id": "city_finance", "name": "City finance", "tagline": "Skyline and glass", "prompt": "modern finance district, glass towers, cool blue tones" }
+    ]
+  },
+  "sidehustle": {
+    "scene": "a small home workspace at dawn with a laptop, parcels ready to ship and a phone",
+    "looks": [
+      { "id": "early_hustle", "name": "Early morning", "tagline": "Dawn, coffee, laptop", "prompt": "early dawn light, real home workspace, coffee and laptop, handheld" },
+      { "id": "parcels", "name": "Parcels", "tagline": "The shipping table", "prompt": "table full of parcels ready to ship, warm light, busy and real, no readable labels" },
+      { "id": "night_grind", "name": "Night grind", "tagline": "Screens and quiet", "prompt": "late-night grind, screens glowing in a dark room" },
+      { "id": "bright_vlog", "name": "Bright vlog", "tagline": "Clean and upbeat", "prompt": "bright clean vlog look, upbeat colours" },
+      { "id": "market_stall", "name": "Market stall", "tagline": "Real selling", "prompt": "outdoor market stall, handmade goods, natural daylight" },
+      { "id": "illustrated", "name": "Illustrated", "tagline": "Flat and fun", "prompt": "flat fun illustration of a small business run from home, bright colours" }
+    ]
+  },
+  "aitools": {
+    "scene": "a laptop on a desk with a glowing abstract interface on its screen",
+    "looks": [
+      { "id": "desk_screen", "name": "Desk and screen", "tagline": "Clean and modern", "prompt": "screen framed on a clean modern desk, bright" },
+      { "id": "futuristic", "name": "Futuristic", "tagline": "Dark, neon, glow", "prompt": "dark futuristic look, glowing neon interface lines, purple and cyan" },
+      { "id": "minimal_white", "name": "Minimal white", "tagline": "Soft and clean", "prompt": "minimal white scene, soft shadows, one glowing element" },
+      { "id": "abstract_3d", "name": "Abstract 3D", "tagline": "Glass and light", "prompt": "abstract 3D shapes, glass and light, iridescent" },
+      { "id": "friendly_robot", "name": "Friendly robot", "tagline": "Cute and helpful", "prompt": "cute friendly robot character, soft 3D, pastel colours" },
+      { "id": "code_rain", "name": "Code rain", "tagline": "Green on black", "prompt": "dark screen with flowing streaks of green light on black, no readable text" }
+    ]
+  },
+  "apps": {
+    "scene": "a hand holding a phone with a colourful app on screen, a blurred café behind",
+    "looks": [
+      { "id": "phone_hand", "name": "Phone in hand", "tagline": "Bright and real", "prompt": "hand holding a phone, bright natural light, real setting" },
+      { "id": "clay_phone", "name": "Clay mockup", "tagline": "Soft and playful", "prompt": "clay-style 3D phone mockup, pastel colours, soft light" },
+      { "id": "bold_colour", "name": "Bold colour", "tagline": "Solid backdrop", "prompt": "phone on a bold solid colour backdrop, hard shadow" },
+      { "id": "dark_mode", "name": "Dark mode", "tagline": "Sleek and glowing", "prompt": "sleek dark scene, phone screen glow, reflections" },
+      { "id": "isometric", "name": "Isometric", "tagline": "Floating screens", "prompt": "isometric floating app screens, clean, pastel, no readable text" },
+      { "id": "lifestyle", "name": "Lifestyle", "tagline": "Café and commute", "prompt": "phone in use on a commute or in a café, candid, natural light" }
+    ]
+  },
+  "gadgets": {
+    "scene": "a pair of wireless earbuds and a smartwatch on a desk, no logos",
+    "looks": [
+      { "id": "macro_tech", "name": "Macro tech", "tagline": "Buttons and ports", "prompt": "macro close-up of gadget details, buttons and ports, clean light" },
+      { "id": "dark_studio", "name": "Dark studio", "tagline": "Rim light, sleek", "prompt": "dark studio, sleek rim lighting, reflections" },
+      { "id": "desk_setup", "name": "Desk setup", "tagline": "Soft glow and wood", "prompt": "desk setup with a soft coloured glow and warm wood, cozy tech" },
+      { "id": "clean_review", "name": "Clean review", "tagline": "White and crisp", "prompt": "clean white review backdrop, sharp product focus" },
+      { "id": "exploded", "name": "Exploded view", "tagline": "Parts in the air", "prompt": "exploded view, parts floating apart, technical and clean" },
+      { "id": "retro_tech", "name": "Retro tech", "tagline": "80s colours", "prompt": "retro 1980s tech aesthetic, warm colours, film grain" }
+    ]
+  },
+  "trends": {
+    "scene": "a bright bedroom set with a ring light, confetti and colourful props",
+    "looks": [
+      { "id": "phone_native", "name": "Phone native", "tagline": "Fast and bright", "prompt": "phone-native look, bright, punchy, big colours" },
+      { "id": "comic_meme", "name": "Comic meme", "tagline": "Bold and silly", "prompt": "bold comic style, exaggerated, flat colours, no text" },
+      { "id": "y2k", "name": "Y2K", "tagline": "Chrome and glitter", "prompt": "y2k aesthetic, chrome, glitter, pastel and neon" },
+      { "id": "glitch", "name": "Glitch", "tagline": "Digital chaos", "prompt": "digital glitch art, RGB split, noise" },
+      { "id": "pop_art", "name": "Pop art", "tagline": "Dots and colour", "prompt": "pop-art style, halftone dots, bold primary colours" },
+      { "id": "sticker", "name": "Sticker pack", "tagline": "Cut-out collage", "prompt": "cut-out sticker style with white borders, playful collage" }
+    ]
+  },
+  "pov": {
+    "scene": "a first-person view of hands holding a coffee while walking into a busy street",
+    "looks": [
+      { "id": "handheld", "name": "Handheld POV", "tagline": "Hands in frame", "prompt": "first-person point of view, hands in frame, natural light, handheld" },
+      { "id": "action_cam", "name": "Action cam", "tagline": "Wide and wild", "prompt": "action-camera wide-angle look, fisheye edges, vivid colours" },
+      { "id": "film_pov", "name": "Film POV", "tagline": "Grain and memory", "prompt": "first-person film photo, grain, nostalgic warm colours" },
+      { "id": "game", "name": "Video game", "tagline": "First-person game", "prompt": "first-person video-game render, stylised 3D, no on-screen interface" },
+      { "id": "night_walk", "name": "Night walk", "tagline": "Streetlights", "prompt": "first-person night walk, streetlights, soft bokeh" },
+      { "id": "anime_pov", "name": "Anime POV", "tagline": "Illustrated scene", "prompt": "anime-style first-person scene, vivid sky, detailed background" }
+    ]
+  },
+  "satisfying": {
+    "scene": "colourful kinetic sand being sliced with a knife under perfect light",
+    "looks": [
+      { "id": "perfect_macro", "name": "Perfect macro", "tagline": "Slow and precise", "prompt": "perfect macro, steady and precise, soft even light" },
+      { "id": "pastel", "name": "Pastel", "tagline": "Soft colour play", "prompt": "pastel colours, soft shadows, clean surfaces" },
+      { "id": "liquid", "name": "Liquid pour", "tagline": "Paint and gloss", "prompt": "pouring liquid paint, glossy swirls, vivid colours" },
+      { "id": "loops_3d", "name": "3D loops", "tagline": "Smooth shapes", "prompt": "smooth 3D shapes, perfect loops, soft studio light" },
+      { "id": "dark_asmr", "name": "Dark ASMR", "tagline": "Black and spotlight", "prompt": "black background, single spotlight, crisp textures" },
+      { "id": "nature", "name": "Nature", "tagline": "Sand, water, leaves", "prompt": "satisfying nature textures, raked sand, water ripples" }
+    ]
+  },
+  "reactions": {
+    "scene": "an empty stool in front of a bold coloured backdrop with a ring light",
+    "looks": [
+      { "id": "colour_backdrop", "name": "Colour backdrop", "tagline": "Bold and tight", "prompt": "bold plain colour backdrop, tight framing, energetic" },
+      { "id": "podcast", "name": "Podcast", "tagline": "Mic and studio", "prompt": "podcast studio, microphone, warm lights, dark background" },
+      { "id": "neon_room", "name": "Neon room", "tagline": "Gamer glow", "prompt": "room lit by neon LED strips, purple and blue glow" },
+      { "id": "news_desk", "name": "News desk", "tagline": "Serious set", "prompt": "news-desk set, studio lights, serious look, no screens with text" },
+      { "id": "comic", "name": "Comic", "tagline": "Big expressions", "prompt": "comic illustration style, big exaggerated expressions, flat colours" },
+      { "id": "raw_phone", "name": "Raw phone", "tagline": "Real and close", "prompt": "raw phone selfie-camera look, natural light, close framing" }
+    ]
+  },
+  "process": {
+    "scene": "hands shaping clay on a pottery wheel in a sunny studio",
+    "looks": [
+      { "id": "overhead_hands", "name": "Overhead hands", "tagline": "Work from above", "prompt": "overhead view of hands working, natural light, real studio mess" },
+      { "id": "studio_light", "name": "Studio light", "tagline": "Soft and clean", "prompt": "clean studio with soft window light, tools neatly arranged" },
+      { "id": "time_lapse", "name": "Time-lapse", "tagline": "Motion trails", "prompt": "long-exposure motion trails of hands at work, dynamic" },
+      { "id": "film_craft", "name": "Film craft", "tagline": "Warm grain", "prompt": "warm film look of a craft workshop, grain" },
+      { "id": "material_macro", "name": "Material macro", "tagline": "Textures up close", "prompt": "macro textures of materials, wood grain, paint, fabric" },
+      { "id": "sketchbook", "name": "Sketchbook", "tagline": "Pencil to finish", "prompt": "sketchbook pages, pencil lines turning into colour" }
+    ]
+  },
+  "photography": {
+    "scene": "a camera on a tripod facing a golden-hour landscape",
+    "looks": [
+      { "id": "golden_final", "name": "Golden hour", "tagline": "The final image", "prompt": "golden-hour landscape photo, warm and glowing" },
+      { "id": "behind_scenes", "name": "Behind the scenes", "tagline": "Camera in hand", "prompt": "behind-the-scenes shot, camera in hand, the scene visible behind" },
+      { "id": "analog", "name": "Analog film", "tagline": "Grain and colour", "prompt": "analog film photo, rich colour, grain" },
+      { "id": "fine_mono", "name": "Fine-art mono", "tagline": "Black and white", "prompt": "fine-art black and white photograph, deep tones" },
+      { "id": "night_exposure", "name": "Night exposure", "tagline": "Light trails", "prompt": "long-exposure night photo, light trails, stars" },
+      { "id": "the_edit", "name": "The edit", "tagline": "Before and after", "prompt": "split before-and-after photo edit, left half flat and grey, right half vivid colour" }
+    ]
+  }
+}

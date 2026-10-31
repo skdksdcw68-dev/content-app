@@ -126,6 +126,8 @@ struct SeriesFlowView: View {
     /// How it looks and who speaks. Both start EMPTY on purpose: they are
     /// required, and a preselected answer is a question that was never asked.
     @State private var look: SeriesLook?
+    /// The twelve general looks, below the style's own, once asked for.
+    @State private var showAllLooks = false
     @State private var voice: SeriesVoice?
     /// Required too, and empty for the same reason.
     @State private var caption: SeriesCaption?
@@ -324,6 +326,14 @@ struct SeriesFlowView: View {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(templates) { template in
                         StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
+                            // A look picked for another style is that style's
+                            // ("Dark comic" is not a fitness look), so a
+                            // different style asks again.
+                            if chosen?.slug != template.slug {
+                                let mine = CategoryLooks.looks(for: template.slug)
+                                if let look, !mine.contains(look), !SeriesLook.all.contains(look) { self.look = nil }
+                                showAllLooks = false
+                            }
                             chosen = template
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                             // Only accounts that work. TikTok used to be put
@@ -514,26 +524,54 @@ struct SeriesFlowView: View {
     /// when the screen opens -- a preselected answer is a question nobody was
     /// asked -- and Continue stays dead until one is.
     private var howItLooks: some View {
-        FlowStep(
+        // The style's own six first, drawn from its own subject; the twelve
+        // general looks only when asked for, or when a style has none.
+        let own = CategoryLooks.looks(for: chosen?.slug)
+        let shown = own.isEmpty || showAllLooks ? own + SeriesLook.all : own
+        return FlowStep(
             title: "How should it look?",
-            subtitle: "Every video in the series is drawn this way. Pick one.",
+            subtitle: own.isEmpty
+                ? "Every video in the series is drawn this way. Pick one."
+                : "Looks made for \(chosen?.name.lowercased() ?? "this style"). Every video in the series is drawn this way.",
             button: look == nil ? "Pick a look" : "Continue",
             tint: look == nil ? Color.secondary : Theme.accent,
             isDisabled: look == nil,
             action: { if look != nil { step = .voice } }
         ) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(SeriesLook.all) { item in
-                    LookTile(look: item, isChosen: look?.id == item.id) {
-                        withAnimation(.snappy(duration: 0.18)) { look = item }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        // On to the next screen by itself, the way picking a
-                        // style does -- unless they changed their mind.
-                        Task {
-                            try? await Task.sleep(for: .milliseconds(450))
-                            if look?.id == item.id, step == .look { step = .voice }
+            VStack(spacing: 12) {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(shown) { item in
+                        LookTile(
+                            look: item,
+                            isChosen: look?.id == item.id,
+                            badge: item.id == own.first?.id ? "Best match" : nil
+                        ) {
+                            withAnimation(.snappy(duration: 0.18)) { look = item }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            // On to the next screen by itself, the way picking a
+                            // style does -- unless they changed their mind.
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(450))
+                                if look?.id == item.id, step == .look { step = .voice }
+                            }
                         }
                     }
+                }
+
+                if !own.isEmpty, !showAllLooks {
+                    Button {
+                        withAnimation(.snappy(duration: 0.25)) { showAllLooks = true }
+                    } label: {
+                        Label("See every look", systemImage: "square.grid.2x2")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity, minHeight: 48)
+                            .background {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                            }
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .buttonStyle(PressButtonStyle())
                 }
             }
             .padding(.horizontal, 20)
@@ -561,34 +599,19 @@ struct SeriesFlowView: View {
             }
         ) {
             VStack(spacing: 10) {
+                // Heard, not imagined: "warm" and "deep" mean different things
+                // to everyone until they hear the same voice.
                 ForEach(SeriesVoice.all) { item in
-                    HStack(spacing: 10) {
-                        DetailedOption(
-                            option: OnboardingQuestion.Option(
-                                id: item.id, label: item.name, symbol: item.symbol, detail: item.detail
-                            ),
-                            isChosen: voice?.id == item.id
-                        ) {
+                    VoiceRow(
+                        voice: item,
+                        isChosen: voice?.id == item.id,
+                        isPlaying: sampler.playing == item.id,
+                        choose: {
                             withAnimation(.snappy(duration: 0.18)) { voice = item }
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        }
-
-                        // Heard, not imagined: "warm" and "deep" mean different
-                        // things to everyone until they hear the same voice.
-                        if item.sample != nil {
-                            let isPlaying = sampler.playing == item.id
-                            Button { sampler.toggle(item) } label: {
-                                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(isPlaying ? Theme.onAccent : Theme.accent)
-                                    .frame(width: 40, height: 40)
-                                    .background(Circle().fill(isPlaying ? Theme.accent : Theme.accent.opacity(0.14)))
-                                    .contentTransition(.symbolEffect(.replace))
-                            }
-                            .buttonStyle(PressButtonStyle())
-                            .accessibilityLabel(isPlaying ? "Stop \(item.name)" : "Hear \(item.name)")
-                        }
-                    }
+                        },
+                        play: { sampler.toggle(item) }
+                    )
                 }
 
                 // Said before anybody counts on it. The script is always

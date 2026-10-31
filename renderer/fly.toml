@@ -1,0 +1,23 @@
+# The story renderer. Deploy from the repository root:
+#   fly deploy . --config renderer/fly.toml --dockerfile renderer/Dockerfile
+#
+# Asleep unless there is work: run-agent-jobs starts the machine when a render
+# is queued, render.ts drains the queue and exits, and with no restart the
+# machine stops -- so it is paid for only while it renders.
+app = "autocast-renderer"
+# Near the Supabase project (us-west-2); sea is retired for new machines.
+primary_region = "sjc"
+
+[env]
+  SUPABASE_URL = "https://dosszkllkassvyprkhrg.supabase.co"
+
+# No [http_service]: nothing calls the renderer, it claims its own work.
+
+[[restart]]
+  policy = "never"
+
+# Two cores is the most a new Fly organisation may give one machine (refused
+# at four on 31 Oct 2026).
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

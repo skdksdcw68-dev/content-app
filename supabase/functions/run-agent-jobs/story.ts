@@ -12,6 +12,7 @@ import { NothingCanDoThis, routePoll, routeSubmit } from "../_shared/connectors/
 import type { Submitted } from "../_shared/connectors/contract.ts";
 import { chargeForGeneration, refundCredits, settleCredits } from "../_shared/credits.ts";
 import { PublicError } from "../_shared/http.ts";
+import { wakeRenderer } from "../_shared/render-wake.ts";
 import { imageSize } from "../_shared/media.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write } from "../_shared/writer.ts";
@@ -271,6 +272,8 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
       if (existing) return (existing as { id: string }).id;
       const { data, error } = await admin.from("render_jobs").insert({ run_id: run.id, user_id: userId, spec }).select("id").single();
       if (error || !data) throw new Error(`render job: ${error?.message ?? "not created"}`);
+      // The renderer sleeps while there is nothing to render.
+      await wakeRenderer();
       return (data as { id: string }).id;
     },
 
@@ -278,6 +281,10 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
       const { data } = await admin.from("render_jobs").select("status, output_path, error, qc, attempts").eq("id", id).maybeSingle();
       const row = data as { status: string; output_path: string | null; error: string | null; qc: never; attempts: number } | null;
       if (!row) return { status: "failed", error: "the render job disappeared" };
+      // Still waiting: the renderer may have stopped in the moment between its
+      // last empty look at the queue and this job arriving. Starting it again
+      // is a no-op when it is already running.
+      if (row.status === "queued") await wakeRenderer();
       return {
         status: row.status === "cancelled" ? "failed" : (row.status as "queued" | "rendering" | "done" | "failed"),
         ...(row.output_path ? { outputPath: row.output_path } : {}),

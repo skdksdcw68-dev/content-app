@@ -1,0 +1,5 @@
+# Only what the renderer image is built from (renderer/Dockerfile, built from
+# the repository root). The worker has its own context and .dockerignore.
+*
+!renderer/
+!supabase/functions/_shared/video/

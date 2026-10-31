@@ -512,6 +512,12 @@ struct ChatMessage: Identifiable, Equatable {
     /// The block is the last thing in the conversation, so the job is still
     /// going: it shows a spinner and the step it is on.
     var progressLive = false
+    /// When the turn was said, for turns read back from the server.
+    var createdAt: Date? = nil
+    /// When a progress block's first step was said, and when the job ended
+    /// (its outcome, or the last step) -- "Worked for 2m 14s".
+    var progressStarted: Date? = nil
+    var progressEnded: Date? = nil
     /// "up" or "down", once the person rated this answer.
     var rating: String? = nil
 

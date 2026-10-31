@@ -12,8 +12,30 @@ struct ProgressBlock: View {
     let steps: [String]
     /// Still going: the block is the last thing in the conversation.
     let live: Bool
+    /// When the first step was said, and when the job ended -- "Worked for
+    /// 2m 14s", the way Claude says it. Nil for steps not yet read back.
+    var started: Date? = nil
+    var ended: Date? = nil
 
     @State private var open = false
+
+    /// "42s", "3m 12s", "1h 05m".
+    static func duration(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds.rounded()))
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
+        return "\(s / 3600)h \(String(format: "%02d", (s % 3600) / 60))m"
+    }
+
+    /// The header's line: working and for how long, or how long it took.
+    private func headline(at now: Date) -> String {
+        if live {
+            guard let started else { return "Working on it" }
+            return "Working · \(Self.duration(now.timeIntervalSince(started)))"
+        }
+        guard let started, let ended, ended > started else { return "Done in \(steps.count) steps" }
+        return "Worked for \(Self.duration(ended.timeIntervalSince(started)))"
+    }
 
     private var current: Step? { steps.last.map(Step.init) }
 
@@ -34,9 +56,13 @@ struct ProgressBlock: View {
                     .frame(width: 20)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(live ? "Working on it" : "Done in \(steps.count) steps")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Color.primary)
+                        // Counts up once a second while it works.
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(headline(at: context.date))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Color.primary)
+                                .monospacedDigit()
+                        }
                         if live, !open, let current {
                             // The step it is on, updating in place.
                             Text(current.text)
@@ -58,7 +84,7 @@ struct ProgressBlock: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(live ? "Working on it. \(current?.text ?? "")" : "Done in \(steps.count) steps")
+            .accessibilityLabel(live ? "\(headline(at: .now)). \(current?.text ?? "")" : headline(at: .now))
             .accessibilityHint(open ? "Hides the steps" : "Shows the steps")
 
             if open {

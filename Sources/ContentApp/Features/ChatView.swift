@@ -655,13 +655,25 @@ struct ChatView: View {
         for turn in turns where !turn.isTap {
             if turn.isProgress, let last = shown.last, last.isProgress {
                 shown[shown.count - 1].progressSteps.append(turn.text)
+                if let at = turn.createdAt { shown[shown.count - 1].progressEnded = at }
                 continue
             }
             var drawn = turn
-            if drawn.isProgress { drawn.progressSteps = [drawn.text] }
+            if drawn.isProgress {
+                drawn.progressSteps = [drawn.text]
+                drawn.progressStarted = drawn.createdAt
+                drawn.progressEnded = drawn.createdAt
+            }
             shown.append(drawn)
         }
-        if let last = shown.indices.last, shown[last].isProgress { shown[last].progressLive = true }
+        for index in shown.indices where shown[index].isProgress {
+            if index == shown.indices.last {
+                shown[index].progressLive = true
+            } else if let outcome = shown[index + 1].createdAt {
+                // The job ended when its outcome was said: the video, or why not.
+                shown[index].progressEnded = outcome
+            }
+        }
         return shown
     }
 

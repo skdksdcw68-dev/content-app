@@ -41,7 +41,12 @@ struct ChatTurnView: View {
             EmptyView()
         case .assistant where turn.isProgress:
             // A job's steps, folded into one block by the conversation.
-            ProgressBlock(steps: turn.progressSteps.isEmpty ? [turn.text] : turn.progressSteps, live: turn.progressLive)
+            ProgressBlock(
+                steps: turn.progressSteps.isEmpty ? [turn.text] : turn.progressSteps,
+                live: turn.progressLive,
+                started: turn.progressStarted,
+                ended: turn.progressEnded
+            )
         case .user:
             VStack(alignment: .trailing, spacing: 6) {
                 if !turn.attachments.isEmpty {

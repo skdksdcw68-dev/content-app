@@ -388,10 +388,24 @@ private struct StoredMessage: Decodable {
     let role: String
     let text: String
     let renderHint: RenderHint?
+    /// When it was said -- what a job's "Worked for 2m 14s" is measured from.
+    /// Read as text and parsed leniently: Postgres sends microseconds
+    /// ("…57.486518+00:00"), and a date the decoder could not read must not
+    /// take the whole conversation down with it.
+    let createdAtText: String?
+
+    var createdAt: Date? {
+        guard let createdAtText else { return nil }
+        // Seconds are all a duration needs; the fraction is what parsers
+        // disagree about.
+        let whole = createdAtText.replacingOccurrences(of: #"\.\d+"#, with: "", options: .regularExpression)
+        return ISO8601DateFormatter().date(from: whole)
+    }
 
     private enum CodingKeys: String, CodingKey {
         case seq, role, text
         case renderHint = "render_hint"
+        case createdAtText = "created_at"
     }
 
     /// What the server attached to this turn, when it was more than prose.
@@ -439,6 +453,7 @@ private struct StoredMessage: Decodable {
         turn.attachments = renderHint?.paths ?? []
         if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
         turn.isTap = renderHint?.kind == "tap"
+        turn.createdAt = createdAt
         // A job's steps are marked "progress". Lines a story wrote before the
         // mark existed carry no hint and start with its step emoji, so they
         // fold the same way.

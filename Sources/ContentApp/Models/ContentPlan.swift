@@ -31,6 +31,10 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
     var look: String? = nil
     var voice: String? = nil
     var language: String? = nil
+    /// The ElevenLabs voice and caption style picked in Start a series (0087),
+    /// so a video asked for in chat starts on the same ones.
+    var voiceID: String? = nil
+    var captionStyle: String? = nil
 
     enum Status: String, Decodable, Sendable {
         case draft, proposed, approved, active, paused, archived
@@ -44,6 +48,8 @@ struct ContentPlan: Identifiable, Decodable, Hashable, Sendable {
         case approvedAt = "approved_at"
         case templateSlug = "template_slug"
         case durationSeconds = "duration_s"
+        case voiceID = "voice_id"
+        case captionStyle = "caption_style"
     }
 
     /// A plan made from a style: a series.

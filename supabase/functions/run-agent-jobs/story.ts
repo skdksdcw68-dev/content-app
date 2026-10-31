@@ -218,11 +218,18 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
           {
             role: "system",
             content: [
-              "You are a strict quality reviewer for pictures that will be animated into a short vertical video. You did not make this picture.",
+              // 31 Oct 2026: the first real story redid 3 of its 6 pictures,
+              // a third of what it cost, for "the hangers appear static" (a
+              // still never moves; the camera move comes later), "not fully
+              // 9:16" (the request sets the size, not the picture) and "the
+              // shadows could be deeper". A redo is for a picture that would
+              // look WRONG in the video, nothing less.
+              "You check pictures that will become the stills of a short vertical video. You did not make this picture.",
               "Judge ONLY what you can see. Return one JSON object:",
               '{"verdict":"PASS|RETRY|ESCALATE","score":0..1,"problems":[string],"correction":string|null}',
-              "PASS only if the picture clearly shows the scene, the subject is visible, the composition suits vertical video, and there are no obvious defects.",
-              "Problems to look for: wrong or missing subject, deformed hands/faces/limbs, text or logos or watermarks in the picture, a subject cut off by the frame, a character who contradicts the description, a composition that cannot be animated (flat, empty, cluttered).",
+              "RETRY only for a fault a viewer would notice: the wrong or missing subject, deformed hands/faces/limbs, readable text, logos or watermarks, the main subject badly cut off, a character who plainly contradicts the description, or a picture clearly not in the asked style (a photo when a drawing was asked, colour when monochrome was asked).",
+              "Do NOT retry for: no visible movement (it is a still; motion is added later), the picture's size or aspect ratio (that is fixed elsewhere), mood or lighting that is close enough, or small details of the scene. Those are a PASS.",
+              "When in doubt, PASS. Every redo costs money.",
               "RETRY with a `correction` written as an instruction for the picture prompt. ESCALATE only if the scene itself cannot be drawn as described.",
               "A PASS must have an empty problems list.",
             ].join("\n"),
@@ -232,7 +239,7 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
             content: [
               {
                 type: "text",
-                text: `Scene: ${scene.visual}\nIntended picture: ${scene.imagePrompt}\n${who ? `Characters: ${who}\n` : ""}Style: ${production.visualStyle || "cinematic"}\nShape wanted: ${production.aspect}`,
+                text: `Scene: ${scene.visual}\nIntended picture: ${scene.imagePrompt}\n${who ? `Characters: ${who}\n` : ""}Style: ${production.visualStyle || "cinematic"}`,
               },
               { type: "image_url", image_url: { url: imageUrl } },
             ],

@@ -59,7 +59,10 @@ export interface StoryState {
   production?: Production;
   plan?: StoryPlan;
   words?: WordTiming[];
-  voice?: { path: string; durationS: number };
+  /** `tempo` above 1 is how much faster the renderer plays the recording so
+   *  it fits the length that was asked for; the word timings are already
+   *  scaled to it. */
+  voice?: { path: string; durationS: number; tempo?: number };
   totalS?: number;
   scenes: Record<string, SceneState>;
   renderJobId?: string;
@@ -76,7 +79,7 @@ export interface RenderSpec {
   fps: number;
   durationS: number;
   scenes: Array<{ id: string; path: string; durationS: number; motion: Motion; transition: TransitionType }>;
-  voice: { path: string; startS: number } | null;
+  voice: { path: string; startS: number; tempo?: number } | null;
   words: WordTiming[];
   emphasis: string[];
   captions: boolean;
@@ -137,7 +140,7 @@ export interface Limits {
   planRetries: number;
 }
 
-const DEFAULTS: Limits = { attemptsPerScene: 3, concurrency: 6, budgetUsd: 3, minScore: 0.6, planRetries: 2 };
+const DEFAULTS: Limits = { attemptsPerScene: 2, concurrency: 6, budgetUsd: 3, minScore: 0.6, planRetries: 2 };
 
 export interface StepResult {
   state: StoryState;
@@ -215,6 +218,11 @@ async function planPhase(deps: StoryDeps, state: StoryState, limits: Limits): Pr
   return { state, waitS: 1, done: false };
 }
 
+/** The pause after the last word before the video ends. */
+const TAIL_S = 0.6;
+/** The fastest the voice is played to fit a length. */
+const MAX_TEMPO = 1.2;
+
 function assignEvenDurations(state: StoryState): void {
   const plan = state.plan!;
   const target = state.production!.durationS;
@@ -251,22 +259,43 @@ async function voicePhase(deps: StoryDeps, state: StoryState): Promise<StepResul
   await deps.store.put(path, spoken.audio, spoken.mime);
   await deps.assetRecord?.({ sceneId: null, kind: "voice", path, costUsd: 0, attempt: 1, meta: { characters: spoken.characters, durationS: spoken.durationS } });
 
-  const fitted = timeScenesToVoice(plan, spoken.words);
+  // Running long: play the recording a little faster (the renderer's atempo,
+  // which costs nothing, where a second recording costs the voice again)
+  // rather than hand back a longer video than was asked for. Up to 1.2x still
+  // sounds like the same narrator; past that the length is told honestly.
+  const speechEnd = spoken.words[spoken.words.length - 1]?.endS ?? 0;
+  const room = Math.max(1, production.durationS - TAIL_S);
+  const tempo = speechEnd > room * 1.03 ? Math.round(Math.min(MAX_TEMPO, speechEnd / room) * 1000) / 1000 : 1;
+  const words = tempo > 1
+    ? spoken.words.map((w) => ({ ...w, startS: w.startS / tempo, endS: w.endS / tempo }))
+    : spoken.words;
+
+  const fitted = timeScenesToVoice(plan, words, { tailS: TAIL_S });
   const errors = fitted.issues.filter((i) => i.level === "error");
   if (errors.length > 0) return fail(deps, state, `The voice and the plan didn't line up: ${errors[0]!.message}.`);
   for (const w of fitted.issues) state.warnings.push(w.message);
   for (const c of checkCoverage(fitted.plan, production.durationS, production.durationS * 0.2)) state.warnings.push(c.message);
 
   state.plan = fitted.plan;
-  state.words = spoken.words;
-  state.voice = { path, durationS: spoken.durationS ?? fitted.totalS };
+  state.words = words;
+  state.voice = {
+    path,
+    durationS: spoken.durationS ? spoken.durationS / tempo : fitted.totalS,
+    ...(tempo > 1 ? { tempo } : {}),
+  };
   state.totalS = fitted.totalS;
   state.phase = "images";
 
-  const off = Math.abs(fitted.totalS - production.durationS) > production.durationS * 0.2;
+  const off = Math.abs(fitted.totalS - production.durationS) > Math.max(1.5, production.durationS * 0.1);
   await deps.say(
-    `✅ Voiceover recorded: ${fitted.totalS.toFixed(0)} seconds.` +
-      (off ? ` (You asked for ${production.durationS}; this is how long the story takes to tell well.)` : ""),
+    `✅ Voiceover recorded: ${fitted.totalS.toFixed(0)} seconds` +
+      (off && fitted.totalS < production.durationS
+        ? `. You asked for ${production.durationS}; the story came out shorter.`
+        : off
+        ? `. You asked for ${production.durationS}; even read a little faster, the story needs this long.`
+        : tempo > 1
+        ? `, read a little faster to fit the ${production.durationS} you asked for.`
+        : "."),
   );
   await deps.save(state);
   return { state, waitS: 1, done: false };
@@ -453,7 +482,9 @@ export function buildRenderSpec(state: StoryState, userId: string, runId: string
     fps: 30,
     durationS: total,
     scenes,
-    voice: state.voice ? { path: state.voice.path, startS: 0 } : null,
+    voice: state.voice
+      ? { path: state.voice.path, startS: 0, ...(state.voice.tempo && state.voice.tempo > 1 ? { tempo: state.voice.tempo } : {}) }
+      : null,
     words: state.words ?? [],
     emphasis: plan.scenes.flatMap((s) => s.emphasis),
     captions: production.captions.enabled && (state.words?.length ?? 0) > 0,

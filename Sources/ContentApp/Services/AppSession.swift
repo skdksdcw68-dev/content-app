@@ -985,7 +985,7 @@ extension AppSession {
             // showed, so Drobe could open Remi Snap's month.
             let plans: [ContentPlan] = try await client
                 .from("content_plans")
-                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms,template_slug,duration_s,look,voice,language")
+                .select("id,title,status,starts_on,days,posts_per_day,brief,approved_at,objective,platforms,template_slug,duration_s,look,voice,language,voice_id,caption_style")
                 .eq("brand_id", value: brand.id.uuidString)
                 .in("status", values: ["draft", "proposed", "active", "paused"])
                 .order("created_at", ascending: false)

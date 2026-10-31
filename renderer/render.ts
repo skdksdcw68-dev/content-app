@@ -29,7 +29,9 @@ interface RenderSpec {
   fps: number;
   durationS: number;
   scenes: Array<{ id: string; path: string; durationS: number; motion: Motion; transition: TransitionType }>;
-  voice: { path: string; startS: number } | null;
+  /** `tempo` > 1: play the voice that much faster (the story fitted its
+   *  word timings to it already). */
+  voice: { path: string; startS: number; tempo?: number } | null;
   words: WordTiming[];
   emphasis: string[];
   captions: boolean;
@@ -195,7 +197,9 @@ export async function render(spec: RenderSpec, work: string, out: string, fontsD
   if (hasVoice) {
     inputs.push("-i", "voice.audio");
     const delay = Math.round((spec.voice!.startS ?? 0) * 1000);
-    audio.push(`[${audioIn}:a]adelay=${delay}|${delay},apad,atrim=0:${total}[voice]`);
+    const tempo = spec.voice!.tempo ?? 1;
+    const faster = tempo > 1.001 && tempo <= 2 ? `atempo=${tempo.toFixed(3)},` : "";
+    audio.push(`[${audioIn}:a]${faster}adelay=${delay}|${delay},apad,atrim=0:${total}[voice]`);
     mix.push("[voice]");
     audioIn++;
   }

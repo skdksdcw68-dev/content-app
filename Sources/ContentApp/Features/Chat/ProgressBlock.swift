@@ -1,13 +1,17 @@
 import SwiftUI
 
-/// A long job's steps, drawn as one block instead of a message each.
+/// A long job's steps, drawn as one line instead of a message each.
 ///
 /// Netro, 31 Oct 2026, with a screenshot of a dozen "Making picture n of 6"
 /// messages, each under its own copy / like / dislike / share row: "can we
-/// make it as Claude please?" The shape is the one the good agent apps share
-/// (Claude, Perplexity, Bevel): a single header that says what is happening,
-/// the step it is on while it works, and the whole timeline one tap away. No
-/// buttons -- those belong to the answer, not to the working.
+/// make it as Claude please?" And on the first version, a tinted box with the
+/// chevron at the far edge: "I want it to match Claude, not others like
+/// ChatGPT ... only plain text and a dropdown ... to the right."
+///
+/// So it is Claude's shape exactly: one line of quiet grey text -- what it is
+/// doing while it works, "Worked for 2m 14s" when it is done -- with a small
+/// chevron right after the words. No box, no icon, no buttons; those belong to
+/// the answer, not to the working. A tap opens the steps underneath.
 struct ProgressBlock: View {
     let steps: [String]
     /// Still going: the block is the last thing in the conversation.
@@ -22,86 +26,69 @@ struct ProgressBlock: View {
     /// "42s", "3m 12s", "1h 05m".
     static func duration(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded()))
-        if s < 60 { return "\(s)s" }
-        if s < 3600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
-        return "\(s / 3600)h \(String(format: "%02d", (s % 3600) / 60))m"
+        if s < 60 { return "(s)s" }
+        if s < 3600 { return "(s / 60)m (String(format: "%02d", s % 60))s" }
+        return "(s / 3600)h (String(format: "%02d", (s % 3600) / 60))m"
     }
 
-    /// The header's line: working and for how long, or how long it took.
-    private func headline(at now: Date) -> String {
+    /// The line: the step it is on and for how long, or how long it took.
+    static func headline(steps: [String], live: Bool, started: Date?, ended: Date?, now: Date) -> String {
         if live {
-            guard let started else { return "Working on it" }
-            return "Working · \(Self.duration(now.timeIntervalSince(started)))"
+            let doing = steps.last.map { Step($0).firstLine } ?? "Working"
+            guard let started else { return doing }
+            return "(doing) · (duration(now.timeIntervalSince(started)))"
         }
-        guard let started, let ended, ended > started else { return "Done in \(steps.count) steps" }
-        return "Worked for \(Self.duration(ended.timeIntervalSince(started)))"
+        guard let started, let ended, ended > started else {
+            return steps.count == 1 ? "Done in 1 step" : "Done in (steps.count) steps"
+        }
+        return "Worked for (duration(ended.timeIntervalSince(started)))"
     }
 
-    private var current: Step? { steps.last.map(Step.init) }
+    private func headline(at now: Date) -> String {
+        Self.headline(steps: steps, live: live, started: started, ended: ended, now: now)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.snappy(duration: 0.25)) { open.toggle() }
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
             } label: {
-                HStack(spacing: 10) {
-                    Group {
-                        if live {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Theme.accent)
-                        }
+                HStack(spacing: 5) {
+                    // Counts up once a second while it works.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(headline(at: context.date))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .contentTransition(.opacity)
+                            .modifier(Shimmer(active: live))
                     }
-                    .frame(width: 20)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        // Counts up once a second while it works.
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Text(headline(at: context.date))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Color.primary)
-                                .monospacedDigit()
-                        }
-                        if live, !open, let current {
-                            // The step it is on, updating in place.
-                            Text(current.text)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .contentTransition(.opacity)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(open ? 180 : 0))
+                        .rotationEffect(.degrees(open ? 90 : 0))
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
+                .padding(.vertical, 4)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(live ? "\(headline(at: .now)). \(current?.text ?? "")" : headline(at: .now))
+            .accessibilityLabel(headline(at: .now))
             .accessibilityHint(open ? "Hides the steps" : "Shows the steps")
 
             if open {
-                Divider().padding(.leading, 42)
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(steps.enumerated()), id: \.offset) { index, raw in
-                        timelineRow(Step(raw), isLast: index == steps.count - 1)
+                    ForEach(Array(steps.enumerated()), id: .offset) { index, raw in
+                        timelineRow(Step(raw), isLast: index == steps.count - 1 && live)
+                    }
+                    if !live {
+                        timelineRow(Step(done: true), isLast: true)
                     }
                 }
-                .padding(.vertical, 8)
-                .padding(.horizontal, 12)
-                .transition(.opacity)
+                .padding(.leading, 2)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
-        }
-        .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.snappy(duration: 0.2), value: steps.count)
@@ -112,7 +99,7 @@ struct ProgressBlock: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 0) {
                 Group {
-                    if isLast && live {
+                    if isLast && live && !step.isDone {
                         ProgressView().controlSize(.mini)
                     } else {
                         Image(systemName: step.symbol)
@@ -140,10 +127,24 @@ struct ProgressBlock: View {
 
     /// A step's words without the emoji the server leads with, and an icon
     /// that says the same thing at this size.
-    private struct Step {
+    struct Step {
         let text: String
         let symbol: String
         let isWarning: Bool
+        var isDone = false
+
+        /// The step's first line, for the one-line header.
+        var firstLine: String {
+            text.split(whereSeparator: .isNewline).first.map(String.init) ?? text
+        }
+
+        /// The row that ends a finished job's steps.
+        init(done: Bool) {
+            text = "Done"
+            symbol = "checkmark"
+            isWarning = false
+            isDone = done
+        }
 
         /// By the emoji's first code point: "🖼️" is U+1F5BC plus a variation
         /// selector, and as Characters "🖼️".hasPrefix("🖼") is false.
@@ -167,6 +168,38 @@ struct ProgressBlock: View {
             // The emoji (with any variation selector) and the space after it.
             let words = match == nil ? raw : String(raw.drop { !$0.isLetter && !$0.isNumber && $0 != "“" && $0 != "\"" })
             text = words.trimmingCharacters(in: .whitespaces)
+        }
+    }
+}
+
+/// A soft light that sweeps across the words while the job works, the way
+/// Claude's "Thinking" line does. Still for Reduce Motion.
+private struct Shimmer: ViewModifier {
+    let active: Bool
+    @State private var phase: CGFloat = -0.7
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        if active && !reduceMotion {
+            content
+                .overlay {
+                    GeometryReader { geo in
+                        LinearGradient(
+                            colors: [.clear, Color.primary.opacity(0.6), .clear],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(width: max(40, geo.size.width * 0.5))
+                        .offset(x: phase * geo.size.width)
+                    }
+                    .mask { content }
+                    .allowsHitTesting(false)
+                }
+                .onAppear {
+                    withAnimation(.linear(duration: 1.8).repeatForever(autoreverses: false)) { phase = 1.2 }
+                }
+        } else {
+            content
         }
     }
 }

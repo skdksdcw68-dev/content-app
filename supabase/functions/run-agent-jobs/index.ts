@@ -31,6 +31,7 @@ import { imageSize, inspect } from "../_shared/media.ts";
 import { settleCredits } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write as writeWithClaude } from "../_shared/writer.ts";
+import { storyStep } from "./story.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -158,6 +159,7 @@ async function advance(admin: Admin, run: Run): Promise<string> {
   if (run.kind === "export") return await exportStep(admin, run);
   if (run.kind === "generate") return await generateStep(admin, run);
   if (run.kind === "rediscover") return await rediscoverStep(admin, run);
+  if (run.kind === "story") return await storyStep(admin, run, (text, hint) => tell(admin, run, text, hint ?? null));
 
   await admin.rpc("finish_agent_run", {
     p_run: run.id,

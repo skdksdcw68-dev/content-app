@@ -32,6 +32,8 @@ import { rediscover } from "../_shared/connectors/discovery.ts";
 import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
+import { parseStoryCommand } from "../_shared/video/command.ts";
+import { productionFor } from "../_shared/video/style.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -1071,6 +1073,59 @@ Deno.serve(async (request) => {
                 intro: "Here's what can animate it.",
               });
             }
+          }
+
+          // `/story <style> [seconds] <topic>`: a typed command, deliberately not
+          // a guess from free text, because it starts a long job that spends
+          // money. Checked here so a wrong style is answered at once instead of
+          // after a run has been created.
+          const storyCommand = parseStoryCommand(asked);
+          if (storyCommand) {
+            const { data: styleRows } = await admin.from("content_templates").select("slug, name, visual_style, workflow").order("sort");
+            const styles = (styleRows ?? []) as Array<{ slug: string; name: string; visual_style: string | null; workflow: never }>;
+            const usable = styles.filter((s) => productionFor(s).support.level !== "unsupported");
+
+            if (storyCommand.kind === "help" || storyCommand.kind === "error") {
+              speak(
+                storyCommand.kind === "error" ? `${storyCommand.message}\n\n` : "",
+                "Make a finished video from pictures, a voiceover, music and captions:\n\n",
+                "`/story <style> [seconds] <topic>`\n\n",
+                "For example: `/story scary 60 footsteps in an empty house`\n\n",
+                `Styles I can make now: ${usable.map((s) => s.slug).join(", ")}.\n\n`,
+                "Add `--no-voice` to skip the narrator. It takes several minutes and keeps going if you close the app.",
+              );
+              await remember();
+              return finish();
+            }
+
+            const style = styles.find((s) => s.slug === storyCommand.styleSlug);
+            if (!style) {
+              speak(`I don't have a style called “${storyCommand.styleSlug}”. Try one of: ${usable.map((s) => s.slug).join(", ")}.`);
+              await remember();
+              return finish();
+            }
+            const support = productionFor(style).support;
+            if (support.level === "unsupported") {
+              speak(`I can't make “${style.name}” videos yet: ${support.reason}. Styles I can make: ${usable.map((s) => s.slug).join(", ")}.`);
+              await remember();
+              return finish();
+            }
+
+            const { data: brandRow } = await (brandWanted
+              ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
+              : asUser.from("brands").select("id, name, niche, audience").order("created_at", { ascending: true }).limit(1).maybeSingle());
+            const brand = brandRow as { id: string; name: string; niche: string; audience: string } | null;
+            const length = storyCommand.durationS ? `${storyCommand.durationS}-second ` : "";
+            speak(`Starting a ${length}${style.name} story about “${storyCommand.topic}”. I'll tell you each step as it happens, and it keeps going if you close the app.`);
+            return await startRun("story", {
+              request: {
+                topic: storyCommand.topic,
+                styleSlug: style.slug,
+                ...(storyCommand.durationS ? { durationS: storyCommand.durationS } : {}),
+                ...(storyCommand.narration !== undefined ? { narration: storyCommand.narration } : {}),
+                ...(brand ? { brandContext: `${brand.name}${brand.niche ? ` — ${brand.niche}` : ""}${brand.audience ? `, for ${brand.audience}` : ""}` } : {}),
+              },
+            }, brand?.id ?? null);
           }
 
           // Read under RLS, as the user -- silently. These are database reads

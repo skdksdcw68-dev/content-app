@@ -74,7 +74,15 @@ interface Body {
   look?: string;
   voice?: string;
   language?: string;
+  /** The ElevenLabs voice that speaks the voice-over, and how its words are
+   *  burned in (0087). Stored for the renderer; the writer never sees them. */
+  voice_id?: string;
+  caption_style?: string;
 }
+
+/** The caption styles Start a series offers (`SeriesCaption.all`). Anything
+ *  else is dropped rather than stored for a renderer that cannot draw it. */
+const CAPTION_STYLES = new Set(["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"]);
 
 /** A person's own choice, cleaned to one short line. It goes into a prompt,
  *  so it is never longer than a sentence and never carries a line break. */
@@ -255,6 +263,14 @@ Deno.serve(async (request) => {
     const look = oneLine(body.look, 260);
     const voice = oneLine(body.voice, 120);
     const language = oneLine(body.language, 40);
+    // An ElevenLabs id is a short run of letters and digits; anything else is
+    // not one.
+    const voiceId = typeof body.voice_id === "string" && /^[A-Za-z0-9]{10,40}$/.test(body.voice_id)
+      ? body.voice_id
+      : null;
+    const captionStyle = typeof body.caption_style === "string" && CAPTION_STYLES.has(body.caption_style)
+      ? body.caption_style
+      : null;
     // The chosen look replaces the style's own default rather than adding to
     // it: "anime" and "top-down flat-lay photography" cannot both be true.
     const styleText = look || (template?.visual_style ?? "");
@@ -503,6 +519,8 @@ Deno.serve(async (request) => {
         look: look || null,
         voice: voice || null,
         language: language || null,
+        voice_id: voiceId,
+        caption_style: captionStyle,
       })
       .select("id, title, starts_on, days, posts_per_day")
       .single();

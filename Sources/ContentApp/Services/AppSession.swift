@@ -1048,7 +1048,9 @@ extension AppSession {
         durationSeconds: Int? = nil,
         look: String? = nil,
         voice: String? = nil,
-        language: String? = nil
+        language: String? = nil,
+        voiceID: String? = nil,
+        captionStyle: String? = nil
     ) async -> PlanProposal? {
         guard !isPlanning else { return nil }
         isPlanning = true
@@ -1067,7 +1069,9 @@ extension AppSession {
                     durationSeconds: durationSeconds,
                     look: look,
                     voice: voice,
-                    language: language
+                    language: language,
+                    voiceID: voiceID,
+                    captionStyle: captionStyle
                 ))
             )
             await refreshSettings()
@@ -1220,6 +1224,10 @@ private struct PlanRequest: Encodable {
     let look: String?
     let voice: String?
     let language: String?
+    /// The ElevenLabs voice that speaks it, and how the words are burned in
+    /// (`SeriesCaption.id`). Stored on the plan for the renderer.
+    let voiceID: String?
+    let captionStyle: String?
 
     enum CodingKeys: String, CodingKey {
         case brief, days, platforms, template
@@ -1227,6 +1235,8 @@ private struct PlanRequest: Encodable {
         case postsPerDay = "posts_per_day"
         case brandId = "brand_id"
         case durationSeconds = "duration_s"
+        case voiceID = "voice_id"
+        case captionStyle = "caption_style"
     }
 }
 

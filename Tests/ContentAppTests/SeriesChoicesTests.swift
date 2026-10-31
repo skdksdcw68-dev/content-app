@@ -14,12 +14,43 @@ final class SeriesChoicesTests: XCTestCase {
     func testEveryGridHasAnEvenNumberOfTiles() {
         XCTAssertEqual(SeriesLook.all.count % 2, 0, "an odd look would sit alone on the last row")
         XCTAssertEqual(SeriesLanguage.all.count % 2, 0, "an odd language would sit alone on the last row")
+        XCTAssertEqual(SeriesCaption.all.count % 2, 0, "an odd caption style would sit alone on the last row")
     }
 
     func testEveryChoiceHasItsOwnId() {
         XCTAssertEqual(Set(SeriesLook.all.map(\.id)).count, SeriesLook.all.count)
         XCTAssertEqual(Set(SeriesVoice.all.map(\.id)).count, SeriesVoice.all.count)
         XCTAssertEqual(Set(SeriesLanguage.all.map(\.id)).count, SeriesLanguage.all.count)
+        XCTAssertEqual(Set(SeriesCaption.all.map(\.id)).count, SeriesCaption.all.count)
+    }
+
+    /// Every named voice is a real one that can be heard before it is picked.
+    /// "No voiceover" and "Decide for me" name nobody, so they have neither.
+    func testEveryNamedVoiceCanBeHeardAndIsARealVoice() {
+        for voice in SeriesVoice.all {
+            if voice.isNone || voice.id == "decide" {
+                XCTAssertNil(voice.elevenLabsID, "\(voice.id) names no voice")
+                XCTAssertNil(voice.sample, "\(voice.id) has nothing to play")
+                continue
+            }
+            guard let id = voice.elevenLabsID else {
+                XCTFail("\(voice.id) has no ElevenLabs voice")
+                continue
+            }
+            XCTAssertNotNil(id.range(of: "^[A-Za-z0-9]{10,40}$", options: .regularExpression),
+                            "propose-plan drops a voice id that is not letters and digits")
+            XCTAssertEqual(voice.sample?.scheme, "https", "\(voice.id) needs a sample to play")
+        }
+        let ids = SeriesVoice.all.compactMap(\.elevenLabsID)
+        XCTAssertEqual(Set(ids).count, ids.count, "two options would be the same voice")
+    }
+
+    /// The server keeps only the styles it can draw (propose-plan's
+    /// CAPTION_STYLES, and the check in 0087). A new tile needs both.
+    func testEveryCaptionStyleIsOneTheServerKeeps() {
+        let kept: Set = ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"]
+        XCTAssertEqual(Set(SeriesCaption.all.map(\.id)), kept)
+        XCTAssertEqual(SeriesCaption.all.filter(\.isNone).count, 1, "no captions is one answer, said once")
     }
 
     /// A look is sent to the writer and appended to every concept, so it must

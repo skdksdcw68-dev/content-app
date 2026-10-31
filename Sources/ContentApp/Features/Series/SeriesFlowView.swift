@@ -39,7 +39,11 @@ struct SeriesFlowView: View {
         // continue", then the seconds, then "the video style it wants with
         // pictures. I must put that", then "a voiceover. It must be a
         // requirement", then the rest ("I didn't say it all").
-        case style, destinations, length, look, voice, language, include, logo, avoid, goal, review
+        //
+        // 31 Oct 2026: captions follow the voice. "He will need to choose the
+        // caption style, the voiceover, and things like this" -- first, so
+        // autopilot never has to guess.
+        case style, destinations, length, look, voice, captions, language, include, logo, avoid, goal, review
 
         var progress: Double { Double(rawValue + 1) / Double(Step.allCases.count + 1) }
 
@@ -50,6 +54,7 @@ struct SeriesFlowView: View {
             case .length:       "How long"
             case .look:         "How it looks"
             case .voice:        "Voiceover"
+            case .captions:     "Captions"
             case .language:     "Language"
             case .include:      "Every video has"
             case .logo:         "Your logo"
@@ -69,9 +74,9 @@ struct SeriesFlowView: View {
         selection: .multiple,
         options: [
             .init(id: "hook", label: "A hook in the first second", symbol: "bolt"),
-            .init(id: "captions", label: "Captions burned in", symbol: "captions.bubble"),
-            // The voiceover is its own required step now, with the voice to
-            // go with it; the list keeps eight so the grid stays even.
+            // The voiceover and the captions are steps of their own now, each
+            // with a real answer; the list keeps eight so the grid stays even.
+            .init(id: "loop", label: "An ending that loops", symbol: "repeat"),
             .init(id: "text", label: "Big words on screen", symbol: "textformat.size"),
             .init(id: "music", label: "Music under it", symbol: "music.note"),
             .init(id: "cta", label: "A call to action at the end", symbol: "hand.point.up.left"),
@@ -116,12 +121,16 @@ struct SeriesFlowView: View {
     /// Which network is opening its sign-in, so only that tile spins.
     @State private var opening: Platform?
     /// What every video must carry, and what it must never do.
-    @State private var includes: Set<String> = ["hook", "captions"]
+    @State private var includes: Set<String> = ["hook"]
     @State private var avoids: Set<String> = []
     /// How it looks and who speaks. Both start EMPTY on purpose: they are
     /// required, and a preselected answer is a question that was never asked.
     @State private var look: SeriesLook?
     @State private var voice: SeriesVoice?
+    /// Required too, and empty for the same reason.
+    @State private var caption: SeriesCaption?
+    /// Plays a voice's sample on the voiceover step.
+    @State private var sampler = VoiceSampler()
     /// English until told otherwise -- the one question with a natural default.
     @State private var language = "english"
     /// What this month still has, for the credits line on the accounts step.
@@ -218,6 +227,7 @@ struct SeriesFlowView: View {
         case .length:       howLong
         case .look:         howItLooks
         case .voice:        whoSpeaks
+        case .captions:     howWordsShow
         case .language:     inWhichLanguage
         case .include:      mustInclude
         case .logo:         logoStep
@@ -544,18 +554,40 @@ struct SeriesFlowView: View {
             button: voice == nil ? "Pick a voice" : "Continue",
             tint: voice == nil ? Color.secondary : Theme.accent,
             isDisabled: voice == nil,
-            action: { if voice != nil { step = .language } }
+            action: {
+                guard voice != nil else { return }
+                sampler.stop()
+                step = .captions
+            }
         ) {
             VStack(spacing: 10) {
                 ForEach(SeriesVoice.all) { item in
-                    DetailedOption(
-                        option: OnboardingQuestion.Option(
-                            id: item.id, label: item.name, symbol: item.symbol, detail: item.detail
-                        ),
-                        isChosen: voice?.id == item.id
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) { voice = item }
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    HStack(spacing: 10) {
+                        DetailedOption(
+                            option: OnboardingQuestion.Option(
+                                id: item.id, label: item.name, symbol: item.symbol, detail: item.detail
+                            ),
+                            isChosen: voice?.id == item.id
+                        ) {
+                            withAnimation(.snappy(duration: 0.18)) { voice = item }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        }
+
+                        // Heard, not imagined: "warm" and "deep" mean different
+                        // things to everyone until they hear the same voice.
+                        if item.sample != nil {
+                            let isPlaying = sampler.playing == item.id
+                            Button { sampler.toggle(item) } label: {
+                                Image(systemName: isPlaying ? "stop.fill" : "play.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(isPlaying ? Theme.onAccent : Theme.accent)
+                                    .frame(width: 40, height: 40)
+                                    .background(Circle().fill(isPlaying ? Theme.accent : Theme.accent.opacity(0.14)))
+                                    .contentTransition(.symbolEffect(.replace))
+                            }
+                            .buttonStyle(PressButtonStyle())
+                            .accessibilityLabel(isPlaying ? "Stop \(item.name)" : "Hear \(item.name)")
+                        }
                     }
                 }
 
@@ -563,6 +595,47 @@ struct SeriesFlowView: View {
                 // written; whether it is SPOKEN depends on the model that
                 // makes the video, and not all of them make sound.
                 Text("Autocast writes the script either way. It is spoken by video models that make sound; on the others the words stay in the caption.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+            }
+            .padding(.horizontal, 20)
+        }
+        .onDisappear { sampler.stop() }
+    }
+
+    /// 🔴 Required, like the look and the voice: "No captions" is an answer.
+    ///
+    /// Each tile plays its style, because a caption style is timing as much
+    /// as type. The id is stored on the plan and the renderer draws it.
+    private var howWordsShow: some View {
+        FlowStep(
+            title: "How do the words show?",
+            subtitle: "How the spoken words appear on every video. Pick a style, or none.",
+            button: caption == nil ? "Pick a style" : "Continue",
+            tint: caption == nil ? Color.secondary : Theme.accent,
+            isDisabled: caption == nil,
+            action: { if caption != nil { step = .language } }
+        ) {
+            VStack(spacing: 10) {
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(SeriesCaption.all) { item in
+                        CaptionTile(caption: item, isChosen: caption?.id == item.id) {
+                            withAnimation(.snappy(duration: 0.18)) { caption = item }
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            Task {
+                                try? await Task.sleep(for: .milliseconds(450))
+                                if caption?.id == item.id, step == .captions { step = .language }
+                            }
+                        }
+                    }
+                }
+
+                // Said before anybody counts on it: the choice is kept now,
+                // and the renderer that burns it in is the next thing built.
+                Text("Saved with your series. Captions are burned into the videos from the next update.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -805,6 +878,7 @@ struct SeriesFlowView: View {
         // How it comes out, said in the words the person picked.
         if let look { chips.append(look.name) }
         if let voice { chips.append(voice.isNone ? "No voiceover" : voice.name) }
+        if let caption { chips.append(caption.isNone ? "No captions" : "\(caption.name) captions") }
         if language != "english", let spoken = SeriesLanguage.all.first(where: { $0.id == language }) {
             chips.append(spoken.native)
         }
@@ -827,7 +901,8 @@ struct SeriesFlowView: View {
             case .length:       step = .destinations
             case .look:         step = .length
             case .voice:        step = .look
-            case .language:     step = .voice
+            case .captions:     step = .voice
+            case .language:     step = .captions
             case .include:      step = .language
             case .logo:         step = .include
             case .avoid:        step = includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .include
@@ -838,10 +913,10 @@ struct SeriesFlowView: View {
     }
 
     private func start() async {
-        // The three required answers. The buttons that lead here cannot be
+        // The four required answers. The buttons that lead here cannot be
         // pressed without them, so this is the second lock, not the first.
-        guard let chosen, let look, let voice else {
-            failure = "Pick a style, a look and a voice first."
+        guard let chosen, let look, let voice, let caption else {
+            failure = "Pick a style, a look, a voice and captions first."
             return
         }
         // An account that signed out while the flow was open is not one to
@@ -857,6 +932,8 @@ struct SeriesFlowView: View {
         let musts = includes.compactMap { id in Self.includeQuestion.options.first { $0.id == id }?.label }.sorted()
         let nevers = avoids.compactMap { id in Self.avoidQuestion.options.first { $0.id == id }?.label }.sorted()
         if !musts.isEmpty { brief += " Every video must have: \(musts.joined(separator: ", "))." }
+        // The writer keeps on-screen lines short when the words are burned in.
+        if !caption.isNone { brief += " The spoken words are burned in as captions (\(caption.name.lowercased()))." }
         if !nevers.isEmpty { brief += " Never: \(nevers.joined(separator: ", "))." }
 
         // ONE post, not thirty.
@@ -891,7 +968,9 @@ struct SeriesFlowView: View {
             durationSeconds: decideLength ? nil : length,
             look: look.sentence,
             voice: voice.sentence,
-            language: SeriesLanguage.all.first { $0.id == language }?.english
+            language: SeriesLanguage.all.first { $0.id == language }?.english,
+            voiceID: voice.elevenLabsID,
+            captionStyle: caption.id
         ) else {
             failure = session.lastError.flatMap { $0.isEmpty ? nil : $0 }
                 ?? "The writer could not be reached just now. Try again."

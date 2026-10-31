@@ -1,7 +1,7 @@
 import Foundation
 
 // What Start a series asks about how the videos come out: how they look, who
-// speaks over them, and in what language.
+// speaks over them, how the words show on screen, and in what language.
 //
 // Abel, 29 Sep 2026: after the platform and the seconds, "it should ask me for
 // the video style it wants with pictures. I must put that... and then
@@ -94,6 +94,12 @@ struct SeriesVoice: Identifiable, Hashable, Sendable {
     let symbol: String
     /// What the writer is told. Begins with "none" when nobody speaks.
     let sentence: String
+    /// The ElevenLabs voice that speaks it. Nil for nobody, and for "decide
+    /// for me", where the voice is picked per video.
+    var elevenLabsID: String? = nil
+    /// ElevenLabs' own public sample of that voice, so it can be heard before
+    /// it is chosen rather than imagined from an adjective.
+    var sample: URL? = nil
 
     var isNone: Bool { id == "none" }
 
@@ -107,30 +113,70 @@ struct SeriesVoice: Identifiable, Hashable, Sendable {
             symbol: "sparkles",
             sentence: "a voice chosen per video to suit it -- warm, upbeat, calm or deep"
         ),
+        // Each one is a real ElevenLabs voice. Abel, 31 Oct 2026, after
+        // hearing the paid voice next to free ones: "it's clear the paid is
+        // better."
         SeriesVoice(
             id: "warm_female", name: "Warm female", detail: "Friendly and conversational",
-            symbol: "waveform", sentence: "a warm, friendly, conversational female voice"
+            symbol: "waveform", sentence: "a warm, friendly, conversational female voice",
+            elevenLabsID: "jqcCZkN6Knx8BJ5TBdYR",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/user/XKwEw9ihVRMYSZkGwKydUfpES0B3/voices/jqcCZkN6Knx8BJ5TBdYR/JKHbp9CMKBoqcDFfzWIf.mp3")
         ),
         SeriesVoice(
             id: "upbeat_female", name: "Upbeat female", detail: "Bright and energetic",
-            symbol: "waveform.badge.plus", sentence: "a bright, upbeat, energetic female voice"
+            symbol: "waveform.badge.plus", sentence: "a bright, upbeat, energetic female voice",
+            elevenLabsID: "Y2pP8eXRDH19yyV1Tslt",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/workspace/a00f6e0482e844af8e53e744905b121f/voices/Y2pP8eXRDH19yyV1Tslt/ufALidAEgwwGpsini9ss.mp3")
         ),
         SeriesVoice(
             id: "calm_male", name: "Calm male", detail: "Steady and easy to trust",
-            symbol: "waveform.path", sentence: "a calm, steady, trustworthy male voice"
+            symbol: "waveform.path", sentence: "a calm, steady, trustworthy male voice",
+            elevenLabsID: "TyhbGdmkFuKkLJookqy9",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/workspace/95e05f5eba13487ca7bece7a56027bff/voices/TyhbGdmkFuKkLJookqy9/f5b7a272-85cf-47ea-92e0-cb2080c61e81.mp3")
         ),
         SeriesVoice(
             id: "deep_male", name: "Deep male", detail: "Authoritative, like a trailer",
-            symbol: "waveform.badge.mic", sentence: "a deep, authoritative male voice, like a film trailer"
+            symbol: "waveform.badge.mic", sentence: "a deep, authoritative male voice, like a film trailer",
+            elevenLabsID: "mq6RH3bgBY9BDzvWeMZk",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/workspace/9722ac9e4b8847bdb33efaada6390532/voices/mq6RH3bgBY9BDzvWeMZk/R2rjb2MmWHjeDjxCNjHX.mp3")
         ),
         SeriesVoice(
             id: "casual_male", name: "Casual male", detail: "Relaxed, like a friend",
-            symbol: "message", sentence: "a relaxed, casual male voice, like a friend talking"
+            symbol: "message", sentence: "a relaxed, casual male voice, like a friend talking",
+            elevenLabsID: "snODv2VnG1inLn1Ba0dk",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/workspace/77466a60c55e4e4cbbd21b401cf2bf34/voices/snODv2VnG1inLn1Ba0dk/A30tVZgPkRNLlfUKsdrs.mp3")
         ),
         SeriesVoice(
             id: "storyteller", name: "Storyteller", detail: "Slow and gripping",
-            symbol: "book", sentence: "a slow, gripping storyteller's voice with pauses for effect"
+            symbol: "book", sentence: "a slow, gripping storyteller's voice with pauses for effect",
+            elevenLabsID: "acrqYoDVmcpJemOxjC39",
+            sample: URL(string: "https://storage.googleapis.com/eleven-public-prod/database/user/user_9701ke9g8xefebrt7j2pphkg808g/voices/acrqYoDVmcpJemOxjC39/yVl8SdkVGLti2cVjc5FG.mp3")
         ),
+    ]
+}
+
+// MARK: - Captions
+
+/// How the spoken words are burned into the picture. Six, so the two-column
+/// grid has no stranded tile.
+///
+/// The id is all the server needs: the renderer holds each style's font, size,
+/// colour and position, and draws them from the voice-over's word timings. The
+/// tile only has to look enough like the result to be chosen from.
+struct SeriesCaption: Identifiable, Hashable, Sendable {
+    let id: String
+    let name: String
+    let detail: String
+
+    var isNone: Bool { id == "none" }
+
+    static let all: [SeriesCaption] = [
+        SeriesCaption(id: "bold_pop", name: "Bold pop", detail: "One big word at a time"),
+        SeriesCaption(id: "highlight", name: "Highlight", detail: "The spoken word lights up"),
+        SeriesCaption(id: "minimal", name: "Minimal", detail: "Small and out of the way"),
+        SeriesCaption(id: "subtitle", name: "Subtitles", detail: "Full lines at the bottom"),
+        SeriesCaption(id: "boxed", name: "Boxed", detail: "Words on a white card"),
+        SeriesCaption(id: "none", name: "No captions", detail: "Just the picture"),
     ]
 }
 

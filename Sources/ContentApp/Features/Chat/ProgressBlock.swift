@@ -26,9 +26,9 @@ struct ProgressBlock: View {
     /// "42s", "3m 12s", "1h 05m".
     static func duration(_ seconds: TimeInterval) -> String {
         let s = max(0, Int(seconds.rounded()))
-        if s < 60 { return "(s)s" }
-        if s < 3600 { return "(s / 60)m (String(format: "%02d", s % 60))s" }
-        return "(s / 3600)h (String(format: "%02d", (s % 3600) / 60))m"
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m \(String(format: "%02d", s % 60))s" }
+        return "\(s / 3600)h \(String(format: "%02d", (s % 3600) / 60))m"
     }
 
     /// The line: the step it is on and for how long, or how long it took.
@@ -36,12 +36,12 @@ struct ProgressBlock: View {
         if live {
             let doing = steps.last.map { Step($0).firstLine } ?? "Working"
             guard let started else { return doing }
-            return "(doing) · (duration(now.timeIntervalSince(started)))"
+            return "\(doing) · \(duration(now.timeIntervalSince(started)))"
         }
         guard let started, let ended, ended > started else {
-            return steps.count == 1 ? "Done in 1 step" : "Done in (steps.count) steps"
+            return steps.count == 1 ? "Done in 1 step" : "Done in \(steps.count) steps"
         }
-        return "Worked for (duration(ended.timeIntervalSince(started)))"
+        return "Worked for \(duration(ended.timeIntervalSince(started)))"
     }
 
     private func headline(at now: Date) -> String {
@@ -79,7 +79,7 @@ struct ProgressBlock: View {
 
             if open {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(steps.enumerated()), id: .offset) { index, raw in
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, raw in
                         timelineRow(Step(raw), isLast: index == steps.count - 1 && live)
                     }
                     if !live {
@@ -135,7 +135,7 @@ struct ProgressBlock: View {
 
         /// The step's first line, for the one-line header.
         var firstLine: String {
-            text.split(whereSeparator: .isNewline).first.map(String.init) ?? text
+            text.split(whereSeparator: \.isNewline).first.map(String.init) ?? text
         }
 
         /// The row that ends a finished job's steps.

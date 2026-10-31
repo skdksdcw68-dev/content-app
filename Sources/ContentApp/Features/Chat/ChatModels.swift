@@ -495,6 +495,14 @@ struct ChatMessage: Identifiable, Equatable {
     /// What is worth saying next, as taps. One ending in a space is an
     /// invitation to finish the sentence rather than a message to send.
     var suggestions: [String] = []
+    /// The suggestion that was tapped, so the row settles on it.
+    var suggestionPicked: String? = nil
+    /// A user turn made by a tap -- a card's button, a chip -- rather than
+    /// typed. Its text still goes to the model; it is never drawn as a bubble.
+    ///
+    /// Netro, 31 Oct 2026: "when they hit, it sends the text for itself...
+    /// instead, it will do it in the background, without sending the text."
+    var isTap = false
     /// "up" or "down", once the person rated this answer.
     var rating: String? = nil
 

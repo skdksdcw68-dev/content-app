@@ -660,6 +660,9 @@ struct ChatView: View {
             onGenerate: { choice, settings, price in
                 generate(choice, settings: settings, price: price, in: id)
             },
+            onStory: { choice in
+                makeStory(choice, in: id)
+            },
             onExport: { artifact, format in
                 export(artifact, as: format)
             },
@@ -679,7 +682,16 @@ struct ChatView: View {
                 // One ending in a space wants the rest typed -- "Edit it: " --
                 // so the field is focused instead of the turn being sent.
                 draft = suggestion
-                if suggestion.hasSuffix(" ") { composerFocus += 1 } else { send() }
+                if suggestion.hasSuffix(" ") {
+                    composerFocus += 1
+                } else {
+                    // A tap, not a sentence: the chip settles on what was
+                    // picked and no bubble is drawn for it.
+                    if let index = turns.firstIndex(where: { $0.id == id }) {
+                        turns[index].suggestionPicked = suggestion
+                    }
+                    send(tap: true)
+                }
             },
             onRate: { rating, reason in
                 rate(id, rating: rating, reason: reason)
@@ -870,7 +882,10 @@ struct ChatView: View {
         }
     }
 
-    private func send(action: AppSession.ChatAction? = nil) {
+    /// `tap` marks a chip tapped rather than a sentence typed. Every action is a
+    /// tap too: neither is drawn as the person's bubble, and the server stores
+    /// both marked so a reopened conversation does not show them either.
+    private func send(action: AppSession.ChatAction? = nil, tap: Bool = false) {
         var asked = draft.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // A provider key pasted into the field never becomes a message. It is
@@ -946,6 +961,7 @@ struct ChatView: View {
         dismissKeyboard()
         var mine = ChatMessage.user(asked)
         mine.attachments = attached
+        mine.isTap = action != nil || tap
         // Only a send pins. A reopened conversation sits at the bottom.
         pinned = mine.id
         pinnedTop = nil
@@ -978,7 +994,7 @@ struct ChatView: View {
 
             do {
                 try await session.streamReply(
-                    for: turns, in: thread, action: action, attachments: attached
+                    for: turns, in: thread, action: action, attachments: attached, tap: tap && action == nil
                 ) { event in
                     guard turns.indices.contains(replyIndex) else { return }
                     switch event {
@@ -1224,6 +1240,20 @@ struct ChatView: View {
     /// 2026, with a screenshot of exactly that card: "animate this picture
     /// without including anything -- that's the most annoying part." The
     /// generator page had the composer path; plain chat never did.
+    /// "Create photo video" on the create card: the story engine with what the
+    /// card says. The card settles into its one line; nothing is said on the
+    /// person's behalf -- the sentence below is context for the model only.
+    private func makeStory(_ choice: StoryChoice, in turnID: ChatMessage.ID) {
+        guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
+        guard turns[index].chosenModel == nil, !isWorking else { return }
+
+        let share = session.usageShare(usd: choice.estimatedUSD).map { " · about \(UsageFormat.percent($0)) of your month" } ?? ""
+        turns[index].chosenModel = choice.summary + share
+
+        draft = "Make a photo video about \(choice.topic): \(choice.summary)"
+        send(action: .story(choice))
+    }
+
     private func animate(_ artifact: Artifact) {
         Task { await use(artifact, animating: true) }
     }

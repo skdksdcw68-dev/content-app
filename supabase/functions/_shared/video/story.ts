@@ -1,7 +1,7 @@
 import type { Aspect, Issue, Motion, Scene, StoryPlan, TransitionType, WordTiming } from "./types.ts";
 import { checkCoverage, timeScenesToVoice } from "./storyboard.ts";
 import { planStory } from "./planner.ts";
-import { productionFor, type Production, type StyleRow } from "./style.ts";
+import { productionFor, withCaptionChoice, type Production, type StyleRow } from "./style.ts";
 import type { Review } from "./review.ts";
 import type { Spoken } from "./voice.ts";
 
@@ -28,6 +28,13 @@ export interface StoryRequest {
   narration?: boolean;
   aspect?: Aspect;
   brandContext?: string;
+  /** How every picture is drawn, chosen on the chat card (one of the style's
+   *  CategoryLooks); the style's own `visual_style` when absent. */
+  look?: string;
+  /** The ElevenLabs voice chosen on the card; the server's default when absent. */
+  voiceId?: string;
+  /** A `SeriesCaption` id from the card; "none" turns captions off. */
+  captionStyle?: string;
 }
 
 export type Phase = "plan" | "voice" | "images" | "render" | "finish" | "done" | "failed";
@@ -172,6 +179,9 @@ async function planPhase(deps: StoryDeps, state: StoryState, limits: Limits): Pr
   if (production.support.level === "unsupported") {
     return fail(deps, state, `I can't make “${style.name ?? style.slug}” videos yet: ${production.support.reason}.`);
   }
+  // What the person picked on the card is stronger than the style's default.
+  if (state.request.look?.trim()) production.visualStyle = state.request.look.trim();
+  if (state.request.captionStyle) withCaptionChoice(production, state.request.captionStyle);
   if (production.support.level === "partial") state.warnings.push(production.support.reason);
   state.warnings.push(...production.notes);
 

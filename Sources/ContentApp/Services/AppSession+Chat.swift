@@ -196,6 +196,9 @@ extension AppSession {
         case animate(artifact: UUID)
         /// Every question on a card, answered by tapping -- as values.
         case answers([String: String], request: String?, days: Int?)
+        /// "Photo video" on the create card: the story engine with the card's
+        /// choices -- style, length, look, voice, captions.
+        case story(StoryChoice)
 
         var payload: [String: Any] {
             switch self {
@@ -219,6 +222,8 @@ extension AppSession {
                 if let request { out["request"] = request }
                 if let days { out["days"] = days }
                 return out
+            case .story(let choice):
+                return choice.payload
             }
         }
     }
@@ -232,6 +237,7 @@ extension AppSession {
         in thread: UUID? = nil,
         action: ChatAction? = nil,
         attachments: [String] = [],
+        tap: Bool = false,
         onEvent: (ChatEvent) -> Void
     ) async throws {
         let token = try await client.auth.session.accessToken
@@ -261,6 +267,9 @@ extension AppSession {
         if let thread { body["threadId"] = thread.uuidString }
         if let action { body["action"] = action.payload }
         if !attachments.isEmpty { body["attachments"] = attachments }
+        // A chip tapped rather than a sentence typed: stored marked, like an
+        // action, so a reopened conversation does not show it as a bubble.
+        if tap { body["tap"] = true }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
@@ -429,6 +438,7 @@ private struct StoredMessage: Decodable {
         turn.artifactHeight = renderHint?.height
         turn.attachments = renderHint?.paths ?? []
         if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
+        turn.isTap = renderHint?.kind == "tap"
         return turn
     }
 }

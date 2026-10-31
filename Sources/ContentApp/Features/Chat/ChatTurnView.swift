@@ -15,6 +15,8 @@ struct ChatTurnView: View {
     /// Generate was pressed on a card: this model, these settings, at the
     /// price the card showed.
     var onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void = { _, _, _ in }
+    /// "Create photo video" on the create card.
+    var onStory: (StoryChoice) -> Void = { _ in }
     var onExport: (Artifact, String) -> Void = { _, _ in }
     var onAnimate: (Artifact) -> Void = { _ in }
     var onApprove: (Artifact) -> Void = { _ in }
@@ -33,6 +35,10 @@ struct ChatTurnView: View {
 
     var body: some View {
         switch turn.role {
+        case .user where turn.isTap:
+            // A tap, not a sentence: the card or chip it came from has already
+            // settled on what was chosen, so there is nothing to draw here.
+            EmptyView()
         case .user:
             VStack(alignment: .trailing, spacing: 6) {
                 if !turn.attachments.isEmpty {
@@ -86,12 +92,26 @@ struct ChatTurnView: View {
                     }
 
                     if let offer = turn.offer {
-                        GenerationCard(
-                            offer: offer,
-                            request: turn.offerRequest,
-                            settled: turn.chosenModel
-                        ) { choice, settings, price in
-                            onGenerate(choice, settings, price)
+                        if offer.capability == "video_generation" {
+                            // Photo video or AI video, side by side -- unless a
+                            // picture is to be animated, which only a video
+                            // model can do.
+                            CreateVideoCard(
+                                offer: offer,
+                                request: turn.offerRequest,
+                                settled: turn.chosenModel,
+                                photoAllowed: offer.withPicture != true && turn.offerReferences.isEmpty,
+                                onGenerate: { choice, settings, price in onGenerate(choice, settings, price) },
+                                onStory: onStory
+                            )
+                        } else {
+                            GenerationCard(
+                                offer: offer,
+                                request: turn.offerRequest,
+                                settled: turn.chosenModel
+                            ) { choice, settings, price in
+                                onGenerate(choice, settings, price)
+                            }
                         }
                     }
 
@@ -122,15 +142,27 @@ struct ChatTurnView: View {
                     if !turn.suggestions.isEmpty {
                         HStack(spacing: 8) {
                             ForEach(turn.suggestions, id: \.self) { suggestion in
+                                // Once one is tapped the row settles on it: the
+                                // tap sent no bubble, so this is where it shows.
+                                let picked = turn.suggestionPicked == suggestion
+                                let settled = turn.suggestionPicked != nil
                                 Button { onSuggest(suggestion) } label: {
-                                    Text(suggestion.trimmingCharacters(in: .whitespaces))
-                                        .font(.subheadline.weight(.medium))
-                                        .foregroundStyle(Theme.accent)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 9)
-                                        .background(Capsule().fill(Theme.accent.opacity(0.10)))
+                                    HStack(spacing: 5) {
+                                        if picked {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.weight(.bold))
+                                        }
+                                        Text(suggestion.trimmingCharacters(in: .whitespaces))
+                                    }
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(picked ? Theme.onAccent : Theme.accent)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 9)
+                                    .background(Capsule().fill(picked ? Theme.accent : Theme.accent.opacity(0.10)))
+                                    .opacity(settled && !picked ? 0.45 : 1)
                                 }
                                 .buttonStyle(PressButtonStyle())
+                                .disabled(settled)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)

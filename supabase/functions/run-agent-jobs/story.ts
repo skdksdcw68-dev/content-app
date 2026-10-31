@@ -122,7 +122,10 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
 
     async speak(text) {
       const key = Deno.env.get("ELEVENLABS_API_KEY");
-      const voiceId = Deno.env.get("ELEVENLABS_VOICE_ID");
+      // The voice picked on the card, else the server's default narrator.
+      const chosen = (run.input.request as StoryRequest | undefined)?.voiceId
+        ?? (run.input.story as StoryState | undefined)?.request?.voiceId;
+      const voiceId = chosen && /^[A-Za-z0-9]{10,40}$/.test(chosen) ? chosen : Deno.env.get("ELEVENLABS_VOICE_ID");
       if (!key || !voiceId) throw new PublicError("The voiceover isn't set up on the server yet.", 503, false);
       try {
         return await speak({ apiKey: key, voiceId, text, model: Deno.env.get("ELEVENLABS_MODEL") ?? "eleven_multilingual_v2" });

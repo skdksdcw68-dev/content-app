@@ -89,7 +89,20 @@ type Action =
   | { type: "animate"; artifactId: string; prompt?: string }
   /** Every question on a card, answered by tapping. The values are the
    *  options' own values, so nothing is parsed back out of a sentence. */
-  | { type: "answers"; answers: Record<string, string>; request?: string; days?: number };
+  | { type: "answers"; answers: Record<string, string>; request?: string; days?: number }
+  /** "Photo video" on the create card: the story engine, with the choices
+   *  made on the card instead of a typed `/story` command. */
+  | {
+    type: "story";
+    topic: string;
+    style: string;
+    seconds?: number;
+    narration?: boolean;
+    /** The chosen look's prompt (CategoryLooks), as the writer reads it. */
+    look?: string;
+    voiceId?: string;
+    captionStyle?: string;
+  };
 
 interface Body {
   messages?: Turn[];
@@ -101,6 +114,10 @@ interface Body {
   /** Files the person attached to this turn, as paths in their own uploads
    *  folder. Checked against the caller before anything reads them. */
   attachments?: string[];
+  /** The turn was a tap -- a suggestion chip -- not something typed. Stored
+   *  marked, like every action, so a reopened conversation does not show a
+   *  sentence the person never wrote. */
+  tap?: boolean;
 }
 
 /** One server-sent line. Kept to a single shape so the client parses one thing. */
@@ -225,13 +242,20 @@ Deno.serve(async (request) => {
       // As the person, through the client policy that lets them write only
       // their own turns. The assistant's turn is written below with the service
       // role, because a message the client could author is one it could forge.
+      // A button or a chip is not a sentence the person wrote. Its text is
+      // kept for the model's context, marked so the app never shows it as a
+      // bubble (Netro, 31 Oct 2026: "when they hit, it sends the text for
+      // itself... instead, it will do it in the background").
+      const tapped = Boolean(body.action) || body.tap === true;
       const { error: sayError } = await asUser.rpc("append_message", {
         p_thread: threadId,
         p_role: "user",
         p_text: asked,
         // Kept with the turn so a reopened conversation still shows what was
         // attached, not a message referring to a picture that is not there.
-        ...(attachments.length > 0 ? { p_render_hint: { kind: "attachments", paths: attachments } } : {}),
+        ...(attachments.length > 0
+          ? { p_render_hint: { kind: "attachments", paths: attachments } }
+          : tapped ? { p_render_hint: { kind: "tap" } } : {}),
       });
       if (sayError) console.error("append_message user", sayError);
     }
@@ -1072,6 +1096,62 @@ Deno.serve(async (request) => {
                 brandId: null,
                 intro: "Here's what can animate it.",
               });
+            }
+
+            if (action.type === "story") {
+              // The create card's "Photo video": the same story engine as the
+              // typed `/story` command, started with the card's choices.
+              const topic = String(action.topic ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
+              const slug = String(action.style ?? "").toLowerCase().replace(/[^a-z0-9-]/g, "");
+              if (!topic || !slug) {
+                speak("Tell me what the video should be about, then tap Create.");
+                await remember();
+                return finish();
+              }
+              const { data: styleRow } = await admin.from("content_templates")
+                .select("slug, name, visual_style, workflow").eq("slug", slug).maybeSingle();
+              const style = styleRow as { slug: string; name: string; visual_style: string | null; workflow: never } | null;
+              if (!style) {
+                speak(`I don't have a style called “${slug}”. Pick another one on the card.`);
+                await remember();
+                return finish();
+              }
+              const support = productionFor(style).support;
+              if (support.level === "unsupported") {
+                speak(`I can't make “${style.name}” videos from pictures yet: ${support.reason}. Try AI video instead.`);
+                await remember();
+                return finish();
+              }
+              const seconds = typeof action.seconds === "number"
+                ? Math.min(90, Math.max(15, Math.round(action.seconds)))
+                : undefined;
+              const voiceId = typeof action.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(action.voiceId)
+                ? action.voiceId
+                : undefined;
+              const captionStyle = typeof action.captionStyle === "string" &&
+                  ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"].includes(action.captionStyle)
+                ? action.captionStyle
+                : undefined;
+              const look = typeof action.look === "string" ? action.look.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+
+              const { data: brandRow } = await (brandWanted
+                ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
+                : asUser.from("brands").select("id, name, niche, audience").order("created_at", { ascending: true }).limit(1).maybeSingle());
+              const brand = brandRow as { id: string; name: string; niche: string; audience: string } | null;
+              const length = seconds ? `${seconds}-second ` : "";
+              speak(`Making a ${length}photo video about “${topic}”. I'll show each step, and it keeps going if you close the app.`);
+              return await startRun("story", {
+                request: {
+                  topic,
+                  styleSlug: style.slug,
+                  ...(seconds ? { durationS: seconds } : {}),
+                  ...(action.narration === false ? { narration: false } : {}),
+                  ...(look ? { look } : {}),
+                  ...(voiceId ? { voiceId } : {}),
+                  ...(captionStyle ? { captionStyle } : {}),
+                  ...(brand ? { brandContext: `${brand.name}${brand.niche ? ` — ${brand.niche}` : ""}${brand.audience ? `, for ${brand.audience}` : ""}` } : {}),
+                },
+              }, brand?.id ?? null);
             }
           }
 

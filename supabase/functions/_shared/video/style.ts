@@ -53,6 +53,29 @@ export interface Production {
 
 const DARK = /^(scary|mystery|horror|creepy|unsolved)/;
 
+/**
+ * The caption style picked on the chat card or in Start a series
+ * (`SeriesCaption`: bold_pop, highlight, minimal, subtitle, boxed, none),
+ * applied to a production.
+ *
+ * The renderer draws three themes today, so each choice takes the nearest:
+ * big upper-case for the punchy ones (keeping a dark style's own horror
+ * colours), small sentence-case for the quiet ones. "none" turns them off.
+ * Unknown ids leave the style's default alone.
+ */
+export function withCaptionChoice(production: Production, choice: string): Production {
+  if (choice === "none") {
+    production.captions = { ...production.captions, enabled: false };
+    return production;
+  }
+  const loud = ["bold_pop", "highlight", "boxed"].includes(choice);
+  const quiet = ["minimal", "subtitle"].includes(choice);
+  if (!loud && !quiet) return production;
+  const themeName = quiet ? "clean" : production.captions.themeName === "horror" ? "horror" : "bold";
+  production.captions = { enabled: true, theme: THEMES[themeName]!, themeName };
+  return production;
+}
+
 export function productionFor(
   style: StyleRow,
   overrides: { aspect?: Aspect; durationS?: number; narration?: boolean } = {},

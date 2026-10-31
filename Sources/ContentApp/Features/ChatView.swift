@@ -188,7 +188,7 @@ struct ChatView: View {
                         .animation(.easeOut(duration: 0.18), value: turns.count)
                     } else {
                     LazyVStack(alignment: .leading, spacing: 24) {
-                        ForEach(turns) { turn in
+                        ForEach(shownTurns) { turn in
                             turnView(turn)
                             .id(turn.id)
                                 // Fade only. A new turn sliding up while the scroll
@@ -646,6 +646,25 @@ struct ChatView: View {
 
     /// One turn, with everything it can do wired up. Its own function because
     /// the whole call inline in the list was too much for the type checker.
+    /// What the conversation draws. A tap is drawn by nothing, so it is left
+    /// out rather than costing the list a gap; a job's consecutive steps fold
+    /// into the first of them, which draws as one progress block. The block
+    /// is live while it is the last thing said.
+    private var shownTurns: [ChatMessage] {
+        var shown: [ChatMessage] = []
+        for turn in turns where !turn.isTap {
+            if turn.isProgress, let last = shown.last, last.isProgress {
+                shown[shown.count - 1].progressSteps.append(turn.text)
+                continue
+            }
+            var drawn = turn
+            if drawn.isProgress { drawn.progressSteps = [drawn.text] }
+            shown.append(drawn)
+        }
+        if let last = shown.indices.last, shown[last].isProgress { shown[last].progressLive = true }
+        return shown
+    }
+
     private func turnView(_ turn: ChatMessage) -> ChatTurnView {
         let id = turn.id
         var retry: (() -> Void)? = nil
@@ -962,10 +981,13 @@ struct ChatView: View {
         var mine = ChatMessage.user(asked)
         mine.attachments = attached
         mine.isTap = action != nil || tap
-        // Only a send pins. A reopened conversation sits at the bottom.
-        pinned = mine.id
+        // Only a typed send pins. A tap is never drawn, so it could never be
+        // measured, and an unmeasured pin leaves a screen of runway under the
+        // conversation; the reply to a tap is followed at the bottom instead.
+        // A reopened conversation sits at the bottom too.
+        pinned = mine.isTap ? nil : mine.id
         pinnedTop = nil
-        scrollsToPinned = true
+        scrollsToPinned = !mine.isTap
         turns.append(mine)
         draft = ""
         composerReset += 1

@@ -503,6 +503,15 @@ struct ChatMessage: Identifiable, Equatable {
     /// Netro, 31 Oct 2026: "when they hit, it sends the text for itself...
     /// instead, it will do it in the background, without sending the text."
     var isTap = false
+    /// A step a long job reported ("Making picture 3 of 6"), not an answer.
+    /// Consecutive steps are drawn as one progress block with no buttons.
+    var isProgress = false
+    /// Every step of that block, oldest first -- filled when the steps are
+    /// folded together for drawing.
+    var progressSteps: [String] = []
+    /// The block is the last thing in the conversation, so the job is still
+    /// going: it shows a spinner and the step it is on.
+    var progressLive = false
     /// "up" or "down", once the person rated this answer.
     var rating: String? = nil
 

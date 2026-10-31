@@ -259,7 +259,11 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
       },
     },
 
-    say: (text) => tell(text),
+    // Steps are marked so the app folds a story's whole progress into one
+    // block, instead of a message per picture each with its own buttons
+    // (Netro, 31 Oct 2026, with a screenshot of a dozen of them).
+    say: (text) => tell(text, { kind: "progress", run_id: run.id }),
+    sayOutcome: (text) => tell(text),
 
     async save(state) {
       await persist(admin, run, state);

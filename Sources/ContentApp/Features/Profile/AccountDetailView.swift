@@ -33,12 +33,22 @@ struct AccountDetailView: View {
                 }
                 .padding(.vertical, 4)
 
-                LabeledContent("Status") {
+                // Plain rows, not LabeledContent: with a Label as its value it
+                // stretched the row to most of the screen on iOS 26 (Netro, 31
+                // Oct 2026: "the space between, bro").
+                HStack {
+                    Text("Status")
+                    Spacer()
                     Label(connection.isHealthy ? "Connected" : "Needs attention",
                           systemImage: connection.isHealthy ? "checkmark.circle" : "exclamationmark.circle")
                         .foregroundStyle(connection.isHealthy ? Color.green : Color.orange)
                 }
-                LabeledContent("Connected", value: connection.connectedAt.formatted(date: .abbreviated, time: .omitted))
+                HStack {
+                    Text("Connected")
+                    Spacer()
+                    Text(connection.connectedAt.formatted(date: .abbreviated, time: .omitted))
+                        .foregroundStyle(.secondary)
+                }
             } footer: {
                 if let problem = connection.problem { Text(problem) }
             }

@@ -39,6 +39,9 @@ struct ChatTurnView: View {
             // A tap, not a sentence: the card or chip it came from has already
             // settled on what was chosen, so there is nothing to draw here.
             EmptyView()
+        case .assistant where turn.isProgress:
+            // A job's steps, folded into one block by the conversation.
+            ProgressBlock(steps: turn.progressSteps.isEmpty ? [turn.text] : turn.progressSteps, live: turn.progressLive)
         case .user:
             VStack(alignment: .trailing, spacing: 6) {
                 if !turn.attachments.isEmpty {
@@ -168,7 +171,9 @@ struct ChatTurnView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if !turn.text.isEmpty {
+                    // Under answers only. A turn that starts a job just says
+                    // it has started; the job's result gets the row.
+                    if !turn.text.isEmpty, turn.runId == nil {
                         ReplyActions(
                             text: turn.text,
                             rating: turn.rating,

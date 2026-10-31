@@ -439,6 +439,19 @@ private struct StoredMessage: Decodable {
         turn.attachments = renderHint?.paths ?? []
         if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
         turn.isTap = renderHint?.kind == "tap"
+        // A job's steps are marked "progress". Lines a story wrote before the
+        // mark existed carry no hint and start with its step emoji, so they
+        // fold the same way.
+        // By first code point, not Character: "🖼️" is U+1F5BC plus a
+        // variation selector, and "🖼️".hasPrefix("🖼") is false.
+        let stepEmoji: Set<UInt32> = [0x1F4DD, 0x2705, 0x26A0, 0x1F50E, 0x1F501, 0x1F5BC, 0x1F39E, 0x1F399]
+        let legacyStep = role == "assistant" && renderHint == nil
+            && stepEmoji.contains(text.unicodeScalars.first?.value ?? 0)
+        if renderHint?.kind == "progress" || legacyStep {
+            turn.isProgress = true
+            // The run id on a step names the job; it is not a card to follow.
+            turn.runId = nil
+        }
         return turn
     }
 }

@@ -109,7 +109,12 @@ export interface StoryDeps {
     signedUrl(path: string): Promise<string>;
   };
   /** A line in the conversation. */
+  /** A step along the way ("Making picture 3 of 6"). Shown folded into one
+   *  progress block, never as a message of its own. */
   say(text: string): Promise<void>;
+  /** How it ended, when it ended badly: a message the person must see, not a
+   *  step to fold away. Falls back to `say`. */
+  sayOutcome?(text: string): Promise<void>;
   save(state: StoryState): Promise<void>;
   queueRender(spec: RenderSpec): Promise<string>;
   renderStatus(id: string): Promise<{ status: "queued" | "rendering" | "done" | "failed"; outputPath?: string; error?: string; qc?: Issue[] }>;
@@ -161,7 +166,7 @@ export async function stepStory(deps: StoryDeps, input: StoryState): Promise<Ste
 async function fail(deps: StoryDeps, state: StoryState, message: string): Promise<StepResult> {
   state.phase = "failed";
   state.error = message;
-  await deps.say(message);
+  await (deps.sayOutcome ?? deps.say)(message);
   return { state, waitS: 0, done: true };
 }
 

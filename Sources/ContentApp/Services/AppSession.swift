@@ -1801,7 +1801,11 @@ extension AppSession {
             // The next post is written the way the first one was asked for.
             look: plan.look,
             voice: plan.voice,
-            language: plan.language
+            language: plan.language,
+            // 31 Oct 2026: without these the second post of every series
+            // lost the voice and caption style picked in Start a series.
+            voiceID: plan.voiceID,
+            captionStyle: plan.captionStyle
         )
         guard proposal != nil else { return false }
         await refreshPlan()

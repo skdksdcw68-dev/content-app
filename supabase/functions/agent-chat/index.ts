@@ -122,6 +122,59 @@ interface Body {
    *  marked, like every action, so a reopened conversation does not show a
    *  sentence the person never wrote. */
   tap?: boolean;
+  /** What they set once in the generator's settings (the sliders in the bar):
+   *  the model, how many, the shape, the quality, a video's length. */
+  prefs?: { image?: GeneratorPref; video?: GeneratorPref };
+}
+
+interface GeneratorPref {
+  model?: string;
+  count?: number;
+  aspect_ratio?: string;
+  resolution?: string;
+  quality?: string;
+  duration?: number;
+}
+
+/**
+ * Three short follow-ups for a picture request -- "in winter colours", "on a
+ * model outdoors", "turn it into a 5-second video" -- shown under the result as
+ * one-tap remixes, the way Grok does. Empty on any failure: they are a nicety.
+ */
+async function remixIdeas(
+  prompt: string,
+  onUsage?: (model: string, usage: { prompt_tokens?: number; completion_tokens?: number } | null) => Promise<void>,
+): Promise<string[]> {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODELS.chat,
+        response_format: { type: "json_object" },
+        max_tokens: 120,
+        messages: [
+          {
+            role: "system",
+            content: "Suggest three short follow-ups someone might tap after getting pictures made from the request: " +
+              "one changing the style, one changing the subject or setting, and one turning it into a short video. " +
+              "Each 2 to 6 words, lowercase, no full stop, an instruction that makes sense on its own after the request " +
+              '("in winter colours", "on a model outdoors", "turn it into a 5-second video"). JSON only: {"ideas":[string,string,string]}',
+          },
+          { role: "user", content: prompt.slice(0, 400) },
+        ],
+      }),
+    });
+    if (!response.ok) return [];
+    const body = await response.json();
+    await onUsage?.(body.model ?? MODELS.chat, body.usage ?? null).catch(() => {});
+    const ideas = JSON.parse(body.choices?.[0]?.message?.content ?? "{}").ideas;
+    return Array.isArray(ideas)
+      ? ideas.filter((idea: unknown) => typeof idea === "string" && idea.trim()).map((idea: string) => idea.trim().slice(0, 60)).slice(0, 3)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 /** One server-sent line. Kept to a single shape so the client parses one thing. */
@@ -946,6 +999,23 @@ Deno.serve(async (request) => {
           /** What the card starts on, decided from the request. */
           brief?: VideoBrief | null;
         }) => {
+          // What they set once in the generator's settings -- the model, how
+          // many, the shape, the quality, a video's length. What they said in
+          // this message wins over all of it.
+          const pref = job.capability === "image_generation"
+            ? body.prefs?.image
+            : job.capability === "video_generation"
+            ? body.prefs?.video
+            : undefined;
+          const kept: Record<string, unknown> = {};
+          for (const key of ["count", "aspect_ratio", "resolution", "quality", "duration"] as const) {
+            const value = pref?.[key];
+            if ((typeof value === "string" && value.trim()) || (typeof value === "number" && Number.isFinite(value))) {
+              kept[key] = value;
+            }
+          }
+          job = { ...job, settings: { ...kept, ...job.settings } };
+
           const noun = nounFor(job.capability);
           const aspect = String(job.settings.aspect_ratio ?? "9:16");
           // What comes with it decides who can even attempt it: a picture to
@@ -1031,6 +1101,86 @@ Deno.serve(async (request) => {
           const preselect = job.only && job.settled
             ? choices.options[0]?.externalId
             : choices.auto?.externalId ?? affordable[0]?.externalId;
+
+          // Ask, and it starts. Abel, 1 Nov 2026: "i hate the way it also sends
+          // the sheets ... even after u told it use this and generate it, it
+          // still asks". The card above replaced a first tap that spent money;
+          // now the generator's own settings (the sliders in the bar) hold the
+          // model and the rest, a model named in words is used, and the work
+          // starts -- the way Grok makes a picture. What it used is said under
+          // the result. A photo video keeps its one Make it: its plan is the
+          // brief, not a model, and it is the dearest thing made here.
+          const startNow = !(job.capability === "video_generation" &&
+            (job.brief?.kind === "photo" || (!job.brief && !job.named && !job.sourceArtifactId)));
+          if (startNow) {
+            let chosen: (typeof choices.options)[number] | undefined;
+            if (job.only && job.settled) {
+              chosen = affordable.find((o) => o.externalId === choices.options[0]?.externalId);
+            } else if (typeof pref?.model === "string" && pref.model && !job.only) {
+              chosen = affordable.find((o) => o.externalId === pref.model);
+              if (!chosen) {
+                // Picked from the full list in settings, so not in the eight.
+                const mine = await choicesFor(admin, auth.user!.id, job.capability, { ...intentFor, only: [pref.model] });
+                chosen = mine.options.find((o) => o.affordable !== false);
+              }
+            }
+            chosen ??= affordable.find((o) => o.externalId === preselect) ?? affordable[0];
+
+            // Nothing they can afford: the card below says why, with the money.
+            if (chosen) {
+              const settings: Record<string, unknown> = { ...job.settings };
+              const wanted = Number(settings.count);
+              delete settings.count;
+              // A saved quality or shape goes only where the model has it, in
+              // its own spelling -- "Medium" means nothing to a 1K/2K model --
+              // and a length snaps to the nearest one it makes.
+              const limits = (chosen as { constraints?: { resolutions?: string[]; aspectRatios?: string[]; durations?: number[] } })
+                .constraints ?? {};
+              const fit = (key: "resolution" | "aspect_ratio", allowed?: string[]) => {
+                const value = settings[key];
+                if (typeof value !== "string" || !allowed?.length) return;
+                const match = allowed.find((option) => option.toLowerCase() === value.toLowerCase());
+                if (match) settings[key] = match;
+                else delete settings[key];
+              };
+              fit("resolution", limits.resolutions);
+              fit("aspect_ratio", limits.aspectRatios);
+              const seconds = settings.duration;
+              if (typeof seconds === "number" && limits.durations?.length) {
+                settings.duration = limits.durations.reduce((best, d) => Math.abs(d - seconds) < Math.abs(best - seconds) ? d : best);
+              }
+              const count = job.capability === "image_generation" && Number.isFinite(wanted)
+                ? Math.min(10, Math.max(1, Math.round(wanted)))
+                : 1;
+              const [references, remix] = await Promise.all([
+                resolveReferences(job.references),
+                job.capability === "image_generation" && !job.sourceArtifactId
+                  ? remixIdeas(job.prompt, (model, usage) =>
+                    recordUsage(admin, { userId: auth.user!.id, brandId: job.brandId, kind: "remix_ideas", model, usage }))
+                  : Promise.resolve([] as string[]),
+              ]);
+              const input: Record<string, unknown> = {
+                capability: job.capability,
+                prompt: job.prompt,
+                model: chosen.externalId,
+                settings,
+                quoted_cost: typeof chosen.cost?.amount === "number"
+                  ? { unit: chosen.cost.unit, amount: chosen.cost.amount, quoted: true }
+                  : null,
+                references,
+                ...(job.sourceArtifactId ? { source_artifact_id: job.sourceArtifactId } : {}),
+                ...(remix.length > 0 ? { remix } : {}),
+              };
+              const what = job.prompt.split("\n\n")[0].slice(0, 140);
+              const lead = job.unmatched ? `I couldn't find "${job.named}", so I'm using ${chosen.label}. ` : "";
+              const announce = job.sourceArtifactId
+                ? `${lead}Animating it with ${chosen.label}.`
+                : `${lead}Making ${count > 1 ? `${count} pictures of ` : ""}${what} with ${chosen.label}.`;
+              if (count > 1) return await startBatch(count, input, announce);
+              return await startRun("generate", input, null, announce);
+            }
+          }
+
           // `total` is every model they have of this kind, so the card can
           // offer the rest: eight rows is a shortlist, not the catalogue.
           const offer = {
@@ -1785,9 +1935,13 @@ How to answer:
             // Asked what, and told "surprise me": theirs to leave to us.
             if (!prompt && continuing && leftToUs(asked)) prompt = "a striking, beautifully composed scene";
             const settings = { ...(awaiting?.settings ?? {}), ...(pending?.settings ?? {}), ...routed.settings };
+            // A picture they sent a message or two ago is still what "make 4
+            // more" and "try it with GPT Image 2" mean -- a set made straight
+            // away leaves no card to carry it, and twice a retry came back
+            // without the outfit it was meant to follow.
             const references = attachments.length > 0
               ? attachments
-              : (pending?.references ?? awaiting?.references ?? (wantsMotion ? theirs : []));
+              : (pending?.references ?? awaiting?.references ?? theirs);
 
             // Which kind: a model they named settles it, then what they said,
             // then what they were already making, then video.

@@ -281,6 +281,9 @@ extension AppSession {
         // A chip tapped rather than a sentence typed: stored marked, like an
         // action, so a reopened conversation does not show it as a bubble.
         if tap { body["tap"] = true }
+        // The generator's settings, set once behind the sliders: anything made
+        // from this message starts on them instead of asking.
+        body["prefs"] = GeneratorPrefs.current.payload
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let started = try await ChatTransport.open(request)
@@ -532,7 +535,10 @@ private struct StoredMessage: Decodable {
         turn.artifactWidth = renderHint?.width
         turn.artifactHeight = renderHint?.height
         turn.attachments = renderHint?.paths ?? []
-        if renderHint?.kind == "suggestions" { turn.suggestions = renderHint?.options ?? [] }
+        // A picture carries its one-tap remixes ("in winter colours").
+        if renderHint?.kind == "suggestions" || renderHint?.kind == "artifact" {
+            turn.suggestions = renderHint?.options ?? []
+        }
         turn.isTap = renderHint?.kind == "tap"
         turn.createdAt = createdAt
         // A job's steps are marked "progress". Lines a story wrote before the

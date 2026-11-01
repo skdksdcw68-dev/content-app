@@ -46,6 +46,8 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var isWorking = false
     @State private var showsOptions = false
+    /// The generator's settings sheet, from the sliders in the bar.
+    @State private var showingGeneratorSettings = false
     /// The video page's choices.
     /// What the composer is set to make. One value instead of three loose
     /// flags, because the bar, the settings sheet and the model picker all
@@ -349,6 +351,7 @@ struct ChatView: View {
                         // "I want to remove the 'create video' thing from the
                         // text input bar." Asking for a video in words does it.
                         onCreateVideo: nil,
+                        onSettings: isGenerating ? nil : { showingGeneratorSettings = true },
                         onSend: { send() },
                         onStop: stop
                     )
@@ -556,6 +559,9 @@ struct ChatView: View {
         }
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
+        }
+        .sheet(isPresented: $showingGeneratorSettings) {
+            GeneratorSettingsSheet()
         }
         // 🔴 One picture for a frame slot, up to four otherwise. Abel, 26 Sep
         // 2026: "while uploaded end and start frame, our accepts whatever

@@ -1023,6 +1023,9 @@ async function saveGenerated(
       width: extra.width ?? null,
       height: extra.height ?? null,
       ...(inSet ? { batch: batch!.id, batch_of: batch!.of } : {}),
+      // One-tap remixes under the picture ("in winter colours"), written
+      // when the job was asked for (agent-chat `remixIdeas`).
+      ...(Array.isArray(run.input.remix) && run.input.remix.length > 0 ? { options: run.input.remix } : {}),
     },
   );
   return "done";

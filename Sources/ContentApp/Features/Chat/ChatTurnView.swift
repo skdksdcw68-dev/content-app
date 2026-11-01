@@ -36,6 +36,13 @@ struct ChatTurnView: View {
     /// Two pictures a row, for a set made from one request.
     private static let grid = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
 
+    /// The pictures this turn shows: a whole set, or the one picture.
+    private var pictureIds: [UUID] {
+        if turn.batchArtifacts.count > 1 { return turn.batchArtifacts }
+        if turn.artifactKind == "image", let id = turn.artifactId { return [id] }
+        return []
+    }
+
     var body: some View {
         switch turn.role {
         case .user where turn.isTap:
@@ -177,45 +184,63 @@ struct ChatTurnView: View {
 
                     // What to say next, as taps -- the answer to a photo
                     // arriving with no words.
+                    // Under answers only. A turn that starts a job just says
+                    // it has started; the job's result gets the row. Pictures
+                    // get Grok's row: save, share, like, make more, and what
+                    // they used.
+                    if !turn.text.isEmpty, turn.runId == nil {
+                        if !pictureIds.isEmpty {
+                            PictureActions(
+                                ids: pictureIds,
+                                rating: turn.rating,
+                                onRate: onRate,
+                                onAgain: {
+                                    onSuggest(pictureIds.count > 1 ? "Make \(pictureIds.count) more like these" : "Make another one like this")
+                                }
+                            )
+                        } else {
+                            ReplyActions(
+                                text: turn.text,
+                                rating: turn.rating,
+                                onRate: onRate,
+                                onRegenerate: onRegenerate,
+                                showsTip: showsActionsTip
+                            )
+                        }
+                    }
+
+                    // What to say next, as Grok's rows under the answer: "↪ in
+                    // winter colours". Once one is tapped the list settles on
+                    // it -- the tap sent no bubble, so this is where it shows.
                     if !turn.suggestions.isEmpty {
-                        HStack(spacing: 8) {
-                            ForEach(turn.suggestions, id: \.self) { suggestion in
-                                // Once one is tapped the row settles on it: the
-                                // tap sent no bubble, so this is where it shows.
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(turn.suggestions.enumerated()), id: \.element) { index, suggestion in
                                 let picked = turn.suggestionPicked == suggestion
                                 let settled = turn.suggestionPicked != nil
                                 Button { onSuggest(suggestion) } label: {
-                                    HStack(spacing: 5) {
-                                        if picked {
-                                            Image(systemName: "checkmark")
-                                                .font(.caption.weight(.bold))
-                                        }
+                                    HStack(spacing: 10) {
+                                        Image(systemName: picked ? "checkmark" : "arrow.turn.down.right")
+                                            .font(.footnote.weight(.semibold))
+                                            .foregroundStyle(picked ? Theme.accent : Color.secondary)
+                                            .frame(width: 18)
                                         Text(suggestion.trimmingCharacters(in: .whitespaces))
+                                            .font(.subheadline)
+                                            .foregroundStyle(Color.primary)
+                                            .multilineTextAlignment(.leading)
+                                        Spacer(minLength: 0)
                                     }
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(picked ? Theme.onAccent : Theme.accent)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 9)
-                                    .background(Capsule().fill(picked ? Theme.accent : Theme.accent.opacity(0.10)))
+                                    .padding(.vertical, 11)
+                                    .contentShape(Rectangle())
                                     .opacity(settled && !picked ? 0.45 : 1)
                                 }
                                 .buttonStyle(PressButtonStyle())
                                 .disabled(settled)
+                                if index < turn.suggestions.count - 1 {
+                                    Divider()
+                                }
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    // Under answers only. A turn that starts a job just says
-                    // it has started; the job's result gets the row.
-                    if !turn.text.isEmpty, turn.runId == nil {
-                        ReplyActions(
-                            text: turn.text,
-                            rating: turn.rating,
-                            onRate: onRate,
-                            onRegenerate: onRegenerate,
-                            showsTip: showsActionsTip
-                        )
                     }
                 }
             }

@@ -122,6 +122,22 @@ struct ImageCard: View {
                 .accessibilityLabel("Edit this picture")
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if shown != nil {
+                // Grok's ▶ on every picture: make it a video.
+                Button { onAnimate(artifact) } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: tile ? 11 : 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: tile ? 30 : 34, height: tile ? 30 : 34)
+                        .background(.black.opacity(0.45), in: Circle())
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(tile ? 8 : 10)
+                .accessibilityLabel("Make it a video")
+            }
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
             guard picture == nil else { return }

@@ -52,6 +52,10 @@ struct ChatComposer: View {
     /// A Create video button beside the plus (Netro, 19 Oct 2026). Nil on the
     /// video page itself, where the whole screen already is that.
     var onCreateVideo: (() -> Void)?
+    /// The generator's settings -- model, how many, shape, quality, length --
+    /// behind a sliders button in the bar, the way Grok keeps them (Abel,
+    /// 1 Nov 2026). Nil hides it.
+    var onSettings: (() -> Void)?
     let onSend: () -> Void
     let onStop: () -> Void
 
@@ -118,6 +122,7 @@ struct ChatComposer: View {
                     .padding(.vertical, 7)
                     .id(resetToken)
 
+                if footer == nil, onSettings != nil { settingsButton }
                 if footer == nil { actionButton }
             }
 
@@ -220,6 +225,21 @@ struct ChatComposer: View {
         .disabled(isWorking)
         .animation(.easeOut(duration: 0.2), value: isExpanded)
         .accessibilityLabel("Create video")
+    }
+
+    private var settingsButton: some View {
+        Button {
+            isFocused = false
+            onSettings?()
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 17, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressButtonStyle())
+        .accessibilityLabel("Picture and video settings")
     }
 
     /// Send, or -- while an answer is being written -- stop.

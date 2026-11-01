@@ -645,6 +645,105 @@ private struct FileCard: View {
     }
 }
 
+// MARK: - Under pictures
+
+/// Grok's row under a picture or a set of them: save, share, like, dislike,
+/// make more -- and what it used of the month, said once it is known (Abel,
+/// 1 Nov 2026, approving the mockup).
+struct PictureActions: View {
+    let ids: [UUID]
+    let rating: String?
+    let onRate: (String, String?) -> Void
+    let onAgain: () -> Void
+
+    @Environment(AppSession.self) private var session
+    @State private var artifacts: [Artifact] = []
+    @State private var files: [URL] = []
+    @State private var saves = 0
+    @State private var saving = false
+
+    var body: some View {
+        HStack(spacing: 0) {
+            button(saves > 0 ? "checkmark" : "arrow.down.to.line", label: ids.count > 1 ? "Save all" : "Save") { save() }
+                .disabled(saving || artifacts.isEmpty)
+            if !files.isEmpty, files.count == artifacts.count {
+                ShareLink(items: files) { glyph("square.and.arrow.up") }
+                    .accessibilityLabel("Share")
+            } else {
+                glyph("square.and.arrow.up").opacity(0.35)
+            }
+            button(rating == "up" ? "hand.thumbsup.fill" : "hand.thumbsup", label: "Good") { onRate("up", nil) }
+            button(rating == "down" ? "hand.thumbsdown.fill" : "hand.thumbsdown", label: "Not good") { onRate("down", nil) }
+            button("arrow.clockwise", label: ids.count > 1 ? "Make \(ids.count) more" : "Make another") { onAgain() }
+            Spacer(minLength: 8)
+            if let used {
+                Text("Used \(used) of your month")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.leading, -8)
+        .sensoryFeedback(.success, trigger: saves)
+        .task(id: ids) { await load() }
+    }
+
+    /// What the set cost, as a share of the month -- the provider's charge
+    /// when it said, the quote otherwise.
+    private var used: String? {
+        let spent = artifacts.compactMap { artifact -> Double? in
+            guard let cost = artifact.actualCost ?? artifact.estimatedCost, cost.unit == "usd" else { return nil }
+            return cost.amount
+        }
+        guard !spent.isEmpty, let share = session.usageShare(usd: spent.reduce(0, +)) else { return nil }
+        return UsageFormat.percent(share)
+    }
+
+    private func button(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { glyph(symbol) }
+            .buttonStyle(.plain)
+            .accessibilityLabel(label)
+    }
+
+    private func glyph(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 15, weight: .regular))
+            .foregroundStyle(.secondary)
+            .frame(width: 40, height: 36)
+            .contentShape(Rectangle())
+    }
+
+    private func load() async {
+        var loaded: [Artifact] = []
+        for id in ids {
+            if let artifact = await session.artifact(id) { loaded.append(artifact) }
+        }
+        artifacts = loaded
+        var copies: [URL] = []
+        for artifact in loaded {
+            if let url = session.cachedCopy(of: artifact) {
+                copies.append(url)
+            } else if let url = await session.localCopy(of: artifact) {
+                copies.append(url)
+            }
+        }
+        files = copies
+    }
+
+    private func save() {
+        saving = true
+        Task {
+            var all = true
+            for artifact in artifacts {
+                if case .saved = await session.saveToPhotos(artifact) { continue }
+                all = false
+            }
+            if all { saves += 1 }
+            saving = false
+        }
+    }
+}
+
 // MARK: - Attachments on a turn
 
 /// The pictures somebody attached, small, above what they said.

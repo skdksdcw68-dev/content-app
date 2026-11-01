@@ -272,7 +272,11 @@ extension AppSession {
         if tap { body["tap"] = true }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, response) = try await URLSession.shared.bytes(for: request)
+        let started = try await ChatTransport.open(request)
+        // A retry's own session has to outlive the stream read from it.
+        defer { withExtendedLifetime(started) {} }
+        let bytes = started.bytes
+        let response = started.response
 
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
             if http.statusCode == 402 {
@@ -372,6 +376,62 @@ extension AppSession {
             default:
                 break
             }
+        }
+    }
+}
+
+/// The first moments of a chat reply: the request goes out and the server's
+/// headers come back.
+///
+/// Abel, 1 Nov 2026, with a screenshot: a message with a photo ended in "That
+/// took longer than expected", though the photo itself had uploaded. The server
+/// log shows the chat request never arrived -- nothing for two minutes, then
+/// the same message typed again went through in five seconds. A connection
+/// that had gone stale under the app (the phone moved between Wi-Fi and mobile,
+/// or sat idle) takes a request and says nothing, and URLSession waits on it
+/// until the 120 s timeout.
+///
+/// A live server answers with its headers within a second or two, because the
+/// turn is stored before anything slow starts. So 20 s of silence means the
+/// connection is dead: give up on it and send the same request once more, on a
+/// connection of its own. The retry says so (`x-autocast-retry`), so a first
+/// try that did arrive late is not stored twice.
+private struct StreamStart: @unchecked Sendable {
+    let bytes: URLSession.AsyncBytes
+    let response: URLResponse
+    /// Held so a retry's own session lives as long as its stream is read.
+    let session: URLSession
+}
+
+private enum ChatTransport {
+    static let silence: Duration = .seconds(20)
+
+    static func open(_ request: URLRequest) async throws -> StreamStart {
+        do {
+            return try await attempt(request, on: URLSession.shared)
+        } catch let error as URLError where error.code == .timedOut || error.code == .networkConnectionLost {
+            var again = request
+            again.setValue("1", forHTTPHeaderField: "x-autocast-retry")
+            let fresh = URLSession(configuration: .ephemeral)
+            // Lets the stream being read finish, then lets the session go.
+            defer { fresh.finishTasksAndInvalidate() }
+            return try await attempt(again, on: fresh)
+        }
+    }
+
+    private static func attempt(_ request: URLRequest, on session: URLSession) async throws -> StreamStart {
+        try await withThrowingTaskGroup(of: StreamStart.self) { group -> StreamStart in
+            group.addTask {
+                let (bytes, response) = try await session.bytes(for: request)
+                return StreamStart(bytes: bytes, response: response, session: session)
+            }
+            group.addTask {
+                try await Task.sleep(for: ChatTransport.silence)
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next() else { throw URLError(.timedOut) }
+            return first
         }
     }
 }

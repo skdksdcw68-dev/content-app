@@ -251,7 +251,17 @@ Deno.serve(async (request) => {
       // bubble (Netro, 31 Oct 2026: "when they hit, it sends the text for
       // itself... instead, it will do it in the background").
       const tapped = Boolean(body.action) || body.tap === true;
-      const { error: sayError } = await asUser.rpc("append_message", {
+      // The app sends a message again when the first try said nothing for 20
+      // seconds (a connection gone stale under it). If that first try did
+      // arrive after all, its turn is already stored, and storing it twice
+      // would answer the same message twice.
+      let stored = false;
+      if (request.headers.get("x-autocast-retry") === "1") {
+        const { data: last } = await admin.from("messages").select("role, text")
+          .eq("thread_id", threadId).order("seq", { ascending: false }).limit(1).maybeSingle();
+        stored = last?.role === "user" && last?.text === asked;
+      }
+      const { error: sayError } = stored ? { error: null } : await asUser.rpc("append_message", {
         p_thread: threadId,
         p_role: "user",
         p_text: asked,

@@ -501,15 +501,32 @@ Deno.serve(async (request) => {
           sourceArtifactId: string | null;
         } | null> => {
           if (!threadId) return null;
+          // Abel, 1 Nov 2026: he asked for four images like an outfit he had
+          // sent; the card's Generate answered "Pictures are part of Autocast
+          // Pro"; he subscribed and typed "try again with gpt 2 image" -- and
+          // the picture he sent was gone, so the model drew flowers. Only the
+          // very last assistant message was read, and that note was it. A plain
+          // note in between (a paywall, a chat answer) does not end the offer;
+          // something made, or a question asked, does. Recent only: an offer
+          // from yesterday is not what "use Kling" answers.
           const { data } = await admin
             .from("messages")
-            .select("render_hint")
+            .select("render_hint, created_at")
             .eq("thread_id", threadId)
             .eq("role", "assistant")
+            .gt("created_at", new Date(Date.now() - 30 * 60_000).toISOString())
             .order("seq", { ascending: false })
-            .limit(1);
-          const hint = (data ?? [])[0]?.render_hint as Record<string, unknown> | null | undefined;
-          if (hint?.kind !== "models") return null;
+            .limit(6);
+          let hint: Record<string, unknown> | null = null;
+          for (const row of (data ?? []) as Array<{ render_hint: Record<string, unknown> | null }>) {
+            const kind = row.render_hint?.kind;
+            if (kind === "models") {
+              hint = row.render_hint;
+              break;
+            }
+            if (kind === "artifact" || kind === "run" || kind === "questions" || kind === "awaiting_subject") break;
+          }
+          if (!hint) return null;
           const choices = hint.choices as { capability?: string } | undefined;
           return {
             capability: String(choices?.capability ?? ""),
@@ -1931,6 +1948,10 @@ known about it, and you never fill the gap:
   said", "people keep asking".
 - Never invent a number about the account: users, sales, ratings, dates, streaks.
 If what they asked for needs one of these, say which fact you need.
+Never say you made something that STATE does not list, and never say a picture
+matches what they asked unless you can see it and it does. When they say what you
+made is wrong, believe them first: look at the picture if one is attached, say
+plainly what is off, and offer to redo it -- never "I already did that".
 You cannot publish or approve anything, and never imply you did. Everything that
 reaches TikTok goes through the approval sheet, which is them tapping a button.
 </honesty>
@@ -2010,11 +2031,52 @@ itself.</good>
             send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }
 
-          const turns = history.map((turn, index) =>
-            index === history.length - 1 && pictures.length > 0
-              ? { role: turn.role, content: [{ type: "text", text: turn.content }, ...pictures] }
-              : turn
-          );
+          // What they were just given, so "but you know what I asked" is
+          // answered by looking at it. Abel, 1 Nov 2026: he asked for four
+          // outfits like the one he sent and got a picture of flowers; asked
+          // about it, the reply said "I already generated that for you" --
+          // STATE says the job succeeded, and the reply could not see the
+          // picture. Only when the last thing said was a picture, and recently.
+          let madePicture: typeof pictures = [];
+          if (pictures.length === 0 && threadId) {
+            const { data: lastRows } = await asUser
+              .from("messages")
+              .select("render_hint, created_at")
+              .eq("thread_id", threadId)
+              .eq("role", "assistant")
+              .order("seq", { ascending: false })
+              .limit(1);
+            const last = (lastRows ?? [])[0] as { render_hint: Record<string, unknown> | null; created_at: string } | undefined;
+            const madeId = last?.render_hint?.kind === "artifact" && typeof last.render_hint.artifact_id === "string"
+              ? last.render_hint.artifact_id
+              : null;
+            if (madeId && Date.now() - Date.parse(last!.created_at) < 15 * 60_000) {
+              const { data: made } = await asUser.from("artifacts").select("storage_path, kind").eq("id", madeId).maybeSingle();
+              const row = made as { storage_path: string | null; kind: string } | null;
+              if (row?.kind === "image" && row.storage_path) {
+                madePicture = await loadPictures([row.storage_path]);
+                if (madePicture.length > 0) send({ t: "step", kind: "reading", detail: "Looking at what I made" });
+              }
+            }
+          }
+
+          const turns = history.map((turn, index) => {
+            if (index !== history.length - 1) return turn;
+            if (pictures.length > 0) return { role: turn.role, content: [{ type: "text", text: turn.content }, ...pictures] };
+            if (madePicture.length > 0) {
+              return {
+                role: turn.role,
+                content: [
+                  {
+                    type: "text",
+                    text: `${turn.content}\n\n(For you only: the attached picture is the last thing you made for them. Look at it before you answer and judge it honestly against what they asked for.)`,
+                  },
+                  ...madePicture,
+                ],
+              };
+            }
+            return turn;
+          });
 
           const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",

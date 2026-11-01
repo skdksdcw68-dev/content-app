@@ -232,9 +232,15 @@ struct PaywallView: View {
             }
             .scrollIndicators(.hidden)
             .animation(.smooth(duration: 0.3), value: upgrading)
-            .background(Color(uiColor: .systemBackground).ignoresSafeArea())
+            // SuperGrok's paywall, which Abel picked (1 Nov 2026: "grok still
+            // wins"): black, light type, a white button. Dark whatever the
+            // phone is set to, bar included.
+            .background(Color.black.ignoresSafeArea())
             .navigationTitle("Autocast")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(Color.black, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 // A sheet closes with an X, not a back chevron.
                 ToolbarItem(placement: .topBarLeading) {
@@ -258,6 +264,7 @@ struct PaywallView: View {
             }
         }
         .animation(.smooth(duration: 0.35), value: welcomed)
+        .environment(\.colorScheme, .dark)
         .manageSubscriptionsSheet(isPresented: $managing)
         .task { await load() }
     }
@@ -327,8 +334,11 @@ struct PaywallView: View {
 
     private var pitch: some View {
         VStack(spacing: 8) {
+            Text("Autocast Pro")
+                .font(.system(size: 36, weight: .bold))
+                .multilineTextAlignment(.center)
             Text("Make more. Post every day.")
-                .font(.system(size: 28, weight: .heavy))
+                .font(.title3.weight(.medium))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             Text("Pick how much you want to make each month. Every plan plans your posts, writes the captions and posts for you.")
@@ -685,8 +695,8 @@ struct PaywallUsageMeter: View {
     }
 }
 
-/// Drobe's features card: a small green heading, then a check in a pale
-/// green circle beside each line.
+/// SuperGrok's features card: a dark glass card, a quiet heading, and each
+/// line beside a mark in a soft circle.
 private struct FeaturesCard: View {
     let label: String
     let features: [String]
@@ -695,16 +705,17 @@ private struct FeaturesCard: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(label)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Theme.proGreen)
+                .kerning(0.6)
+                .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(features, id: \.self) { feature in
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Theme.proGreen)
-                            .frame(width: 24, height: 24)
-                            .background(Theme.proGreenSoft, in: Circle())
+                            .foregroundStyle(.primary)
+                            .frame(width: 30, height: 30)
+                            .background(Color.white.opacity(0.10), in: Circle())
                         Text(feature)
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.primary)
@@ -715,8 +726,11 @@ private struct FeaturesCard: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(uiColor: .secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        }
     }
 }
 
@@ -742,7 +756,7 @@ private struct TierRow: View {
             HStack(spacing: 14) {
                 Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(chosen ? Theme.proGreen : Color.secondary.opacity(0.5))
+                    .foregroundStyle(chosen ? Color.white : Color.secondary.opacity(0.5))
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
@@ -787,10 +801,11 @@ private struct TierRow: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(uiColor: .secondarySystemBackground), in: shape)
+            .background(Color.white.opacity(chosen ? 0.10 : 0.05), in: shape)
             .overlay {
+                // SuperGrok's chosen plan: a white outline.
                 shape.strokeBorder(
-                    chosen ? Theme.proGreen : Color(uiColor: .separator),
+                    chosen ? Color.white : Color.white.opacity(0.12),
                     lineWidth: chosen ? 2 : 1
                 )
             }
@@ -808,9 +823,9 @@ private struct PlanTag: View {
     var body: some View {
         Text(text)
             .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(Theme.proGreen)
+            .foregroundStyle(Color.black)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
-            .background(Theme.proGreenSoft, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }

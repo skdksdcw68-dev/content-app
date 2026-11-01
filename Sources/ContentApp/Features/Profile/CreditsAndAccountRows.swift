@@ -98,6 +98,13 @@ struct AccountRow: View {
                 Label("Sign in again", systemImage: "exclamationmark.circle.fill")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Color.orange)
+            } else {
+                // A quiet tick, as on the Grok mockup Abel approved (1 Nov
+                // 2026) -- a mark, not the CONNECTED pill he asked to lose.
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.body)
+                    .foregroundStyle(Theme.proGreen)
+                    .accessibilityLabel("Connected")
             }
         } else {
             Text(opening ? "Opening…" : "Connect")

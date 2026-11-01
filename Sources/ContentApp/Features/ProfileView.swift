@@ -30,6 +30,8 @@ struct ProfileView: View {
     @State private var deleting = false
     @State private var signingUp = false
     @State private var managingSubscription = false
+    /// The generator's settings sheet, from Autopilot & AI.
+    @State private var generatorSettings = false
 
     /// Where a "connect an account" finding sends somebody: the Accounts
     /// group, further down this same screen.
@@ -38,10 +40,9 @@ struct ProfileView: View {
     var body: some View {
         ScrollViewReader { scroll in
         List {
+            // Grok's profile card, on a card of its own (Abel, 1 Nov 2026).
             Section {
                 ProfileHeader()
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
             }
 
             if session.needsAccount {
@@ -68,20 +69,20 @@ struct ProfileView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
 
                 pro
-                credits
                 account
                 app
                 support
                 signOutAndDelete
             } else {
+                // Grok's order (Abel, 1 Nov 2026): what needs you, your plan,
+                // your brand, where it posts, what runs on its own, the app,
+                // help, and Sign Out last.
                 attention(scroll)
-                accounts.id(Self.accountsAnchor)
                 pro
-                credits
                 account
                 brandSection
+                accounts.id(Self.accountsAnchor)
                 autopilot
-                insights
                 app
                 support
                 signOutAndDelete
@@ -181,6 +182,13 @@ struct ProfileView: View {
                     SettingsRow("Get Autocast Pro", symbol: "sparkles", accessory: .chevron)
                 }
             }
+            // How much of the month is gone, beside the plan it comes from.
+            NavigationLink { UsageView().pushedPage() } label: {
+                SettingsValueLabel("Usage", symbol: "gauge.with.dots.needle.33percent",
+                                   value: session.credits.map { "\(UsageFormat.percent($0.percentUsed)) used" })
+            }
+        } header: {
+            Text("Plan")
         } footer: {
             if let plan = session.subscription, !plan.isPro {
                 // Not the old caps: chat and captions draw on one monthly
@@ -198,44 +206,18 @@ struct ProfileView: View {
         return plan.autoRenew == false ? "Ends \(when)" : "Renews \(when)"
     }
 
-    // MARK: - Usage
-
-    /// What is left this month, as a list under the plan rather than two tiles
-    /// under the name. In %, like Claude's and ChatGPT's usage (Netro, 18 Oct
-    /// 2026): chat and making things draw on the same month.
-    ///
-    /// Netro, 19 Oct 2026: "The user must click Usage to see how their usage
-    /// is running." One row, the share used beside it, and the meter and
-    /// where the month went on the screen it opens (`UsageView`).
-    @ViewBuilder
-    private var credits: some View {
-        let standing = session.credits
-        Section {
-            NavigationLink { UsageView().pushedPage() } label: {
-                SettingsValueLabel("Usage", symbol: "gauge.with.dots.needle.33percent",
-                                   value: standing.map { "\(UsageFormat.percent($0.percentUsed)) used" })
-            }
-        } footer: {
-            if let standing, standing.tier == 0 {
-                Text("Free covers a few chat messages. Pictures and videos come with a paid plan.")
-            }
-        }
-    }
-
     // MARK: - Account
 
+    /// Only while the account lives on this iPhone alone: how they are signed
+    /// in is already the line on the profile card at the top.
     @ViewBuilder
     private var account: some View {
-        Section {
-            if session.isAnonymous {
+        if session.isAnonymous {
+            Section {
                 Button { signingUp = true } label: {
                     SettingsRow("Save your account", symbol: "person.crop.circle.badge.checkmark", accessory: .chevron)
                 }
-            } else {
-                SettingsRow("Signed in", symbol: "checkmark.seal", value: session.accountEmail ?? "Apple ID")
-            }
-        } footer: {
-            if session.isAnonymous {
+            } footer: {
                 Text("Everything is on this iPhone only. Save it with Apple, Google or your email so it comes back anywhere.")
             }
         }
@@ -257,7 +239,7 @@ struct ProfileView: View {
                                    value: session.settings.map { "\($0.postsPerDay) a day" })
             }
         } header: {
-            Text(session.brand?.name ?? "Brand")
+            Text("Your brand")
         }
     }
 
@@ -303,27 +285,18 @@ struct ProfileView: View {
                                    value: session.hasWorkingGenerator && !session.houseMakesVideo ? "Connected"
                                        : session.houseMakesVideo ? "Built in" : nil)
             }
+            // The generator's settings, the same sheet as the sliders in the
+            // chat bar: model, how many, shape, quality, length.
+            Button { generatorSettings = true } label: {
+                SettingsRow("Picture & video settings", symbol: "photo.on.rectangle.angled", accessory: .chevron)
+            }
             NavigationLink { PostDefaultsView().pushedPage() } label: {
                 SettingsLabel("Post defaults", symbol: "slider.horizontal.3")
             }
         } header: {
             Text("Autopilot & AI")
         }
-    }
-
-    // MARK: - Insights
-
-    private var insights: some View {
-        Section {
-            NavigationLink { UsageView().pushedPage() } label: {
-                SettingsLabel("Usage this month", symbol: "chart.bar")
-            }
-            NavigationLink { ActivityHistoryView().pushedPage() } label: {
-                SettingsLabel("Activity", symbol: "list.bullet.rectangle")
-            }
-        } header: {
-            Text("Your activity")
-        }
+        .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
     }
 
     // MARK: - App
@@ -337,6 +310,9 @@ struct ProfileView: View {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             } label: {
                 SettingsRow("Notifications", symbol: "bell", accessory: .external)
+            }
+            NavigationLink { ActivityHistoryView().pushedPage() } label: {
+                SettingsLabel("Activity", symbol: "list.bullet.rectangle")
             }
             // 🔴 Asked first. This threw somebody back to the welcome
             // screen on ONE tap, wearing a chevron -- which the design system
@@ -354,7 +330,7 @@ struct ProfileView: View {
         } header: {
             // Two unlabelled blocks ran together here, so "Usage this month"
             // and "Appearance" read as one long list of unrelated rows.
-            Text("App")
+            Text("General")
         }
     }
 
@@ -388,31 +364,45 @@ struct ProfileView: View {
             }
             .disabled(exporting)
         } header: {
-            Text("Support")
+            Text("Help & legal")
         }
     }
 
     // MARK: - Sign out, delete
 
+    /// Grok's ending: Sign Out as a red row with its icon, then the version,
+    /// and Delete account under it -- still one tap away and asked twice, as
+    /// App Review requires, but no longer a red bar the same size as Sign Out.
     private var signOutAndDelete: some View {
         Section {
             if !session.isAnonymous {
-                Button { confirmingSignOut = true } label: {
-                    Text("Sign Out").frame(maxWidth: .infinity)
+                Button(role: .destructive) { confirmingSignOut = true } label: {
+                    Label {
+                        Text("Sign Out")
+                    } icon: {
+                        Image(systemName: "rectangle.portrait.and.arrow.right")
+                            .frame(width: 28)
+                    }
+                    .foregroundStyle(Color.red)
                 }
             }
-            Button(role: .destructive) { confirmingDelete = true } label: {
-                HStack {
-                    Spacer()
-                    if deleting { ProgressView() } else { Text("Delete Account") }
-                    Spacer()
-                }
-            }
-            .disabled(deleting)
         } footer: {
-            Text(AutocastLinks.versionLine)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 12)
+            VStack(spacing: 10) {
+                Text(AutocastLinks.versionLine)
+                Button(role: .destructive) { confirmingDelete = true } label: {
+                    if deleting {
+                        ProgressView()
+                    } else {
+                        Text("Delete account")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(Color.red.opacity(0.85))
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(deleting)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 14)
         }
     }
 }

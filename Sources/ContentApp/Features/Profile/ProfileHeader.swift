@@ -29,81 +29,49 @@ struct ProfileHeader: View {
         return brand
     }
 
+    /// Grok's profile card (Abel, 1 Nov 2026: "Grok still wins"): the
+    /// picture, the name, and one quiet line -- the plan and the brand -- with
+    /// a chevron, on a card of its own at the top of the list. The whole card
+    /// opens Edit profile. The plan itself is the first row under it.
     var body: some View {
-        identity
-            .frame(maxWidth: .infinity)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .sheet(isPresented: $editing) { EditProfileView() }
-    }
-
-    // MARK: - Who
-
-    private var identity: some View {
-        VStack(spacing: 0) {
-            Button { editing = true } label: {
-                ProfileAvatar(size: 88)
-                    .overlay(alignment: .bottomTrailing) {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Theme.onAccent)
-                            .frame(width: 28, height: 28)
-                            .background(Theme.accent, in: Circle())
-                            .overlay(Circle().stroke(Color(uiColor: .systemGroupedBackground), lineWidth: 3))
+        Button { editing = true } label: {
+            HStack(spacing: 14) {
+                ProfileAvatar(size: 52)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name)
+                        .font(.headline)
+                        .foregroundStyle(session.displayName == nil ? Color.secondary : Color.primary)
+                        .lineLimit(1)
+                    if let line {
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Edit profile")
-            .accessibilityHint("Change your picture, name and account details")
-
-            Text(name)
-                .font(.title2.weight(.bold))
-                .foregroundStyle(session.displayName == nil ? Color.secondary : Color.primary)
-                .lineLimit(1)
-                .padding(.top, 12)
-
-            if let subtitle {
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-            }
-
-            planPill
-                .padding(.top, 10)
-        }
-    }
-
-    /// The plan as a word to tap: Free opens the upgrade, Pro says when it
-    /// renews. Nothing when the plan has not been read yet.
-    @ViewBuilder
-    private var planPill: some View {
-        if let plan = session.subscription {
-            if plan.isPro {
-                Label(proLine(plan), systemImage: "checkmark.seal.fill")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Theme.proGreen)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Theme.proGreenSoft, in: Capsule())
-            } else {
-                Button { session.showingPaywall = true } label: {
-                    Label("Free plan · Get Pro", systemImage: "sparkles")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Theme.accent.opacity(0.12), in: Capsule())
                 }
-                .buttonStyle(.plain)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.forward")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color(uiColor: .tertiaryLabel))
+                    .accessibilityHidden(true)
             }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Edit profile, \(name)")
+        .accessibilityHint("Change your picture, name and account details")
+        .sheet(isPresented: $editing) { EditProfileView() }
     }
 
-    private func proLine(_ plan: MyPlan) -> String {
-        guard let date = plan.expires else { return "Autocast \(plan.title)" }
-        let when = date.formatted(date: .abbreviated, time: .omitted)
-        if plan.isTrial { return "Trial ends \(when)" }
-        return plan.autoRenew == false ? "\(plan.title) · ends \(when)" : "\(plan.title) · renews \(when)"
+    /// "Autocast Pro · Drobe": the plan, when it has been read, and the brand
+    /// or the email.
+    private var line: String? {
+        var parts: [String] = []
+        if let plan = session.subscription {
+            parts.append(plan.isPro ? "Autocast \(plan.title)" : "Free plan")
+        }
+        if let subtitle { parts.append(subtitle) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

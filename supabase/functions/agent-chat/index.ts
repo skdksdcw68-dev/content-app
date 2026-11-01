@@ -1114,6 +1114,10 @@ Deno.serve(async (request) => {
             (job.brief?.kind === "photo" || (!job.brief && !job.named && !job.sourceArtifactId)));
           if (startNow) {
             let chosen: (typeof choices.options)[number] | undefined;
+            // A model they named and cannot afford is never swapped for
+            // another without a word: the card below says why, with the money.
+            const namedButOut = job.only && job.settled &&
+              !affordable.some((o) => o.externalId === choices.options[0]?.externalId);
             if (job.only && job.settled) {
               chosen = affordable.find((o) => o.externalId === choices.options[0]?.externalId);
             } else if (typeof pref?.model === "string" && pref.model && !job.only) {
@@ -1124,7 +1128,7 @@ Deno.serve(async (request) => {
                 chosen = mine.options.find((o) => o.affordable !== false);
               }
             }
-            chosen ??= affordable.find((o) => o.externalId === preselect) ?? affordable[0];
+            if (!namedButOut) chosen ??= affordable.find((o) => o.externalId === preselect) ?? affordable[0];
 
             // Nothing they can afford: the card below says why, with the money.
             if (chosen) {

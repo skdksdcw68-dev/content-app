@@ -229,6 +229,46 @@ struct ModelOffer: Equatable, Decodable {
     /// Whether a picture comes with this request, so the full list marks what
     /// can work from one.
     let withPicture: Bool?
+    /// What the server decided from the request, the pictures sent with it and
+    /// the person's series, so the create card starts on answers instead of
+    /// asking. Absent when it could not be decided, and on older turns.
+    let brief: VideoBrief?
+}
+
+/// The create card's answers, decided by the server from what the person said
+/// (`_shared/video/brief.ts`). Abel, 1 Nov 2026: "If the user already
+/// explained, why does the user have to choose again for anything, bro?"
+///
+/// Every field can be absent: the card then falls back to the series, then to
+/// its own defaults, exactly as it did before there was a brief.
+struct VideoBrief: Equatable, Decodable, Sendable {
+    /// "photo" or "ai".
+    let kind: String
+    let seconds: Int?
+    /// `content_templates.slug`.
+    let style: String?
+    /// How every picture is drawn, written for this video.
+    let look: String?
+    let lookName: String?
+    /// A `SeriesVoice` id.
+    let voice: String?
+    /// A `SeriesCaption` id.
+    let captions: String?
+    /// What the writer is told beyond the topic.
+    let direction: String?
+    /// One short line on the card: why it is this way.
+    let reason: String?
+    /// "inspiration" or "animate", when pictures were sent.
+    let uses: String?
+
+    var isPhoto: Bool { kind != "ai" }
+
+    /// A look written for this video rather than picked from the style's six.
+    /// It has no picture of its own, so the card shows an icon.
+    var customLook: SeriesLook? {
+        guard let look, !look.isEmpty else { return nil }
+        return SeriesLook(id: "custom", name: lookName ?? "Matched to your request", tagline: "Written for this video", prompt: look)
+    }
 }
 
 /// What was set on the Generate card, sent with the job.

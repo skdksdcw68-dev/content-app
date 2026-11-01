@@ -35,6 +35,9 @@ export interface StoryRequest {
   voiceId?: string;
   /** A `SeriesCaption` id from the card; "none" turns captions off. */
   captionStyle?: string;
+  /** What the brief read from the request and any pictures they sent: tone,
+   *  pace, structure. Told to the writer after the topic. */
+  direction?: string;
 }
 
 export type Phase = "plan" | "voice" | "images" | "render" | "finish" | "done" | "failed";
@@ -196,7 +199,11 @@ async function planPhase(deps: StoryDeps, state: StoryState, limits: Limits): Pr
   await deps.say(`📝 Planning a ${production.durationS}-second ${style.name ?? style.slug} story about “${state.request.topic}”…`);
   const planned = await planStory({
     production,
-    request: { topic: state.request.topic, ...(state.request.brandContext ? { brandContext: state.request.brandContext } : {}) },
+    request: {
+      topic: state.request.topic,
+      ...(state.request.brandContext ? { brandContext: state.request.brandContext } : {}),
+      ...(state.request.direction ? { direction: state.request.direction } : {}),
+    },
     ask: deps.ask,
     retries: limits.planRetries,
   });

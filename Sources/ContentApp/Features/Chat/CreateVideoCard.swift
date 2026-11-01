@@ -11,10 +11,14 @@ struct StoryChoice: Equatable, Sendable {
     var look: SeriesLook?
     var voice: SeriesVoice?
     var caption: SeriesCaption
+    /// What the server read from the request and any pictures sent with it
+    /// (`VideoBrief.direction`): tone, pace, structure. Told to the writer.
+    var direction: String? = nil
 
     var payload: [String: Any] {
         var out: [String: Any] = ["type": "story", "topic": topic, "style": style, "seconds": seconds]
         if let look { out["look"] = look.prompt }
+        if let direction, !direction.isEmpty { out["direction"] = direction }
         if let voice {
             if voice.isNone { out["narration"] = false }
             if let id = voice.elevenLabsID { out["voiceId"] = id }
@@ -131,6 +135,9 @@ struct CreateVideoCard: View {
     @State private var sampler = VoiceSampler()
     @State private var sheet: Sheet?
     @State private var prepared = false
+    /// The rows behind "Change". With a brief the card opens on its one-line
+    /// plan; nothing is shown to choose from until they ask to.
+    @State private var editing = false
 
     private enum Sheet: String, Identifiable {
         case look, voice, caption
@@ -138,8 +145,11 @@ struct CreateVideoCard: View {
     }
 
     private var ask: VideoAsk { VideoAsk.read(request) }
-    /// Photo or AI is a question only when the request did not answer it.
-    private var asksKind: Bool { photoAllowed && ask.kind == nil }
+    /// What the server already decided from the request, if it could.
+    private var brief: VideoBrief? { offer.brief }
+    /// Photo or AI is a question only when neither the request nor the server
+    /// answered it.
+    private var asksKind: Bool { photoAllowed && ask.kind == nil && brief == nil }
     private var showsAI: Bool { kind == .ai || !photoAllowed }
 
     private var style: ContentTemplate? { templates.first { $0.slug == styleSlug } }
@@ -157,7 +167,8 @@ struct CreateVideoCard: View {
             seconds: seconds,
             look: look,
             voice: voice,
-            caption: caption
+            caption: caption,
+            direction: brief?.direction
         )
     }
 
@@ -208,9 +219,13 @@ struct CreateVideoCard: View {
 
     // MARK: - Photo video
 
+    /// Whether the card is showing the server's plan as one block, with the
+    /// rows tucked behind Change.
+    private var showsPlan: Bool { brief != nil && !editing }
+
     private var photoPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if !asksKind {
+            if !asksKind && brief == nil {
                 // They said "photo video": no question, just what this is.
                 VStack(alignment: .leading, spacing: 2) {
                     Label("Photo video", systemImage: "photo.stack")
@@ -222,29 +237,33 @@ struct CreateVideoCard: View {
                 }
             }
 
-            VStack(spacing: 0) {
-                lengthRow
-                rowDivider
-                styleRow
-                rowDivider
-                Button { open(.look) } label: {
-                    row(title: "Look", value: look?.name ?? "Pick one", chevron: "chevron.right") { lookThumb }
+            if showsPlan {
+                planBlock
+            } else {
+                VStack(spacing: 0) {
+                    lengthRow
+                    rowDivider
+                    styleRow
+                    rowDivider
+                    Button { open(.look) } label: {
+                        row(title: "Look", value: look?.name ?? "Pick one", chevron: "chevron.right") { lookThumb }
+                    }
+                    .buttonStyle(.plain)
+                    rowDivider
+                    Button { open(.voice) } label: {
+                        row(title: "Voice", value: voice?.name ?? "Pick one", chevron: "chevron.right") { icon("waveform") }
+                    }
+                    .buttonStyle(.plain)
+                    rowDivider
+                    Button { open(.caption) } label: {
+                        row(title: "Captions", value: caption.name, chevron: "chevron.right") { icon("captions.bubble") }
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                rowDivider
-                Button { open(.voice) } label: {
-                    row(title: "Voice", value: voice?.name ?? "Pick one", chevron: "chevron.right") { icon("waveform") }
+                .background {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Color.primary.opacity(0.04))
                 }
-                .buttonStyle(.plain)
-                rowDivider
-                Button { open(.caption) } label: {
-                    row(title: "Captions", value: caption.name, chevron: "chevron.right") { icon("captions.bubble") }
-                }
-                .buttonStyle(.plain)
-            }
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.primary.opacity(0.04))
             }
 
             Button {
@@ -254,7 +273,7 @@ struct CreateVideoCard: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")
-                    Text("Create photo video")
+                    Text(brief == nil ? "Create photo video" : "Make it")
                     if let share = photoShare {
                         Text(share).fontWeight(.medium).opacity(0.85)
                     }
@@ -264,12 +283,54 @@ struct CreateVideoCard: View {
             .buttonStyle(RemiFilledButtonStyle())
             .disabled(choice == nil || (request ?? "").isEmpty)
 
-            Text("Nothing is spent until you tap Create.")
+            if showsPlan {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { editing = true }
+                } label: {
+                    Text("Change something")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(brief == nil ? "Nothing is spent until you tap Create." : "Nothing is spent until you tap Make it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
 
             if photoAllowed && !asksKind { switchLink(to: .ai) }
+        }
+    }
+
+    /// The plan the server made from the request, in the card's own words: what
+    /// will be made, and one line on why. Everything that can be changed is
+    /// behind Change.
+    private var planBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Photo video", systemImage: "photo.stack")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Color.primary)
+            if let choice {
+                Text(choice.summary.replacingOccurrences(of: "Photo video · ", with: ""))
+                    .font(.subheadline)
+                    .foregroundStyle(Color.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let reason = brief?.reason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
         }
     }
 
@@ -531,16 +592,25 @@ struct CreateVideoCard: View {
 
     // MARK: - Starting answers
 
-    /// Each row starts on an answer, strongest first: what the request said,
-    /// then what their series was set up with, then the style's defaults.
+    /// Each row starts on an answer, strongest first: what the request said in
+    /// so many words, then what the server decided from the whole request (the
+    /// pictures sent, the account, the series), then what their series was set
+    /// up with, then the style's defaults.
     private func prepare() async {
         guard !prepared else { return }
         prepared = true
         let ask = self.ask
         let plan = session.plan
-        if let said = ask.kind { kind = photoAllowed ? said : .ai }
+        let brief = self.brief
+        if let said = ask.kind {
+            kind = photoAllowed ? said : .ai
+        } else if let brief {
+            kind = brief.isPhoto ? .photo : .ai
+        }
         if let said = ask.seconds {
             seconds = said
+        } else if let decided = brief?.seconds, VideoAsk.range.contains(decided) {
+            seconds = decided
         } else if let series = plan?.durationSeconds, VideoAsk.range.contains(series) {
             seconds = series
         }
@@ -549,9 +619,10 @@ struct CreateVideoCard: View {
         templates = loaded
         let text = (request ?? "").lowercased()
         let named = loaded.first { Self.mentions(text, style: $0) }
+        let fromBrief = loaded.first { $0.slug == brief?.style }
         let fromSeries = loaded.first { $0.slug == plan?.templateSlug }
         let saved = loaded.first { $0.slug == session.settings?.styleSlug }
-        pickStyle((named ?? fromSeries ?? saved ?? loaded.first)?.slug)
+        pickStyle((named ?? fromBrief ?? fromSeries ?? saved ?? loaded.first)?.slug ?? brief?.style)
 
         if let plan {
             if let id = plan.voiceID, let match = SeriesVoice.all.first(where: { $0.elevenLabsID == id }) {
@@ -565,7 +636,12 @@ struct CreateVideoCard: View {
                 look = match
             }
         }
-        // A look they named in the request wins over the series'.
+        // The server read the whole request, and the series too: its answers
+        // are the more specific of the two.
+        if let id = brief?.voice, let match = SeriesVoice.all.first(where: { $0.id == id }) { voice = match }
+        if let id = brief?.captions, let match = SeriesCaption.all.first(where: { $0.id == id }) { caption = match }
+        if let custom = brief?.customLook { look = custom }
+        // A look they named in the request wins over everything.
         if let match = looks.first(where: { text.contains($0.name.lowercased()) }) { look = match }
     }
 

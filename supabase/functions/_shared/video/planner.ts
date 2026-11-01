@@ -28,7 +28,10 @@ export function wordCount(text: string): number {
   return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 }
 
-export function plannerPrompt(p: Production, request: { topic: string; brandContext?: string; avoid?: string }): {
+export function plannerPrompt(
+  p: Production,
+  request: { topic: string; brandContext?: string; direction?: string; avoid?: string },
+): {
   system: string;
   user: string;
 } {
@@ -64,6 +67,7 @@ export function plannerPrompt(p: Production, request: { topic: string; brandCont
   const user = [
     `Topic: ${request.topic}`,
     request.brandContext ? `About the account: ${request.brandContext}` : "",
+    request.direction ? `Direction from the person (follow it, but add no facts of your own): ${request.direction}` : "",
     request.avoid ? `Avoid: ${request.avoid}` : "",
   ].filter(Boolean).join("\n");
   return { system, user };
@@ -77,7 +81,7 @@ export interface PlanResult {
 
 export async function planStory(args: {
   production: Production;
-  request: { topic: string; brandContext?: string; avoid?: string };
+  request: { topic: string; brandContext?: string; direction?: string; avoid?: string };
   ask(system: string, user: string): Promise<string>;
   retries?: number;
 }): Promise<PlanResult> {

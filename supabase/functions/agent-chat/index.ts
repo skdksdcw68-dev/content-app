@@ -33,6 +33,7 @@ import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLin
 import { recordUsage } from "../_shared/usage.ts";
 import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
 import { parseStoryCommand } from "../_shared/video/command.ts";
+import { makeBrief, type VideoBrief } from "../_shared/video/brief.ts";
 import { productionFor } from "../_shared/video/style.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -102,6 +103,9 @@ type Action =
     look?: string;
     voiceId?: string;
     captionStyle?: string;
+    /** What the brief read from the request and any pictures sent: tone, pace,
+     *  structure. Told to the writer after the topic. */
+    direction?: string;
   };
 
 interface Body {
@@ -563,6 +567,27 @@ Deno.serve(async (request) => {
         };
 
         /**
+         * Uploaded pictures as image data for a model to read. Sent as bytes
+         * rather than as a signed link: a link carries a token, and nothing
+         * that grants access belongs in what a model reads. Anything that is
+         * not a picture, or is over 8 MB, is skipped.
+         */
+        const loadPictures = async (paths: string[]): Promise<Array<{ type: "image_url"; image_url: { url: string } }>> => {
+          const pictures: Array<{ type: "image_url"; image_url: { url: string } }> = [];
+          for (const path of paths) {
+            const { data: file } = await admin.storage.from("artifacts").download(path);
+            if (!file || !/^image\//.test(file.type) || file.size > 8 * 1024 * 1024) continue;
+            const bytes = new Uint8Array(await file.arrayBuffer());
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+            }
+            pictures.push({ type: "image_url", image_url: { url: `data:${file.type};base64,${btoa(binary)}` } });
+          }
+          return pictures;
+        };
+
+        /**
          * A reference, resolved and owner-checked.
          *
          * Two kinds travel through the chat: a picture they uploaded, as its
@@ -826,6 +851,8 @@ Deno.serve(async (request) => {
           named?: string | null;
           brandId: string | null;
           intro?: string;
+          /** What the card starts on, decided from the request. */
+          brief?: VideoBrief | null;
         }) => {
           const noun = nounFor(job.capability);
           const aspect = String(job.settings.aspect_ratio ?? "9:16");
@@ -909,22 +936,36 @@ Deno.serve(async (request) => {
             : choices.auto?.externalId ?? affordable[0]?.externalId;
           // `total` is every model they have of this kind, so the card can
           // offer the rest: eight rows is a shortlist, not the catalogue.
-          const offer = { ...choices, preselect, settings: job.settings, total: pool.length, withPicture };
+          const offer = {
+            ...choices,
+            preselect,
+            settings: job.settings,
+            total: pool.length,
+            withPicture,
+            ...(job.brief ? { brief: job.brief } : {}),
+          };
 
           const money = affordable.length === 0 && credits
             ? ` None of these fit your ${credits} right now — topping up on ${pretty(door?.providerSlug) || "your provider"} would unlock them.`
             : credits
             ? ` You have ${credits}.`
             : "";
-          speak(
-            job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
-            job.only && job.settled
-              ? `Ready to make ${job.prompt} with ${choices.options[0].label}. Pick the quality and tap Generate.`
-              : job.only
-              ? `More than one model matches "${job.named}". Pick one and tap Generate.`
-              : `${job.intro ?? `Let's make ${job.prompt}.`} Pick a model and quality, then tap Generate.`,
-            money,
-          );
+          // A photo video already has every answer, so there are no provider
+          // models to pick from and no credits to talk about: the card has the
+          // plan and one button.
+          if (job.brief?.kind === "photo") {
+            speak("Here's what I'd make. Tap Make it, or change anything first.");
+          } else {
+            speak(
+              job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
+              job.only && job.settled
+                ? `Ready to make ${job.prompt} with ${choices.options[0].label}. Pick the quality and tap Generate.`
+                : job.only
+                ? `More than one model matches "${job.named}". Pick one and tap Generate.`
+                : `${job.intro ?? `Let's make ${job.prompt}.`} Pick a model and quality, then tap Generate.`,
+              money,
+            );
+          }
           // The request travels with the offer -- the SUBJECT, not the
           // sentence -- so Generate starts exactly this job, and a typed "use
           // Kling" afterwards still knows what to make and from what.
@@ -1133,6 +1174,7 @@ Deno.serve(async (request) => {
                 ? action.captionStyle
                 : undefined;
               const look = typeof action.look === "string" ? action.look.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+              const direction = typeof action.direction === "string" ? action.direction.replace(/\s+/g, " ").trim().slice(0, 800) : "";
 
               const { data: brandRow } = await (brandWanted
                 ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
@@ -1149,6 +1191,7 @@ Deno.serve(async (request) => {
                   ...(look ? { look } : {}),
                   ...(voiceId ? { voiceId } : {}),
                   ...(captionStyle ? { captionStyle } : {}),
+                  ...(direction ? { direction } : {}),
                   ...(brand ? { brandContext: `${brand.name}${brand.niche ? ` — ${brand.niche}` : ""}${brand.audience ? `, for ${brand.audience}` : ""}` } : {}),
                 },
               }, brand?.id ?? null);
@@ -1507,6 +1550,64 @@ How to answer:
             }
           }
 
+          /**
+           * Every answer the create card would ask for, decided from the
+           * request, the pictures sent with it, the account and the series
+           * they already set up. Null when it could not be -- the card then
+           * asks, as it did before.
+           */
+          const briefFor = async (subject: string, refs: string[]): Promise<VideoBrief | null> => {
+            send({ t: "step", kind: "reading", detail: "Planning the video" });
+            const mine = refs.filter((ref) => ref.startsWith(`${auth.user!.id}/uploads/`) && !ref.includes(".."));
+            const [styleRead, planRead, pictures] = await Promise.all([
+              admin.from("content_templates").select("slug, name, category, visual_style, workflow").order("sort"),
+              brand
+                ? asUser.from("content_plans")
+                  .select("template_slug, duration_s, look, voice_id, caption_style")
+                  .eq("brand_id", brand.id)
+                  .in("status", ["draft", "proposed", "active", "paused"])
+                  .order("created_at", { ascending: false })
+                  .limit(1)
+                : Promise.resolve({ data: [] }),
+              loadPictures(mine.slice(0, 4)),
+            ]);
+            // Only styles the story engine can make from pictures: the card's
+            // Make it must never lead to "I can't make that yet".
+            const styles = ((styleRead.data ?? []) as Array<{ slug: string; name: string; category: string | null; visual_style: string | null; workflow: never }>)
+              .filter((s) => productionFor(s).support.level !== "unsupported")
+              .map((s) => ({ slug: s.slug, name: s.name, category: s.category }));
+            const plan = ((planRead.data ?? []) as Array<{
+              template_slug: string | null;
+              duration_s: number | null;
+              look: string | null;
+              voice_id: string | null;
+              caption_style: string | null;
+            }>)[0];
+            return await makeBrief({
+              apiKey: OPENAI_KEY!,
+              request: subject,
+              message: asked,
+              pictures,
+              context: {
+                styles,
+                brand,
+                facts: known,
+                series: plan
+                  ? {
+                    style: plan.template_slug,
+                    seconds: plan.duration_s,
+                    look: plan.look,
+                    voiceId: plan.voice_id,
+                    captions: plan.caption_style,
+                  }
+                  : null,
+                conversation: context,
+              },
+              onUsage: (model, usage) =>
+                recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "video_brief", model, usage }),
+            });
+          };
+
           if (routed.intent === "make" || routed.model || continuing) {
             const namedModel = routed.model ?? awaiting?.model ?? null;
 
@@ -1635,11 +1736,25 @@ How to answer:
               return finish();
             }
 
+            // A plain request for a video, with no model named and nothing to
+            // animate: decide everything the card would ask, from what they
+            // said, what they sent and what their series already is.
+            const planned = capability === "video_generation" && !namedModel && !sourceArtifactId && !animating &&
+                !!OPENAI_KEY
+              ? await briefFor(prompt, references)
+              : null;
+            // Pictures sent as examples to follow are read into the brief, not
+            // handed to a video model as a first frame -- that would make the
+            // photo video impossible, and they did not ask for it.
+            const forModel = planned?.kind === "photo" && planned.uses === "inspiration"
+              ? references.filter((ref) => ref.startsWith("artifact:"))
+              : references;
+
             return await produce({
               capability,
               prompt,
               settings,
-              references,
+              references: forModel,
               // Answering an offer that was for animating something, or saying
               // "animate this", animates that thing.
               sourceArtifactId,
@@ -1648,6 +1763,7 @@ How to answer:
               unmatched,
               named: namedModel,
               brandId: brand?.id ?? null,
+              brief: planned,
             });
           }
 
@@ -1878,20 +1994,8 @@ itself.</good>
           ].join("\n\n");
 
           // Attached pictures go to the model as image data on the last turn,
-          // so "write a caption for this" is about this picture. Sent as bytes
-          // rather than as a signed link: a link carries a token, and nothing
-          // that grants access belongs in what a model reads.
-          const pictures: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-          for (const path of attachments) {
-            const { data: file } = await admin.storage.from("artifacts").download(path);
-            if (!file || !/^image\//.test(file.type) || file.size > 8 * 1024 * 1024) continue;
-            const bytes = new Uint8Array(await file.arrayBuffer());
-            let binary = "";
-            for (let i = 0; i < bytes.length; i += 0x8000) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-            }
-            pictures.push({ type: "image_url", image_url: { url: `data:${file.type};base64,${btoa(binary)}` } });
-          }
+          // so "write a caption for this" is about this picture.
+          const pictures = await loadPictures(attachments);
           if (pictures.length > 0) {
             send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }

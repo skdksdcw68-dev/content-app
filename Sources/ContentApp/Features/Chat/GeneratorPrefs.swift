@@ -23,9 +23,11 @@ struct GeneratorPrefs: Codable, Equatable {
     var videoResolution: String
     var videoAspect: String
 
+    /// Pictures start vertical, as they always have here: they go into
+    /// TikToks, Shorts and Reels. One at a time until they say otherwise.
     init() {
         imageCount = 1
-        imageAspect = "3:4"
+        imageAspect = "9:16"
         imageQuality = "Medium"
         videoSeconds = 5
         videoResolution = "720p"

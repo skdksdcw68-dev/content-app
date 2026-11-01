@@ -33,6 +33,9 @@ struct ChatTurnView: View {
     /// The first rated-able answer carries the one-time tip.
     var showsActionsTip = false
 
+    /// Two pictures a row, for a set made from one request.
+    private static let grid = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+
     var body: some View {
         switch turn.role {
         case .user where turn.isTap:
@@ -92,7 +95,14 @@ struct ChatTurnView: View {
                     // there to show it was working; afterwards only the answer
                     // matters, and a folded "3 steps" above every reply was
                     // the agent narrating itself.
-                    if !turn.text.isEmpty {
+                    if !turn.text.isEmpty, turn.artifactKind == "image" {
+                        // A picture's line is a quiet label above it, the way
+                        // ChatGPT says "Image created" -- the picture is the
+                        // answer, not the sentence.
+                        Text(turn.text)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else if !turn.text.isEmpty {
                         // Real selection handles, so part of an answer can be
                         // picked out and copied.
                         SelectableText(text: turn.text)
@@ -130,11 +140,31 @@ struct ChatTurnView: View {
                         ) { onAnswer(question, $0) }
                     }
 
-                    if let runId = turn.runId {
+                    if turn.runIds.count > 1 {
+                        // A set of pictures: one frame per picture, each going
+                        // when its own picture is done.
+                        LazyVGrid(columns: Self.grid, spacing: 6) {
+                            ForEach(turn.runIds, id: \.self) { id in
+                                RunCard(runId: id, kind: turn.runKind, expectedKind: "image", tile: true) { onRunFinished(id) }
+                            }
+                        }
+                    } else if let runId = turn.runId {
                         RunCard(runId: runId, kind: turn.runKind, expectedKind: turn.artifactKind) { onRunFinished(runId) }
                     }
 
-                    if let artifactId = turn.artifactId {
+                    if turn.batchArtifacts.count > 1 {
+                        LazyVGrid(columns: Self.grid, spacing: 6) {
+                            ForEach(turn.batchArtifacts, id: \.self) { id in
+                                ArtifactCard(
+                                    artifactId: id,
+                                    expect: ("image", turn.artifactWidth, turn.artifactHeight),
+                                    onAnimate: onAnimate,
+                                    onReference: onReference,
+                                    tile: true
+                                )
+                            }
+                        }
+                    } else if let artifactId = turn.artifactId {
                         ArtifactCard(
                             artifactId: artifactId,
                             expect: (turn.artifactKind, turn.artifactWidth, turn.artifactHeight),

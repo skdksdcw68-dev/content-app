@@ -24,6 +24,8 @@ struct RunCard: View {
     /// What a generation will be -- "image", "video", "audio" -- when the chat
     /// knows, so the count paces itself to it.
     var expectedKind: String? = nil
+    /// One frame of a set of pictures, filling its cell of a two-column grid.
+    var tile = false
     /// Told once, when the run reaches an end, so the conversation can pull in
     /// the result the worker wrote.
     var onFinished: () -> Void = {}
@@ -68,14 +70,27 @@ struct RunCard: View {
 
     @ViewBuilder
     private var working: some View {
-        if kind == "generate" {
+        if kind == "generate" && tile {
+            // One of a set: the frame fills its grid cell, the shape of a
+            // portrait picture.
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Theme.surface)
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .overlay { MakingSheen() }
+                .overlay { MakingProgress(expected: MakingProgress.expected(for: "image")) }
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if kind == "generate" {
             // Making a picture or a video: the same card the video page shows
             // -- light down an empty frame and a count -- not a line of text
             // (Netro, 19 Oct 2026: "it says Queued instead of that beautiful
-            // animation... match Sage, exactly").
-            MakingCard(kind: expectedKind)
-                .padding(.vertical, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // animation... match Sage, exactly"). Labelled the way ChatGPT
+            // labels it while it works.
+            VStack(alignment: .leading, spacing: 8) {
+                ShimmerText(text: expectedKind == "image" ? "Creating image" : expectedKind == "video" ? "Creating video" : expectedKind == "audio" ? "Making the track" : "Creating…")
+                MakingCard(kind: expectedKind)
+            }
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             thinkingTrail
         }
@@ -207,6 +222,8 @@ struct ArtifactCard: View {
     var onApprove: (Artifact) -> Void = { _ in }
     /// A picture as the reference for the next request. Nil hides the action.
     var onReference: ((Artifact) -> Void)? = nil
+    /// One picture of a set, filling its cell of a two-column grid.
+    var tile = false
 
     @Environment(AppSession.self) private var session
     @State private var artifact: Artifact?
@@ -232,7 +249,7 @@ struct ArtifactCard: View {
                 case "campaign", "plan":
                     CampaignCard(artifact: artifact, onExport: onExport, onApprove: onApprove)
                 case "image":
-                    ImageCard(artifact: artifact, onAnimate: onAnimate, onReference: onReference)
+                    ImageCard(artifact: artifact, onAnimate: onAnimate, onReference: onReference, tile: tile)
                 case "video":
                     VideoCard(artifact: artifact)
                 case "audio":
@@ -244,6 +261,12 @@ struct ArtifactCard: View {
                 Label("This is no longer available.", systemImage: "questionmark.folder")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+            } else if tile {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Theme.surface)
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .overlay { MakingSheen() }
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
                 // The space the result will take, held from what the turn
                 // already said it is.
@@ -635,10 +658,17 @@ struct AttachmentStrip: View {
 
     var body: some View {
         if trailing {
-            HStack(spacing: 8) {
+            // ChatGPT's sent picture: a rounded thumbnail on their side, big
+            // enough to see what it is, that opens full screen. One on its own
+            // is taller; several sit smaller side by side.
+            HStack(spacing: 6) {
                 Spacer(minLength: 44)
                 ForEach(paths, id: \.self) { path in
-                    AttachmentThumb(path: path)
+                    AttachmentThumb(
+                        path: path,
+                        size: paths.count == 1 ? CGSize(width: 120, height: 150) : CGSize(width: 92, height: 115),
+                        opens: true
+                    )
                 }
             }
         } else {
@@ -673,12 +703,17 @@ struct AttachmentStrip: View {
 
 private struct AttachmentThumb: View {
     let path: String
+    var size = CGSize(width: 64, height: 64)
+    /// Tapping opens it full screen -- on a sent turn, not in the composer.
+    var opens = false
 
     @Environment(AppSession.self) private var session
     @Environment(\.displayScale) private var displayScale
     @State private var picture: UIImage?
+    @State private var viewing = false
 
-    private var pixels: CGFloat { 64 * displayScale }
+    private var pixels: CGFloat { max(size.width, size.height) * displayScale }
+    private var corner: CGFloat { size.width >= 90 ? 18 : 10 }
 
     var body: some View {
         let shown = picture ?? MediaCache.shared.image(MediaCache.key(path, "\(Int(pixels))"))
@@ -690,11 +725,99 @@ private struct AttachmentThumb: View {
                 Theme.surface
             }
         }
-        .frame(width: 64, height: 64)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .frame(width: size.width, height: size.height)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .onTapGesture {
+            if opens, shown != nil { viewing = true }
+        }
+        .accessibilityAddTraits(opens ? .isButton : [])
         .task(id: path) {
             guard picture == nil else { return }
             picture = await session.attachmentThumbnail(path, longest: pixels)
+        }
+        .fullScreenCover(isPresented: $viewing) {
+            SentPictureViewer(path: path, preview: shown)
+        }
+    }
+}
+
+/// A picture they sent, full screen, the way ChatGPT opens one: black, the
+/// picture edge to edge, close at the top left, Share at the bottom. Drag down
+/// to put it away.
+private struct SentPictureViewer: View {
+    let path: String
+    var preview: UIImage?
+
+    @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var picture: UIImage?
+    @State private var drag: CGFloat = 0
+
+    var body: some View {
+        let shown = picture ?? preview
+
+        ZStack {
+            Color.black
+                .opacity(1 - min(0.7, abs(drag) / 500))
+                .ignoresSafeArea()
+            if let shown {
+                Image(uiImage: shown)
+                    .resizable()
+                    .scaledToFit()
+                    .offset(y: drag)
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .gesture(
+            DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                .onChanged { drag = $0.translation.height }
+                .onEnded { value in
+                    if abs(value.translation.height) > 120 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(duration: 0.3)) { drag = 0 }
+                    }
+                }
+        )
+        .overlay(alignment: .topLeading) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .contentShape(Circle())
+                    .glassEffect(.regular.interactive(), in: .circle)
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .padding(.top, 6)
+            .opacity(drag == 0 ? 1 : 0)
+            .accessibilityLabel("Close")
+        }
+        .overlay(alignment: .bottom) {
+            if let shown {
+                ShareLink(item: Image(uiImage: shown), preview: SharePreview("Picture", image: Image(uiImage: shown))) {
+                    Text("Share")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(Color.white.opacity(0.10), in: Capsule())
+                        .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.bottom, 16)
+                .opacity(drag == 0 ? 1 : 0)
+            }
+        }
+        .environment(\.colorScheme, .dark)
+        .statusBarHidden()
+        .presentationBackground(.clear)
+        .task {
+            guard picture == nil else { return }
+            picture = await session.attachmentThumbnail(path, longest: 2400)
         }
     }
 }

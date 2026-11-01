@@ -15,12 +15,16 @@ import UIKit
 /// A result in a conversation is a thumbnail, not a poster. 250x400 filled most
 /// of the page for one picture -- "tooo big" -- and a tall one pushed the reply
 /// that made it off the screen. Tap opens it properly.
+///
+/// Abel, 1 Nov 2026, asking for ChatGPT's look: ChatGPT gives a picture most of
+/// the column. 280 wide, but never taller than 340, so a tall one still leaves
+/// the line above it on screen.
 func mediaSize(width: Int?, height: Int?) -> CGSize {
     let aspect: CGFloat = {
         if let width, let height, width > 0, height > 0 { return CGFloat(width) / CGFloat(height) }
         return 9.0 / 16.0
     }()
-    let maxWidth: CGFloat = 200, maxHeight: CGFloat = 260
+    let maxWidth: CGFloat = 280, maxHeight: CGFloat = 340
     var size = CGSize(width: maxWidth, height: maxWidth / aspect)
     if size.height > maxHeight { size = CGSize(width: maxHeight * aspect, height: maxHeight) }
     return size
@@ -61,6 +65,8 @@ struct ImageCard: View {
     let artifact: Artifact
     let onAnimate: (Artifact) -> Void
     var onReference: ((Artifact) -> Void)? = nil
+    /// One picture of a set: fills its cell of a two-column grid, portrait.
+    var tile = false
 
     @Environment(AppSession.self) private var session
     @Environment(\.displayScale) private var displayScale
@@ -68,31 +74,53 @@ struct ImageCard: View {
     @State private var viewing = false
 
     private var size: CGSize { mediaSize(width: artifact.body.width, height: artifact.body.height) }
-    private var pixels: CGFloat { max(size.width, size.height) * displayScale }
+    /// A grid cell is about half the column; read at that size.
+    private var pixels: CGFloat { (tile ? 200 : max(size.width, size.height)) * displayScale }
     private var key: NSString { MediaCache.key(artifact.id, "\(Int(pixels))") }
 
     var body: some View {
         let shown = picture ?? MediaCache.shared.image(key)
 
-        VStack(alignment: .leading, spacing: 6) {
-            Button { viewing = true } label: {
-                ZStack {
-                    if let shown {
-                        Image(uiImage: shown).resizable().scaledToFill()
-                    } else {
-                        Theme.surface.overlay { ProgressView().controlSize(.small) }
-                    }
+        // ChatGPT's picture in a conversation: the picture, its corners, and
+        // an Edit pill on it -- no caption line under it. What made it and
+        // what it cost are in the viewer's ••• menu. Abel, 1 Nov 2026: "when I
+        // open it, I want it to look like ChatGPT."
+        Button { viewing = true } label: {
+            Group {
+                if tile {
+                    // The cell decides the size; the picture fills it.
+                    Color.clear
+                        .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                        .overlay { face(shown) }
+                } else {
+                    face(shown)
+                        .frame(width: size.width, height: size.height)
                 }
-                .frame(width: size.width, height: size.height)
-                .clipShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
             }
-            .buttonStyle(PressButtonStyle())
-            .disabled(shown == nil)
-            .accessibilityLabel("Open the image")
-            .contextMenu { MediaMenu(artifact: artifact, onAnimate: onAnimate, onReference: onReference) }
-
-            MediaFooting(artifact: artifact, onAnimate: onAnimate)
+            .clipShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: mediaCorner, style: .continuous))
+        }
+        .buttonStyle(PressButtonStyle())
+        .disabled(shown == nil)
+        .accessibilityLabel("Open the image")
+        .contextMenu { MediaMenu(artifact: artifact, onAnimate: onAnimate, onReference: onReference) }
+        .overlay(alignment: .bottomLeading) {
+            if !tile, shown != nil, let onReference {
+                // ChatGPT's Edit: the picture goes into the bar as the
+                // reference, and what is typed next is made from it.
+                Button { onReference(artifact) } label: {
+                    Text("Edit")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.black.opacity(0.35), in: Capsule())
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(10)
+                .accessibilityLabel("Edit this picture")
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
@@ -101,6 +129,16 @@ struct ImageCard: View {
         }
         .fullScreenCover(isPresented: $viewing) {
             MediaViewer(artifact: artifact, preview: shown, onAnimate: onAnimate, onReference: onReference)
+        }
+    }
+
+    /// The picture, or a quiet frame while it is read.
+    @ViewBuilder
+    private func face(_ shown: UIImage?) -> some View {
+        if let shown {
+            Image(uiImage: shown).resizable().scaledToFill()
+        } else {
+            Theme.surface.overlay { ProgressView().controlSize(.small) }
         }
     }
 }
@@ -565,11 +603,10 @@ struct MediaViewer: View {
                 ProgressView().tint(.white)
             }
         } else if let shown = picture ?? preview {
+            // Edge to edge, square corners, centred -- ChatGPT's viewer.
             Image(uiImage: shown)
                 .resizable()
                 .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .padding(.horizontal, 14)
                 .padding(.vertical, 88)
                 .scaleEffect(zoom * pinch)
                 .offset(x: pan.width + panning.width, y: pan.height + panning.height)
@@ -651,37 +688,35 @@ struct MediaViewer: View {
             }
     }
 
-    /// 🔴 Laid out the way the screenshots are. Abel, 26 Sep 2026: "the way
-    /// while generating, the preview, when u click the video and everything."
+    /// 🔴 Laid out the way ChatGPT's viewer is. Abel, 1 Nov 2026: "after it
+    /// sends me the photo or picture back, when I open it, I want it to look
+    /// like ChatGPT again."
     ///
-    /// Back on the left; ONE pill on the right holding info and the menu.
-    /// Share-as-a-white-button and a bare save icon were three separate
-    /// controls saying overlapping things -- they live in the bottom-right
-    /// pill now, where his reference puts them.
+    /// Close on the left; save and ••• on the right, each its own circle. The
+    /// facts (model, size) are behind Details in the menu.
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Button { dismiss() } label: {
-                circle("chevron.left")
+                circle("xmark")
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Back")
+            .accessibilityLabel("Close")
 
             Spacer()
 
-            HStack(spacing: 0) {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) { showingInfo.toggle() }
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("About this")
+            Button(action: save) {
+                circle("arrow.down.to.line")
+            }
+            .buttonStyle(.plain)
+            .disabled(saving)
+            .accessibilityLabel("Download")
 
-                Menu {
+            Menu {
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) { showingInfo.toggle() }
+                    } label: {
+                        Label(showingInfo ? "Hide details" : "Details", systemImage: "info.circle")
+                    }
                     if isVideo, file != nil {
                         Button {
                             Task {
@@ -721,23 +756,19 @@ struct MediaViewer: View {
                     if let file {
                         ShareLink(item: file) { Label("Share", systemImage: "square.and.arrow.up") }
                     }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 40)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("More")
+            } label: {
+                circle("ellipsis")
             }
-            .glassEffect(.regular.interactive(), in: .capsule)
+            .accessibilityLabel("More")
         }
         .padding(.horizontal, 14)
         .padding(.top, 6)
     }
 
-    /// The prompt in quiet grey with the two pills under it: what can be made
-    /// of this on the left, share and download on the right.
+    /// A picture: ChatGPT's two wide buttons, Edit and Share. Edit puts the
+    /// picture in the bar as the reference, so what is typed next changes it.
+    /// A video keeps its own row: the editor on the left, share and save on
+    /// the right.
     @ViewBuilder
     private var bottomBar: some View {
         VStack(spacing: 14) {
@@ -746,6 +777,51 @@ struct MediaViewer: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
+            if !isVideo {
+                HStack(spacing: 10) {
+                    if let onReference {
+                        Button {
+                            dismiss()
+                            onReference(artifact)
+                        } label: {
+                            wide("Edit")
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if let file {
+                        ShareLink(item: file) { wide("Share") }
+                            .buttonStyle(.plain)
+                    } else {
+                        wide("Share").opacity(0.4)
+                    }
+                }
+                .padding(.horizontal, 14)
+            } else {
+                videoRow
+            }
+        }
+        .padding(.bottom, 16)
+        .fullScreenCover(item: $editing) { editable in
+            NavigationStack { EditorView(clips: [editable.clip], ownsBackButton: true) }
+        }
+    }
+
+    /// ChatGPT's dark capsule button, half the width each.
+    private func wide(_ title: String) -> some View {
+        Text(title)
+            .font(.body.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .background(Color.white.opacity(0.10), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.18), lineWidth: 1))
+            .contentShape(Capsule())
+    }
+
+    /// The prompt in quiet grey with the two pills under it: the editor on
+    /// the left, share and download on the right.
+    @ViewBuilder
+    private var videoRow: some View {
+        VStack(spacing: 14) {
             if let prompt = artifact.body.prompt, !prompt.isEmpty {
                 Text(prompt)
                     .font(.subheadline)
@@ -756,43 +832,16 @@ struct MediaViewer: View {
             }
 
             HStack {
-                if isVideo {
-                    Button {
-                        Task {
-                            if let file, let clip = await EditableClip.of(file) { editing = clip }
-                        }
-                    } label: {
-                        circle("film.badge.plus")
+                Button {
+                    Task {
+                        if let file, let clip = await EditableClip.of(file) { editing = clip }
                     }
-                    .buttonStyle(.plain)
-                    .disabled(file == nil)
-                    .accessibilityLabel("Add to Video Editor")
-                } else {
-                    // The two things a picture is for: something to make the
-                    // next one from, and something to set moving.
-                    HStack(spacing: 10) {
-                        if let onReference {
-                            Button {
-                                dismiss()
-                                onReference(artifact)
-                            } label: {
-                                circle("photo.badge.plus")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Use as reference")
-                        }
-                        if let onAnimate {
-                            Button {
-                                dismiss()
-                                onAnimate(artifact)
-                            } label: {
-                                circle("sparkles")
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Animate")
-                        }
-                    }
+                } label: {
+                    circle("film.badge.plus")
                 }
+                .buttonStyle(.plain)
+                .disabled(file == nil)
+                .accessibilityLabel("Add to Video Editor")
 
                 Spacer()
 
@@ -821,10 +870,6 @@ struct MediaViewer: View {
                 .glassEffect(.regular.interactive(), in: .capsule)
             }
             .padding(.horizontal, 20)
-        }
-        .padding(.bottom, 16)
-        .fullScreenCover(item: $editing) { editable in
-            NavigationStack { EditorView(clips: [editable.clip], ownsBackButton: true) }
         }
     }
 

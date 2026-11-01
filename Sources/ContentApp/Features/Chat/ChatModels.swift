@@ -207,9 +207,12 @@ struct OfferSettings: Equatable, Decodable {
     var resolution: String?
     var duration: Double?
     var aspectRatio: String?
+    /// How many separate pictures were asked for ("4 different ones"), when
+    /// more than one. Each is made on its own; the card shows the total.
+    var count: Int?
 
     private enum CodingKeys: String, CodingKey {
-        case resolution, duration
+        case resolution, duration, count
         case aspectRatio = "aspect_ratio"
     }
 }
@@ -286,7 +289,7 @@ struct GenerationSettings: Equatable {
     var prompt: String?
 
     /// What the card sets itself, as opposed to what a model asks for by name.
-    static let ownKeys: Set<String> = ["aspect_ratio", "generate_audio", "negative_prompt"]
+    static let ownKeys: Set<String> = ["aspect_ratio", "generate_audio", "negative_prompt", "count"]
 
     /// The answers to the model's own questions -- a voice, an engine -- and
     /// nothing else in `extras`.
@@ -521,9 +524,17 @@ struct ChatMessage: Identifiable, Equatable {
     /// Long work handed to the worker on this turn. The card follows it live
     /// and becomes the result when it lands.
     var runId: UUID? = nil
+    /// Every run of a set of pictures asked for at once ("4 different ones"),
+    /// each one picture. Empty for a single run.
+    var runIds: [UUID] = []
     var runKind: String? = nil
     /// Something the agent made, drawn from the object rather than from prose.
     var artifactId: UUID? = nil
+    /// The set this picture belongs to, when several were asked for at once.
+    var batch: String? = nil
+    /// Every picture of that set, gathered onto the first of them when the
+    /// conversation is drawn, so they show as one grid under one line.
+    var batchArtifacts: [UUID] = []
     /// What it is and what shape it is, known before the artefact itself has
     /// been read -- so its card holds the right space instead of growing from
     /// a placeholder under a thumb that is already scrolling.

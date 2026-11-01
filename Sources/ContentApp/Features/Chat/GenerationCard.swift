@@ -67,6 +67,14 @@ struct GenerationCard: View {
     /// A picture has no length; a video and a piece of music both do.
     private var hasLength: Bool { offer.capability != "image_generation" }
 
+    /// How many separate pictures were asked for. Each is its own job, priced
+    /// as one; the button shows the total. Abel, 1 Nov 2026: asked for four,
+    /// he got one picture split into four.
+    private var count: Int {
+        guard offer.capability == "image_generation" else { return 1 }
+        return min(10, max(1, offer.settings?.count ?? 1))
+    }
+
     private var isVideo: Bool { offer.capability == "video_generation" }
     private var withPicture: Bool { offer.withPicture ?? false }
 
@@ -306,18 +314,33 @@ struct GenerationCard: View {
     }
 
     private var generateButton: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if count > 1 {
+                Label("\(count) separate pictures, each made on its own", systemImage: "square.grid.2x2")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            generateTap
+        }
+    }
+
+    private var generateTap: some View {
         Button {
             guard let selected else { return }
-            onGenerate(selected, current, price ?? selected.cost)
+            // The count travels with the job only, never with a price asked
+            // of the provider: some would multiply it in, some would not.
+            var settings = current
+            if count > 1 { settings.extras["count"] = "\(count)" }
+            onGenerate(selected, settings, price ?? selected.cost)
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
-                Text("Generate")
+                Text(count > 1 ? "Generate \(count)" : "Generate")
                     .fontWeight(.semibold)
                 Spacer(minLength: 8)
                 if pricing {
                     ProgressView().controlSize(.small).tint(Theme.onAccent)
-                } else if let share = session.usageShare(of: price ?? selected?.cost) {
+                } else if let share = session.usageShare(of: price ?? selected?.cost).map({ $0 * Double(count) }) {
                     // As a share of the month: what the server will take, and
                     // what the bar and the model list show.
                     HStack(spacing: 4) {

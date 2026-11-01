@@ -692,12 +692,21 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
   if (run.step === "queued" || run.step === "submitting") {
     const references = await referencesFor(admin, run);
 
+    // One of several pictures asked for at once (agent-chat `startBatch`).
+    // Each is its own job, and told so: asked for "4 different images", a
+    // model draws one picture split into four.
+    const batch = run.input.batch as { index?: number; of?: number } | undefined;
+    const ofSet = batch?.of && batch.of > 1
+      ? `\n\nOne single picture -- not a grid, a collage or a split frame. It is one of ${batch.of} made from this ` +
+        `request, so take your own direction (number ${Number(batch.index ?? 0) + 1}): vary the details, colours and composition.`
+      : "";
+
     let routed;
     try {
       routed = await routeSubmit(admin, {
         userId: run.user_id,
         capability,
-        prompt: String(run.input.prompt ?? ""),
+        prompt: String(run.input.prompt ?? "") + ofSet,
         options: {
           aspect_ratio: run.input.aspect_ratio ?? "9:16",
           // Length matters to a video and to a piece of music; a picture has
@@ -997,13 +1006,25 @@ async function saveGenerated(
   // before the picture arrives. Without it the row was 72 points tall, then
   // suddenly the height of a photo, and the conversation jumped under a
   // thumb that was already scrolling.
-  await tell(admin, run, `Here's your ${what}, made with ${run.input.model_label ?? "your provider"}.`, {
-    kind: "artifact",
-    artifact_id: artifactId,
-    artifact_kind: what,
-    width: extra.width ?? null,
-    height: extra.height ?? null,
-  });
+  // One of a set says the same line as the rest and carries the set's id, so
+  // the conversation draws them as one grid under one line.
+  const batch = run.input.batch as { id?: string; of?: number } | undefined;
+  const inSet = typeof batch?.id === "string" && Number(batch.of) > 1;
+  await tell(
+    admin,
+    run,
+    inSet
+      ? `Here are your ${what}s, made with ${run.input.model_label ?? "your provider"}.`
+      : `Here's your ${what}, made with ${run.input.model_label ?? "your provider"}.`,
+    {
+      kind: "artifact",
+      artifact_id: artifactId,
+      artifact_kind: what,
+      width: extra.width ?? null,
+      height: extra.height ?? null,
+      ...(inSet ? { batch: batch!.id, batch_of: batch!.of } : {}),
+    },
+  );
   return "done";
 }
 

@@ -66,8 +66,9 @@ export interface Routed {
   subject: string | null;
   /** A generation model the person named, as they wrote it. */
   model: string | null;
-  /** Settings the person asked for, in their own units. */
-  settings: { resolution?: string; aspect_ratio?: string; duration?: number };
+  /** Settings the person asked for, in their own units. `count` is how many
+   *  separate pictures they want, when it is more than one. */
+  settings: { resolution?: string; aspect_ratio?: string; duration?: number; count?: number };
   /** They are asking about credits, balance, cost, topping up or their plan --
    *  the one time the account is worth checking before answering. */
   aboutCredits: boolean;
@@ -187,7 +188,7 @@ export async function route(
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"subject":string|null,"model":string|null,"about_credits":boolean,' +
-    '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null}}',
+    '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"count":number|null}}',
     "",
     "You also get the recent conversation. USE IT. 'try again', 'that', 'make it a photo instead',",
     "'not a video', or just a model name all continue what was being made before -- they are make,",
@@ -221,12 +222,17 @@ export async function route(
     "  'Use nano banana pro with 2k' after asking for a cup of tea -> 'a cup of tea'.",
     "  'I want a photo not a video' after asking for a cup of tea -> 'a cup of tea'.",
     "  'Lets generate an image bro' with nothing earlier -> null.",
+    "  Several pictures ('4 different ones like this', '10 images of...'): subject describes ONE of them,",
+    "  never the set -- each is made on its own, and 'four images' as a prompt comes back as one picture",
+    "  split into four. Put how many in settings.count.",
+    "  '4 different outfits like this' with a photo -> 'a different outfit flat-lay in the same style as the example'.",
     "  Animating a picture they sent or made: subject is what should HAPPEN in it -- the motion --",
     "  or null when they did not say. Never a phrase pointing back at the picture.",
     "  'animate this photo' -> null. 'animate it, make the clouds drift' -> 'the clouds drift'.",
     "model: a generation model they named, exactly as written ('nano banana pro2', 'soul 2', 'kling'), else null.",
     "settings: only what they asked for. resolution like '1k','2k','4k','720p','1080p'; aspect_ratio like",
-    "  '9:16','16:9','1:1','4:5'; duration in seconds. null for anything not asked.",
+    "  '9:16','16:9','1:1','4:5'; duration in seconds; count: how many separate pictures, only when they",
+    "  asked for more than one (2 to 10). null for anything not asked.",
     "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
     "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
     "  question is chat, not make.",
@@ -274,6 +280,7 @@ export async function route(
         ...(text(s.resolution) ? { resolution: text(s.resolution)!.toLowerCase() } : {}),
         ...(text(s.aspect_ratio) ? { aspect_ratio: text(s.aspect_ratio)! } : {}),
         ...(typeof s.duration === "number" && s.duration > 0 ? { duration: Math.round(s.duration) } : {}),
+        ...(typeof s.count === "number" && s.count > 1 ? { count: Math.min(10, Math.round(s.count)) } : {}),
       },
       aboutCredits: parsed?.about_credits === true,
     };

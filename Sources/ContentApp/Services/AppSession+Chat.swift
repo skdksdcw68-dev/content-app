@@ -130,8 +130,18 @@ extension AppSession {
             // second generation -- on somebody's own credits -- for a request
             // that was already made.
             for index in turns.indices where turns[index].role == .assistant {
-                guard let reply = turns[(index + 1)...].first(where: { $0.role == .user }) else { continue }
-                if turns[index].offer != nil {
+                let later = turns[(index + 1)...]
+                // Something made after an offer settles it too. Abel, 1 Nov
+                // 2026: "Right after you generate a photo, you can still click
+                // the generate button again." Generate is a tap, which leaves no
+                // reply, so when the picture landed and the conversation was
+                // read back the card was live again.
+                if turns[index].offer != nil,
+                   later.contains(where: { $0.role == .assistant && ($0.runId != nil || $0.artifactId != nil) }) {
+                    turns[index].chosenModel = "Generated"
+                }
+                guard let reply = later.first(where: { $0.role == .user }) else { continue }
+                if turns[index].offer != nil, turns[index].chosenModel == nil {
                     turns[index].chosenModel = settledChoice(reply.text)
                 }
                 for question in turns[index].questions {
@@ -171,7 +181,8 @@ extension AppSession {
         case models(ModelOffer, request: String?, references: [String])
         case chose(ModelChoice)
         /// Long work handed to the worker. The card follows it from here.
-        case run(UUID, kind: String)
+        /// `all` is every run of a set of pictures, when there are several.
+        case run(UUID, kind: String, all: [UUID])
         /// Things worth saying next, as taps. A suggestion ending in a space is
         /// an invitation to finish the sentence rather than a message to send.
         case suggestions([String])
@@ -325,7 +336,9 @@ extension AppSession {
             }
 
             if kind == "run", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
-                onEvent(.run(uuid, kind: event["kind"] as? String ?? "run"))
+                // A set of pictures is one run each; `ids` lists them all.
+                let all = (event["ids"] as? [String] ?? []).compactMap(UUID.init(uuidString:))
+                onEvent(.run(uuid, kind: event["kind"] as? String ?? "run", all: all))
                 continue
             }
 
@@ -476,6 +489,8 @@ private struct StoredMessage: Decodable {
         let request: String?
         let references: [String]?
         let runId: UUID?
+        /// Every run of a set of pictures started together; `runId` is the first.
+        let runIds: [UUID]?
         let runKind: String?
         let artifactId: UUID?
         let paths: [String]?
@@ -486,11 +501,14 @@ private struct StoredMessage: Decodable {
         let artifactKind: String?
         let width: Int?
         let height: Int?
+        /// The set a picture belongs to, when several were asked for at once.
+        let batch: String?
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days, options, width, height
+            case kind, questions, choices, request, references, paths, days, options, width, height, batch
             case artifactKind = "artifact_kind"
             case runId = "run_id"
+            case runIds = "run_ids"
             case runKind = "run_kind"
             case artifactId = "artifact_id"
         }
@@ -505,8 +523,11 @@ private struct StoredMessage: Decodable {
         turn.questionRequest = renderHint?.request
         turn.questionDays = renderHint?.days
         turn.runId = renderHint?.runId
+        turn.runIds = renderHint?.runIds ?? []
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId
+        turn.batch = renderHint?.batch
+        if let id = renderHint?.artifactId { turn.batchArtifacts = [id] }
         turn.artifactKind = renderHint?.artifactKind
         turn.artifactWidth = renderHint?.width
         turn.artifactHeight = renderHint?.height

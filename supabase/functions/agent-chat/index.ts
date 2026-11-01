@@ -365,19 +365,84 @@ Deno.serve(async (request) => {
             throw error ?? new Error("the run did not start");
           }
           send({ t: "run", id: runId, kind });
-          // Start the worker NOW instead of waiting for the next minute's tick
-          // (Netro, 19 Oct 2026: research "slower than Sage"). Safe next to the
-          // cron: due_agent_runs leases what it takes, so nobody runs a step twice.
-          const cronSecret = Deno.env.get("CRON_SECRET");
-          if (cronSecret) {
-            const kick = fetch(`${SUPABASE_URL}/functions/v1/run-agent-jobs`, {
-              method: "POST",
-              headers: { "x-cron-secret": cronSecret, "Content-Type": "application/json" },
-              body: "{}",
-            }).catch(() => {});
-            (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(kick);
-          }
+          kickWorker();
           await remember({ kind: "run", run_id: runId, run_kind: kind });
+          finish();
+        };
+
+        /** Starts the worker NOW instead of waiting for the next minute's tick
+         *  (Netro, 19 Oct 2026: research "slower than Sage"). Safe next to the
+         *  cron: due_agent_runs leases what it takes, so nobody runs a step twice. */
+        const kickWorker = () => {
+          const cronSecret = Deno.env.get("CRON_SECRET");
+          if (!cronSecret) return;
+          const kick = fetch(`${SUPABASE_URL}/functions/v1/run-agent-jobs`, {
+            method: "POST",
+            headers: { "x-cron-secret": cronSecret, "Content-Type": "application/json" },
+            body: "{}",
+          }).catch(() => {});
+          (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(kick);
+        };
+
+        /**
+         * Several pictures from one request, each its own run.
+         *
+         * Abel, 1 Nov 2026: "When you ask it to create or generate 4 different
+         * images or 10 images, it actually generates a split image on a single
+         * photo." One job was sent "4 different images..." and the model drew
+         * one picture cut into four. Now each picture is its own job, told to
+         * be one picture, so every provider can do it and each is charged and
+         * refunded on its own. They share a batch id, so the conversation draws
+         * them together.
+         *
+         * Every charge is taken before any run starts: half a set started and
+         * then refused for the plan is worse than none.
+         */
+        const startBatch = async (count: number, input: Record<string, unknown>, announce: string) => {
+          const charges: Array<Charge | null> = [];
+          for (let i = 0; i < count; i++) {
+            try {
+              charges.push(await chargeForGeneration(admin, auth.user!.id, input));
+            } catch (thrown) {
+              for (const charge of charges) if (charge) await refundCredits(admin, auth.user!.id, charge.ref);
+              if (thrown instanceof PublicError && thrown.status === 402) {
+                speak(thrown.message);
+                send({ t: "paywall", code: thrown.failureCode ?? "needs_credits" });
+                await remember();
+                finish();
+                return;
+              }
+              throw thrown;
+            }
+          }
+          speak(announce);
+
+          const batch = crypto.randomUUID();
+          const ids: string[] = [];
+          for (const [index, charge] of charges.entries()) {
+            const { data: runId, error } = await admin.rpc("start_agent_run", {
+              p_user: auth.user!.id,
+              p_thread: threadId,
+              p_kind: "generate",
+              p_input: {
+                ...input,
+                batch: { id: batch, index, of: count },
+                ...(charge ? { credit_ref: charge.ref, credits: charge.credits } : {}),
+              },
+              p_brand: null,
+              p_model: MODELS.chat,
+            });
+            if (error || !runId) {
+              if (charge) await refundCredits(admin, auth.user!.id, charge.ref);
+              continue;
+            }
+            ids.push(runId as string);
+          }
+          if (ids.length === 0) throw new Error("the runs did not start");
+
+          send({ t: "run", id: ids[0], kind: "generate", ids });
+          kickWorker();
+          await remember({ kind: "run", run_id: ids[0], run_ids: ids, run_kind: "generate" });
           finish();
         };
 
@@ -906,7 +971,12 @@ Deno.serve(async (request) => {
               : undefined,
             // Asked of the provider with this very prompt and these settings,
             // so the price on each row is what this job costs.
-            quote: { prompt: job.prompt, options: { aspect_ratio: aspect, ...job.settings } },
+            // Priced for ONE: a count would be multiplied in by some adapters
+            // and not others. The card multiplies it, the same way for all.
+            quote: {
+              prompt: job.prompt,
+              options: Object.fromEntries(Object.entries({ aspect_ratio: aspect, ...job.settings }).filter(([key]) => key !== "count")),
+            },
             withPicture,
             brings,
             only: job.only,
@@ -983,13 +1053,22 @@ Deno.serve(async (request) => {
           if (job.brief?.kind === "photo") {
             speak("Here's what I'd make. Tap Make it, or change anything first.");
           } else {
+            // Said with what is already chosen, so the card reads as one tap,
+            // not a form: the model is picked, the count is the one they said.
+            const many = Number(job.settings.count) > 1 ? Number(job.settings.count) : 0;
+            const what = many ? `${many} pictures of ${job.prompt}` : job.prompt;
+            const picked = choices.options.find((o) => o.externalId === preselect)?.label;
             speak(
               job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
               job.only && job.settled
-                ? `Ready to make ${job.prompt} with ${choices.options[0].label}. Pick the quality and tap Generate.`
+                ? `Ready to make ${what} with ${choices.options[0].label}. Tap Generate.`
                 : job.only
                 ? `More than one model matches "${job.named}". Pick one and tap Generate.`
-                : `${job.intro ?? `Let's make ${job.prompt}.`} Pick a model and quality, then tap Generate.`,
+                : job.intro
+                ? `${job.intro} Pick a model and quality, then tap Generate.`
+                : picked
+                ? `Ready to make ${what} with ${picked}. Tap Generate, or change anything first.`
+                : `Let's make ${what}. Pick a model, then tap Generate.`,
               money,
             );
           }
@@ -1083,6 +1162,24 @@ Deno.serve(async (request) => {
               const quoted = action.quoted && typeof action.quoted.amount === "number"
                 ? { unit: String(action.quoted.unit ?? "credits"), amount: action.quoted.amount, quoted: true }
                 : null;
+              // How many separate pictures. Never sent to a provider: one that
+              // reads it makes one picture split into that many.
+              const wanted = Number(settings.count);
+              delete settings.count;
+              const count = capability === "image_generation" && Number.isFinite(wanted)
+                ? Math.min(10, Math.max(1, Math.round(wanted)))
+                : 1;
+              if (count > 1) {
+                return await startBatch(count, {
+                  capability,
+                  prompt: action.prompt,
+                  model: action.model ?? null,
+                  settings,
+                  quoted_cost: quoted,
+                  references,
+                  ...(source ? { source_artifact_id: source } : {}),
+                }, `Making ${count} pictures of ${String(action.prompt ?? "").split("\n\n")[0].slice(0, 120)}.`);
+              }
               return await startRun("generate", {
                 capability,
                 prompt: action.prompt,
@@ -2031,51 +2128,68 @@ itself.</good>
             send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }
 
-          // What they were just given, so "but you know what I asked" is
-          // answered by looking at it. Abel, 1 Nov 2026: he asked for four
-          // outfits like the one he sent and got a picture of flowers; asked
-          // about it, the reply said "I already generated that for you" --
-          // STATE says the job succeeded, and the reply could not see the
-          // picture. Only when the last thing said was a picture, and recently.
-          let madePicture: typeof pictures = [];
-          if (pictures.length === 0 && threadId) {
-            const { data: lastRows } = await asUser
+          // The pictures from earlier in this conversation -- what they sent and
+          // what was made -- so "go check the one I sent" and "you know what I
+          // asked" are answered by looking. Abel, 1 Nov 2026: "after it sent
+          // you a photo, it doesn't know what the photo is ... when you ask it,
+          // it doesn't know what you sent." The history the app sends is words
+          // only; the pictures were never in it. Asked about four outfits that
+          // came back as flowers, the reply said "I already generated that".
+          //
+          // The last four, newest one at full detail and the rest at low (85
+          // tokens each), so a conversation full of pictures stays cheap.
+          const earlier: Array<{ type: "image_url"; image_url: { url: string; detail: "low" | "auto" } }> = [];
+          const earlierLines: string[] = [];
+          if (threadId) {
+            const { data: rows } = await asUser
               .from("messages")
-              .select("render_hint, created_at")
+              .select("role, render_hint")
               .eq("thread_id", threadId)
-              .eq("role", "assistant")
               .order("seq", { ascending: false })
-              .limit(1);
-            const last = (lastRows ?? [])[0] as { render_hint: Record<string, unknown> | null; created_at: string } | undefined;
-            const madeId = last?.render_hint?.kind === "artifact" && typeof last.render_hint.artifact_id === "string"
-              ? last.render_hint.artifact_id
-              : null;
-            if (madeId && Date.now() - Date.parse(last!.created_at) < 15 * 60_000) {
-              const { data: made } = await asUser.from("artifacts").select("storage_path, kind").eq("id", madeId).maybeSingle();
-              const row = made as { storage_path: string | null; kind: string } | null;
-              if (row?.kind === "image" && row.storage_path) {
-                madePicture = await loadPictures([row.storage_path]);
-                if (madePicture.length > 0) send({ t: "step", kind: "reading", detail: "Looking at what I made" });
+              .limit(24);
+            const found: Array<{ path?: string; artifactId?: string; who: "sent" | "made" }> = [];
+            for (const row of (rows ?? []) as Array<{ role: string; render_hint: Record<string, unknown> | null }>) {
+              const hint = row.render_hint;
+              if (row.role === "user" && hint?.kind === "attachments" && Array.isArray(hint.paths)) {
+                // This turn's own pictures are already attached above.
+                for (const path of hint.paths.map(String)) if (!attachments.includes(path)) found.push({ path, who: "sent" });
+              } else if (row.role === "assistant" && hint?.kind === "artifact" && typeof hint.artifact_id === "string") {
+                found.push({ artifactId: hint.artifact_id, who: "made" });
               }
+              if (found.length >= 6) break;
+            }
+            const ids = found.flatMap((f) => (f.artifactId ? [f.artifactId] : []));
+            const { data: madeRows } = ids.length > 0
+              ? await asUser.from("artifacts").select("id, kind, storage_path, body").in("id", ids)
+              : { data: [] };
+            const made = new Map(
+              ((madeRows ?? []) as Array<{ id: string; kind: string; storage_path: string | null; body: Record<string, unknown> | null }>)
+                .filter((row) => row.kind === "image" && row.storage_path)
+                .map((row) => [row.id, row]),
+            );
+            const usable = found
+              .filter((f) => f.path || (f.artifactId && made.has(f.artifactId)))
+              .slice(0, 4)
+              .reverse();
+            for (const [index, item] of usable.entries()) {
+              const row = item.artifactId ? made.get(item.artifactId) : undefined;
+              const [loaded] = await loadPictures([item.path ?? row!.storage_path!]);
+              if (!loaded) continue;
+              earlier.push({
+                type: "image_url",
+                image_url: { url: loaded.image_url.url, detail: index === usable.length - 1 ? "auto" : "low" },
+              });
+              const about = typeof row?.body?.prompt === "string" ? ` of "${String(row.body.prompt).slice(0, 120)}"` : "";
+              earlierLines.push(`${earlier.length}. ${item.who === "sent" ? "a picture they sent you" : `a picture you made${about}`}`);
             }
           }
 
           const turns = history.map((turn, index) => {
-            if (index !== history.length - 1) return turn;
-            if (pictures.length > 0) return { role: turn.role, content: [{ type: "text", text: turn.content }, ...pictures] };
-            if (madePicture.length > 0) {
-              return {
-                role: turn.role,
-                content: [
-                  {
-                    type: "text",
-                    text: `${turn.content}\n\n(For you only: the attached picture is the last thing you made for them. Look at it before you answer and judge it honestly against what they asked for.)`,
-                  },
-                  ...madePicture,
-                ],
-              };
-            }
-            return turn;
+            if (index !== history.length - 1 || pictures.length + earlier.length === 0) return turn;
+            const note = earlier.length > 0
+              ? `\n\n(For you only: after ${pictures.length > 0 ? "the pictures they just sent" : "their message"} come pictures from earlier in this conversation, oldest first:\n${earlierLines.join("\n")}\nUse them when they refer back to a picture. Judge what you made honestly against what they asked for.)`
+              : "";
+            return { role: turn.role, content: [{ type: "text", text: `${turn.content}${note}` }, ...pictures, ...earlier] };
           });
 
           const upstream = await fetch("https://api.openai.com/v1/chat/completions", {

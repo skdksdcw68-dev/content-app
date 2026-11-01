@@ -345,7 +345,10 @@ struct ChatView: View {
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
-                        onCreateVideo: isGenerating ? nil : { createVideo() },
+                        // No Create video pill in the bar. Abel, 1 Nov 2026:
+                        // "I want to remove the 'create video' thing from the
+                        // text input bar." Asking for a video in words does it.
+                        onCreateVideo: nil,
                         onSend: { send() },
                         onStop: stop
                     )
@@ -653,6 +656,12 @@ struct ChatView: View {
     private var shownTurns: [ChatMessage] {
         var shown: [ChatMessage] = []
         for turn in turns where !turn.isTap {
+            // The pictures of one set land one message each, in the order they
+            // finished. Drawn as one grid on the first, under its one line.
+            if let batch = turn.batch, let id = turn.artifactId, let last = shown.last, last.batch == batch {
+                shown[shown.count - 1].batchArtifacts.append(id)
+                continue
+            }
             if turn.isProgress, let last = shown.last, last.isProgress {
                 shown[shown.count - 1].progressSteps.append(turn.text)
                 if let at = turn.createdAt { shown[shown.count - 1].progressEnded = at }
@@ -901,18 +910,6 @@ struct ChatView: View {
         }
     }
 
-    /// The Create video button beside the plus. Words already typed are made
-    /// into the video at once; an empty field opens the video controls.
-    private func createVideo() {
-        let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let ready = beginCreating(.video)
-        guard !words.isEmpty else { return }
-        Task {
-            await ready.value
-            send()
-        }
-    }
-
     /// `tap` marks a chip tapped rather than a sentence typed. Every action is a
     /// tap too: neither is drawn as the person's bubble, and the server stores
     /// both marked so a reopened conversation does not show them either.
@@ -1050,9 +1047,10 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].offer = offer
                         }
-                    case .run(let id, let kind):
+                    case .run(let id, let kind, let all):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].runId = id
+                            turns[replyIndex].runIds = all
                             turns[replyIndex].runKind = kind
                         }
                     case .chose(let choice):
@@ -1218,7 +1216,8 @@ struct ChatView: View {
         guard let index = turns.firstIndex(where: { $0.id == turnID }) else { return }
         guard turns[index].chosenModel == nil, !isWorking, let offer = turns[index].offer else { return }
 
-        var parts = [choice.label]
+        let many = Int(settings.extras["count"] ?? "") ?? 1
+        var parts = many > 1 ? ["\(many) pictures", choice.label] : [choice.label]
         if let resolution = settings.resolution {
             parts.append(resolution.hasSuffix("k") ? resolution.uppercased() : resolution)
         }
@@ -1231,7 +1230,7 @@ struct ChatView: View {
         let summary = parts.joined(separator: " · ")
         if let price, price.amount != nil {
             // A share of the month, the unit everything else on the page is in.
-            let cost: String = session.usageShare(of: price).map { "\(UsageFormat.percent($0)) of your month" } ?? price.label
+            let cost: String = session.usageShare(of: price).map { "\(UsageFormat.percent($0 * Double(many))) of your month" } ?? price.label
             turns[index].chosenModel = "\(summary) · \(cost)"
         } else {
             turns[index].chosenModel = summary

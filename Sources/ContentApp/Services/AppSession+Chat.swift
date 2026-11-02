@@ -171,6 +171,8 @@ extension AppSession {
     enum ChatEvent {
         case step(TaskStep)
         case delta(String)
+        /// A few voices to hear, each with a sample.
+        case voices([VoiceSample])
         /// What the server took the message to mean, shown behind "Thinking".
         case thought(String)
         case thread(UUID)
@@ -339,6 +341,14 @@ extension AppSession {
                     onEvent(.models(frame.choices, request: frame.request, references: frame.references ?? []))
                 } else if let frame = try? JSONDecoder().decode(Chose.self, from: data), let choice = frame.choice {
                     onEvent(.chose(choice))
+                }
+                continue
+            }
+
+            if kind == "voices" {
+                struct Frame: Decodable { let items: [VoiceSample] }
+                if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
+                    onEvent(.voices(frame.items))
                 }
                 continue
             }
@@ -513,9 +523,11 @@ private struct StoredMessage: Decodable {
         let height: Int?
         /// The set a picture belongs to, when several were asked for at once.
         let batch: String?
+        /// Voices offered to be heard, when this turn is a voices card.
+        let items: [VoiceSample]?
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days, options, width, height, batch
+            case kind, questions, choices, request, references, paths, days, options, width, height, batch, items
             case artifactKind = "artifact_kind"
             case runId = "run_id"
             case runIds = "run_ids"
@@ -546,6 +558,7 @@ private struct StoredMessage: Decodable {
         if renderHint?.kind == "suggestions" || renderHint?.kind == "artifact" {
             turn.suggestions = renderHint?.options ?? []
         }
+        if renderHint?.kind == "voices" { turn.voices = renderHint?.items ?? [] }
         turn.isTap = renderHint?.kind == "tap"
         turn.createdAt = createdAt
         // A job's steps are marked "progress". Lines a story wrote before the

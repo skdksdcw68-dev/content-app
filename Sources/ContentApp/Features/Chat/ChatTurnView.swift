@@ -160,6 +160,10 @@ struct ChatTurnView: View {
                         }
                     }
 
+                    if !turn.voices.isEmpty {
+                        VoicesCard(voices: turn.voices)
+                    }
+
                     ForEach(turn.questions) { question in
                         QuestionCard(
                             question: question,

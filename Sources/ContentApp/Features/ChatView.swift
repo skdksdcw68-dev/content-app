@@ -256,7 +256,9 @@ struct ChatView: View {
 
     private var showsWordmark: Bool { turns.isEmpty && draft.isEmpty && !restoring }
 
-    var body: some View {
+    /// The conversation and its bar. The sheets and pickers are added in `body`:
+    /// one chain of this length is more than the compiler will type-check.
+    private var conversation: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
@@ -606,6 +608,10 @@ struct ChatView: View {
                 }
             }
         }
+    }
+
+    var body: some View {
+        conversation
         .sheet(isPresented: $showsOptions, onDismiss: {
             if pickAfterDismiss {
                 pickAfterDismiss = false
@@ -1244,6 +1250,10 @@ struct ChatView: View {
                         }
                     case .thought(let words):
                         turns[replyIndex].thought = words
+                    case .voices(let samples):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].voices = samples
+                        }
                     case .delta(let text):
                         stream.pending += text
                         scheduleFlush(into: replyIndex)

@@ -90,11 +90,17 @@ export interface Routed {
   /** Pictures from the conversation they want to SEE again ("send me the photo
    *  you made"), by handle. Nothing is made; the picture is shown. */
   show: string[];
+  /** They ask to HEAR or browse the voices on offer ("show me some voices").
+   *  Nothing is made: a few samples are played back instead. */
+  voices: boolean;
 }
 
 /** One thing to make, as the person described it. */
 export interface RoutedJob {
   media: "image" | "video" | "audio" | null;
+  /** For audio: someone SPEAKING words (a voiceover, narration, "say this") as
+   *  against music, a beat or a sound effect. Speech goes to a voice model. */
+  speech: boolean;
   /** What THIS one is of, as a generation prompt -- style words included. */
   subject: string | null;
   model: string | null;
@@ -227,8 +233,8 @@ export async function route(
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
-    '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],' +
-    '"jobs":[{"media":"image|video|audio"|null,"subject":string|null,"model":string|null,"uses":[string],' +
+    '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,' +
+    '"jobs":[{"media":"image|video|audio"|null,"speech":boolean,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
     "You also get the recent conversation. USE IT. 'try again', 'that', 'make it a photo instead',",
@@ -267,6 +273,10 @@ export async function route(
     "  media: 'image' for a picture, photo, thumbnail, poster; 'video' for a clip, reel, video; 'audio' for",
     "    music, a beat, a voiceover. A model they named (Nano Banana, Soul, GPT Image, Seedream, Flux) is an",
     "    image. null if unsaid.",
+    "  speech: true only when media is 'audio' and the sound is someone SPEAKING words -- 'generate a voice',",
+    "    'voiceover', 'narrate this', 'say this', 'read it out', text to speech. false for music, songs, beats,",
+    "    soundtracks and sound effects. For speech, the subject is the words to be spoken, exactly as given (or",
+    "    null if they have not said what it should say).",
     "  subject: WHAT this one is, as a short generation prompt in plain words -- the scene or the thing, with",
     "    any style they asked for. Never instructions to you, never model names, never settings. Take it from",
     "    earlier in the conversation when the last message only changes how. null when they have not said",
@@ -296,6 +306,8 @@ export async function route(
     "    that was for somewhere else.",
     "show: handles (P1, P2 ...) of pictures YOU made that they ask to be SENT or SHOWN again -- 'send me the",
     "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
+    "voices: true when they ask to hear, see, browse or choose between voices ('show me some voices', 'what",
+    "  voices do you have', 'let me hear a few'). Nothing is made: it is chat, with jobs [].",
     "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
     "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
     "  question is chat, not make.",
@@ -362,6 +374,7 @@ export async function route(
       show: Array.isArray(parsed?.show)
         ? parsed.show.map(String).filter((handle: string) => /^P\d{1,3}$/.test(handle)).slice(0, 8)
         : [],
+      voices: parsed?.voices === true,
     };
   } catch {
     return fallback(message);
@@ -390,6 +403,7 @@ function readJobs(parsed: Record<string, unknown> | null | undefined): RoutedJob
     const subject = text(e.subject);
     return {
       media: ["image", "video", "audio"].includes(String(e.media)) ? e.media as RoutedJob["media"] : null,
+      speech: e.speech === true && e.media === "audio",
       subject: subject && !vagueSubject(subject) ? subject.slice(0, 600) : null,
       model: text(e.model)?.slice(0, 60) ?? null,
       uses: Array.isArray(e.uses)
@@ -444,6 +458,6 @@ export function leftToUs(message: string): boolean {
 function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
-    subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [],
+    subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [], voices: false,
   };
 }

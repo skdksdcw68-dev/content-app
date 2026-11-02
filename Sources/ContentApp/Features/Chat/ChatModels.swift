@@ -489,6 +489,14 @@ struct RunEvent: Decodable, Equatable {
 /// The user's turn is a tinted capsule pushed right; the agent's is typography
 /// on the page. Boxing a long answer makes it read as a quotation rather than a
 /// reply, which is why every assistant on the platform sets it this way.
+/// One voice to listen to: its name, what it is like, and a sample to play.
+struct VoiceSample: Identifiable, Equatable, Decodable, Sendable {
+    let id: String
+    let name: String
+    let about: String
+    let preview: String
+}
+
 struct ChatMessage: Identifiable, Equatable {
     enum Role: Equatable {
         case user
@@ -579,6 +587,8 @@ struct ChatMessage: Identifiable, Equatable {
     var delivery: Delivery? = nil
     /// What the server took this turn's request to mean, while it works.
     var thought: String? = nil
+    /// Voices offered to be heard on this turn, each with its own sample.
+    var voices: [VoiceSample] = []
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)

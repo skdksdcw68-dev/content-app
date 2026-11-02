@@ -1760,6 +1760,37 @@ Deno.serve(async (request) => {
           // The router's own one-line reading, not an invented monologue.
           if (routed.reading && routed.reading !== asked.slice(0, 80)) send({ t: "thought", v: routed.reading });
 
+          // "Show me some voices": a few ElevenLabs voices to HEAR, each with its
+          // own sample, drawn as a card with a play button apiece. Listing
+          // voices costs nothing, and only the stock voices are offered -- the
+          // house account's own clones are private.
+          if (routed.voices && routed.intent !== "make") {
+            const elevenKey = Deno.env.get("ELEVENLABS_API_KEY");
+            const listed = elevenKey
+              ? await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": elevenKey } })
+                .then((r) => (r.ok ? r.json() : null)).catch(() => null)
+              : null;
+            const items = ((listed?.voices ?? []) as Array<Record<string, any>>)
+              .filter((v) => v.category === "premade" && typeof v.preview_url === "string")
+              .slice(0, 8)
+              .map((v) => ({
+                id: String(v.voice_id),
+                name: String(v.name),
+                about: [v.labels?.gender, v.labels?.accent, v.labels?.descriptive ?? v.labels?.use_case]
+                  .filter((x) => typeof x === "string" && x).join(" · "),
+                preview: String(v.preview_url),
+              }));
+            if (items.length > 0) {
+              speak("Here are some voices. Tap one to hear it, then tell me which you want and what it should say.");
+              send({ t: "voices", items });
+              await remember({ kind: "voices", items });
+            } else {
+              speak("I can't play voice samples right now. Tell me what it should say and I'll make it in a voice that suits.");
+              await remember();
+            }
+            return finish();
+          }
+
           // "Send me the photo you made": the picture is shown again, nothing is
           // made. The router names it by handle; only pictures made here have an
           // artifact to show (Abel, 2 Nov 2026: "I asked it to send me the photo
@@ -2153,9 +2184,10 @@ How to answer:
             const kindOf = (job: RoutedJob): Capability => {
               const media = job.media ?? saidMedia;
               if (media === "image") return "image_generation";
-              if (media === "audio") return "audio_generation";
+              // Words spoken go to a voice model; music and sound to a sound one.
+              if (media === "audio") return job.speech ? "voice_generation" : "audio_generation";
               if (media === "video") return "video_generation";
-              return ["image_generation", "video_generation", "audio_generation"].includes(earlierKind ?? "")
+              return ["image_generation", "video_generation", "audio_generation", "voice_generation"].includes(earlierKind ?? "")
                 ? earlierKind as Capability
                 : "video_generation";
             };
@@ -2333,14 +2365,14 @@ How to answer:
 
             // Which kind: a model they named settles it, then what they said,
             // then what they were already making, then video.
-            const KINDS = ["image_generation", "video_generation", "audio_generation"] as const;
+            const KINDS = ["image_generation", "video_generation", "audio_generation", "voice_generation"] as const;
             const earlier = awaiting?.capability ?? pending?.capability;
             const saidKind: Capability | null = animating
               ? "video_generation"
               : routed.media === "image"
               ? "image_generation"
               : routed.media === "audio"
-              ? "audio_generation"
+              ? (routed.jobs[0]?.speech ? "voice_generation" : "audio_generation")
               : routed.media === "video"
               ? "video_generation"
               : null;

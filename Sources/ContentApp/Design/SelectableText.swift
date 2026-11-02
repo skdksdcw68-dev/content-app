@@ -11,6 +11,9 @@ struct SelectableText: UIViewRepresentable {
     let text: String
     var textStyle: UIFont.TextStyle = .body
     var color: UIColor = .label
+    /// Already-styled text (an answer's headings, bold and lists), drawn as is.
+    /// Nil draws `text` in one style.
+    var attributedContent: NSAttributedString?
 
     func makeUIView(context: Context) -> UITextView {
         let view = UITextView()
@@ -30,8 +33,9 @@ struct SelectableText: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         // Streaming updates this many times a second; only touch it on change.
-        if view.attributedText.string != text {
-            view.attributedText = attributed
+        let next = attributed
+        if !view.attributedText.isEqual(to: next) {
+            view.attributedText = next
         }
     }
 
@@ -42,6 +46,7 @@ struct SelectableText: UIViewRepresentable {
     }
 
     private var attributed: NSAttributedString {
+        if let attributedContent { return attributedContent }
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineSpacing = 2
         return NSAttributedString(string: text, attributes: [
@@ -49,5 +54,12 @@ struct SelectableText: UIViewRepresentable {
             .foregroundColor: color,
             .paragraphStyle: paragraph,
         ])
+    }
+}
+
+extension SelectableText {
+    /// Styled text, drawn as written: an answer with headings, bold and lists.
+    init(attributed content: NSAttributedString) {
+        self.init(text: content.string, attributedContent: content)
     }
 }

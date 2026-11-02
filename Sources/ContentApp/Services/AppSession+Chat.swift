@@ -284,6 +284,9 @@ extension AppSession {
         // The generator's settings, set once behind the sliders: anything made
         // from this message starts on them instead of asking.
         body["prefs"] = GeneratorPrefs.current.payload
+        // This build draws markdown, so the reply may use it. An older one shows
+        // it as plain text and says nothing, and is never sent it.
+        body["markdown"] = true
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let started = try await ChatTransport.open(request)

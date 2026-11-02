@@ -110,10 +110,10 @@ struct ChatTurnView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else if !turn.text.isEmpty {
-                        // Real selection handles, so part of an answer can be
-                        // picked out and copied.
-                        SelectableText(text: turn.text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        // Drawn the way ChatGPT draws an answer -- headings, bold,
+                        // lists, a table -- with its text still one selectable run,
+                        // so part of it can be picked out and copied.
+                        MarkdownText(text: turn.text)
                     }
 
                     if let offer = turn.offer {

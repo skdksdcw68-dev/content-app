@@ -382,20 +382,16 @@ private struct ReportSheet: View {
                         .font(.title3.bold())
                         .fixedSize(horizontal: false, vertical: true)
 
+                    // Drawn as the report is written -- headings, bullets, a table.
                     if let summary = artifact.body.summary, !summary.isEmpty {
-                        Text(summary)
-                            .font(.body)
-                            .textSelection(.enabled)
+                        MarkdownText(text: summary)
                     }
 
                     ForEach(Array((artifact.body.findings ?? []).enumerated()), id: \.offset) { _, finding in
                         VStack(alignment: .leading, spacing: 6) {
                             Text(finding.question)
                                 .font(.subheadline.weight(.semibold))
-                            Text(finding.answer)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .textSelection(.enabled)
+                            MarkdownText(text: finding.answer)
                         }
                     }
                 }

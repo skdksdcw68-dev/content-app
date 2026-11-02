@@ -59,28 +59,37 @@ struct GenerateAttachments: View {
                     Pill(title: "Start frame", picture: choices.startFrame?.preview) {
                         attach(.start)
                     } clear: {
+                        // The adapter reads the first reference as the start,
+                        // so an end frame left behind would be sent as one.
                         choices.startFrame = nil
+                        choices.endFrame = nil
                     }
 
                     // The last frame only where the model has one to give:
                     // Kling 2.5 Turbo does; Wan and Veo start from a picture
-                    // and choose their own ending.
-                    if choices.takesEndFrame {
+                    // and choose their own ending. And only once there is a
+                    // first one: an end with no start is a video from nothing,
+                    // and the swap arrows greyed out beside it said so (Abel,
+                    // 1 Nov 2026: "if an image is not selected, this is not
+                    // required to be available").
+                    if choices.takesEndFrame, choices.startFrame != nil {
                         // Swaps them, which is what the arrows mean and what
-                        // ElevenLabs does with the same control.
-                        Button {
-                            let first = choices.startFrame
-                            choices.startFrame = choices.endFrame
-                            choices.endFrame = first
-                        } label: {
-                            Image(systemName: "arrow.left.arrow.right")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 26, height: 34)
-                                .contentShape(Rectangle())
+                        // ElevenLabs does with the same control. Drawn once
+                        // there are two to swap.
+                        if choices.endFrame != nil {
+                            Button {
+                                let first = choices.startFrame
+                                choices.startFrame = choices.endFrame
+                                choices.endFrame = first
+                            } label: {
+                                Image(systemName: "arrow.left.arrow.right")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 26, height: 34)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(choices.startFrame == nil && choices.endFrame == nil)
 
                         Pill(title: "End frame", picture: choices.endFrame?.preview) {
                             attach(.end)

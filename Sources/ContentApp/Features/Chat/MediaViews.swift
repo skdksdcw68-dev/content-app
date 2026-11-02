@@ -124,14 +124,18 @@ struct ImageCard: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if shown != nil {
-                // Grok's ▶ on every picture: make it a video.
+                // Make it a video. A bare ▶ on a picture read as though the
+                // picture WAS a video (Abel, 1 Nov 2026: "it's actually an
+                // image but shows a play button as a video"), so it says what
+                // it does, in the same pill as Edit.
                 Button { onAnimate(artifact) } label: {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: tile ? 11 : 13, weight: .semibold))
+                    Text("Animate")
+                        .font(tile ? .caption.weight(.semibold) : .footnote.weight(.semibold))
                         .foregroundStyle(.white)
-                        .frame(width: tile ? 30 : 34, height: tile ? 30 : 34)
-                        .background(.black.opacity(0.45), in: Circle())
-                        .contentShape(Circle())
+                        .padding(.horizontal, tile ? 10 : 12)
+                        .padding(.vertical, tile ? 5 : 6)
+                        .background(.black.opacity(0.35), in: Capsule())
+                        .background(.ultraThinMaterial, in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .padding(tile ? 8 : 10)

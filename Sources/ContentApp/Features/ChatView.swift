@@ -46,8 +46,6 @@ struct ChatView: View {
     @State private var draft = ""
     @State private var isWorking = false
     @State private var showsOptions = false
-    /// The generator's settings sheet, from the sliders in the bar.
-    @State private var showingGeneratorSettings = false
     /// The video page's choices.
     /// What the composer is set to make. One value instead of three loose
     /// flags, because the bar, the settings sheet and the model picker all
@@ -60,6 +58,12 @@ struct ChatView: View {
     /// A generation thread reopened from the chats list, where the route
     /// cannot say so. Read off the thread itself on restore.
     @State private var reopenedGeneration = false
+    /// The × on the Video / Image tag was pressed: this conversation is plain
+    /// chat again, whatever else opened it as a generator. Clearing `creating`
+    /// alone left the bar as it was whenever the thread had been marked a
+    /// generation (Abel, 1 Nov 2026: "clicking the X doesn't turn it into a
+    /// basic text input").
+    @State private var leftGenerator = false
     @State private var planning = false
     @State private var proposed: PlanProposal?
     @State private var showingPlan = false
@@ -128,9 +132,9 @@ struct ChatView: View {
     /// exactly the thing being avoided.
     @State private var stream = StreamBuffer()
 
-    /// Twelve draws a second: fast enough to read as typing, slow enough that
-    /// the view is not rebuilt on every token.
-    private static let flushMilliseconds: UInt64 = 80
+    /// Twenty-two draws a second: a few characters each time reads as typing,
+    /// and is still slow enough that the view is not rebuilt on every token.
+    private static let flushMilliseconds: UInt64 = 45
 
     /// Space between the last message and the top of the bar.
     private static let clearance: CGFloat = 20
@@ -139,6 +143,30 @@ struct ChatView: View {
     private final class StreamBuffer {
         var pending = ""
         var isFlushScheduled = false
+    }
+
+    /// Holds the app awake for the thirty seconds or so iOS allows after it is
+    /// left, so a reply that is coming can finish arriving.
+    @State private var grace = BackgroundGrace()
+
+    @MainActor
+    private final class BackgroundGrace {
+        private var identifier: UIBackgroundTaskIdentifier = .invalid
+
+        func begin() {
+            guard identifier == .invalid else { return }
+            identifier = UIApplication.shared.beginBackgroundTask(withName: "autocast.reply") { [weak self] in
+                // Time is up. The server carries on without us and the reply is
+                // there on return.
+                Task { @MainActor in self?.end() }
+            }
+        }
+
+        func end() {
+            guard identifier != .invalid else { return }
+            UIApplication.shared.endBackgroundTask(identifier)
+            identifier = .invalid
+        }
     }
 
     /// What the composer is built from. The UIKit host rebuilds its content
@@ -170,7 +198,7 @@ struct ChatView: View {
                     // keeps its bubbles; the generator draws the ElevenLabs
                     // feed -- kind, prompt, result, newest on top, no
                     // narration (Abel, 26 Sep 2026: "yes i said.").
-                    if (makingVideo || reopenedGeneration || opensAsGeneration) && !turns.isEmpty {
+                    if isGenerationThread && !leftGenerator && !turns.isEmpty {
                         GenerationFeed(
                             turns: turns,
                             onCopy: { prompt in
@@ -236,11 +264,25 @@ struct ChatView: View {
             } action: { _, height in
                 visibleHeight = max(0, height)
             }
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                let end = geometry.contentSize.height + geometry.contentInsets.bottom - geometry.containerSize.height
-                return geometry.contentOffset.y < end - 120
-            } action: { _, away in
-                showsJump = away
+            .onScrollGeometryChange(for: ScrollReading.self) { geometry in
+                ScrollReading(
+                    offset: geometry.contentOffset.y,
+                    contentHeight: geometry.contentSize.height,
+                    containerHeight: geometry.containerSize.height,
+                    bottomInset: geometry.contentInsets.bottom
+                )
+            } action: { _, reading in
+                // The end that matters is where the words end, not the empty
+                // runway kept below them for a sent message to sit above: measured
+                // to the runway's end, the button showed whenever a short reply
+                // was on screen, and in every short conversation (Abel, 2 Nov
+                // 2026: "wherever you are on the page, the button is always
+                // available"). A conversation that fits the screen has no end
+                // below it, so it never shows.
+                let wordsEnd = reading.contentHeight - runway
+                let end = wordsEnd + reading.bottomInset - reading.containerHeight
+                let away = reading.offset < end - 160
+                if showsJump != away { showsJump = away }
             }
             .background {
                 if restoring {
@@ -284,7 +326,7 @@ struct ChatView: View {
                     .allowsHitTesting(false)
                     // Back to the newest line, from anywhere up the page.
                     .overlay(alignment: .top) {
-                        if showsJump && !turns.isEmpty {
+                        if showsJump && turns.count > 1 {
                             Button { scrollToEnd(proxy, duration: 0.35) } label: {
                                 Image(systemName: "arrow.down")
                                     .font(.system(size: 15, weight: .semibold))
@@ -351,7 +393,11 @@ struct ChatView: View {
                         // "I want to remove the 'create video' thing from the
                         // text input bar." Asking for a video in words does it.
                         onCreateVideo: nil,
-                        onSettings: isGenerating ? nil : { showingGeneratorSettings = true },
+                        // No sliders on the plain bar: they belong to the generator
+                        // (its own bar has them) and to You > Picture & video
+                        // settings (Abel, 2 Nov 2026: "we don't need that thing
+                        // on the normal page").
+                        onSettings: nil,
                         onSend: { send() },
                         onStop: stop
                     )
@@ -559,9 +605,6 @@ struct ChatView: View {
         }
         .navigationDestination(isPresented: $showingPlan) {
             PlanView(notice: proposed)
-        }
-        .sheet(isPresented: $showingGeneratorSettings) {
-            GeneratorSettingsSheet()
         }
         // 🔴 One picture for a frame slot, up to four otherwise. Abel, 26 Sep
         // 2026: "while uploaded end and start frame, our accepts whatever
@@ -843,7 +886,10 @@ struct ChatView: View {
     ///
     /// Abel, 25 Sep 2026, with fifteen screenshots: "i want it to match the
     /// exact eleven labs thing, that makes more sense and looks so good."
-    private var isGenerating: Bool { makingVideo || reopenedGeneration || opensAsGeneration || creating != nil }
+    private var isGenerating: Bool { creating != nil || (isGenerationThread && !leftGenerator) }
+
+    /// A page or a thread that is the generator by what it is, not by a tag.
+    private var isGenerationThread: Bool { makingVideo || reopenedGeneration || opensAsGeneration }
 
     /// A picture is in the composer, whichever way it got there: the pill, a
     /// frame slot, or Animate.
@@ -872,7 +918,12 @@ struct ChatView: View {
         GenerateAttachments(
             choices: $choices,
             tag: creating.map { $0 == .image ? "Image" : "Video" },
-            onClearTag: { creating = nil }
+            onClearTag: {
+                creating = nil
+                leftGenerator = true
+                choices.startFrame = nil
+                choices.endFrame = nil
+            }
         ) { slot in
             // Which slot is being filled decides how many pictures the picker
             // will take, and where the one that comes back is put.
@@ -1016,11 +1067,15 @@ struct ChatView: View {
                 : capability == "video_generation" ? "video" : "audio"
         }
         isWorking = true
+        // Leaving the app mid-reply (another app, the home screen) no longer
+        // cuts the request off at once: iOS gives about thirty seconds to finish.
+        grace.begin()
 
         work = Task {
             defer {
                 isWorking = false
                 work = nil
+                grace.end()
                 if reloadWhenIdle {
                     reloadWhenIdle = false
                     Task { await reload() }
@@ -1103,6 +1158,9 @@ struct ChatView: View {
                 // -- and overwriting a half-written answer with "that did not
                 // get through" is precisely what stop must not do.
                 if !Task.isCancelled, !(error is CancellationError) {
+                    // A broken connection is not a failed reply: see `recover`.
+                    if await recover(after: error) { return }
+                    guard turns.indices.contains(replyIndex) else { return }
                     turns[replyIndex].isPending = false
                     turns[replyIndex].failed = true
                     // The reason, when there is one: offline, signed out, a
@@ -1117,6 +1175,13 @@ struct ChatView: View {
 
             if broke { return }
 
+            // What is still being typed finishes typing, rather than the rest
+            // landing at once; a few seconds at most.
+            var waited = 0
+            while !stream.pending.isEmpty, !Task.isCancelled, waited < 100 {
+                try? await Task.sleep(nanoseconds: Self.flushMilliseconds * 1_000_000)
+                waited += 1
+            }
             flush(into: replyIndex)
             guard turns.indices.contains(replyIndex) else { return }
             turns[replyIndex].isPending = false
@@ -1130,6 +1195,38 @@ struct ChatView: View {
                 turns[replyIndex].text = "Nothing came back. Try rephrasing."
             }
         }
+    }
+
+    /// The connection broke while a reply was coming. That is not the same as
+    /// the reply failing: the server stores the message before it answers and
+    /// keeps writing after the phone has gone, so by the time somebody is back
+    /// the reply is usually there. Read the conversation back for a while rather
+    /// than show a red error for something that worked (Abel, 2 Nov 2026: "it
+    /// says there is an error in red ... when I open the chat again, the
+    /// message was sent and replied").
+    ///
+    /// True when the reply was found (or the stop button ended the wait); false
+    /// when it was not, and the failure is real.
+    private func recover(after error: Error) async -> Bool {
+        guard let thread, let drop = error as? URLError else { return false }
+        // Offline is answered sooner: nothing is coming.
+        let patience = drop.code == .notConnectedToInternet ? 4 : 20
+        let sent = turns.filter { $0.role == .user }.count
+
+        for _ in 0..<patience {
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            if Task.isCancelled { return true }
+            let fresh = await session.messages(in: thread)
+            let stored = fresh.filter { $0.role == .user }.count
+            // Stored, and answered: our message is there and the last thing said
+            // is the reply to it.
+            if stored >= sent, let last = fresh.last, last.role == .assistant, !last.isPending {
+                pinned = nil
+                withAnimation(.easeOut(duration: 0.2)) { turns = fresh }
+                return true
+            }
+        }
+        return false
     }
 
     /// A tapped answer, sent as though it had been typed.
@@ -1437,15 +1534,27 @@ struct ChatView: View {
 
     // MARK: - Drawing the stream
 
-    /// Draws whatever has piled up, at most once every `flushMilliseconds`.
+    /// Draws what has piled up a few characters at a time, once every
+    /// `flushMilliseconds`, so an answer types out instead of landing in lumps
+    /// (Abel, 2 Nov 2026: "when it's writing, it drops the entire text at once
+    /// ... not like ChatGPT"). The model finishes a short answer in half a
+    /// second; released all at once that is a blink. A few characters a step
+    /// makes it a line being written, and a backlog is worked off faster --
+    /// the more has piled up, the more each step takes -- so a long answer
+    /// keeps pace with the stream instead of trailing it.
     private func scheduleFlush(into index: Int) {
         guard !stream.isFlushScheduled else { return }
         stream.isFlushScheduled = true
 
         Task {
-            try? await Task.sleep(nanoseconds: Self.flushMilliseconds * 1_000_000)
+            while !stream.pending.isEmpty {
+                try? await Task.sleep(nanoseconds: Self.flushMilliseconds * 1_000_000)
+                guard turns.indices.contains(index) else { break }
+                let step = max(6, stream.pending.count / 20)
+                turns[index].text += String(stream.pending.prefix(step))
+                stream.pending = String(stream.pending.dropFirst(step))
+            }
             stream.isFlushScheduled = false
-            flush(into: index)
         }
     }
 
@@ -1480,6 +1589,16 @@ struct ChatView: View {
             #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
         )
     }
+}
+
+/// What the scroll view reports, as plain numbers: where it is, how long the
+/// content is, how much of it shows, and the inset below. The conversation
+/// works out from these whether the newest line is out of sight.
+private struct ScrollReading: Equatable {
+    var offset: CGFloat
+    var contentHeight: CGFloat
+    var containerHeight: CGFloat
+    var bottomInset: CGFloat
 }
 
 // MARK: - The empty page

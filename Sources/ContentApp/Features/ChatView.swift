@@ -417,6 +417,7 @@ struct ChatView: View {
     private var conversationPage: some View {
         ScrollViewReader { proxy in
             scroller(proxy)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             // Dragging closes the keyboard. The tap that used to do it lived
             // on this ScrollView as a `simultaneousGesture` and could take a
             // touch meant for a bubble, a link or a button inside it; the
@@ -564,6 +565,11 @@ struct ChatView: View {
         // The back arrow alone. It used to carry the word "Chat", which loaded
         // the left of the bar against the switch in the middle (Abel, 2 Nov 2026).
         .minimalBackButton()
+        // No wall behind the bar: the conversation runs up under the back
+        // arrow and the switch, and fades softly at the top instead of being
+        // hidden by a solid strip (Abel, 2 Nov 2026: "there is still a wall
+        // that's hiding the background text").
+        .toolbarBackground(.hidden, for: .navigationBar)
         // Pushed page, so the tab bar slides away with the push and back with
         // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
         .hidesTabBar()

@@ -215,16 +215,16 @@ struct PaywallView: View {
                 } else {
                 VStack(spacing: 0) {
                     header
-                    billingPicker
-                        .padding(.top, 20)
-                    plans
-                        .padding(.top, 16)
+                    tierSwitch
+                        .padding(.top, 12)
                     FeaturesCard(label: "INCLUDED WITH \(tier.name.uppercased())", features: bullets(tier))
                         .padding(.top, 20)
-                    creditsNote
+                    priceChoices
                         .padding(.top, 16)
                     footer
-                        .padding(.top, 24)
+                        .padding(.top, 20)
+                    creditsNote
+                        .padding(.top, 20)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 32)
@@ -332,18 +332,15 @@ struct PaywallView: View {
         }
     }
 
+    /// SuperGrok's heading, for the plan that is picked: its name, and how much
+    /// it gives next to Pro.
     private var pitch: some View {
-        VStack(spacing: 8) {
-            Text("Autocast Pro")
-                .font(.system(size: 36, weight: .bold))
+        VStack(spacing: 6) {
+            Text("Autocast \(tier.name)")
+                .font(.system(size: 34, weight: .bold))
                 .multilineTextAlignment(.center)
-            Text("Make more. Post every day.")
+            Text(usageText(tier))
                 .font(.title3.weight(.medium))
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("Pick how much you want to make each month. Every plan plans your posts, writes the captions and posts for you.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -386,71 +383,71 @@ struct PaywallView: View {
 
     // MARK: - Choosing
 
-    private var billingPicker: some View {
-        Picker("Billing", selection: $yearly) {
-            Text("Monthly").tag(false)
-            Text(yearlyLabel).tag(true)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        // A tier that is not on this side (Ultra under Annual) hands the
-        // choice to the recommended one rather than leaving a hidden row
-        // chosen and a button that buys it.
-        .onChange(of: yearly) { _, _ in
-            if !offered.contains(tier) { tier = offered.contains(Tier.recommended) ? Tier.recommended : (offered.first ?? .pro) }
+    /// The plans to pick between: the ones above the subscriber's own, and
+    /// only the ones App Store Connect sells once StoreKit has answered.
+    private var choosableTiers: [Tier] {
+        let above: (Tier) -> Bool = { (currentTier?.rank ?? 0) < $0.rank }
+        let sold: (Tier) -> Bool = { products.isEmpty || product($0, yearly: false) != nil || product($0, yearly: true) != nil }
+        return Tier.allCases.filter { above($0) && sold($0) }
+    }
+
+    private var tierSwitch: some View {
+        TierSwitch(tiers: choosableTiers, chosen: tier) { picked in
+            tier = picked
         }
     }
 
-    /// "Annual · save 31%", from the real prices, once they are known.
-    private var yearlyLabel: String {
-        if let percent = saving(tier) { return "Annual · save \(percent)%" }
-        return "Annual"
+    private var pricesKnown: Bool {
+        priceText(tier, yearly: false) != nil || priceText(tier, yearly: true) != nil
     }
 
+    /// Monthly beside Yearly, for the plan that is picked. Ultra is sold
+    /// monthly only, so it shows one box.
     @ViewBuilder
-    private var plans: some View {
-        if priceText(.pro, yearly: yearly) == nil && loading {
-            VStack(spacing: 10) {
-                SkeletonCard(height: 76)
-                SkeletonCard(height: 76)
-                SkeletonCard(height: 76)
-            }
-        } else if priceText(.pro, yearly: yearly) == nil && products.isEmpty {
+    private var priceChoices: some View {
+        if !pricesKnown && loading {
+            SkeletonCard(height: 76)
+        } else if !pricesKnown {
             Text("Plans aren’t available right now. Please check your connection and try again.")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 32)
+                .padding(.vertical, 24)
         } else {
-            VStack(spacing: 10) {
-                ForEach(offered) { option in
-                    row(option)
+            HStack(spacing: 10) {
+                monthlyBox
+                if tier.sellsYearly || product(tier, yearly: true) != nil {
+                    yearlyBox
                 }
             }
-            .animation(.snappy(duration: 0.2), value: yearly)
         }
     }
 
-    private func row(_ option: Tier) -> some View {
-        let annual = billsYearly(option)
-        let price: String = priceText(option, yearly: annual) ?? "N/A"
-        let footnote: String? = annual
-            ? perMonthText(option).map { "\($0)/mo, billed yearly" }
-            : (yearly ? "Monthly only" : nil)
-        return TierRow(
-            name: option.name,
-            badge: option == Tier.recommended ? "MOST POPULAR" : nil,
-            credits: usageText(option),
-            price: price,
-            period: annual ? "/yr" : "/mo",
-            footnote: footnote,
-            chosen: option == tier,
-            isCurrent: option == currentTier
+    private var monthlyBox: some View {
+        PriceBox(
+            title: "Monthly",
+            price: priceText(tier, yearly: false) ?? "N/A",
+            note: "per month",
+            badge: nil,
+            chosen: !billsYearly(tier)
         ) {
-            tier = option
+            yearly = false
         }
-        .disabled(!canChoose && priceText(option, yearly: annual) == nil)
+    }
+
+    private var yearlyBox: some View {
+        let note: String = perMonthText(tier).map { "\($0) a month" } ?? "per year"
+        let badge: String? = saving(tier).map { "SAVE \($0)%" }
+        return PriceBox(
+            title: "Yearly",
+            price: priceText(tier, yearly: true) ?? "N/A",
+            note: note,
+            badge: badge,
+            chosen: billsYearly(tier)
+        ) {
+            yearly = true
+        }
     }
 
     private var creditsNote: some View {
@@ -734,17 +731,44 @@ private struct FeaturesCard: View {
     }
 }
 
-/// One plan as a row: a radio mark, its name and what it gives, and its price.
-/// The chosen one is outlined in green, as Drobe's cards are.
-private struct TierRow: View {
-    let name: String
-    let badge: String?
-    let credits: String
+/// SuperGrok's tier switch: the plans as pills in one soft capsule, the
+/// picked one lit.
+private struct TierSwitch: View {
+    let tiers: [Tier]
+    let chosen: Tier
+    let pick: (Tier) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tiers) { option in
+                Button {
+                    pick(option)
+                } label: {
+                    Text(option.name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(option == chosen ? Color.white : Color.white.opacity(0.65))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 9)
+                        .background(option == chosen ? Color.white.opacity(0.20) : Color.clear, in: Capsule())
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(option == chosen ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Color.white.opacity(0.10), in: Capsule())
+    }
+}
+
+/// One way to pay: its name, its price, and what that comes to a month. The
+/// picked one is lit.
+private struct PriceBox: View {
+    let title: String
     let price: String
-    let period: String
-    let footnote: String?
+    let note: String
+    let badge: String?
     let chosen: Bool
-    let isCurrent: Bool
     let tap: () -> Void
 
     private var shape: RoundedRectangle {
@@ -753,57 +777,36 @@ private struct TierRow: View {
 
     var body: some View {
         Button(action: tap) {
-            HStack(spacing: 14) {
-                Image(systemName: chosen ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(chosen ? Color.white : Color.secondary.opacity(0.5))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(name)
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.primary)
-                        if let badge {
-                            PlanTag(text: badge)
-                        }
-                        if isCurrent {
-                            PlanTag(text: "CURRENT")
-                        }
-                    }
-                    Text(credits)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-
-                Spacer(minLength: 8)
-
-                VStack(alignment: .trailing, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(price)
-                            .font(.system(size: 20, weight: .heavy))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        Text(period)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let footnote {
-                        Text(footnote)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(chosen ? Color.white : Color.white.opacity(0.65))
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.black)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(Color.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                     }
                 }
+                Text(price)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(note)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .padding(16)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.white.opacity(chosen ? 0.10 : 0.05), in: shape)
+            .background(Color.white.opacity(chosen ? 0.12 : 0.05), in: shape)
             .overlay {
-                // SuperGrok's chosen plan: a white outline.
                 shape.strokeBorder(
                     chosen ? Color.white : Color.white.opacity(0.12),
                     lineWidth: chosen ? 2 : 1
@@ -813,19 +816,5 @@ private struct TierRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(chosen ? .isSelected : [])
-    }
-}
-
-/// A small pill: "MOST POPULAR", "CURRENT".
-private struct PlanTag: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .bold))
-            .foregroundStyle(Color.black)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
     }
 }

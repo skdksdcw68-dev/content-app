@@ -414,4 +414,28 @@ extension AppSession {
             return nil
         }
     }
+
+    /// Uploads a recording -- a voice note, or the sound of a video -- and asks
+    /// for the words in it. Nil, with `lastError` set, when either step fails.
+    func transcribeSound(at file: URL) async -> String? {
+        guard let userID, let data = try? Data(contentsOf: file) else { return nil }
+        let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).m4a"
+        do {
+            _ = try await client.storage
+                .from("artifacts")
+                .upload(path, data: data, options: FileOptions(contentType: "audio/mp4"))
+            let heard: Transcribed = try await client.functions.invoke(
+                "transcribe",
+                options: FunctionInvokeOptions(body: ["path": path])
+            )
+            return heard.text
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+}
+
+private struct Transcribed: Decodable {
+    let text: String
 }

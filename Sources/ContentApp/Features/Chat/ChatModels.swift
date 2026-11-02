@@ -571,6 +571,14 @@ struct ChatMessage: Identifiable, Equatable {
     var progressEnded: Date? = nil
     /// "up" or "down", once the person rated this answer.
     var rating: String? = nil
+    /// Where a message the person just sent has got to: left the phone, or
+    /// reached the server. Nil once the reply is coming, and on every turn read
+    /// back from the server. Abel, 2 Nov 2026: "the moment the message is sent,
+    /// mark it as sent from me ... and when the server has it."
+    enum Delivery: Equatable { case sent, received }
+    var delivery: Delivery? = nil
+    /// What the server took this turn's request to mean, while it works.
+    var thought: String? = nil
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)

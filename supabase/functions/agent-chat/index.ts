@@ -1755,6 +1755,39 @@ Deno.serve(async (request) => {
           // "Edit the second one" changes a picture that exists, which is making.
           if (routed.intent === "revise" && routed.jobs.length > 0) routed = { ...routed, intent: "make" };
 
+          // What it took the message to mean, for the sheet behind "Thinking"
+          // (Abel, 2 Nov 2026, of Grok: tapping it shows what it is thinking).
+          // The router's own one-line reading, not an invented monologue.
+          if (routed.reading && routed.reading !== asked.slice(0, 80)) send({ t: "thought", v: routed.reading });
+
+          // "Send me the photo you made": the picture is shown again, nothing is
+          // made. The router names it by handle; only pictures made here have an
+          // artifact to show (Abel, 2 Nov 2026: "I asked it to send me the photo
+          // that it's generated, and it doesn't").
+          if (routed.show.length > 0 && routed.intent !== "make") {
+            const wanted = routed.show
+              .map((handle) => pics.refs[handle])
+              .filter((ref): ref is string => typeof ref === "string" && ref.startsWith("artifact:"))
+              .map((ref) => ref.slice("artifact:".length));
+            const id = wanted[wanted.length - 1];
+            const { data: found } = id
+              ? await asUser.from("artifacts").select("id, kind, body").eq("id", id).maybeSingle()
+              : { data: null };
+            if (found) {
+              const row = found as { id: string; kind: string; body: Record<string, unknown> | null };
+              speak(wanted.length > 1 ? "Here's the latest one. " : "Here it is. ");
+              send({ t: "artifact", id: row.id });
+              await remember({
+                kind: "artifact",
+                artifact_id: row.id,
+                artifact_kind: row.kind,
+                width: typeof row.body?.width === "number" ? row.body.width : null,
+                height: typeof row.body?.height === "number" ? row.body.height : null,
+              });
+              return finish();
+            }
+          }
+
           const brand = brandRead.data as { id: string; name: string; niche: string; audience: string } | null;
 
           const { data: facts } = brand

@@ -90,6 +90,12 @@ struct ChatView: View {
     /// has finished closing -- a picker presented during the dismissal is
     /// dropped, and the button then looks broken.
     @State private var pickAfterDismiss = false
+    /// The same for "Attach a video".
+    @State private var pickVideoAfterDismiss = false
+    @State private var showsVideoPicker = false
+    @State private var videoItems: [PhotosPickerItem] = []
+    /// Videos waiting to go, as their transcripts.
+    @State private var videos: [PendingVideo] = []
     /// Runs whose ending this conversation has already pulled in, so each is
     /// pulled in once.
     @State private var finishedRuns: Set<UUID> = []
@@ -181,13 +187,21 @@ struct ChatView: View {
         var reset: Int
         var focus: Int
         var attachments: [PendingAttachment]
+        /// Which bar this is. The hosted bar is rebuilt only when these change,
+        /// and going back to Chat changed none of the others: the bar stayed the
+        /// generator's (Abel, 2 Nov 2026: "when the user switches to create and
+        /// comes back to chat, the text input bar is still in create").
+        var generating: Bool
+        var mode: GenerateChoices.Mode
+        var videos: [PendingVideo]
     }
 
     private var composerInputs: ComposerInputs {
         ComposerInputs(
             text: draft, showsOptions: showsOptions,
             isWorking: isWorking, reset: composerReset, focus: composerFocus,
-            attachments: pending
+            attachments: pending,
+            generating: isGenerating, mode: choices.mode, videos: videos
         )
     }
 
@@ -392,6 +406,22 @@ struct ChatView: View {
                         onRemoveAttachment: { id in
                             pending.removeAll { $0.id == id }
                         },
+                        videos: videos,
+                        onRemoveVideo: { id in
+                            videos.removeAll { $0.id == id }
+                        },
+                        // A voice note becomes words in the field -- dictation,
+                        // not a recording in the thread -- so it can be read
+                        // and fixed before it is sent. The generator's bar has
+                        // no microphone.
+                        onVoice: isGenerating ? nil : { file in
+                            if let words = await session.transcribeSound(at: file), !words.isEmpty {
+                                draft = draft.isEmpty ? words : draft + " " + words
+                                composerFocus += 1
+                            } else {
+                                say("I couldn't make out that recording. Try it once more.")
+                            }
+                        },
                         // No Create video pill in the bar. Abel, 1 Nov 2026:
                         // "I want to remove the 'create video' thing from the
                         // text input bar." Asking for a video in words does it.
@@ -519,25 +549,26 @@ struct ChatView: View {
             // between talking and making, in the same conversation (Abel, 2 Nov
             // 2026: "two options: Chat and Creating"). It is also the way back:
             // Chat is what the tag's × always meant.
-            ToolbarItem(placement: .principal) {
-                Picker(
-                    "Mode",
-                    selection: Binding(
-                        get: { isGenerating },
-                        set: { wantsCreate in
-                            if wantsCreate {
-                                beginCreating(choices.mode == .video ? .video : .image)
-                            } else {
-                                leaveGenerator()
+            //
+            // Only on a conversation that already exists. One started from the
+            // list's New chat / New creation has had its side chosen there, and
+            // a switch above it is clutter (Abel: "at the top there shouldn't
+            // be any chat or create thing").
+            if threadId != nil {
+                ToolbarItem(placement: .principal) {
+                    ModeSwitch(
+                        isCreate: Binding(
+                            get: { isGenerating },
+                            set: { wantsCreate in
+                                if wantsCreate {
+                                    beginCreating(choices.mode == .video ? .video : .image)
+                                } else {
+                                    leaveGenerator()
+                                }
                             }
-                        }
+                        )
                     )
-                ) {
-                    Text("Chat").tag(false)
-                    Text("Create").tag(true)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 190)
             }
             // The shelf of everything made, one tap from where it is made
             // (Abel, 29 Sep 2026: no "Library" anywhere on the generator).
@@ -551,24 +582,31 @@ struct ChatView: View {
                     .accessibilityLabel("Library")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        newChat()
+            // "New chat" from inside a chat that is already new offers nothing,
+            // so the menu is not there until there is something to leave.
+            if !turns.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button {
+                            newChat()
+                        } label: {
+                            Label("New chat", systemImage: "plus.bubble")
+                        }
                     } label: {
-                        Label("New chat", systemImage: "plus.bubble")
+                        Image(systemName: "ellipsis")
                     }
-                    .disabled(turns.isEmpty)
-                } label: {
-                    Image(systemName: "ellipsis")
+                    .accessibilityLabel("More options")
                 }
-                .accessibilityLabel("More options")
             }
         }
         .sheet(isPresented: $showsOptions, onDismiss: {
             if pickAfterDismiss {
                 pickAfterDismiss = false
                 showsPhotoPicker = true
+            }
+            if pickVideoAfterDismiss {
+                pickVideoAfterDismiss = false
+                showsVideoPicker = true
             }
         }) {
             // 🔴 The sheet has taken a `makingVideo` flag all along and nobody
@@ -589,6 +627,9 @@ struct ChatView: View {
 
                 case .attachPhoto:
                     pickAfterDismiss = true
+
+                case .attachVideo:
+                    pickVideoAfterDismiss = true
 
                 case .ask(let text):
                     draft = text
@@ -654,9 +695,48 @@ struct ChatView: View {
             matching: .images
         )
         .onChange(of: photoItems) { _, items in attach(items) }
+        .photosPicker(
+            isPresented: $showsVideoPicker,
+            selection: $videoItems,
+            maxSelectionCount: 1,
+            matching: .videos
+        )
+        .onChange(of: videoItems) { _, items in attachVideo(items) }
     }
 
     // MARK: - Attaching
+
+    /// A video's sound is pulled out on the phone, uploaded, and listened to;
+    /// its words go with the next message. Abel, 2 Nov 2026: "when I send it a
+    /// video, it extracts and transcribes it and helps me."
+    private func attachVideo(_ items: [PhotosPickerItem]) {
+        guard let item = items.first else { return }
+        videoItems = []
+        Task {
+            guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                say("I couldn't open that video.")
+                return
+            }
+            defer { try? FileManager.default.removeItem(at: movie.url) }
+            guard let sound = await VideoAudio.extract(from: movie.url) else {
+                say("That video has no sound for me to listen to.")
+                return
+            }
+            let entry = PendingVideo(poster: sound.poster, seconds: sound.seconds, transcript: nil)
+            videos.append(entry)
+            composerFocus += 1
+
+            let words = await session.transcribeSound(at: sound.audio)
+            try? FileManager.default.removeItem(at: sound.audio)
+            guard let index = videos.firstIndex(where: { $0.id == entry.id }) else { return }
+            if let words {
+                videos[index].transcript = words.isEmpty ? "(Nothing could be heard in it.)" : words
+            } else {
+                videos.remove(at: index)
+                say("I couldn't listen to that video. Try it again.")
+            }
+        }
+    }
 
     /// Uploads each picked picture as soon as it is picked, so it is there by
     /// the time somebody has finished typing what to do with it.
@@ -895,12 +975,15 @@ struct ChatView: View {
 
         Task {
             defer { isWorking = false }
-            let ok = await session.connectGenerator(keyID: key.id, keySecret: key.secret)
+            let ok = await session.connectGenerator(provider: key.provider, keyID: key.id, keySecret: key.secret)
             guard replyIndex < turns.count else { return }
+            let speaks = key.provider == "elevenlabs"
             turns[replyIndex] = ChatMessage(
                 role: .assistant,
                 text: ok
-                ? "Saved. That key is encrypted and I can't read it back, so you'll only ever see \(key.maskedSecret). I'll use it to make your videos. Ask me for one whenever you like."
+                ? "Saved. That key is encrypted and I can't read it back, so you'll only ever see \(key.maskedSecret). I'll use it \(speaks ? "to make your voices" : "to make your videos"). Ask me for one whenever you like."
+                : speaks
+                ? (session.lastError ?? "ElevenLabs didn't accept that key. Nothing was saved. Check it was copied whole.")
                 : "That key didn't work when I tried it against the provider. Nothing was saved. Check it was copied whole, and that it's the pair: the id and the secret, not just one of them."
             )
         }
@@ -1061,6 +1144,12 @@ struct ChatView: View {
         // The video page's choices travel with the request -- the path for
         // when no model is chosen yet and the router should pick.
         if makingVideo, action == nil, !asked.isEmpty { asked += "\n\(choices.spec)" }
+        // A video goes as the words in it, after whatever was typed.
+        if action == nil, !videos.isEmpty, !isWorking {
+            guard videos.allSatisfy({ $0.transcript != nil }) else { return }
+            asked = Transcript.compose(typed: asked, transcripts: videos.compactMap(\.transcript))
+            videos = []
+        }
         // A photo on its own is a message: it says "here, do something with
         // this", and the agent answers with what it could do.
         let photosOnly = asked.isEmpty && action == nil && !pending.isEmpty
@@ -1083,6 +1172,8 @@ struct ChatView: View {
         var mine = ChatMessage.user(asked)
         mine.attachments = attached
         mine.isTap = action != nil || tap
+        if !mine.isTap { mine.delivery = .sent }
+        let mineId = mine.id
         // Only a typed send pins. A tap is never drawn, so it could never be
         // measured, and an unmeasured pin leaves a screen of runway under the
         // conversation; the reply to a tap is followed at the bottom instead.
@@ -1125,6 +1216,15 @@ struct ChatView: View {
                     for: turns, in: thread, action: action, attachments: attached, tap: tap && action == nil
                 ) { event in
                     guard turns.indices.contains(replyIndex) else { return }
+                    // The first thing back means the server has it; once words
+                    // are coming the marker has done its job.
+                    if let sentAt = turns.firstIndex(where: { $0.id == mineId }), turns[sentAt].delivery != nil {
+                        if case .delta = event {
+                            turns[sentAt].delivery = nil
+                        } else if turns[sentAt].delivery == .sent {
+                            turns[sentAt].delivery = .received
+                        }
+                    }
                     switch event {
                     case .step(let step):
                         // The one before it is finished the moment another
@@ -1135,6 +1235,8 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.18)) {
                             turns[replyIndex].steps.append(step)
                         }
+                    case .thought(let words):
+                        turns[replyIndex].thought = words
                     case .delta(let text):
                         stream.pending += text
                         scheduleFlush(into: replyIndex)

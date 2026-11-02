@@ -15,6 +15,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
 import { seal } from "../_shared/crypto.ts";
 import { parseCredential, probe } from "../_shared/higgsfield.ts";
+import { elevenlabsAdapter, probeElevenLabs } from "../_shared/connectors/elevenlabs.ts";
+import { storeDiscovery } from "../_shared/connectors/discovery.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -25,6 +27,59 @@ interface Body {
   label?: string;
   key_id?: string;
   key_secret?: string;
+}
+
+/**
+ * A pasted ElevenLabs key: one token, no id. Tried against ElevenLabs first,
+ * then sealed to its own row and recorded the way every connection is, so the
+ * voices it can speak with are known before anybody asks for one.
+ *
+ * Abel, 2 Nov 2026: "when I pass a key from ElevenLabs, it doesn't know or it
+ * doesn't work."
+ */
+async function connectElevenLabs(userId: string, key: string, label?: string) {
+  if (key.length < 20) throw new PublicError("That doesn't look like a whole ElevenLabs key.");
+
+  const tried = await probeElevenLabs(key);
+  if (!tried.ok) throw new PublicError(tried.detail, 400);
+
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const { data: provider } = await admin
+    .from("providers")
+    .select("api_base")
+    .eq("slug", "elevenlabs")
+    .maybeSingle();
+  if (!provider) throw new PublicError("ElevenLabs isn't set up here yet.", 503);
+
+  // The row first: the ciphertext is bound to the row's own id.
+  const { data: connectionId, error: beginError } = await admin.rpc("begin_connection", {
+    p_user: userId,
+    p_provider_slug: "elevenlabs",
+  });
+  if (beginError) throw beginError;
+
+  const { error: secretError } = await admin.rpc("store_connection_secret", {
+    p_connection: connectionId,
+    p_access_ct: await seal(key, `${connectionId}:provider`),
+  });
+  if (secretError) throw secretError;
+
+  const discovery = await elevenlabsAdapter
+    .discover({ connectionId, secret: key, endpoint: provider.api_base ?? "https://api.elevenlabs.io/v1" })
+    .catch(async (thrown) => {
+      await admin.rpc("fault_connection", { p_connection: connectionId, p_code: "bad_key", p_status: "error" });
+      throw new PublicError(thrown instanceof Error ? thrown.message : "ElevenLabs refused it.", 400);
+    });
+  await storeDiscovery(admin, connectionId, discovery);
+
+  const { error: liveError } = await admin.rpc("activate_connection", {
+    p_connection: connectionId,
+    p_label: label?.trim() || discovery.accountLabel,
+    p_external: discovery.externalAccountId,
+  });
+  if (liveError) throw liveError;
+
+  return { credential_id: connectionId, provider: "elevenlabs", probe: tried.detail };
 }
 
 Deno.serve(async (request) => {
@@ -43,6 +98,10 @@ Deno.serve(async (request) => {
 
     const body = (await request.json().catch(() => ({}))) as Body;
     const provider = (body.provider ?? "higgsfield").trim();
+
+    if (provider === "elevenlabs") {
+      return json(await connectElevenLabs(auth.user.id, (body.key_secret ?? "").trim(), body.label));
+    }
 
     if (provider !== "higgsfield") {
       throw new PublicError(`${provider} is not supported yet.`, 400);

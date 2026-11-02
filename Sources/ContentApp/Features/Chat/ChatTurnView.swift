@@ -66,21 +66,41 @@ struct ChatTurnView: View {
                 // A photo sent on its own has no words; an empty capsule under
                 // it would read as a message that failed to send.
                 if !turn.text.isEmpty {
-                    HStack {
-                        Spacer(minLength: 44)
-                        Text(turn.text)
-                            .font(.body)
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Theme.accent.opacity(0.10))
-                            }
-                            .textSelection(.enabled)
+                    // A video they sent rides in the message as its words; the
+                    // bubble shows what they typed and the transcript folded.
+                    let parts = Transcript.split(turn.text)
+                    if !parts.typed.isEmpty {
+                        HStack {
+                            Spacer(minLength: 44)
+                            Text(parts.typed)
+                                .font(.body)
+                                .foregroundStyle(Theme.accent)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .fill(Theme.accent.opacity(0.10))
+                                }
+                                .textSelection(.enabled)
+                        }
+                    }
+                    if let transcript = parts.transcript {
+                        TranscriptBlock(text: transcript)
                     }
                 }
+                if let delivery = turn.delivery {
+                    Label(
+                        delivery == .sent ? "Sent" : "Received",
+                        systemImage: delivery == .sent ? "checkmark" : "checkmark.circle.fill"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .labelStyle(.titleAndIcon)
+                    .transition(.opacity)
+                    .accessibilityLabel(delivery == .sent ? "Sent" : "Received by Autocast")
+                }
             }
+            .animation(.easeOut(duration: 0.2), value: turn.delivery)
 
         case .assistant:
             VStack(alignment: .leading, spacing: 12) {
@@ -89,7 +109,7 @@ struct ChatTurnView: View {
                     // real work -- making, pricing, researching. Nothing is
                     // announced for an ordinary answer.
                     if turn.steps.isEmpty {
-                        ThinkingIndicator()
+                        ThinkingIndicator(thought: turn.thought)
                     } else {
                         TaskTrail(steps: turn.steps)
                     }
@@ -503,9 +523,108 @@ private struct PulsingDot: View {
 ///
 /// It was blue; it is Remi's black-and-white coach dot now, following "Remi
 /// colours for everything" (15 Sep 2026).
+///
+/// 🔴 It is a word again, and it does not move. Abel, 2 Nov 2026: "make the
+/// thing think instead of the pill pushing up and down" -- the dot grew and
+/// shrank under the words coming. This is the word "Thinking" with light
+/// passing over it, fixed in size, and tapping it opens what the server took
+/// the message to mean (his reference: Grok).
 struct ThinkingIndicator: View {
+    /// What the server read the request as, once it has said.
+    var thought: String?
+
+    @State private var sweep: CGFloat = -0.4
+    @State private var opened = false
+
     var body: some View {
-        BreathingDot(size: 10)
+        Button { opened = true } label: {
+            ZStack {
+                Text("Thinking")
+                    .foregroundStyle(.secondary.opacity(0.55))
+                Text("Thinking")
+                    .foregroundStyle(.primary)
+                    .mask {
+                        GeometryReader { proxy in
+                            LinearGradient(
+                                colors: [.clear, .white, .clear],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: proxy.size.width * 0.5)
+                            .offset(x: proxy.size.width * sweep)
+                        }
+                    }
+            }
+            .font(.body)
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { sweep = 1.0 }
+        }
+        .sheet(isPresented: $opened) {
+            ThoughtSheet(thought: thought)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
+        .accessibilityLabel("Thinking")
+        .accessibilityHint("Shows what I'm working out")
+    }
+}
+
+/// What it is thinking, in the words the server reported -- nothing invented
+/// to fill the space. Before the server has said, it says so.
+private struct ThoughtSheet: View {
+    let thought: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Thinking")
+                .font(.headline)
+            if let thought, !thought.isEmpty {
+                Text("What I took you to mean")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(thought)
+                    .font(.body)
+            } else {
+                Text("Reading your message. This fills in as soon as I know what you're after.")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(24)
+    }
+}
+
+/// A video they sent, as the words in it, folded so a long speech is not a wall.
+private struct TranscriptBlock: View {
+    let text: String
+    @State private var open = false
+
+    var body: some View {
+        HStack {
+            Spacer(minLength: 44)
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { open.toggle() }
+                } label: {
+                    Label(open ? "Video transcript" : "Video transcript · tap to read", systemImage: "text.bubble")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(open ? nil : 3)
+                    .textSelection(.enabled)
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
     }
 }

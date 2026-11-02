@@ -28,6 +28,19 @@ struct PastedKey: Equatable {
 
     var maskedSecret: String { Self.masked(secret) }
 
+    /// Whose key it is. Higgsfield issues an id and a secret; ElevenLabs issues
+    /// one token that begins `sk_`, which is also what a sentence like "here is
+    /// my ElevenLabs key" says outright. (Abel, 2 Nov 2026: a pasted ElevenLabs
+    /// key was tried as half of a Higgsfield pair and refused.)
+    var provider: String {
+        guard id.isEmpty else { return "higgsfield" }
+        let said = preamble.lowercased()
+        return secret.hasPrefix("sk_") || said.contains("eleven") ? "elevenlabs" : "higgsfield"
+    }
+
+    /// What the provider is called to a person.
+    var providerName: String { provider == "elevenlabs" ? "ElevenLabs" : "Higgsfield" }
+
     /// Reads a message that might carry a key.
     ///
     /// Higgsfield issues a pair -- an id and a secret -- so both shapes are

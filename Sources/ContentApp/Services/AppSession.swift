@@ -1261,7 +1261,7 @@ extension AppSession {
     /// probe result could store a key that has never been tried, and the first
     /// anyone would know is a job failing at three in the morning.
     @discardableResult
-    func connectGenerator(keyID: String, keySecret: String) async -> Bool {
+    func connectGenerator(provider: String = "higgsfield", keyID: String, keySecret: String) async -> Bool {
         isWorking = true
         defer { isWorking = false }
 
@@ -1269,7 +1269,7 @@ extension AppSession {
             let _: ConnectedGenerator = try await client.functions.invoke(
                 "connect-generator",
                 options: FunctionInvokeOptions(body: [
-                    "provider": "higgsfield",
+                    "provider": provider,
                     "key_id": keyID,
                     "key_secret": keySecret,
                 ])

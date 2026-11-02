@@ -71,6 +71,9 @@ struct ChatListView: View {
     @State private var threads: [ChatThread]?
     @State private var showingSettings = false
     @State private var query = ""
+    /// The search field is open at the top of the list.
+    @State private var searching = false
+    @FocusState private var searchFocused: Bool
     /// Which side of the switch is showing, kept between launches.
     @AppStorage("chatListSide") private var side: Side = .chat
     private let startTip = ChatStartTip()
@@ -94,12 +97,38 @@ struct ChatListView: View {
 
     var body: some View {
         List {
-            Section {
-                Picker("Chat or Create", selection: $side) {
-                    Text("Chat").tag(Side.chat)
-                    Text("Create").tag(Side.create)
+            // Search lives at the top now, opened from the bar beside the
+            // settings gear. A solid field, not glass: over the rows it read as
+            // a smear (Abel, 2 Nov 2026: "it's not clean").
+            if searching {
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search", text: $query)
+                            .focused($searchFocused)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .submitLabel(.search)
+                        if !query.isEmpty {
+                            Button { query = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Clear search")
+                        }
+                    }
+                    .padding(.vertical, 4)
                 }
-                .pickerStyle(.segmented)
+            }
+
+            Section {
+                ModeSwitch(isCreate: Binding(
+                    get: { side == .create },
+                    set: { side = $0 ? .create : .chat }
+                ))
+                .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
             }
@@ -158,10 +187,11 @@ struct ChatListView: View {
                 }
             }
         }
-        // Claude's way: "New chat" floating above a Search pill. The button
-        // starts on whichever side is showing.
+        // Claude's way: "New chat" floating at the bottom. The button starts on
+        // whichever side is showing. Search is up in the bar.
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .trailing, spacing: 12) {
+            HStack {
+                Spacer()
                 NavigationLink(value: side == .create ? AppRoute.chatCreating : AppRoute.chat(nil)) {
                     Label(
                         side == .create ? "New creation" : "New chat",
@@ -175,27 +205,6 @@ struct ChatListView: View {
                 }
                 .buttonStyle(.plain)
                 .popoverTip(startTip, arrowEdge: .bottom)
-
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search", text: $query)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.search)
-                    if !query.isEmpty {
-                        Button { query = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clear search")
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 13)
-                .frame(maxWidth: .infinity)
-                .glassEffect(.regular, in: .capsule)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
@@ -203,10 +212,27 @@ struct ChatListView: View {
         .tabChrome(
             title: "Chat",
             trailing: AnyView(
-                Button { showingSettings = true } label: {
-                    Image(systemName: "slider.horizontal.3")
+                HStack(spacing: 16) {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            searching.toggle()
+                            if searching {
+                                searchFocused = true
+                            } else {
+                                query = ""
+                                searchFocused = false
+                            }
+                        }
+                    } label: {
+                        Image(systemName: searching ? "xmark" : "magnifyingglass")
+                    }
+                    .accessibilityLabel(searching ? "Close search" : "Search")
+
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .accessibilityLabel("Chat settings")
                 }
-                .accessibilityLabel("Chat settings")
             )
         )
         .sheet(isPresented: $showingSettings, onDismiss: {

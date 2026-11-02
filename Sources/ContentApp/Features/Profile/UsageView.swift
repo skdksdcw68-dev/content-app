@@ -17,8 +17,12 @@ struct UsageBreakdown: Decodable, Equatable, Sendable {
 
 /// The Usage screen. Netro, 19 Oct 2026: "The user must click Usage to see
 /// how their usage is running." The meter, when it fills up again, and what
-/// took the month -- chat, analytics, pictures, videos -- in the native list
-/// the rest of You is built from.
+/// took the month -- chat, analytics, pictures, videos.
+///
+/// Drawn the way Bevel draws its contributors card (Abel, 2 Nov 2026, from
+/// Mobbin: "I just want to use it as a usage screen"): the two big numbers on
+/// the page, then one soft rounded card of rows, each an icon, a name, a share
+/// in colour and a thin gradient bar.
 struct UsageView: View {
     @Environment(AppSession.self) private var session
     @State private var breakdown: UsageBreakdown?
@@ -26,61 +30,81 @@ struct UsageView: View {
 
     var body: some View {
         let standing = session.credits
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+        ScrollView {
+            VStack(spacing: 16) {
+                // The month, large: how much of it is gone, and how much is left.
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(standing.map { UsageFormat.percent($0.percentUsed) } ?? "…")
-                            .font(.system(size: 40, weight: .bold, design: .rounded))
+                            .font(.system(size: 34, weight: .semibold, design: .rounded))
                             .monospacedDigit()
                             .contentTransition(.numericText())
-                        Text("used")
-                            .font(.title3)
+                        Text("Used this month")
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                        if let name = standing?.name {
-                            Text(name)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.accent)
-                        }
                     }
-                    ProgressView(value: standing.map { $0.percentUsed / 100 } ?? 0)
-                        .tint(meterTint(standing))
-                    Text(subtitle(standing))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(standing.map { UsageFormat.percent($0.percentLeft) } ?? "…")
+                            .font(.system(size: 34, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                        Text(planLine(standing))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                .padding(.vertical, 8)
+                .padding(.horizontal, 4)
                 .accessibilityElement(children: .combine)
-            }
 
-            Section {
-                if let groups = breakdown?.groups, !groups.isEmpty {
-                    ForEach(groups) { group in
-                        UsageGroupRow(group: group)
-                    }
-                } else if loaded {
-                    Text("Nothing used yet this month.")
+                // What took it, each with its own bar, in one soft card.
+                VStack(alignment: .leading, spacing: 18) {
+                    Text("Where it went")
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(.secondary)
-                } else {
-                    ProgressView().frame(maxWidth: .infinity)
-                }
-            } header: {
-                Text("This month")
-            } footer: {
-                Text("Everything takes exactly what it costs: a chat reply a tiny share, a picture well under 1%, a video more. You see the share before you make anything.")
-            }
 
-            if (standing?.tier ?? 0) < 3 {
-                Section {
+                    if let groups = breakdown?.groups, !groups.isEmpty {
+                        ForEach(groups) { group in
+                            UsageGroupRow(group: group)
+                        }
+                    } else if loaded {
+                        Text("Nothing used yet this month.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    Color(.secondarySystemGroupedBackground),
+                    in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+                )
+
+                Text(subtitle(standing))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 4)
+
+                if (standing?.tier ?? 0) < 3 {
                     Button {
                         session.showingPaywall = true
                     } label: {
-                        Label((standing?.tier ?? 0) == 0 ? "Get a plan" : "Get more usage", systemImage: "arrow.up.circle")
+                        Text((standing?.tier ?? 0) == 0 ? "Get a plan" : "Get more usage")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(Color(.systemBackground))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 15)
+                            .background(Color.primary, in: Capsule())
                     }
+                    .buttonStyle(.plain)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("Usage")
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { await load() }
@@ -93,18 +117,15 @@ struct UsageView: View {
         loaded = true
     }
 
-    private func subtitle(_ standing: CreditsStanding?) -> String {
-        guard let standing else { return "Reading your month…" }
-        let left = "\(UsageFormat.percent(standing.percentLeft)) left"
-        guard let resets = standing.resets else { return left }
-        return "\(left) · fills up again on \(resets.formatted(.dateTime.month(.wide).day()))"
+    private func planLine(_ standing: CreditsStanding?) -> String {
+        guard let name = standing?.name, !name.isEmpty else { return "left" }
+        return "left on \(name)"
     }
 
-    private func meterTint(_ standing: CreditsStanding?) -> Color {
-        let used = standing?.percentUsed ?? 0
-        if used >= 90 { return .red }
-        if used >= 75 { return .orange }
-        return Theme.proGreen
+    private func subtitle(_ standing: CreditsStanding?) -> String {
+        guard let standing else { return "Reading your month…" }
+        guard let resets = standing.resets else { return "Everything takes exactly what it costs." }
+        return "Fills up again on \(resets.formatted(.dateTime.month(.wide).day())). Everything takes exactly what it costs, and you see the share before you make anything."
     }
 }
 
@@ -140,18 +161,34 @@ private struct UsageGroupRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                SettingsLabel(name, symbol: symbol)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 22)
+                Text(name)
+                    .font(.body.weight(.semibold))
                 Spacer(minLength: 8)
                 Text(UsageFormat.percent(group.percent))
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(.body.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(Color.indigo)
             }
-            ProgressView(value: min(1, group.percent / 100))
-                .tint(Theme.accent)
+            // A thin gradient bar: a track, and the share laid over it.
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.primary.opacity(0.07))
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [Color.pink.opacity(0.55), Color.indigo],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        ))
+                        .frame(width: max(6, proxy.size.width * min(1, group.percent / 100)))
+                }
+            }
+            .frame(height: 6)
         }
-        .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
 }

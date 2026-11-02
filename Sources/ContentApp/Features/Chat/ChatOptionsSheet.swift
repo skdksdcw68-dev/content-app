@@ -19,6 +19,7 @@ struct ChatOptionsSheet: View {
         case planMonth
         case ask(String)
         case attachPhoto
+        case attachVideo
         case connect(String)
         case reconnect(ProviderConnection)
         case refresh(ProviderConnection)
@@ -63,6 +64,9 @@ struct ChatOptionsSheet: View {
             VStack(spacing: 0) {
                 row(symbol: "paperclip", title: "Attach a photo",
                     detail: "Use it as a reference, or ask about it") { onPick(.attachPhoto) }
+                Divider().padding(.leading, 62)
+                row(symbol: "video.badge.waveform", title: "Attach a video",
+                    detail: "I listen to it and write out what's said") { onPick(.attachVideo) }
                 Divider().padding(.leading, 62)
                 row(symbol: "calendar", title: "Plan 30 days",
                     detail: "Writes and schedules a month at once") { onPick(.planMonth) }

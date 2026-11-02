@@ -130,6 +130,8 @@ targets:
         # The create flow's own picker (TikTok's: tabs, Select multiple,
         # numbered order) needs to read the library, not just add to it.
         NSPhotoLibraryUsageDescription: Autocast shows your photos and videos so you can pick what to edit and post.
+        # A voice note in the chat bar is recorded and turned into words.
+        NSMicrophoneUsageDescription: Autocast listens when you record a voice note, and turns it into words for your message.
         # Declares no non-exempt encryption. Without this TestFlight blocks
         # every build behind a manual export-compliance question.
         ITSAppUsesNonExemptEncryption: false

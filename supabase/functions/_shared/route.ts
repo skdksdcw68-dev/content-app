@@ -87,6 +87,9 @@ export interface Routed {
   /** A question to put to them instead of guessing, when the request cannot
    *  go on without a guess they would care about. Null otherwise. */
   ask: string | null;
+  /** Pictures from the conversation they want to SEE again ("send me the photo
+   *  you made"), by handle. Nothing is made; the picture is shown. */
+  show: string[];
 }
 
 /** One thing to make, as the person described it. */
@@ -224,7 +227,7 @@ export async function route(
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
-    '"about_credits":boolean,"depth":"short|full","ask":string|null,' +
+    '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],' +
     '"jobs":[{"media":"image|video|audio"|null,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
@@ -287,6 +290,12 @@ export async function route(
     "  settings: only what they asked for THIS entry. resolution like '1k','2k','4k','720p','1080p';",
     "    aspect_ratio like '9:16','16:9','1:1','4:5','3:4'; duration in seconds; quality 'low','medium' or",
     "    'high'. null for anything not asked.",
+    "    The PLACE a thing is for sets its shape even when no ratio is said: a YouTube thumbnail or a YouTube",
+    "    video is '16:9'; a TikTok, Reel, Short or Story is '9:16'; an Instagram feed post is '4:5'; a profile",
+    "    picture or logo is '1:1'. Do not leave aspect_ratio null for these, and do not repeat an earlier shape",
+    "    that was for somewhere else.",
+    "show: handles (P1, P2 ...) of pictures YOU made that they ask to be SENT or SHOWN again -- 'send me the",
+    "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
     "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
     "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
     "  question is chat, not make.",
@@ -350,6 +359,9 @@ export async function route(
       jobs,
       depth: parsed?.depth === "full" || ["insights", "explain", "research"].includes(intent) ? "full" : "short",
       ask: text(parsed?.ask)?.slice(0, 300) ?? null,
+      show: Array.isArray(parsed?.show)
+        ? parsed.show.map(String).filter((handle: string) => /^P\d{1,3}$/.test(handle)).slice(0, 8)
+        : [],
     };
   } catch {
     return fallback(message);
@@ -432,6 +444,6 @@ export function leftToUs(message: string): boolean {
 function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
-    subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null,
+    subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [],
   };
 }

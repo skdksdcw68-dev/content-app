@@ -12,6 +12,7 @@
  */
 
 import type { Adapter } from "./contract.ts";
+import { elevenlabsAdapter } from "./elevenlabs.ts";
 import { falAdapter } from "./fal.ts";
 import { higgsfieldRest } from "./higgsfield-rest.ts";
 import { mcpAdapter } from "./mcp.ts";
@@ -37,6 +38,8 @@ const ADAPTERS: Record<string, Adapter> = {
   // OpenAI's own Images API: GPT Image 2 without fal, and cheaper. The house
   // generator only -- nobody is offered it to connect (Netro, 19 Oct 2026).
   "openai:api_key": openaiAdapter,
+  // A pasted ElevenLabs key: the person's own voices, speech out.
+  "elevenlabs:api_key": elevenlabsAdapter,
 };
 
 export function adapterFor(providerSlug: string, authKind: string): Adapter {

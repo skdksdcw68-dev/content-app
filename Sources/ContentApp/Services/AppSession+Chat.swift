@@ -171,6 +171,8 @@ extension AppSession {
     enum ChatEvent {
         case step(TaskStep)
         case delta(String)
+        /// What the server took the message to mean, shown behind "Thinking".
+        case thought(String)
         case thread(UUID)
         /// Questions to answer, with the request and length they were asked
         /// for, so the answers can go straight on to a strategy.
@@ -378,6 +380,8 @@ extension AppSession {
             switch kind {
             case "delta":
                 if let value = event["v"] as? String { onEvent(.delta(value)) }
+            case "thought":
+                if let value = event["v"] as? String { onEvent(.thought(value)) }
             case "step":
                 if let detail = event["detail"] as? String {
                     let name = event["kind"] as? String ?? "reading"

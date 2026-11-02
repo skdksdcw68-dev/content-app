@@ -114,6 +114,10 @@ verify_jwt = true
 [functions.models]
 verify_jwt = true
 
+# Voice notes and the sound of a video, turned into words.
+[functions.transcribe]
+verify_jwt = true
+
 [functions.propose-plan]
 verify_jwt = true
 

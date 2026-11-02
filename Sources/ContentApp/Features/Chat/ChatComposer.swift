@@ -49,6 +49,13 @@ struct ChatComposer: View {
     /// does without tapping it.
     var footer: AnyView?
     var onRemoveAttachment: (UUID) -> Void = { _ in }
+    /// Videos waiting to go: their sound is being, or has been, turned into
+    /// words, and the words travel with the message.
+    var videos: [PendingVideo] = []
+    var onRemoveVideo: (UUID) -> Void = { _ in }
+    /// A voice note was recorded: the owner turns it into words and puts them
+    /// in the field. Nil hides the microphone (the generator's bar has none).
+    var onVoice: ((URL) async -> Void)?
     /// A Create video button beside the plus (Netro, 19 Oct 2026). Nil on the
     /// video page itself, where the whole screen already is that.
     var onCreateVideo: (() -> Void)?
@@ -60,9 +67,20 @@ struct ChatComposer: View {
     let onStop: () -> Void
 
     @FocusState private var isFocused: Bool
+    /// Lives on this side of the hosting boundary, like focus: a recording is
+    /// the bar's own business until it has words to hand over.
+    @State private var recorder = VoiceRecorder()
+    @State private var transcribing = false
+    @State private var micRefused = false
 
     private var hasRequest: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The microphone takes the send button's place while there is nothing to
+    /// send, the way every assistant's bar does.
+    private var showsMic: Bool {
+        onVoice != nil && footer == nil && !hasRequest && attachments.isEmpty && videos.isEmpty && !isWorking
     }
 
     /// A picture on its own is a message -- "here, do something with this" --
@@ -70,7 +88,9 @@ struct ChatComposer: View {
     /// sending then would send the message without it, and the person would
     /// think it had been seen.
     private var canSend: Bool {
-        (hasRequest || !attachments.isEmpty) && !isWorking && attachments.allSatisfy { $0.path != nil }
+        (hasRequest || !attachments.isEmpty || !videos.isEmpty) && !isWorking && !transcribing
+            && attachments.allSatisfy { $0.path != nil }
+            && videos.allSatisfy { $0.transcript != nil }
     }
 
     /// Wide as soon as the field is focused, not only once there is text.
@@ -100,30 +120,38 @@ struct ChatComposer: View {
     private var capsule: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let accessory { accessory }
-            if !attachments.isEmpty {
+            if !attachments.isEmpty || !videos.isEmpty {
                 pendingStrip
             }
 
             HStack(alignment: .bottom, spacing: onCreateVideo != nil && footer == nil ? 4 : 6) {
-                if footer == nil { plusButton }
-                if footer == nil, onCreateVideo != nil { createVideoButton }
+                if recorder.isRecording {
+                    recordingRow
+                } else {
+                    if footer == nil { plusButton }
+                    if footer == nil, onCreateVideo != nil { createVideoButton }
 
-                TextField(attachments.isEmpty ? placeholder : "Say what to do with it", text: $text, axis: .vertical)
-                    .font(.system(size: 16))
-                    .lineSpacing(3)
-                    // One line at rest, growing to six, then scrolling inside
-                    // itself. The buttons stay on the bottom edge while it grows.
-                    .lineLimit(1...6)
-                    // The placeholder stays on one line; it used to wrap to
-                    // two when the row was tight.
-                    .minimumScaleFactor(0.85)
-                    .focused($isFocused)
-                    .padding(.horizontal, footer == nil ? 4 : 8)
-                    .padding(.vertical, 7)
-                    .id(resetToken)
+                    TextField(
+                        transcribing ? "Listening…" : (attachments.isEmpty && videos.isEmpty ? placeholder : "Say what to do with it"),
+                        text: $text,
+                        axis: .vertical
+                    )
+                        .font(.system(size: 16))
+                        .lineSpacing(3)
+                        // One line at rest, growing to six, then scrolling inside
+                        // itself. The buttons stay on the bottom edge while it grows.
+                        .lineLimit(1...6)
+                        // The placeholder stays on one line; it used to wrap to
+                        // two when the row was tight.
+                        .minimumScaleFactor(0.85)
+                        .focused($isFocused)
+                        .padding(.horizontal, footer == nil ? 4 : 8)
+                        .padding(.vertical, 7)
+                        .id(resetToken)
 
-                if footer == nil, onSettings != nil { settingsButton }
-                if footer == nil { actionButton }
+                    if footer == nil, onSettings != nil { settingsButton }
+                    if showsMic { micButton } else if footer == nil { actionButton }
+                }
             }
 
             if let footer {
@@ -175,6 +203,42 @@ struct ChatComposer: View {
                             .offset(x: 5, y: -5)
                             .accessibilityLabel("Remove picture")
                         }
+                }
+                ForEach(videos) { video in
+                    ZStack {
+                        if let poster = video.poster {
+                            Image(uiImage: poster).resizable().scaledToFill()
+                        } else {
+                            Color.primary.opacity(0.12)
+                        }
+                        Color.black.opacity(video.transcript == nil ? 0.45 : 0.25)
+                        if video.transcript == nil {
+                            ProgressView().tint(.white)
+                        } else {
+                            Image(systemName: "text.bubble.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(alignment: .bottomLeading) {
+                        Text(String(format: "%d:%02d", video.seconds / 60, video.seconds % 60))
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 4)
+                            .padding(.bottom, 3)
+                    }
+                    .overlay(alignment: .topTrailing) {
+                        Button { onRemoveVideo(video.id) } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                                .font(.system(size: 18))
+                        }
+                        .offset(x: 5, y: -5)
+                        .accessibilityLabel("Remove video")
+                    }
                 }
             }
             .padding(.top, 6)
@@ -242,6 +306,71 @@ struct ChatComposer: View {
         .accessibilityLabel("Picture and video settings")
     }
 
+    /// Tap to start a voice note.
+    private var micButton: some View {
+        Button {
+            isFocused = false
+            Task {
+                if await recorder.start() == false { micRefused = true }
+            }
+        } label: {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(PressButtonStyle())
+        .disabled(transcribing)
+        .accessibilityLabel("Record a voice note")
+        .alert("Microphone is off", isPresented: $micRefused) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Turn it on for Autocast in Settings > Privacy > Microphone, then try again.")
+        }
+    }
+
+    /// While recording: the bar is a red dot, the time, and the two ways out.
+    private var recordingRow: some View {
+        HStack(spacing: 10) {
+            Button { recorder.cancel() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 32, height: 32)
+            }
+            .buttonStyle(PressButtonStyle())
+            .accessibilityLabel("Discard recording")
+
+            Circle().fill(.red).frame(width: 9, height: 9)
+            Text(recorder.clock)
+                .font(.system(size: 16, weight: .medium).monospacedDigit())
+            Text("Recording")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+
+            Button {
+                guard let file = recorder.stop() else { return }
+                transcribing = true
+                Task {
+                    await onVoice?(file)
+                    try? FileManager.default.removeItem(at: file)
+                    transcribing = false
+                }
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Theme.accent))
+            }
+            .buttonStyle(PressButtonStyle())
+            .accessibilityLabel("Finish recording")
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     /// Send, or -- while an answer is being written -- stop.
     private var actionButton: some View {
         Button {
@@ -284,6 +413,21 @@ struct PendingAttachment: Identifiable, Equatable {
 
     static func == (lhs: PendingAttachment, rhs: PendingAttachment) -> Bool {
         lhs.id == rhs.id && lhs.path == rhs.path
+    }
+}
+
+/// A video on its way into the conversation, as its words.
+///
+/// `transcript` is nil while the sound is pulled out, uploaded and listened to;
+/// Send waits for it, the same way it waits for a picture's upload.
+struct PendingVideo: Identifiable, Equatable {
+    let id = UUID()
+    let poster: UIImage?
+    let seconds: Int
+    var transcript: String?
+
+    static func == (lhs: PendingVideo, rhs: PendingVideo) -> Bool {
+        lhs.id == rhs.id && lhs.transcript == rhs.transcript
     }
 }
 

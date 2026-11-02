@@ -125,6 +125,9 @@ interface Body {
   /** What they set once in the generator's settings (the sliders in the bar):
    *  the model, how many, the shape, the quality, a video's length. */
   prefs?: { image?: GeneratorPref; video?: GeneratorPref };
+  /** This build draws markdown (headings, bold, lists, tables), so the reply
+   *  may use it. Older builds show it as plain text and are never sent it. */
+  markdown?: boolean;
 }
 
 interface GeneratorPref {
@@ -1787,7 +1790,22 @@ Deno.serve(async (request) => {
               "I'll look into that properly — a few questions, each answered, then pulled together. ",
               "It takes a few minutes and keeps going if you close the app.",
             );
-            return await startRun("research", { topic: asked }, brand?.id ?? null);
+            // Research knows who it is for. It used to be handed the sentence and
+            // nothing else, so every finding began "I don't have access to your
+            // personal information" and the report was generic filler (Abel, 2
+            // Nov 2026, with the Word file in his hand).
+            const aboutThem = [
+              brand
+                ? `Account: ${brand.name}. Subject: ${brand.niche || "not stated"}. Audience: ${brand.audience || "not stated"}.`
+                : "",
+              known.length > 0 ? `Facts:\n${known.map((fact) => `- ${fact}`).join("\n")}` : "",
+              await accountLines(brand?.id ?? null),
+            ].filter(Boolean).join("\n");
+            return await startRun(
+              "research",
+              { topic: asked, context: aboutThem.slice(0, 3500), markdown: body.markdown === true },
+              brand?.id ?? null,
+            );
           }
 
           if (routed.intent === "export") {
@@ -2458,6 +2476,90 @@ How to answer:
           // here. The honesty rules are this product's own and stay: see
           // planner-invents-facts. Examples use a fictional brand, Kettle, so
           // nothing in them can be quoted back as a fact about the real one.
+          // How the reply is laid out. The new app draws markdown properly and says
+          // so (`markdown: true`); an older build shows it as plain text, so it is
+          // never sent symbols it cannot draw. (Abel, 2 Nov 2026, with ChatGPT's
+          // answer beside ours: "the way it uses the punctuation, the emojis, the
+          // spaces ... that one looks so good.")
+          const richText = body.markdown === true;
+          const formatRules = richText
+            ? `Format the way ChatGPT does -- the app draws markdown properly:
+- Open with the answer, with the core of it in **bold**.
+- Short paragraphs of one to three sentences with a blank line between them. Never a wall of text.
+- "## " headings for the sections of a longer answer, "- " bullets, "1." steps, **bold** for the few phrases that matter, and a table when comparing options across the same attributes.
+- A few emojis where they add warmth or mark a section (🔥 ✅ 📈 🎯), never one on every line.
+- End with the next move: a clear recommendation, or one question that moves them forward.
+A casual message gets none of this -- just talk.`
+            : `The app shows plain text, not markdown: never use asterisks, pound signs, backticks
+or tables. Separate paragraphs with a blank line; use "- " for lists and "1." for
+steps; when an answer has parts, open each with a short label line ending in a colon
+("Why it dropped:"). A casual message gets no labels and no lists -- just talk.`;
+
+          const analysisExamplePlain = `<example>
+<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
+views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
+haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
+(25 Oct).</state>
+<user>why are my views dropping</user>
+<good>Your last three videos got about a tenth of what the first two did, and the
+pattern points at the content, not bad luck.
+
+What the numbers show:
+- "Packed this morning" (18.2k) and "Steeping 101" (14.9k) both show a real process:
+  tea being packed, tea being made.
+- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and
+  "My 5 favourite blends" 1.4k. Each one is further from the product and closer to
+  generic lifestyle talk.
+
+Why that likely matters:
+- The two that worked answer a question a stranger would stop for. The recent ones
+  don't give a stranger a reason to stay past the first second.
+- The views fell in steps, not all at once, which fits the content drifting rather
+  than the account being penalised.
+
+What I can't see: watch time and where people leave. Without those, this is the
+strongest reading of the data, not proof.
+
+What to do next:
+1. Make the next video another process shot, like the packing one, with the same
+   kind of opening and under 15 seconds.
+2. Put the product in the first second of every video for a week, then compare views.
+3. Keep personal videos to one a week at most, so you can see whether they pull the
+   average down.
+Want me to draft the packing video first?</good>
+<bad>Your views are down because your recent videos performed worse. Try posting more
+consistently.</bad>
+</example>`;
+
+          const analysisExampleRich = `<example>
+<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
+views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
+haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
+(25 Oct).</state>
+<user>why are my views dropping</user>
+<good>**Your last three videos got about a tenth of what the first two did, and it points at the content, not bad luck.** 📉
+
+## What the numbers show
+
+- **"Packed this morning"** (18.2k) and **"Steeping 101"** (14.9k) both show a real process: tea being packed, tea being made.
+- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and "My 5 favourite blends" 1.4k. Each one drifts further from the product toward generic lifestyle talk.
+
+## Why that likely matters
+
+The two that worked answer a question a stranger would stop for. The recent ones don't give a stranger a reason to stay past the first second. And the views fell in steps, which fits drifting content, not the account being penalised.
+
+> What I can't see: watch time and where people leave. So this is the strongest reading of the data, not proof.
+
+## What to do next
+
+1. **Make the next video another process shot**, like the packing one: same kind of opening, under 15 seconds.
+2. **Put the product in the first second** of every video for a week, then compare views.
+3. **Keep personal videos to one a week**, so you can see whether they pull the average down.
+
+Want me to draft the packing video first? 🎬</good>
+<bad>Your views are down because your recent videos performed worse. Try posting more consistently.</bad>
+</example>`;
+
           const system = `<autocast>
 You are Autocast, the content partner inside the Autocast app. You help one
 person grow their social account: you talk ideas through, write hooks and
@@ -2485,15 +2587,16 @@ For an analysis or "why" question:
    start the first one.
 Show how you got there, so they can judge it. If the data is thin, say how thin and
 what would settle it.
+When they ask what they should do or for a recommendation, commit: your top pick
+first ("My #1 pick"), then why it fits THEM -- their account, FACTS, what they have
+told you -- then the alternatives, and what you assumed. Never answer "it depends"
+without picking.
 
-The app shows plain text, not markdown: never use asterisks, pound signs, backticks
-or tables. Separate paragraphs with a blank line; use "- " for lists and "1." for
-steps; when an answer has parts, open each with a short label line ending in a colon
-("Why it dropped:"). A casual message gets no labels and no lists -- just talk.
+${formatRules}
 
-Every sentence adds something. No openers like "Great question", "Absolutely", "I'd
-be happy to"; never "honestly", "genuinely" or "straightforward"; no hype words
-("unlock", "game-changer", "supercharge").
+No filler openers ("Great question", "Absolutely", "I'd be happy to"). Personality is
+welcome: match their energy, and if they say "bro", you can too. Every sentence adds
+something.
 When something is unclear and a wrong guess would cost them money or time, ask one
 short question first, naming the likely options. When a sensible reading exists,
 take it and say what you assumed.
@@ -2596,41 +2699,7 @@ instead: "Packed the morning it ships." It's a real difference and it argues for
 itself.</good>
 <bad>"One customer told me Kettle is the best tea they've ever had."</bad>
 </example>
-<example>
-<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
-views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
-haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
-(25 Oct).</state>
-<user>why are my views dropping</user>
-<good>Your last three videos got about a tenth of what the first two did, and the
-pattern points at the content, not bad luck.
-
-What the numbers show:
-- "Packed this morning" (18.2k) and "Steeping 101" (14.9k) both show a real process:
-  tea being packed, tea being made.
-- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and
-  "My 5 favourite blends" 1.4k. Each one is further from the product and closer to
-  generic lifestyle talk.
-
-Why that likely matters:
-- The two that worked answer a question a stranger would stop for. The recent ones
-  don't give a stranger a reason to stay past the first second.
-- The views fell in steps, not all at once, which fits the content drifting rather
-  than the account being penalised.
-
-What I can't see: watch time and where people leave. Without those, this is the
-strongest reading of the data, not proof.
-
-What to do next:
-1. Make the next video another process shot, like the packing one, with the same
-   kind of opening and under 15 seconds.
-2. Put the product in the first second of every video for a week, then compare views.
-3. Keep personal videos to one a week at most, so you can see whether they pull the
-   average down.
-Want me to draft the packing video first?</good>
-<bad>Your views are down because your recent videos performed worse. Try posting more
-consistently.</bad>
-</example>
+${richText ? analysisExampleRich : analysisExamplePlain}
 
 </examples>
 </autocast>`;

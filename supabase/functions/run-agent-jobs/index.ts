@@ -244,6 +244,14 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
   const topic = String(run.input.topic ?? "");
   const questions = (run.input.questions ?? []) as string[];
   const findings = (run.input.findings ?? []) as Array<{ question: string; answer: string }>;
+  // Who it is for: their account, audience and what is known about them. Without
+  // it every answer said "I don't have access to your information".
+  const about = typeof run.input.context === "string" ? run.input.context.trim() : "";
+  const aboutBlock = about
+    ? `\n\nABOUT THE PERSON ASKING (use it; never say you lack their information when it is here):\n${about}`
+    : "";
+  // The new app draws markdown; an older one is given plain paragraphs.
+  const rich = run.input.markdown === true;
 
   if (run.step === "queued" || run.step === "planning") {
     const asked = await ask(
@@ -253,8 +261,9 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       "You plan research. Return JSON only: {\"title\":string,\"questions\":[string]}. " +
         "title: what the finished report is about, under eight words, no quotes, not phrased as a request. " +
         "Between three and five questions, each answerable on its own, together covering the topic. " +
+        "When ABOUT THE PERSON ASKING is given, plan the questions around them and never ask what it already says. " +
         "No preamble.",
-      `Topic: ${topic}`,
+      `Topic: ${topic}${aboutBlock}`,
     );
 
     const plan = safeParse(asked);
@@ -295,9 +304,11 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       admin,
       run,
       MODELS.chat,
-      "Answer in at most 120 words. Say plainly when you do not know something " +
-        "rather than filling the gap -- an invented fact here ends up in somebody's content.",
-      `${topic}\n\n${next}`,
+      "Answer in at most 140 words, for the person described in ABOUT THE PERSON ASKING when it is given: " +
+        "use it, and never ask them for what it already says. No greeting and no sign-off. " +
+        "Say plainly when you do not know something rather than filling the gap -- an invented fact here " +
+        "ends up in somebody's content.",
+      `${topic}${aboutBlock}\n\n${next}`,
     );
 
     const grown = [...findings, { question: next, answer }];
@@ -326,9 +337,16 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       admin,
       run,
       MODELS.deep,
-      "Write the findings as something a person can act on. Short paragraphs, no headings, " +
-        "no hype. Name what is still unknown rather than papering over it.",
-      `Topic: ${topic}\n\n${body}`,
+      rich
+        ? "Write the report for the person in ABOUT THE PERSON ASKING, in markdown, the way a sharp analyst would. " +
+          "First a one-line answer in **bold**. Then these sections, with ## headings: Summary (three to five bullets); " +
+          "Recommendation (commit to one clear pick and say why it fits THEM, using what is known about them); " +
+          "What the research found (short paragraphs, and a table when comparing options); Next steps (a numbered " +
+          "list of concrete steps); Still unknown (what you could not establish). Short paragraphs, a few fitting " +
+          "emojis, no hype, and no invented facts or numbers."
+        : "Write the findings as something a person can act on. Short paragraphs, no headings, " +
+          "no hype. Name what is still unknown rather than papering over it.",
+      `Topic: ${topic}${aboutBlock}\n\n${body}`,
     );
 
     // The report is an artefact, not just prose in a message: something that
@@ -612,7 +630,14 @@ function documentFrom(source: { kind: string; title: string; body: Record<string
       subtitle: `Research · ${date}`,
       sections: [
         { heading: "Summary", paragraphs: paragraphs(String(body.summary ?? "")) },
-        ...findings.map((f) => ({ heading: f.question, paragraphs: paragraphs(f.answer) })),
+        // Each question is a heading under one "Findings", not a Heading 1 of
+        // its own: a report of five questions was five equal chapters.
+        ...(findings.length > 0
+          ? [{
+            heading: "Findings",
+            paragraphs: findings.flatMap((f) => [`## ${f.question}`, ...paragraphs(tidy(f.answer))]),
+          }]
+          : []),
       ],
     };
   }
@@ -668,11 +693,18 @@ function documentFrom(source: { kind: string; title: string; body: Record<string
   };
 }
 
+/** A body of text as paragraphs. The markdown is kept, not stripped: the
+ *  exporter reads it into headings, lists, bold and tables. */
 function paragraphs(text: string): string[] {
   return text
     .split(/\n{2,}/)
-    .map((p) => p.replace(/^#+\s*/gm, "").replace(/\*\*/g, "").trim())
+    .map((p) => p.trim())
     .filter(Boolean);
+}
+
+/** A model's greeting is not part of a finding. */
+function tidy(text: string): string {
+  return text.replace(/^\s*(hey|hi|hello)[!,.]?\s+/i, "").trim();
 }
 
 function slug(title: string): string {

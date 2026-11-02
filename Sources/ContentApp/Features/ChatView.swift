@@ -287,19 +287,7 @@ struct ChatView: View {
                     } else {
                     LazyVStack(alignment: .leading, spacing: 24) {
                         ForEach(shownTurns) { turn in
-                            turnView(turn)
-                            .id(turn.id)
-                                // Fade only. A new turn sliding up while the scroll
-                                // view is also animating to it, with the composer
-                                // re-measuring underneath, is three animations on
-                                // one send -- the message appears, gets carried
-                                // off, and comes back.
-                                .transition(.opacity)
-                                .onGeometryChange(for: CGFloat.self) { geometry in
-                                    geometry.frame(in: .named(Self.conversationSpace)).minY
-                                } action: { top in
-                                    if turn.id == pinned { pinnedTop = top }
-                                }
+                            turnRow(turn)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -864,6 +852,29 @@ struct ChatView: View {
             }
         }
         return shown
+    }
+
+    /// One turn in the conversation, measured while it is the pinned message.
+    /// Its own function: written inline in `conversation`, the closure below
+    /// was more than the compiler would type-check in that expression.
+    private func turnRow(_ turn: ChatMessage) -> some View {
+        let id = turn.id
+        return turnView(turn)
+            .id(id)
+            // Fade only. A new turn sliding up while the scroll view is also
+            // animating to it, with the composer re-measuring underneath, is
+            // three animations on one send -- the message appears, gets
+            // carried off, and comes back.
+            .transition(.opacity)
+            .onGeometryChange(for: CGFloat.self) { (geometry: GeometryProxy) -> CGFloat in
+                geometry.frame(in: .named(Self.conversationSpace)).minY
+            } action: { (top: CGFloat) in
+                notePinnedTop(top, of: id)
+            }
+    }
+
+    private func notePinnedTop(_ top: CGFloat, of id: ChatMessage.ID) {
+        if id == pinned { pinnedTop = top }
     }
 
     private func turnView(_ turn: ChatMessage) -> ChatTurnView {

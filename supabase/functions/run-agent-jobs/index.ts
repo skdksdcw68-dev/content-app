@@ -38,13 +38,54 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 
-/** Small, because each run may spend most of a minute thinking. Whatever is not
- *  taken this tick is taken next tick; the queue is durable. */
-const BATCH = 2;
+/** What one round takes. Its runs go side by side, so a round lasts as long as
+ *  its slowest run, not the sum: ten pictures of one request were ten minutes
+ *  one after another. Whatever is not taken this tick is taken next tick; the
+ *  queue is durable. */
+const BATCH = 5;
 
 /** Stop starting new rounds after this long. A single step can take a minute,
  *  and the function must be done well inside the platform's wall clock. */
-const ROUND_BUDGET_MS = 40_000;
+const ROUND_BUDGET_MS = 60_000;
+
+/** A run due again within this long is waited for here, inside the budget,
+ *  instead of being left for the next minute's tick. A picture that took 40
+ *  seconds to make took 90 to arrive: it was made, then sat until the clock
+ *  came round (Abel, 1 Nov 2026: "it doesn't give you a fast response"). */
+const STAY_FOR_MS = 20_000;
+
+/** The run, if its next step is due this moment and nobody holds it. */
+async function dueNow(admin: Admin, id: string): Promise<Run | null> {
+  const now = new Date().toISOString();
+  const { data } = await admin
+    .from("agent_runs")
+    .select("id, user_id, thread_id, brand_id, kind, step, input, attempts")
+    .eq("id", id)
+    .in("status", ["queued", "running"])
+    .lte("run_after", now)
+    .lt("attempts", 6)
+    .or(`lease_until.is.null,lease_until.lt.${now}`)
+    .limit(1);
+  return ((data ?? [])[0] as Run | undefined) ?? null;
+}
+
+/** How long until the soonest of these runs is due again, when that is soon
+ *  enough to wait for. Null when nothing is, or the budget would be spent. */
+async function dueSoon(admin: Admin, ids: string[], elapsed: number): Promise<number | null> {
+  if (ids.length === 0) return null;
+  const { data } = await admin
+    .from("agent_runs")
+    .select("run_after")
+    .in("id", ids)
+    .in("status", ["queued", "running"])
+    .order("run_after", { ascending: true })
+    .limit(1);
+  const next = (data ?? [])[0]?.run_after;
+  if (typeof next !== "string") return null;
+  // At least a second: a run another worker holds is not due to this one.
+  const wait = Math.max(1_000, Date.parse(next) - Date.now());
+  return wait <= STAY_FOR_MS && elapsed + wait < ROUND_BUDGET_MS ? wait : null;
+}
 
 type Admin = ReturnType<typeof createClient>;
 
@@ -84,12 +125,28 @@ Deno.serve(async (request) => {
   }
 
   const runs = (due ?? []) as Run[];
-  if (runs.length === 0) break;
+  if (runs.length === 0) {
+    // Nothing due this second. If something this tick moved on is due again
+    // very soon -- a picture waiting to be fetched -- wait for it here.
+    const wait = await dueSoon(admin, Object.keys(results), Date.now() - startedAt);
+    if (wait === null) break;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    continue;
+  }
   advanced += runs.length;
 
-  for (const run of runs) {
+  await Promise.all(runs.map(async (first) => {
+    // Each run carries on by itself the moment its next step is due, without
+    // waiting for the others of its round: a set of pictures is saved as each
+    // one is ready, not when the slowest is (Abel, 2 Nov 2026: "it sends them
+    // all when all of them are done ... this makes the user so impatient").
+    let next: Run | null = first;
+    while (next !== null) {
+    const run: Run = next;
+    next = null;
     try {
       results[run.id] = await advance(admin, run);
+      if (Date.now() - startedAt < ROUND_BUDGET_MS) next = await dueNow(admin, run.id);
     } catch (thrown) {
       console.error("run", run.id, thrown);
       const detail = thrown instanceof Error ? thrown.message : "step failed";
@@ -123,7 +180,8 @@ Deno.serve(async (request) => {
         results[run.id] = "retrying";
       }
     }
-  }
+    }
+  }));
 
   if (Date.now() - startedAt > ROUND_BUDGET_MS) break;
   }
@@ -695,9 +753,11 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
     // One of several pictures asked for at once (agent-chat `startBatch`).
     // Each is its own job, and told so: asked for "4 different images", a
     // model draws one picture split into four.
-    const batch = run.input.batch as { index?: number; of?: number } | undefined;
-    const ofSet = batch?.of && batch.of > 1
-      ? `\n\nOne single picture -- not a grid, a collage or a split frame. It is one of ${batch.of} made from this ` +
+    // `vary` is false for a picture the person described on its own ("the third
+    // in watercolour"): it is made as described, not nudged toward a new direction.
+    const batch = run.input.batch as { index?: number; of?: number; vary?: boolean } | undefined;
+    const ofSet = batch?.of && batch.of > 1 && batch.vary !== false && what === "image"
+      ?`\n\nOne single picture -- not a grid, a collage or a split frame. It is one of ${batch.of} made from this ` +
         `request, so take your own direction (number ${Number(batch.index ?? 0) + 1}): vary the details, colours and composition.`
       : "";
 
@@ -763,7 +823,11 @@ async function generateStep(admin: Admin, run: Run): Promise<string> {
       p_step: "waiting",
       // Said about THEIR thing, not about the machinery.
       p_detail: `Making ${String(run.input.prompt ?? `the ${what}`).slice(0, 60)} with ${routed.modelLabel}`,
-      p_after: what === "image" ? "10 seconds" : what === "audio" ? "20 seconds" : "30 seconds",
+      // A provider that handed the result back in the same call has nothing
+      // to wait for: fetched now, not after a pause and the next tick.
+      p_after: routed.submitted.state === "done"
+        ? "0 seconds"
+        : what === "image" ? "10 seconds" : what === "audio" ? "20 seconds" : "30 seconds",
     });
     return "waiting";
   }

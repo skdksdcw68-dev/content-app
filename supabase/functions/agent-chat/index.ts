@@ -24,7 +24,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { leftToUs, missingForPlan, MODELS, route, vagueSubject } from "../_shared/route.ts";
+import { leftToUs, missingForPlan, MODELS, route, type RoutedJob, vagueSubject } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
@@ -329,8 +329,33 @@ Deno.serve(async (request) => {
 
     const stream = new ReadableStream({
       async start(controller) {
-        const send = (event: Record<string, unknown>) =>
-          controller.enqueue(new TextEncoder().encode(sse(event)));
+        // The phone may leave mid-reply: the app swiped away, another app opened.
+        // Nothing here stops for that. What is written is stored, so the reply is
+        // whole when they come back (Abel, 2 Nov 2026: "it says there is an error
+        // in red ... when I open the chat again, the message was sent and replied").
+        let gone = false;
+        const send = (event: Record<string, unknown>) => {
+          if (gone) return;
+          try {
+            controller.enqueue(new TextEncoder().encode(sse(event)));
+          } catch {
+            gone = true;
+          }
+        };
+        const closeStream = () => {
+          try {
+            controller.close();
+          } catch {
+            // Already closed by the phone leaving.
+          }
+        };
+        // Held open until the work is stored, whether or not anyone is listening.
+        let release = () => {};
+        (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil?.(
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+        );
 
         /** Everything the assistant said this turn, kept so it can be stored
          *  once the stream ends. Storing per delta would be one write per
@@ -360,7 +385,7 @@ Deno.serve(async (request) => {
 
         const finish = () => {
           send({ t: "done" });
-          controller.close();
+          closeStream();
         };
 
         /**
@@ -451,9 +476,18 @@ Deno.serve(async (request) => {
          * Every charge is taken before any run starts: half a set started and
          * then refused for the plan is worse than none.
          */
-        const startBatch = async (count: number, input: Record<string, unknown>, announce: string) => {
+        const startBatch = (count: number, input: Record<string, unknown>, announce: string) =>
+          startJobs(Array.from({ length: count }, () => input), announce);
+
+        /**
+         * Things asked for together, each its own run with its OWN input: the
+         * pictures of one request may differ in size, style and model, and a
+         * video may be among them. Charged and refunded one by one.
+         */
+        const startJobs = async (inputs: Array<Record<string, unknown>>, announce: string) => {
+          const count = inputs.length;
           const charges: Array<Charge | null> = [];
-          for (let i = 0; i < count; i++) {
+          for (const input of inputs) {
             try {
               charges.push(await chargeForGeneration(admin, auth.user!.id, input));
             } catch (thrown) {
@@ -470,28 +504,42 @@ Deno.serve(async (request) => {
           }
           speak(announce);
 
+          // Pictures made together are drawn together, one grid under one line.
+          // A video or a track in the mix is its own message.
+          const together = inputs.every((input) => input.capability === "image_generation");
           const batch = crypto.randomUUID();
           const ids: string[] = [];
           for (const [index, charge] of charges.entries()) {
+            const input = inputs[index];
+            // Pictures asked for in the same words are told to take their own
+            // direction, so ten cars are not one car ten times; one described
+            // differently is made as described.
+            const vary = inputs.some((other, at) => at !== index && other.prompt === input.prompt);
             const { data: runId, error } = await admin.rpc("start_agent_run", {
               p_user: auth.user!.id,
               p_thread: threadId,
               p_kind: "generate",
               p_input: {
                 ...input,
-                batch: { id: batch, index, of: count },
+                ...(together && count > 1 ? { batch: { id: batch, index, of: count, vary } } : {}),
                 ...(charge ? { credit_ref: charge.ref, credits: charge.credits } : {}),
               },
               p_brand: null,
               p_model: MODELS.chat,
             });
             if (error || !runId) {
+              // Said, not skipped: until 0089 the thread's one-live-run rule
+              // refused every picture after the first, and nothing showed it.
+              console.error("a picture of the set did not start", { index, of: count, error: error?.message });
               if (charge) await refundCredits(admin, auth.user!.id, charge.ref);
               continue;
             }
             ids.push(runId as string);
           }
           if (ids.length === 0) throw new Error("the runs did not start");
+          if (ids.length < count) {
+            speak(`Only ${ids.length} of the ${count} could start; the others were not charged.`);
+          }
 
           send({ t: "run", id: ids[0], kind: "generate", ids });
           kickWorker();
@@ -666,6 +714,8 @@ Deno.serve(async (request) => {
           model: string | null;
           settings: Record<string, unknown>;
           references: string[];
+          /** The plan that was waiting on its subject, entry by entry. */
+          jobs: RoutedJob[];
         } | null> => {
           if (!threadId) return null;
           const { data } = await admin
@@ -682,6 +732,7 @@ Deno.serve(async (request) => {
             model: typeof hint.model === "string" ? hint.model : null,
             settings: (hint.settings as Record<string, unknown>) ?? {},
             references: Array.isArray(hint.references) ? (hint.references as string[]) : [],
+            jobs: Array.isArray(hint.jobs) ? (hint.jobs as RoutedJob[]) : [],
           };
         };
 
@@ -785,6 +836,89 @@ Deno.serve(async (request) => {
           const { data } = await asUser.rpc("thread_artifacts", { p_thread: threadId });
           return ((data ?? []) as Array<{ id: string; kind: string }>)
             .filter((row) => ["image", "video", "audio", "document", "package"].includes(row.kind));
+        };
+
+        /**
+         * Every picture in this conversation -- what they sent and what was made
+         * -- under handles the router can answer with ("edit the second one" ->
+         * P2). The router used to read six messages of words; it never saw that
+         * a picture existed, so "turn them into a video" had nothing to point at.
+         * (Abel, 1 Nov 2026: "it should remember what picture they sent it in
+         * the same chat ... and what it replied with.")
+         *
+         * Handles last for this one request. `refs` turns a handle into what
+         * `resolveReferences` reads: `artifact:<id>` or an upload path.
+         */
+        const conversationPictures = async (): Promise<{
+          lines: string;
+          refs: Record<string, string>;
+          prompts: Record<string, string>;
+        }> => {
+          const found: Array<{ ref: string; about: string; prompt: string }> = [];
+
+          if (threadId) {
+            const { data } = await asUser
+              .from("messages")
+              .select("role, text, render_hint")
+              .eq("thread_id", threadId)
+              .order("seq", { ascending: false })
+              .limit(80);
+            const rows = ((data ?? []) as Array<{ role: string; text: string | null; render_hint: Record<string, unknown> | null }>)
+              .reverse();
+
+            const ids = rows.flatMap((row) =>
+              row.role === "assistant" && row.render_hint?.kind === "artifact" &&
+                row.render_hint.artifact_kind === "image" && typeof row.render_hint.artifact_id === "string"
+                ? [row.render_hint.artifact_id as string]
+                : []
+            );
+            const { data: made } = ids.length > 0
+              ? await asUser.from("artifacts").select("id, body").in("id", ids)
+              : { data: [] };
+            const prompts = new Map(
+              ((made ?? []) as Array<{ id: string; body: Record<string, unknown> | null }>)
+                .map((row) => [row.id, typeof row.body?.prompt === "string" ? row.body.prompt : ""]),
+            );
+
+            for (const row of rows) {
+              const hint = row.render_hint;
+              if (row.role === "user" && hint?.kind === "attachments" && Array.isArray(hint.paths)) {
+                const words = (row.text ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+                // This turn's own pictures are added below, once.
+                for (const path of hint.paths.map(String)) {
+                  if (attachments.includes(path)) continue;
+                  found.push({ ref: path, about: `they sent a picture${words ? `, with the words: "${words}"` : ""}`, prompt: "" });
+                }
+              } else if (
+                row.role === "assistant" && hint?.kind === "artifact" && hint.artifact_kind === "image" &&
+                typeof hint.artifact_id === "string"
+              ) {
+                const prompt = prompts.get(hint.artifact_id) ?? "";
+                const size = hint.width && hint.height ? `, ${hint.width}x${hint.height}` : "";
+                const together = Number(hint.batch_of) > 1 ? `, one of ${hint.batch_of} made together` : "";
+                found.push({
+                  ref: `artifact:${hint.artifact_id}`,
+                  about: `you made${prompt ? `: "${prompt.replace(/\s+/g, " ").slice(0, 120)}"` : ""}${size}${together}`,
+                  prompt,
+                });
+              }
+            }
+          }
+
+          for (const path of attachments) {
+            found.push({ ref: path, about: "they sent it with this message", prompt: "" });
+          }
+
+          const kept = found.slice(-16);
+          const refs: Record<string, string> = {};
+          const prompts: Record<string, string> = {};
+          const lines = kept.map((item, index) => {
+            const handle = `P${index + 1}`;
+            refs[handle] = item.ref;
+            prompts[handle] = item.prompt;
+            return `${handle} (${item.about})`;
+          });
+          return { lines: lines.join("\n"), refs, prompts };
         };
 
         /** Artefacts in this conversation, newest first -- what "it" means. */
@@ -990,6 +1124,10 @@ Deno.serve(async (request) => {
           settings: Record<string, unknown>;
           references: string[];
           sourceArtifactId?: string | null;
+          /** Given, the job is not started: it is priced, its model chosen, and
+           *  what would be started is put here -- for the caller to start
+           *  together with others (`makeJobs`). Never a card. */
+          collect?: Array<{ input: Record<string, unknown>; announce: string; label: string }>;
           only?: string[];
           settled?: boolean;
           unmatched?: boolean;
@@ -1025,10 +1163,12 @@ Deno.serve(async (request) => {
 
           const pool = oneEach(await candidatesFor(admin, auth.user!.id, job.capability));
           const door = pool.find((c) => c.authKind !== "api_key") ?? pool[0];
-          if (pool.length > 0) {
+          if (pool.length > 0 && !job.collect) {
             send({ t: "step", kind: "reading", detail: `Checking prices for ${job.prompt}` });
           }
+          const balanceStarted = Date.now();
           const balance = door ? await balanceFor(admin, door.connectionId) : null;
+          console.log("produce: balance", { ms: Date.now() - balanceStarted, models: pool.length });
 
           const intentFor = {
             aspectRatio: aspect,
@@ -1052,7 +1192,23 @@ Deno.serve(async (request) => {
             only: job.only,
             balance,
           };
-          let choices = await choicesFor(admin, auth.user!.id, job.capability, intentFor);
+          // A model already chosen -- set once in the generator's settings -- is
+          // the only one worth pricing. Every other model is a round trip to its
+          // provider for a quote, and that was most of the thirteen seconds
+          // between "Generate 5 random images" and "Making 5 pictures" (usage
+          // log, 2 Nov 2026). If it cannot be used, everything is priced as before.
+          const preferred = !job.only && typeof pref?.model === "string" && pref.model ? [pref.model] : undefined;
+          const pricingStarted = Date.now();
+          let choices = await choicesFor(
+            admin,
+            auth.user!.id,
+            job.capability,
+            preferred ? { ...intentFor, only: preferred } : intentFor,
+          );
+          if (preferred && !choices.options.some((option) => option.affordable !== false)) {
+            choices = await choicesFor(admin, auth.user!.id, job.capability, intentFor);
+          }
+          console.log("produce: priced", { ms: Date.now() - pricingStarted, models: choices.options.length, preferred: !!preferred });
 
           // Nothing found, but something is signed in: ask it again before
           // saying no. The first real sign-in lost its model list to a failed
@@ -1110,7 +1266,7 @@ Deno.serve(async (request) => {
           // starts -- the way Grok makes a picture. What it used is said under
           // the result. A photo video keeps its one Make it: its plan is the
           // brief, not a model, and it is the dearest thing made here.
-          const startNow = !(job.capability === "video_generation" &&
+          const startNow = !!job.collect || !(job.capability === "video_generation" &&
             (job.brief?.kind === "photo" || (!job.brief && !job.named && !job.sourceArtifactId)));
           if (startNow) {
             let chosen: (typeof choices.options)[number] | undefined;
@@ -1129,6 +1285,14 @@ Deno.serve(async (request) => {
               }
             }
             if (!namedButOut) chosen ??= affordable.find((o) => o.externalId === preselect) ?? affordable[0];
+
+            // Several things asked for together: nothing is started, and
+            // nothing is half-started either.
+            if (!chosen && job.collect) {
+              speak(`Nothing you can afford right now can make ${nounsFor(job.capability)} like that${credits ? ` -- you have ${credits}` : ""}.`);
+              await remember();
+              return finish();
+            }
 
             // Nothing they can afford: the card below says why, with the money.
             if (chosen) {
@@ -1158,7 +1322,7 @@ Deno.serve(async (request) => {
                 : 1;
               const [references, remix] = await Promise.all([
                 resolveReferences(job.references),
-                job.capability === "image_generation" && !job.sourceArtifactId
+                job.capability === "image_generation" && !job.sourceArtifactId && !job.collect
                   ? remixIdeas(job.prompt, (model, usage) =>
                     recordUsage(admin, { userId: auth.user!.id, brandId: job.brandId, kind: "remix_ideas", model, usage }))
                   : Promise.resolve([] as string[]),
@@ -1180,6 +1344,10 @@ Deno.serve(async (request) => {
               const announce = job.sourceArtifactId
                 ? `${lead}Animating it with ${chosen.label}.`
                 : `${lead}Making ${count > 1 ? `${count} pictures of ` : ""}${what} with ${chosen.label}.`;
+              if (job.collect) {
+                job.collect.push({ input, announce, label: chosen.label });
+                return;
+              }
               if (count > 1) return await startBatch(count, input, announce);
               return await startRun("generate", input, null, announce);
             }
@@ -1535,10 +1703,13 @@ Deno.serve(async (request) => {
           // openings") made the agent look like it was checking up on
           // somebody before answering "hi". Steps are for work a person would
           // want to watch: making something, pricing it, researching.
-          const [pending, awaiting] = await Promise.all([lastOffer(), lastAwaiting()]);
+          // What the router sees: twenty messages, not six, at six hundred
+          // characters, not three; and every picture in the conversation under a
+          // handle. It used to read a few lines of words and none of the pictures.
+          const [pending, awaiting, pics] = await Promise.all([lastOffer(), lastAwaiting(), conversationPictures()]);
           const context = [
-            ...history.slice(0, -1).slice(-6).map((turn) =>
-              `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 300)}`
+            ...history.slice(0, -1).slice(-20).map((turn) =>
+              `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 600)}`
             ),
             ...(pending
               ? [`(Autocast then offered ${nounFor(pending.capability)} models for: "${pending.request}")`]
@@ -1550,9 +1721,10 @@ Deno.serve(async (request) => {
           // The account state is read alongside, not after: it is only needed
           // for a plain reply, but waiting for the router before starting it
           // put seconds in front of the first word.
-          const [routed, brandRead, recentRead, baseState] = await Promise.all([
-            route(asked, OPENAI_KEY, context, (model, usage) =>
-              recordUsage(admin, { userId: auth.user!.id, brandId: brandWanted ?? null, kind: "chat_route", model, usage })),
+          const routeUsage = (model: string, usage: { prompt_tokens?: number; completion_tokens?: number } | null) =>
+            recordUsage(admin, { userId: auth.user!.id, brandId: brandWanted ?? null, kind: "chat_route", model, usage });
+          const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
+            route(asked, OPENAI_KEY, context, routeUsage, pics.lines),
             brandWanted
               ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
               : asUser.from("brands").select("id, name, niche, audience")
@@ -1560,6 +1732,26 @@ Deno.serve(async (request) => {
             asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
             describeState(false),
           ]);
+          // Anything that makes something is read again by the better model: it
+          // plans several things, each its own, and reads the pictures. The small
+          // one made "3 images in a row" one picture of a row, and wrote a long
+          // invented prompt for "turn it into a video". The extra seconds come
+          // before a job that takes a minute.
+          let routed = firstRead;
+          if (routed.intent === "make" || routed.intent === "revise") {
+            routed = await route(asked, OPENAI_KEY, context, routeUsage, pics.lines, "deep");
+          }
+          // It cannot go on without a guess they would care about: it asks, and
+          // the answer is read with the question in front of it. (Abel, 2 Nov
+          // 2026: "if there is something AI didn't understand, it should ask.")
+          if (routed.ask && (routed.intent === "make" || routed.intent === "revise")) {
+            speak(routed.ask);
+            await remember();
+            return finish();
+          }
+          // "Edit the second one" changes a picture that exists, which is making.
+          if (routed.intent === "revise" && routed.jobs.length > 0) routed = { ...routed, intent: "make" };
+
           const brand = brandRead.data as { id: string; name: string; niche: string; audience: string } | null;
 
           const { data: facts } = brand
@@ -1788,7 +1980,7 @@ How to answer:
             } catch (thrown) {
               console.error("insights writer", thrown instanceof Error ? thrown.message : thrown);
               send({ t: "error", message: "The writer could not be reached just now." });
-              controller.close();
+              closeStream();
               return;
             }
 
@@ -1885,6 +2077,147 @@ How to answer:
                 recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "video_brief", model, usage }),
             });
           };
+
+          // One thing or several, each described on its own -- including what is
+          // made from pictures already in this conversation. The router wrote the
+          // list: five entries for "five images", the first square and the second
+          // wide. Nothing below knows what a person may ask for; it carries out
+          // what each entry says and starts them together. (Abel, 1 Nov 2026:
+          // "nothing should be hard-coded or limited ... for the first image use
+          // this size, for the second image use this size.")
+          const resumedJobs = awaiting && awaiting.jobs.length > 0 && routed.jobs.length <= 1 ? awaiting.jobs : null;
+          if (
+            (routed.intent === "make" && (routed.jobs.length > 1 || routed.jobs.some((job) => job.uses.length > 0))) ||
+            resumedJobs
+          ) {
+            let plan: RoutedJob[] = routed.jobs;
+            if (resumedJobs) {
+              // The answer to "what should they be of?" fills the entries that had no subject.
+              const answer = routed.jobs[0]?.subject ?? (!vagueSubject(asked) ? asked.trim() : null);
+              plan = resumedJobs.map((job) => ({ ...job, subject: job.subject ?? answer }));
+            }
+
+            const earlierKind = awaiting?.capability ?? pending?.capability;
+            const saidMedia = plan.find((job) => job.media)?.media ?? null;
+            const kindOf = (job: RoutedJob): Capability => {
+              const media = job.media ?? saidMedia;
+              if (media === "image") return "image_generation";
+              if (media === "audio") return "audio_generation";
+              if (media === "video") return "video_generation";
+              return ["image_generation", "video_generation", "audio_generation"].includes(earlierKind ?? "")
+                ? earlierKind as Capability
+                : "video_generation";
+            };
+            const motion = "brought to life with subtle, natural motion";
+            const wordsFor = (job: RoutedJob): string => {
+              const capability = kindOf(job);
+              const first = pics.prompts[job.uses[0] ?? ""] ?? "";
+              if (capability === "video_generation" && job.uses.length > 0) {
+                // A video from pictures: the prompt is the motion, never a phrase
+                // pointing back at the picture.
+                return `${job.subject ? `${job.subject}, ` : ""}${first || "this picture"}, ${motion}`;
+              }
+              if (job.subject) return job.subject;
+              if (leftToUs(asked)) return "a striking, beautifully composed scene";
+              return job.uses.length > 0 ? "a new take on the picture, the same subject and style" : "";
+            };
+
+            // Nothing to make yet for one of them: one question, and the plan waits with it.
+            if (plan.some((job) => !wordsFor(job))) {
+              const capability = kindOf(plan[0]);
+              speak(
+                plan.length > 1
+                  ? `Sure — what should the ${plan.length} ${nounsFor(capability)} be of?`
+                  : `Sure — what should the ${nounFor(capability)} be of?`,
+              );
+              await remember({ kind: "awaiting_subject", capability, model: null, settings: {}, references: [], jobs: plan });
+              return finish();
+            }
+
+            type Collected = { input: Record<string, unknown>; announce: string; label: string };
+            const done: Collected[] = [];
+            const asNamed = new Map<string, Collected>();
+            const unfound: string[] = [];
+            for (const job of plan) {
+              const capability = kindOf(job);
+              const used = job.uses.map((handle) => pics.refs[handle]).filter(Boolean);
+              // A video starts from its first picture and, where there are two or
+              // more, ends on the last. One picture made here is animated as the
+              // Animate button does, by the provider's own handle.
+              let sourceArtifactId: string | null = null;
+              let references: string[] = used;
+              if (capability === "video_generation" && used.length > 0) {
+                if (used.length === 1 && used[0].startsWith("artifact:")) {
+                  sourceArtifactId = used[0].slice("artifact:".length);
+                  references = [];
+                } else {
+                  references = [used[0], used[used.length - 1]].filter((ref, at, all) => all.indexOf(ref) === at);
+                }
+              }
+
+              // Entries that differ only in what they are OF share one pricing and one
+              // model choice, instead of asking the providers once for each.
+              const signature = JSON.stringify([capability, job.model, job.settings, references, sourceArtifactId]);
+              const same = asNamed.get(signature);
+              if (same) {
+                done.push({ ...same, input: { ...same.input, prompt: wordsFor(job) } });
+                continue;
+              }
+
+              let only: string[] | undefined;
+              let settled = false;
+              let unmatched = false;
+              if (job.model) {
+                const pool = oneEach(await candidatesFor(admin, auth.user!.id, capability)).map((c) => ({ ...c, capability }));
+                const matches = matchModels(pool, job.model);
+                if (matches.length === 0) {
+                  unmatched = true;
+                  unfound.push(job.model);
+                } else {
+                  const exact = settlesOn(matches.slice(0, 4), job.model) ?? matches[0];
+                  only = [exact.externalId];
+                  settled = true;
+                }
+              }
+
+              const bag: Collected[] = [];
+              await produce({
+                capability,
+                prompt: wordsFor(job),
+                settings: { ...job.settings },
+                references,
+                sourceArtifactId,
+                only,
+                settled,
+                unmatched,
+                named: job.model,
+                brandId: brand?.id ?? null,
+                brief: null,
+                collect: bag,
+              });
+              // It said why and ended the reply: nothing was charged or started.
+              if (bag.length === 0) return;
+              asNamed.set(signature, bag[0]);
+              done.push(bag[0]);
+            }
+
+            if (done.length === 1) return await startRun("generate", done[0].input, null, done[0].announce);
+
+            const count = (capability: string, one: string, many: string) => {
+              const n = done.filter((d) => d.input.capability === capability).length;
+              return n === 0 ? null : n === 1 ? one : `${n} ${many}`;
+            };
+            const parts = [
+              count("image_generation", "a picture", "pictures"),
+              count("video_generation", "a video", "videos"),
+              count("audio_generation", "a track", "tracks"),
+            ].filter(Boolean);
+            const labels = [...new Set(done.map((d) => d.label))];
+            const lead = unfound.length > 0
+              ? `I couldn't find ${unfound.map((name) => `"${name}"`).join(", ")}, so I'm using what I have. `
+              : "";
+            return await startJobs(done.map((d) => d.input), `${lead}Making ${parts.join(" and ")} with ${labels.join(" and ")}.`);
+          }
 
           if (routed.intent === "make" || routed.model || continuing) {
             const namedModel = routed.model ?? awaiting?.model ?? null;
@@ -2105,7 +2438,7 @@ How to answer:
                 // sentence promising questions that are no longer there.
                 await remember({ kind: "questions", questions, request: asked, days });
                 send({ t: "done" });
-                controller.close();
+                closeStream();
                 return;
               }
             }
@@ -2132,20 +2465,40 @@ captions, research, plan campaigns, and make images and videos with the
 generator they connected. You are talking to the owner of the account.
 
 <how_you_talk>
-Warm, sharp and direct -- like a friend who happens to be very good at content.
-Treat them as a capable adult.
-Answer what they actually asked, first, in plain words. For simple things one to
-three sentences is right; offer to go further when it would help.
-Match their energy. A casual message gets a casual reply with no headings, no
-bullet points and no bold -- just talk. Use a short list only when the answer
-really is several separate things.
-Every sentence adds something. No openers like "Great question", "Absolutely",
-"I'd be happy to"; never "honestly", "genuinely" or "straightforward"; no hype
-words ("unlock", "game-changer", "supercharge").
-When a request is ambiguous, take the most sensible reading and act on it. Ask at
-most one short question, and only when the answer would change what you do.
-When something went wrong, say what happened and what to do about it, with the
-real numbers from STATE -- never a vague brush-off.
+Warm, sharp and direct -- like a friend who is very good at content and at reading
+numbers. Treat them as a capable adult.
+
+Length follows the question, the way ChatGPT and Grok do:
+- A greeting, a thanks, or a quick yes/no: a sentence or two.
+- Anything that asks why, how, what to do, or to look at, compare, explain, analyze
+  or plan -- and every question about their account, posts, numbers or results --
+  gets a complete answer: usually 150 to 400 words, more when the data supports it.
+  Never answer an analysis question in two or three lines. They are using an
+  analytics tool; the reasoning is the value.
+
+For an analysis or "why" question:
+1. The answer first, in a sentence.
+2. Why: each reason tied to evidence from ACCOUNT or STATE -- the actual numbers,
+   post titles and dates. Say what you can't see, plainly.
+3. What it means for them.
+4. What to do next: two to four concrete steps in order of impact, and offer to
+   start the first one.
+Show how you got there, so they can judge it. If the data is thin, say how thin and
+what would settle it.
+
+The app shows plain text, not markdown: never use asterisks, pound signs, backticks
+or tables. Separate paragraphs with a blank line; use "- " for lists and "1." for
+steps; when an answer has parts, open each with a short label line ending in a colon
+("Why it dropped:"). A casual message gets no labels and no lists -- just talk.
+
+Every sentence adds something. No openers like "Great question", "Absolutely", "I'd
+be happy to"; never "honestly", "genuinely" or "straightforward"; no hype words
+("unlock", "game-changer", "supercharge").
+When something is unclear and a wrong guess would cost them money or time, ask one
+short question first, naming the likely options. When a sensible reading exists,
+take it and say what you assumed.
+When something went wrong, say what happened and what to do about it, with the real
+numbers from STATE -- never a vague brush-off.
 Do not narrate your own process ("I checked your account", "let me look"). Just
 answer.
 </how_you_talk>
@@ -2243,6 +2596,42 @@ instead: "Packed the morning it ships." It's a real difference and it argues for
 itself.</good>
 <bad>"One customer told me Kettle is the best tea they've ever had."</bad>
 </example>
+<example>
+<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
+views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
+haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
+(25 Oct).</state>
+<user>why are my views dropping</user>
+<good>Your last three videos got about a tenth of what the first two did, and the
+pattern points at the content, not bad luck.
+
+What the numbers show:
+- "Packed this morning" (18.2k) and "Steeping 101" (14.9k) both show a real process:
+  tea being packed, tea being made.
+- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and
+  "My 5 favourite blends" 1.4k. Each one is further from the product and closer to
+  generic lifestyle talk.
+
+Why that likely matters:
+- The two that worked answer a question a stranger would stop for. The recent ones
+  don't give a stranger a reason to stay past the first second.
+- The views fell in steps, not all at once, which fits the content drifting rather
+  than the account being penalised.
+
+What I can't see: watch time and where people leave. Without those, this is the
+strongest reading of the data, not proof.
+
+What to do next:
+1. Make the next video another process shot, like the packing one, with the same
+   kind of opening and under 15 seconds.
+2. Put the product in the first second of every video for a week, then compare views.
+3. Keep personal videos to one a week at most, so you can see whether they pull the
+   average down.
+Want me to draft the packing video first?</good>
+<bad>Your views are down because your recent videos performed worse. Try posting more
+consistently.</bad>
+</example>
+
 </examples>
 </autocast>`;
 
@@ -2350,6 +2739,13 @@ itself.</good>
             return { role: turn.role, content: [{ type: "text", text: `${turn.content}${note}` }, ...pictures, ...earlier] };
           });
 
+          // A question about their numbers or a "why" gets the better model and a
+          // full answer; "hi" does not.
+          const replyModel = routed.depth === "full" ? MODELS.deep : MODEL;
+          const depthNote = routed.depth === "full"
+            ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
+            : "";
+
           const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -2357,13 +2753,13 @@ itself.</good>
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: MODEL,
+              model: replyModel,
               stream: true,
               // The last chunk then carries the real token counts.
               stream_options: { include_usage: true },
               messages: [
                 { role: "system", content: system },
-                { role: "system", content: [brief, factBlock, stateBlock, avoid, ownerBlock].filter(Boolean).join("\n\n") },
+                { role: "system", content: [brief, factBlock, stateBlock, avoid, ownerBlock, depthNote].filter(Boolean).join("\n\n") },
                 ...turns,
               ],
             }),
@@ -2373,7 +2769,7 @@ itself.</good>
             const detail = await upstream.text().catch(() => "");
             console.error("openai", upstream.status, detail.slice(0, 400));
             send({ t: "error", message: "The writer could not be reached just now." });
-            controller.close();
+            closeStream();
             return;
           }
 
@@ -2421,9 +2817,9 @@ itself.</good>
             send({ t: "error", message: "Nothing came back. Try rephrasing." });
           }
           await remember();
-          await recordUsage(admin, { userId: auth.user.id, brandId: brand?.id ?? null, kind: "chat_reply", model: MODEL, usage });
+          await recordUsage(admin, { userId: auth.user.id, brandId: brand?.id ?? null, kind: "chat_reply", model: replyModel, usage });
           send({ t: "done" });
-          controller.close();
+          closeStream();
         } catch (thrown) {
           console.error("agent-chat", thrown);
           // Whatever was written before it broke is still kept. A person who
@@ -2431,7 +2827,9 @@ itself.</good>
           // find that half, not a gap -- and the client already showed it.
           await remember();
           send({ t: "error", message: "Something went wrong writing that." });
-          controller.close();
+          closeStream();
+        } finally {
+          release();
         }
       },
     });

@@ -2588,9 +2588,17 @@ For an analysis or "why" question:
 Show how you got there, so they can judge it. If the data is thin, say how thin and
 what would settle it.
 When they ask what they should do or for a recommendation, commit: your top pick
-first ("My #1 pick"), then why it fits THEM -- their account, FACTS, what they have
-told you -- then the alternatives, and what you assumed. Never answer "it depends"
-without picking.
+first ("My #1 pick"), then why it is a strong pick -- how it grows an audience and
+how it earns -- then the alternatives, and what you assumed. Never answer "it
+depends" without picking.
+
+Their brand is background, not a boundary. People use Autocast to find ANY kind of
+content that can win followers and earn money, and they may want a different niche
+from the account they set up. Do not tie answers to the brand, and do not keep
+repeating its name or niche. Use it only when the question is about it, or to help
+rank options when it really matters -- and say so when you do. For "what content
+should I make", think across niches, formats and platforms, with real reasons each
+could grow and earn.
 
 ${formatRules}
 
@@ -2705,7 +2713,7 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
 </autocast>`;
 
           const brief = brand
-            ? `Account: ${brand.name}. Subject: ${brand.niche || "not stated"}. Audience: ${brand.audience || "not stated"}.`
+            ? `Background, not a boundary: the account they set up is ${brand.name} (${brand.niche || "niche not stated"}, audience: ${brand.audience || "not stated"}). They may want content outside it.`
             : "The account has not described itself yet.";
 
           const factBlock = known.length > 0

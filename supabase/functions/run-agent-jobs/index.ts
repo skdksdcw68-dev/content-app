@@ -248,7 +248,8 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
   // it every answer said "I don't have access to your information".
   const about = typeof run.input.context === "string" ? run.input.context.trim() : "";
   const aboutBlock = about
-    ? `\n\nABOUT THE PERSON ASKING (use it; never say you lack their information when it is here):\n${about}`
+    ? `\n\nBACKGROUND ON THE PERSON ASKING (their account and what is known about them -- background, not a limit: ` +
+      `they may want content outside it. Use it only where it matters, and never say you lack their information when it is here):\n${about}`
     : "";
   // The new app draws markdown; an older one is given plain paragraphs.
   const rich = run.input.markdown === true;
@@ -261,7 +262,7 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       "You plan research. Return JSON only: {\"title\":string,\"questions\":[string]}. " +
         "title: what the finished report is about, under eight words, no quotes, not phrased as a request. " +
         "Between three and five questions, each answerable on its own, together covering the topic. " +
-        "When ABOUT THE PERSON ASKING is given, plan the questions around them and never ask what it already says. " +
+        "Plan the questions around the topic itself; use BACKGROUND ON THE PERSON ASKING only where it matters, and never ask what it already says. " +
         "No preamble.",
       `Topic: ${topic}${aboutBlock}`,
     );
@@ -304,8 +305,8 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       admin,
       run,
       MODELS.chat,
-      "Answer in at most 140 words, for the person described in ABOUT THE PERSON ASKING when it is given: " +
-        "use it, and never ask them for what it already says. No greeting and no sign-off. " +
+      "Answer in at most 140 words. BACKGROUND ON THE PERSON ASKING is context, not a limit: use it only where it " +
+        "matters, and never ask them for what it already says. No greeting and no sign-off. " +
         "Say plainly when you do not know something rather than filling the gap -- an invented fact here " +
         "ends up in somebody's content.",
       `${topic}${aboutBlock}\n\n${next}`,
@@ -338,9 +339,10 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
       run,
       MODELS.deep,
       rich
-        ? "Write the report for the person in ABOUT THE PERSON ASKING, in markdown, the way a sharp analyst would. " +
+        ? "Write the report in markdown, the way a sharp analyst would. " +
           "First a one-line answer in **bold**. Then these sections, with ## headings: Summary (three to five bullets); " +
-          "Recommendation (commit to one clear pick and say why it fits THEM, using what is known about them); " +
+          "Recommendation (commit to one clear pick and say why it is strong -- how it grows an audience and earns -- " +
+          "mentioning the person's own account only where it really matters, since they may want content outside it); " +
           "What the research found (short paragraphs, and a table when comparing options); Next steps (a numbered " +
           "list of concrete steps); Still unknown (what you could not establish). Short paragraphs, a few fitting " +
           "emojis, no hype, and no invented facts or numbers."

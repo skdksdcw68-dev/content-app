@@ -9,6 +9,8 @@ import SwiftUI
 /// other side as quiet text.
 struct ModeSwitch: View {
     @Binding var isCreate: Bool
+    /// The bar gives it a fixed width; a list row passes nil and it fills the row.
+    var width: CGFloat? = 190
 
     var body: some View {
         HStack(spacing: 0) {
@@ -18,7 +20,7 @@ struct ModeSwitch: View {
         // No track behind the two words: only the chosen side is drawn (Abel,
         // 2 Nov 2026: "the thing on the background that covers everything --
         // can we remove it?").
-        .frame(width: 190)
+        .frame(width: width)
         .accessibilityElement(children: .contain)
     }
 

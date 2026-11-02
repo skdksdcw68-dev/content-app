@@ -124,10 +124,12 @@ struct ChatListView: View {
             }
 
             Section {
+                // The full width of the row: a fixed width in a row that also
+                // asks for all of it made the switch shrink and fight itself.
                 ModeSwitch(isCreate: Binding(
                     get: { side == .create },
                     set: { side = $0 ? .create : .chat }
-                ))
+                ), width: nil)
                 .frame(maxWidth: .infinity)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
@@ -209,8 +211,10 @@ struct ChatListView: View {
             .padding(.horizontal, 20)
             .padding(.bottom, 10)
         }
+        // The title on the same line as search and settings (Abel, 2 Nov 2026).
         .tabChrome(
             title: "Chat",
+            mode: .inlineLarge,
             trailing: AnyView(
                 HStack(spacing: 16) {
                     Button {

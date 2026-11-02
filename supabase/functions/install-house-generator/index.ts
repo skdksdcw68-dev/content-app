@@ -66,7 +66,10 @@ Deno.serve(async (request) => {
   try {
     const body = (await request.json().catch(() => ({}))) as Body;
     const slug = (body.provider ?? "").trim();
-    const key = (body.key ?? "").trim();
+    // "env:NAME" takes the key from this function's own secrets, so a key that
+    // is already set there never has to be read out and pasted again.
+    const given = (body.key ?? "").trim();
+    const key = given.startsWith("env:") ? (Deno.env.get(given.slice(4)) ?? "").trim() : given;
     const userId = (body.user_id ?? "").trim();
     if (!slug || !key || !userId) throw new PublicError("provider, key and user_id are all required.");
 

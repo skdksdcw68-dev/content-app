@@ -97,7 +97,12 @@ async function voicesOf(auth: Authorization): Promise<Voice[]> {
   const body = await jsonOf(response);
   if (status >= 400) throw fail(status, describeError(body, status));
   const list = Array.isArray(body?.voices) ? body.voices : [];
+  // Autocast's own account (the house key) speaks with the library's stock
+  // voices only: its clones and added voices are private, and everybody can
+  // reach this connection.
+  const house = auth.secret === Deno.env.get("ELEVENLABS_API_KEY");
   return list
+    .filter((voice: any) => !house || voice?.category === "premade")
     .filter((voice: any) => typeof voice?.voice_id === "string" && typeof voice?.name === "string")
     .slice(0, MAX_VOICES)
     .map((voice: any) => ({ id: voice.voice_id as string, name: voice.name as string }));
@@ -130,17 +135,17 @@ export async function probeElevenLabs(key: string): Promise<{ ok: boolean; detai
   }
 }
 
-function describeSpeech(voices: Voice[]): ModelDescriptor[] {
+function describeSpeech(voices: Voice[], house: boolean): ModelDescriptor[] {
   return [{
     capability: "voice_generation",
     external_id: ELEVENLABS_SPEECH_ID,
     label: "ElevenLabs voice",
     metadata: {
-      description: "Speech in your own ElevenLabs voices, any language.",
+      description: house ? "Speech in Autocast's voices, any language." : "Speech in your own ElevenLabs voices, any language.",
       cost: {
         unit: "allowance",
         amount: null,
-        basis: "from your ElevenLabs plan",
+        basis: house ? "included with Autocast" : "from your ElevenLabs plan",
         quoted: false,
       } satisfies Cost,
       constraints: {
@@ -168,7 +173,7 @@ export const elevenlabsAdapter: Adapter = {
     return {
       accountLabel: "ElevenLabs",
       externalAccountId: null,
-      models: describeSpeech(voices),
+      models: describeSpeech(voices, auth.secret === Deno.env.get("ELEVENLABS_API_KEY")),
     };
   },
 

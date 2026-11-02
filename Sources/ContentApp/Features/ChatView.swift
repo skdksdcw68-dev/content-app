@@ -563,7 +563,7 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         // The back arrow alone. It used to carry the word "Chat", which loaded
         // the left of the bar against the switch in the middle (Abel, 2 Nov 2026).
-        .navigationBarBackButtonDisplayMode(.minimal)
+        .minimalBackButton()
         // Pushed page, so the tab bar slides away with the push and back with
         // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
         .hidesTabBar()

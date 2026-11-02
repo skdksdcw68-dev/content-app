@@ -256,10 +256,11 @@ struct ChatView: View {
 
     private var showsWordmark: Bool { turns.isEmpty && draft.isEmpty && !restoring }
 
-    /// The conversation and its bar. The sheets and pickers are added in `body`:
-    /// one chain of this length is more than the compiler will type-check.
-    private var conversation: some View {
-        ScrollViewReader { proxy in
+    /// The scrolling page: its content, the greeting behind it, and the room
+    /// kept for the bar. Its own property because the whole conversation, as one
+    /// chain of modifiers, is more than the compiler will type-check.
+    @ViewBuilder
+    private func scroller(_ proxy: ScrollViewProxy) -> some View {
             ScrollView {
                 VStack(spacing: 0) {
                     // 🔴 Two different pages share this scroll view now. Chat
@@ -399,6 +400,23 @@ struct ChatView: View {
                     }
                     .animation(.easeOut(duration: 0.2), value: showsJump)
             }
+    }
+
+    /// The composer, laid over the conversation by UIKit.
+    private var composerOverlay: some View {
+        KeyboardAttachedBar(height: $barHeight, inputs: composerInputs) {
+            composerBar
+        }
+            // Full-bleed on purpose: if SwiftUI shrank this for the
+            // keyboard, the bar would be back to following SwiftUI's layout
+            // instead of UIKit's positioning.
+        .ignoresSafeArea()
+    }
+
+    /// The scrolling page with the composer over it.
+    private var conversationPage: some View {
+        ScrollViewReader { proxy in
+            scroller(proxy)
             // Dragging closes the keyboard. The tap that used to do it lived
             // on this ScrollView as a `simultaneousGesture` and could take a
             // touch meant for a bubble, a link or a button inside it; the
@@ -428,17 +446,17 @@ struct ChatView: View {
                     scrollToEnd(proxy, duration: 0.25)
                 }
             }
-            .overlay {
-                KeyboardAttachedBar(height: $barHeight, inputs: composerInputs) {
-                    composerBar
-                }
-                // Full-bleed on purpose: if SwiftUI shrank this for the
-                // keyboard, the bar would be back to following SwiftUI's layout
-                // instead of UIKit's positioning.
-                .ignoresSafeArea()
-            }
+            .overlay { composerOverlay }
         }
         .background(Theme.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
+    }
+
+    /// What the conversation does as things change: pictures attached, a mode
+    /// chosen, a thread opened. Split from the page and from the bar because the
+    /// whole thing as one chain of modifiers is more than the compiler will
+    /// type-check.
+    private var conversationLogic: some View {
+        conversationPage
         // The bar and the model picker need to know a picture is in play: the
         // models offered are the ones that can work from one, and a video's
         // shape is then the picture's own. And a picture attached while a
@@ -532,6 +550,11 @@ struct ChatView: View {
             guard startsInCreate, threadId == nil, creating == nil else { return }
             beginCreating(.image)
         }
+    }
+
+    /// The conversation and its bar. The sheets and pickers are added in `body`.
+    private var conversation: some View {
+        conversationLogic
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way
         // back is the system back button and swipe-back, because this is
@@ -859,6 +882,7 @@ struct ChatView: View {
     /// was more than the compiler would type-check in that expression.
     private func turnRow(_ turn: ChatMessage) -> some View {
         let id = turn.id
+        let space = Self.conversationSpace
         return turnView(turn)
             .id(id)
             // Fade only. A new turn sliding up while the scroll view is also
@@ -867,7 +891,7 @@ struct ChatView: View {
             // carried off, and comes back.
             .transition(.opacity)
             .onGeometryChange(for: CGFloat.self) { (geometry: GeometryProxy) -> CGFloat in
-                geometry.frame(in: .named(Self.conversationSpace)).minY
+                geometry.frame(in: .named(space)).minY
             } action: { (top: CGFloat) in
                 notePinnedTop(top, of: id)
             }

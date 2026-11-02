@@ -461,8 +461,10 @@ struct RunEvent: Decodable, Equatable {
         var status: String?
         var error: String?
         var artifactId: UUID?
+        /// The sites a research step read, as bare domains, for their logos.
+        var domains: [String]?
 
-        private enum CodingKeys: String, CodingKey { case step, detail, done, of, status, error, result }
+        private enum CodingKeys: String, CodingKey { case step, detail, done, of, status, error, result, domains }
         private enum ResultKeys: String, CodingKey { case artifactId = "artifact_id" }
 
         init(from decoder: Decoder) throws {
@@ -473,6 +475,7 @@ struct RunEvent: Decodable, Equatable {
             of = try? c.decodeIfPresent(Int.self, forKey: .of)
             status = try? c.decodeIfPresent(String.self, forKey: .status)
             error = try? c.decodeIfPresent(String.self, forKey: .error)
+            domains = try? c.decodeIfPresent([String].self, forKey: .domains)
             if let result = try? c.nestedContainer(keyedBy: ResultKeys.self, forKey: .result) {
                 artifactId = try? result.decodeIfPresent(UUID.self, forKey: .artifactId)
             }

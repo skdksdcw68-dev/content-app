@@ -550,6 +550,9 @@ struct ChatView: View {
         // pushed from the Chat tab like the email app's conversation.
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        // The back arrow alone. It used to carry the word "Chat", which loaded
+        // the left of the bar against the switch in the middle (Abel, 2 Nov 2026).
+        .navigationBarBackButtonDisplayMode(.minimal)
         // Pushed page, so the tab bar slides away with the push and back with
         // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
         .hidesTabBar()
@@ -578,6 +581,9 @@ struct ChatView: View {
                         )
                     )
                 }
+                // iOS 26 wraps a bar item in a glass bubble of its own; the
+                // switch is drawn without one.
+                .sharedBackgroundVisibility(.hidden)
             }
             // The shelf of everything made, one tap from where it is made
             // (Abel, 29 Sep 2026: no "Library" anywhere on the generator).
@@ -866,6 +872,9 @@ struct ChatView: View {
         if canRegenerate(id) {
             retry = { regenerate(id) }
         }
+        // Suggestions only while nothing has been said after them.
+        let spokenSince = turns.lastIndex(where: { $0.role == .user && !$0.isTap })
+            .map { later in turns.firstIndex(where: { $0.id == id }).map { later > $0 } ?? false } ?? false
         return ChatTurnView(
             turn: turn,
             onAnswer: { question, value in
@@ -911,6 +920,8 @@ struct ChatView: View {
                 rate(id, rating: rating, reason: reason)
             },
             onRegenerate: retry,
+            onRetryFailed: { retryFailed(id) },
+            showsSuggestions: !spokenSince,
             showsActionsTip: id == firstAnswerId
         )
     }
@@ -954,6 +965,22 @@ struct ChatView: View {
     }
 
     /// Asks the same question again for a different answer.
+    /// A reply that failed, asked for again with the same words. Looser than
+    /// `regenerate`: there is no answer worth rating, and the failed turn is
+    /// replaced whatever it was.
+    private func retryFailed(_ id: UUID) {
+        guard !isWorking,
+              let index = turns.firstIndex(where: { $0.id == id }),
+              index > 0, turns[index - 1].role == .user
+        else { return }
+        let asked = turns[index - 1].text
+        withAnimation(.easeOut(duration: 0.18)) {
+            turns.removeSubrange((index - 1)...index)
+        }
+        draft = asked
+        send()
+    }
+
     private func regenerate(_ id: UUID) {
         guard canRegenerate(id), let index = turns.firstIndex(where: { $0.id == id }) else { return }
         let asked = turns[index - 1].text
@@ -1185,8 +1212,6 @@ struct ChatView: View {
         var mine = ChatMessage.user(asked)
         mine.attachments = attached
         mine.isTap = action != nil || tap
-        if !mine.isTap { mine.delivery = .sent }
-        let mineId = mine.id
         // Only a typed send pins. A tap is never drawn, so it could never be
         // measured, and an unmeasured pin leaves a screen of runway under the
         // conversation; the reply to a tap is followed at the bottom instead.
@@ -1229,15 +1254,6 @@ struct ChatView: View {
                     for: turns, in: thread, action: action, attachments: attached, tap: tap && action == nil
                 ) { event in
                     guard turns.indices.contains(replyIndex) else { return }
-                    // The first thing back means the server has it; once words
-                    // are coming the marker has done its job.
-                    if let sentAt = turns.firstIndex(where: { $0.id == mineId }), turns[sentAt].delivery != nil {
-                        if case .delta = event {
-                            turns[sentAt].delivery = nil
-                        } else if turns[sentAt].delivery == .sent {
-                            turns[sentAt].delivery = .received
-                        }
-                    }
                     switch event {
                     case .step(let step):
                         // The one before it is finished the moment another

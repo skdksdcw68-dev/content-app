@@ -15,8 +15,9 @@ struct ModeSwitch: View {
             side("Chat", chosen: !isCreate) { isCreate = false }
             side("Create", chosen: isCreate) { isCreate = true }
         }
-        .padding(3)
-        .background(Color(.secondarySystemFill), in: Capsule())
+        // No track behind the two words: only the chosen side is drawn (Abel,
+        // 2 Nov 2026: "the thing on the background that covers everything --
+        // can we remove it?").
         .frame(width: 190)
         .accessibilityElement(children: .contain)
     }

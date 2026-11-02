@@ -35,6 +35,8 @@ struct RunCard: View {
     @State private var lastSeq = 0
     @State private var progress: (done: Int, of: Int)?
     @State private var outcome: Outcome?
+    /// The sites research has read so far, for their logos.
+    @State private var sites: [String] = []
 
     private enum Outcome { case succeeded, failed }
 
@@ -127,6 +129,13 @@ struct RunCard: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
+            // The sites it has read, the way ChatGPT shows them while it works
+            // (Abel, 2 Nov 2026: "it shows the logos when it's thinking").
+            if !sites.isEmpty {
+                SourceLogos(domains: sites)
+                    .transition(.opacity)
+            }
+
             if let progress, progress.of > 0 {
                 ProgressView(value: Double(progress.done), total: Double(progress.of))
                     .tint(Theme.accent)
@@ -135,6 +144,7 @@ struct RunCard: View {
         .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.2), value: steps.count)
+        .animation(.easeOut(duration: 0.2), value: sites.count)
     }
 
     /// Reads events after the last one drawn, until the run ends or the card
@@ -166,6 +176,9 @@ struct RunCard: View {
 
         if let done = payload.done, let of = payload.of {
             progress = (done, of)
+        }
+        for domain in payload.domains ?? [] where !sites.contains(domain) {
+            sites.append(domain)
         }
 
         switch event.type {

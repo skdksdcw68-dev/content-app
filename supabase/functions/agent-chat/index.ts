@@ -1758,7 +1758,13 @@ Deno.serve(async (request) => {
           // What it took the message to mean, for the sheet behind "Thinking"
           // (Abel, 2 Nov 2026, of Grok: tapping it shows what it is thinking).
           // The router's own one-line reading, not an invented monologue.
-          if (routed.reading && routed.reading !== asked.slice(0, 80)) send({ t: "thought", v: routed.reading });
+          // Only when it is worth thinking about -- an analysis, research, a plan --
+          // so a "hi" keeps the plain dot and is answered at once.
+          const needsThought = routed.depth === "full" ||
+            ["plan", "research", "insights", "explain"].includes(routed.intent);
+          if (needsThought && routed.reading && routed.reading !== asked.slice(0, 80)) {
+            send({ t: "thought", v: routed.reading });
+          }
 
           // "Show me some voices": a few ElevenLabs voices to HEAR, each with its
           // own sample, drawn as a card with a play button apiece. Listing

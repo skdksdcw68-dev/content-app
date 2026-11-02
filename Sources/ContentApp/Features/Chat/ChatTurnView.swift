@@ -30,6 +30,13 @@ struct ChatTurnView: View {
     var onRate: (String, String?) -> Void = { _, _ in }
     /// Ask again for a different answer. Nil when that is not possible here.
     var onRegenerate: (() -> Void)? = nil
+    /// The reply failed: ask again, with the same words.
+    var onRetryFailed: (() -> Void)? = nil
+    /// One-tap ideas under a picture belong to the moment it was made. Once
+    /// something else has been said they are stale, and are not drawn (Abel,
+    /// 2 Nov 2026: "once they sent another text, the recommendation should be
+    /// removed").
+    var showsSuggestions = true
     /// The first rated-able answer carries the one-time tip.
     var showsActionsTip = false
 
@@ -88,19 +95,7 @@ struct ChatTurnView: View {
                         TranscriptBlock(text: transcript)
                     }
                 }
-                if let delivery = turn.delivery {
-                    Label(
-                        delivery == .sent ? "Sent" : "Received",
-                        systemImage: delivery == .sent ? "checkmark" : "checkmark.circle.fill"
-                    )
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .labelStyle(.titleAndIcon)
-                    .transition(.opacity)
-                    .accessibilityLabel(delivery == .sent ? "Sent" : "Received by Autocast")
-                }
             }
-            .animation(.easeOut(duration: 0.2), value: turn.delivery)
 
         case .assistant:
             VStack(alignment: .leading, spacing: 12) {
@@ -114,9 +109,21 @@ struct ChatTurnView: View {
                         TaskTrail(steps: turn.steps)
                     }
                 } else if turn.failed {
-                    Label(turn.text, systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
+                    // No error in red, no reason. Whatever went wrong, what a
+                    // person can do about it is the same: try again (Abel,
+                    // 2 Nov 2026: "just tell them to retry, a retry button").
+                    Button {
+                        onRetryFailed?()
+                    } label: {
+                        Label("Try again", systemImage: "arrow.clockwise")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(Color.primary.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("That didn't go through")
                 } else {
                     // The steps are gone once the answer lands. They were
                     // there to show it was working; afterwards only the answer
@@ -236,7 +243,7 @@ struct ChatTurnView: View {
                     // What to say next, as Grok's rows under the answer: "↪ in
                     // winter colours". Once one is tapped the list settles on
                     // it -- the tap sent no bubble, so this is where it shows.
-                    if !turn.suggestions.isEmpty {
+                    if !turn.suggestions.isEmpty, showsSuggestions {
                         VStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(turn.suggestions.enumerated()), id: \.element) { index, suggestion in
                                 let picked = turn.suggestionPicked == suggestion
@@ -541,6 +548,18 @@ struct ThinkingIndicator: View {
     @State private var opened = false
 
     var body: some View {
+        // The breathing dot from the moment it is sent. It becomes the word
+        // "Thinking" only when the server says this one needs thinking -- an
+        // analysis, research, a plan -- never for a "hi" (Abel, 2 Nov 2026).
+        if thought == nil {
+            BreathingDot(size: 10)
+                .padding(.vertical, 4)
+        } else {
+            thinking
+        }
+    }
+
+    private var thinking: some View {
         Button { opened = true } label: {
             ZStack {
                 Text("Thinking")

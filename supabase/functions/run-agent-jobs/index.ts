@@ -301,16 +301,17 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
 
     // One question per tick. Slower than looping, and the reason is that a
     // tick which dies loses one answer rather than all of them.
-    const answer = await ask(
-      admin,
-      run,
-      MODELS.chat,
-      "Answer in at most 140 words. BACKGROUND ON THE PERSON ASKING is context, not a limit: use it only where it " +
-        "matters, and never ask them for what it already says. No greeting and no sign-off. " +
-        "Say plainly when you do not know something rather than filling the gap -- an invented fact here " +
-        "ends up in somebody's content.",
-      `${topic}${aboutBlock}\n\n${next}`,
-    );
+    const system = "Answer in at most 140 words. BACKGROUND ON THE PERSON ASKING is context, not a limit: use it only where it " +
+      "matters, and never ask them for what it already says. No greeting and no sign-off. " +
+      "Say plainly when you do not know something rather than filling the gap -- an invented fact here " +
+      "ends up in somebody's content.";
+    const prompt = `${topic}${aboutBlock}\n\n${next}`;
+
+    // Looked up on the web first, so there are real sources to show (Abel,
+    // 2 Nov 2026: "show the logos, the way ChatGPT shows"). If the search is
+    // unavailable the question is answered from what the model knows, as before.
+    const searched = await searchWeb(admin, run, system, prompt);
+    const answer = searched?.text || await ask(admin, run, MODELS.chat, system, prompt);
 
     const grown = [...findings, { question: next, answer }];
     await admin
@@ -321,7 +322,13 @@ async function researchStep(admin: Admin, run: Run): Promise<string> {
     await admin.rpc("append_agent_event", {
       p_run: run.id,
       p_type: "tool_end",
-      p_payload: { question: next, done: grown.length, of: questions.length },
+      p_payload: {
+        question: next,
+        done: grown.length,
+        of: questions.length,
+        // The sites it read, as bare domains, for the logos under the card.
+        ...(searched && searched.domains.length > 0 ? { domains: searched.domains } : {}),
+      },
     });
 
     await admin.rpc("advance_agent_run", {
@@ -1211,6 +1218,78 @@ async function ask(admin: Admin, run: Run, model: string, system: string, user: 
     usage: completion.usage,
   });
   return completion.choices?.[0]?.message?.content ?? "";
+}
+
+/**
+ * One question answered from the live web, with the sites it read.
+ *
+ * Returns null on any trouble -- no key, a refusal, a timeout, nothing back --
+ * and the caller falls back to answering without the web. The sites come from
+ * the answer's own citations, so they are only ever pages it actually used.
+ */
+async function searchWeb(
+  admin: Admin,
+  run: Run,
+  system: string,
+  user: string,
+): Promise<{ text: string; domains: string[] } | null> {
+  if (!OPENAI_KEY) return null;
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4.1",
+        tools: [{ type: "web_search_preview" }],
+        input: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+      }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    if (!response.ok) {
+      console.error("research search", response.status, (await response.text()).slice(0, 200));
+      return null;
+    }
+    const body = await response.json();
+
+    let text = "";
+    const domains: string[] = [];
+    for (const item of (body.output ?? []) as Array<Record<string, any>>) {
+      if (item.type !== "message") continue;
+      for (const part of (item.content ?? []) as Array<Record<string, any>>) {
+        if (part.type !== "output_text") continue;
+        text += String(part.text ?? "");
+        for (const note of (part.annotations ?? []) as Array<Record<string, any>>) {
+          if (note.type !== "url_citation" || typeof note.url !== "string") continue;
+          try {
+            const host = new URL(note.url).hostname.replace(/^www\./, "");
+            if (host && !domains.includes(host)) domains.push(host);
+          } catch {
+            // Not a URL: skipped.
+          }
+        }
+      }
+    }
+    text = text.replace(/\s*\(\[[^\]]*\]\([^)]*\)\)/g, "").trim();
+    if (!text) return null;
+
+    await recordUsage(admin, {
+      userId: run.user_id,
+      brandId: run.brand_id ?? null,
+      kind: "research",
+      model: body.model ?? "gpt-4.1",
+      usage: body.usage
+        ? { prompt_tokens: body.usage.input_tokens, completion_tokens: body.usage.output_tokens }
+        : null,
+    }).catch(() => {});
+
+    return { text, domains: domains.slice(0, 6) };
+  } catch (error) {
+    console.error("research search failed", error instanceof Error ? error.message : error);
+    return null;
+  }
 }
 
 /** Models are asked for JSON and sometimes wrap it in prose anyway. */

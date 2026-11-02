@@ -17,21 +17,19 @@ struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
 
     var isGeneration: Bool { kind == "generation" }
 
-    /// Anything that produced something, or was opened to. Both belong under
-    /// Generations, whichever way they started.
+    /// Anything that produced something, or was opened to. Both belong on the
+    /// Create side of the list, whichever way they started.
     var isMaking: Bool { isGeneration || media != nil }
 
     var displayTitle: String {
         title.isEmpty ? "New chat" : title
     }
 
-    /// The word on the row, and its glyph. What it made, when it made
-    /// something; "Generation" for a generator that has not yet; nothing for
-    /// a plain conversation.
+    /// The glyph for what it made, when it made something; "Generation" for a
+    /// generator that has not yet; nothing for a plain conversation.
     ///
     /// Abel, 29 Sep 2026: "after you generate with the chat, there is no
-    /// 'Video' or 'Generation' or 'Library' called or a badge." There was a
-    /// wand the size of a full stop.
+    /// 'Video' or 'Generation' or 'Library' called or a badge."
     var badge: (title: String, symbol: String)? {
         switch media {
         case "video": return ("Video", "play.rectangle.fill")
@@ -47,24 +45,17 @@ struct ChatThread: Identifiable, Decodable, Hashable, Sendable {
     }
 }
 
-/// The word that says what a conversation made: a small accent capsule.
-private struct ThreadBadge: View {
-    let title: String
-    let symbol: String
-
-    var body: some View {
-        Label(title, systemImage: symbol)
-            .font(.caption2.weight(.semibold))
-            .labelStyle(.titleAndIcon)
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Theme.accent.opacity(0.12), in: Capsule())
-            .fixedSize()
-    }
-}
-
-/// The Chat tab: a way into a new conversation, and the ones already had.
+/// The Chat tab: the Chat | Create switch, and the conversations had on each
+/// side.
+///
+/// Abel, 2 Nov 2026, against Grok's Ask | Imagine: "make two options, Chat and
+/// Creating ... on the chat bit, it's looking a bit messy." What was here: two
+/// promotional rows with captions, filter chips in a header, and three-line
+/// rows with a badge each. Now it is Claude's Chats list (Abel, after seeing it
+/// on Mobbin: "this one fits me perfectly") under Grok's Ask | Imagine switch:
+/// the switch (which is also the filter), a plain row per conversation -- its
+/// title and how long ago -- a glyph where something was made, one floating
+/// button to start, and a Search pill.
 ///
 /// Built on the email app's `AITabView` rather than invented. The conversation
 /// is PUSHED from here as an ordinary page -- not presented over the app as a
@@ -79,109 +70,71 @@ struct ChatListView: View {
     /// while it waits instead of an empty section.
     @State private var threads: [ChatThread]?
     @State private var showingSettings = false
-    @State private var filter: Filter = .all
+    @State private var query = ""
+    /// Which side of the switch is showing, kept between launches.
+    @AppStorage("chatListSide") private var side: Side = .chat
     private let startTip = ChatStartTip()
 
-    /// Which conversations are shown: everything, the ones that only talked,
-    /// or the ones that made things.
-    private enum Filter: String, CaseIterable, Identifiable {
-        case all, chats, generations
+    private enum Side: String, CaseIterable, Identifiable {
+        case chat, create
         var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .all:         "All"
-            case .chats:       "Chats"
-            case .generations: "Generations"
-            }
-        }
     }
 
+    /// The conversations on this side -- the ones that only talked, or the
+    /// ones that made things -- narrowed by what is typed in Search.
     private var shown: [ChatThread] {
         guard let threads else { return [] }
-        switch filter {
-        case .all:         return threads
-        case .chats:       return threads.filter { !$0.isMaking }
-        case .generations: return threads.filter { $0.isMaking }
+        let onThisSide = threads.filter { side == .create ? $0.isMaking : !$0.isMaking }
+        let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return onThisSide }
+        return onThisSide.filter {
+            $0.displayTitle.lowercased().contains(needle) || $0.preview.lowercased().contains(needle)
         }
     }
 
     var body: some View {
         List {
             Section {
-                NavigationLink(value: AppRoute.chat(nil)) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "bubble.left.and.text.bubble.right.fill")
-                            .font(.body)
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Talk to Autocast")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Plan, research and make. It keeps working when you close the app.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 3)
+                Picker("Chat or Create", selection: $side) {
+                    Text("Chat").tag(Side.chat)
+                    Text("Create").tag(Side.create)
                 }
-                .popoverTip(startTip, arrowEdge: .top)
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 2, leading: 16, bottom: 6, trailing: 16))
+            }
 
-                // Everything that was made, from every conversation, on one
-                // shelf. Named on the screen where the making starts.
-                NavigationLink(value: AppRoute.generated) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "square.grid.2x2.fill")
-                            .font(.body)
-                            .foregroundStyle(Theme.accent)
-                            .frame(width: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Library")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Every picture, video and sound you've made.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+            // Everything that was made, from every conversation, on one shelf.
+            if side == .create {
+                Section {
+                    NavigationLink(value: AppRoute.generated) {
+                        Label("Library", systemImage: "square.grid.2x2")
+                            .font(.body.weight(.medium))
                     }
-                    .padding(.vertical, 3)
+                } footer: {
+                    Text("Every picture, video and sound you've made.")
                 }
             }
 
-            if let threads {
-                if !threads.isEmpty {
+            if threads != nil {
+                if shown.isEmpty {
                     Section {
-                        if shown.isEmpty {
-                            Text(filter == .generations ? "Nothing made yet." : "No chats yet.")
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(shown) { thread in
+                        Text(!query.isEmpty
+                            ? "No matches."
+                            : side == .create
+                            ? "Nothing made yet. Tap New creation and describe a picture or a video."
+                            : "No chats yet. Tap New chat to start one.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                    }
+                }
+                Section {
+                    ForEach(shown) { thread in
                             // A generation opens AS the generator, from the
                             // first frame; everything else opens as chat.
                             NavigationLink(value: thread.isGeneration ? AppRoute.generation(thread.id) : AppRoute.chat(thread.id)) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    HStack(spacing: 8) {
-                                        Text(thread.displayTitle)
-                                            .font(.subheadline.weight(.medium))
-                                            .lineLimit(1)
-                                        // What it made, in a word -- Video,
-                                        // Image or Generation -- so the ones
-                                        // that made things read differently
-                                        // from the ones that talked.
-                                        if let badge = thread.badge {
-                                            ThreadBadge(title: badge.title, symbol: badge.symbol)
-                                        }
-                                    }
-                                    if !thread.preview.isEmpty {
-                                        Text(thread.preview)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                    }
-                                    Text(thread.updatedAt.formatted(.relative(presentation: .named)))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 2)
+                                ThreadRow(thread: thread)
                             }
                             .swipeActions {
                                 Button(role: .destructive) {
@@ -194,9 +147,6 @@ struct ChatListView: View {
                                 }
                             }
                         }
-                    } header: {
-                        filterChips
-                    }
                 }
             } else {
                 // Shaped like the rows that are coming, breathing (Abel,
@@ -204,9 +154,51 @@ struct ChatListView: View {
                 Section {
                     SkeletonRows(count: 4)
                 } header: {
-                    Text("Recent chats")
+                    Text("Recent")
                 }
             }
+        }
+        // Claude's way: "New chat" floating above a Search pill. The button
+        // starts on whichever side is showing.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .trailing, spacing: 12) {
+                NavigationLink(value: side == .create ? AppRoute.chatCreating : AppRoute.chat(nil)) {
+                    Label(
+                        side == .create ? "New creation" : "New chat",
+                        systemImage: side == .create ? "sparkles" : "plus"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 13)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+                }
+                .buttonStyle(.plain)
+                .popoverTip(startTip, arrowEdge: .bottom)
+
+                HStack(spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search", text: $query)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.search)
+                    if !query.isEmpty {
+                        Button { query = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear search")
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+                .frame(maxWidth: .infinity)
+                .glassEffect(.regular, in: .capsule)
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 10)
         }
         .tabChrome(
             title: "Chat",
@@ -229,30 +221,32 @@ struct ChatListView: View {
         .onAppear { Task { threads = await session.threads() } }
         .refreshable { threads = await session.threads() }
     }
+}
 
-    /// All, Chats, Generations -- what the list is showing, said as chips.
-    private var filterChips: some View {
-        HStack(spacing: 8) {
-            ForEach(Filter.allCases) { item in
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) { filter = item }
-                } label: {
-                    Text(item.title)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(filter == item ? Theme.onAccent : Color.primary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(
-                            filter == item ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.track),
-                            in: Capsule()
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(filter == item ? .isSelected : [])
+/// One conversation, as Claude's list draws it: the title, and under it how
+/// long ago, with a glyph in front when it made something.
+private struct ThreadRow: View {
+    let thread: ChatThread
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let badge = thread.badge {
+                Image(systemName: badge.symbol)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 36, height: 36)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
             }
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(thread.displayTitle)
+                    .font(.body)
+                    .lineLimit(1)
+                Text(thread.updatedAt.formatted(.relative(presentation: .named)))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .textCase(nil)
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
     }
 }

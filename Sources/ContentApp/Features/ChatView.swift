@@ -36,6 +36,9 @@ struct ChatView: View {
     /// is. The generator is drawn from the first frame instead of after a
     /// read, so the bar never starts as plain chat and then changes.
     var opensAsGeneration = false
+    /// A new conversation that starts on the Create side of the switch, from
+    /// the Chat tab's "New creation".
+    var startsInCreate = false
 
     @Environment(AppSession.self) private var session
 
@@ -497,6 +500,11 @@ struct ChatView: View {
                 await use(handoff.artifact, animating: handoff.animating)
             }
         }
+        .task {
+            // "New creation": the generator from the first frame.
+            guard startsInCreate, threadId == nil, creating == nil else { return }
+            beginCreating(.image)
+        }
         // No title. The page is the wordmark when empty and the conversation
         // when not; a second "Autocast" in the bar would be clutter. The way
         // back is the system back button and swipe-back, because this is
@@ -507,6 +515,30 @@ struct ChatView: View {
         // the pop -- not the abrupt one-frame vanish of SwiftUI's own hiding.
         .hidesTabBar()
         .toolbar {
+            // Chat | Create, the way Grok has Ask | Imagine: one visible switch
+            // between talking and making, in the same conversation (Abel, 2 Nov
+            // 2026: "two options: Chat and Creating"). It is also the way back:
+            // Chat is what the tag's × always meant.
+            ToolbarItem(placement: .principal) {
+                Picker(
+                    "Mode",
+                    selection: Binding(
+                        get: { isGenerating },
+                        set: { wantsCreate in
+                            if wantsCreate {
+                                beginCreating(choices.mode == .video ? .video : .image)
+                            } else {
+                                leaveGenerator()
+                            }
+                        }
+                    )
+                ) {
+                    Text("Chat").tag(false)
+                    Text("Create").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 190)
+            }
             // The shelf of everything made, one tap from where it is made
             // (Abel, 29 Sep 2026: no "Library" anywhere on the generator).
             if isGenerating {
@@ -918,12 +950,7 @@ struct ChatView: View {
         GenerateAttachments(
             choices: $choices,
             tag: creating.map { $0 == .image ? "Image" : "Video" },
-            onClearTag: {
-                creating = nil
-                leftGenerator = true
-                choices.startFrame = nil
-                choices.endFrame = nil
-            }
+            onClearTag: { leaveGenerator() }
         ) { slot in
             // Which slot is being filled decides how many pictures the picker
             // will take, and where the one that comes back is put.
@@ -953,6 +980,15 @@ struct ChatView: View {
 
     /// Flips plain chat into the generator: pills above, the bar below, and
     /// Send submits the job. The model is the recommended one for the kind.
+    /// Back to plain chat, whatever opened the generator: the tag's × and the
+    /// Chat side of the switch.
+    private func leaveGenerator() {
+        creating = nil
+        leftGenerator = true
+        choices.startFrame = nil
+        choices.endFrame = nil
+    }
+
     @discardableResult
     private func beginCreating(_ mode: GenerateChoices.Mode) -> Task<Void, Never> {
         creating = mode

@@ -25,6 +25,9 @@ enum AppRoute: Hashable {
     /// "when you click that, the text input changes to a normal chat text
     /// input").
     case generation(UUID)
+    /// A fresh conversation that starts on the Create side of the Chat | Create
+    /// switch: the generator from the first frame.
+    case chatCreating
     /// A fresh conversation that starts by sending these words.
     case chatOpening(String)
     /// Making a video, from Home's field: the same conversation with a

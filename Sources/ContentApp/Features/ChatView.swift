@@ -205,6 +205,55 @@ struct ChatView: View {
         )
     }
 
+    /// The bar itself. Its own property because `body` had grown past what the
+    /// compiler will type-check in one expression.
+    private var composerBar: some View {
+        ChatComposer(
+            text: $draft,
+            showsOptions: $showsOptions,
+            isWorking: isWorking,
+            resetToken: composerReset,
+            focusToken: composerFocus,
+            attachments: pending,
+            // Abel, 25 Sep 2026: "keep the page very clean sir
+            // please like whats the video about or something."
+            placeholder: generatorPlaceholder,
+            accessory: isGenerating ? AnyView(videoAttachments) : nil,
+            footer: isGenerating ? AnyView(videoControls) : nil,
+            onRemoveAttachment: { id in
+                pending.removeAll { $0.id == id }
+            },
+            videos: videos,
+            onRemoveVideo: { id in
+                videos.removeAll { $0.id == id }
+            },
+            // A voice note becomes words in the field -- dictation, not a
+            // recording in the thread -- so it can be read and fixed before it
+            // is sent. The generator's bar has no microphone.
+            onVoice: isGenerating ? nil : { file in await heard(file) },
+            // No Create video pill in the bar. Abel, 1 Nov 2026: "I want to
+            // remove the 'create video' thing from the text input bar." Asking
+            // for a video in words does it.
+            onCreateVideo: nil,
+            // No sliders on the plain bar: they belong to the generator (its own
+            // bar has them) and to You > Picture & video settings (Abel, 2 Nov
+            // 2026: "we don't need that thing on the normal page").
+            onSettings: nil,
+            onSend: { send() },
+            onStop: stop
+        )
+    }
+
+    /// A voice note, turned into words in the field.
+    private func heard(_ file: URL) async {
+        if let words = await session.transcribeSound(at: file), !words.isEmpty {
+            draft = draft.isEmpty ? words : draft + " " + words
+            composerFocus += 1
+        } else {
+            say("I couldn't make out that recording. Try it once more.")
+        }
+    }
+
     private var showsWordmark: Bool { turns.isEmpty && draft.isEmpty && !restoring }
 
     var body: some View {
@@ -391,49 +440,7 @@ struct ChatView: View {
             }
             .overlay {
                 KeyboardAttachedBar(height: $barHeight, inputs: composerInputs) {
-                    ChatComposer(
-                        text: $draft,
-                        showsOptions: $showsOptions,
-                        isWorking: isWorking,
-                        resetToken: composerReset,
-                        focusToken: composerFocus,
-                        attachments: pending,
-                        // Abel, 25 Sep 2026: "keep the page very clean sir
-                        // please like whats the video about or something."
-                        placeholder: generatorPlaceholder,
-                        accessory: isGenerating ? AnyView(videoAttachments) : nil,
-                        footer: isGenerating ? AnyView(videoControls) : nil,
-                        onRemoveAttachment: { id in
-                            pending.removeAll { $0.id == id }
-                        },
-                        videos: videos,
-                        onRemoveVideo: { id in
-                            videos.removeAll { $0.id == id }
-                        },
-                        // A voice note becomes words in the field -- dictation,
-                        // not a recording in the thread -- so it can be read
-                        // and fixed before it is sent. The generator's bar has
-                        // no microphone.
-                        onVoice: isGenerating ? nil : { file in
-                            if let words = await session.transcribeSound(at: file), !words.isEmpty {
-                                draft = draft.isEmpty ? words : draft + " " + words
-                                composerFocus += 1
-                            } else {
-                                say("I couldn't make out that recording. Try it once more.")
-                            }
-                        },
-                        // No Create video pill in the bar. Abel, 1 Nov 2026:
-                        // "I want to remove the 'create video' thing from the
-                        // text input bar." Asking for a video in words does it.
-                        onCreateVideo: nil,
-                        // No sliders on the plain bar: they belong to the generator
-                        // (its own bar has them) and to You > Picture & video
-                        // settings (Abel, 2 Nov 2026: "we don't need that thing
-                        // on the normal page").
-                        onSettings: nil,
-                        onSend: { send() },
-                        onStop: stop
-                    )
+                    composerBar
                 }
                 // Full-bleed on purpose: if SwiftUI shrank this for the
                 // keyboard, the bar would be back to following SwiftUI's layout

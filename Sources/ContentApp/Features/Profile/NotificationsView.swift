@@ -1,3 +1,4 @@
+import Supabase
 import SwiftUI
 import UserNotifications
 

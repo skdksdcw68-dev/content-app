@@ -1,10 +1,16 @@
 import SwiftUI
 
 /// The tab that took the You page's place (Abel, 3 Nov 2026): somewhere to start
-/// from. What is trending, and ready-made starting points that open a chat
-/// already asking for the thing. The person's own page is Settings, a sheet from
-/// the round photo at the top right of every tab.
+/// from. What is trending today -- looked up live, once a day per country -- and
+/// ready-made starting points that open a chat already asking for the thing. The
+/// person's own page is Settings, a sheet from the round photo at the top right.
 struct ExploreView: View {
+    @Environment(AppSession.self) private var session
+
+    @State private var query = ""
+    @State private var trends: [TrendCard] = []
+    @State private var loadingTrends = true
+
     private struct Template: Identifiable {
         let id: String
         let title: String
@@ -37,91 +43,199 @@ struct ExploreView: View {
         ),
     ]
 
+    private var typed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var shownTrends: [TrendCard] {
+        typed.isEmpty ? trends : trends.filter {
+            $0.title.localizedCaseInsensitiveContains(typed) || $0.why.localizedCaseInsensitiveContains(typed)
+                || $0.kind.localizedCaseInsensitiveContains(typed)
+        }
+    }
+
+    private var shownTemplates: [Template] {
+        typed.isEmpty ? templates : templates.filter {
+            $0.title.localizedCaseInsensitiveContains(typed) || $0.blurb.localizedCaseInsensitiveContains(typed)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                NavigationLink(value: AppRoute.library) {
-                    ExploreRow(
-                        symbol: "photo.on.rectangle.angled",
-                        title: "Your library",
-                        subtitle: "Everything you've made"
-                    )
-                }
-                .buttonStyle(.plain)
+                SearchPill(text: $query, prompt: "Search templates and trends")
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Trending today")
-                        .font(.title2.bold())
-                    NavigationLink(value: AppRoute.chatOpening("What's trending right now for creators on TikTok and Reels? Pick the best one for me and write the post.")) {
-                        HStack(spacing: 14) {
-                            Image(systemName: "flame.fill")
-                                .font(.title2)
-                                .foregroundStyle(.white)
-                                .frame(width: 52, height: 52)
-                                .background(
-                                    LinearGradient(colors: [Color(red: 0.36, green: 0.30, blue: 0.90), Color(red: 0.62, green: 0.30, blue: 0.85)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                )
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("What's trending right now")
-                                    .font(.headline)
-                                Text("Autocast looks it up live, picks one and writes the post")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.leading)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .padding(14)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                if !typed.isEmpty {
+                    // Whatever they typed is also something to ask for.
+                    NavigationLink(value: AppRoute.chatOpening(typed)) {
+                        ExploreRow(symbol: "sparkles", title: "Ask Autocast", subtitle: "“\(typed)”")
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    NavigationLink(value: AppRoute.library) {
+                        ExploreRow(symbol: "photo.on.rectangle.angled", title: "Your library", subtitle: "Everything you've made")
                     }
                     .buttonStyle(.plain)
                 }
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Templates")
-                        .font(.title2.bold())
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
-                        ForEach(templates) { template in
-                            NavigationLink(value: template.route) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ZStack {
-                                        LinearGradient(colors: template.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                                        Text(template.caption)
-                                            .font(.system(size: 17, weight: .heavy))
-                                            .multilineTextAlignment(.center)
-                                            .foregroundStyle(.white)
-                                            .padding(12)
-                                    }
-                                    .frame(height: 150)
-                                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                                    Text(template.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                    Text(template.blurb)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.leading)
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+                if loadingTrends || !shownTrends.isEmpty {
+                    trendingSection
+                }
+
+                if !shownTemplates.isEmpty {
+                    templatesSection
                 }
             }
             .padding(.horizontal, 20)
             .padding(.top, 8)
             .padding(.bottom, 40)
+            .animation(.snappy(duration: 0.25), value: typed)
         }
+        .scrollDismissesKeyboard(.interactively)
         .background(Theme.canvas.ignoresSafeArea())
         .tabChrome(
             title: "Explore",
             mode: .inlineLarge,
             trailing: AnyView(SettingsAvatarButton())
         )
+        .task {
+            guard trends.isEmpty else { return }
+            let found = await session.trends()
+            withAnimation(.snappy(duration: 0.3)) {
+                trends = found
+                loadingTrends = false
+            }
+        }
+        .refreshable {
+            trends = await session.trends()
+        }
+    }
+
+    private var trendingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Trending today")
+                    .font(.title2.bold())
+                Spacer()
+                NavigationLink(value: AppRoute.chatOpening("What's trending right now for creators on TikTok and Reels? Pick the best one for me and write the post.")) {
+                    Text("Ask")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 12) {
+                    if loadingTrends {
+                        ForEach(0..<3, id: \.self) { _ in
+                            TrendCardView(trend: TrendCard(kind: "Sound", title: "Looking up today's trends", why: "One moment while Autocast checks TikTok and Reels.", idea: ""))
+                                .redacted(reason: .placeholder)
+                        }
+                    } else {
+                        ForEach(shownTrends) { trend in
+                            NavigationLink(value: AppRoute.chatOpening("Make me a post on this trend: \(trend.title). \(trend.idea)")) {
+                                TrendCardView(trend: trend)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollClipDisabled()
+        }
+    }
+
+    private var templatesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Templates")
+                .font(.title2.bold())
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 16) {
+                ForEach(shownTemplates) { template in
+                    NavigationLink(value: template.route) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ZStack {
+                                LinearGradient(colors: template.colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+                                Text(template.caption)
+                                    .font(.system(size: 17, weight: .heavy))
+                                    .multilineTextAlignment(.center)
+                                    .foregroundStyle(.white)
+                                    .padding(12)
+                            }
+                            .frame(height: 150)
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            Text(template.title)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(template.blurb)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
+                    .buttonStyle(PressScaleStyle())
+                }
+            }
+        }
+    }
+}
+
+/// One trend: what kind it is, its name, why it is moving, and a way in.
+private struct TrendCardView: View {
+    let trend: TrendCard
+
+    private var symbol: String {
+        switch trend.kind.lowercased() {
+        case "sound": return "waveform"
+        case "challenge": return "flag.checkered"
+        case "topic": return "newspaper"
+        default: return "film.stack"
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ZStack(alignment: .topLeading) {
+                LinearGradient(
+                    colors: [Color(red: 0.17, green: 0.14, blue: 0.27), Color(red: 0.36, green: 0.30, blue: 0.90)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+                Image(systemName: symbol)
+                    .font(.system(size: 34, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text(trend.kind.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.18), in: Capsule())
+                    .padding(10)
+            }
+            .frame(height: 104)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(trend.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(trend.why)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+            .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+
+            Text("Make this")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .frame(height: 32)
+                .background(Theme.accent, in: Capsule())
+        }
+        .padding(10)
+        .frame(width: 228, height: 268, alignment: .topLeading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 
@@ -139,7 +253,7 @@ private struct ExploreRow: View {
                 .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(.headline)
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 0)
             Image(systemName: "chevron.right")
@@ -148,6 +262,73 @@ private struct ExploreRow: View {
         }
         .padding(14)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+/// Shrinks a little under the finger, springs back.
+private struct PressScaleStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+/// Grok's settings colours, measured from Abel's recording (3 Nov 2026).
+enum GrokLook {
+    static func sheet(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.067, green: 0.067, blue: 0.067) : Color(red: 0.949, green: 0.949, blue: 0.949)
+    }
+
+    static func card(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.129, green: 0.129, blue: 0.129) : .white
+    }
+}
+
+/// A grey label over a group, Grok's size.
+struct GrokCaption: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 18)
+    }
+}
+
+/// Grok's "Search settings" pill: a magnifier, the field, a clear button.
+struct SearchPill: View {
+    @Binding var text: String
+    let prompt: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField(prompt, text: $text)
+                .focused($focused)
+                .submitLabel(.search)
+                .autocorrectionDisabled()
+            if !text.isEmpty {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) { text = "" }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("Clear search")
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
+        .contentShape(Capsule())
+        .onTapGesture { focused = true }
     }
 }
 
@@ -175,7 +356,8 @@ struct SettingsAvatarButton: View {
 }
 
 /// Settings, as a sheet over whatever tab you are on, the way Grok's is: a round
-/// close button, the sheet's own dark or light ground, rows in rounded cards.
+/// close button, the sheet's own dark or light ground, rows in rounded cards,
+/// the search pill at the bottom.
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
@@ -184,12 +366,7 @@ struct SettingsSheet: View {
         NavigationStack {
             ProfileView(asSheet: true)
                 .scrollContentBackground(.hidden)
-                .background(
-                    (scheme == .dark
-                        ? Color(red: 0.067, green: 0.067, blue: 0.067)
-                        : Color(red: 0.949, green: 0.949, blue: 0.949))
-                        .ignoresSafeArea()
-                )
+                .background(GrokLook.sheet(scheme).ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {

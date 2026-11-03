@@ -1545,7 +1545,12 @@ Deno.serve(async (request) => {
          * Abel, 3 Nov 2026: "you remember what I told you yesterday, but it
          * doesn't understand ... what I ask it now."
          */
-        const memoryAhead: Promise<Array<{ id: string; note: string }>> = Promise.resolve(
+        // The person's two switches (Settings > Customize Autocast and Memory),
+        // kept in their sign-in's metadata by the app.
+        const metadata = (auth.user!.user_metadata ?? {}) as Record<string, unknown>;
+        const memoryOff = metadata.memory_off === true;
+        const webOff = metadata.web_off === true;
+        const memoryAhead: Promise<Array<{ id: string; note: string }>> = memoryOff ? Promise.resolve([]) : Promise.resolve(
           admin.from("person_memory").select("id, note").eq("user_id", auth.user!.id)
             .order("created_at", { ascending: false }).limit(MEMORY_KEPT),
         ).then(({ data, error }) => {
@@ -1566,7 +1571,7 @@ Deno.serve(async (request) => {
          * Runs after the stream has closed, so nobody waits for it.
          */
         const updateMemory = async () => {
-          if (!OPENAI_KEY || !asked.trim() || !said.trim()) return;
+          if (memoryOff || !OPENAI_KEY || !asked.trim() || !said.trim()) return;
           const notes = await memoryAhead;
           try {
             const ask = (model: string) => fetch("https://api.openai.com/v1/chat/completions", {
@@ -3177,7 +3182,9 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // seconds, kick-off times in his time zone, while ours started a
           // five-minute report about Google Doodles; later the same day, "what's
           // trending" was answered from memory because the router said no search.
-          if (OPENAI_KEY) {
+          // "Search the web by itself" off: it still searches when the message
+          // plainly needs it (the router's `web`), never on its own.
+          if (OPENAI_KEY && (routed.web || !webOff)) {
             const forced = routed.web;
             const answer = await answerFromTheWeb({
               apiKey: OPENAI_KEY,

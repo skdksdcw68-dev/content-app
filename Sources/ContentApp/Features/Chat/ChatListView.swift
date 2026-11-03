@@ -239,7 +239,7 @@ struct ChatListView: View {
         .sheet(isPresented: $showingSettings, onDismiss: {
             Task { threads = await session.threads() }
         }) {
-            ChatSettingsView()
+            NavigationStack { ChatSettingsView() }
         }
         // Reloaded whenever the list comes back into view, so a conversation
         // that just gained a reply -- or one started a moment ago -- is here

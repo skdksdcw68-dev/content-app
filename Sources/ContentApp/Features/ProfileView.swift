@@ -38,9 +38,18 @@ struct ProfileView: View {
     /// The chat's settings -- the same sheet as the gear on the chat list.
     @State private var chatSettings = false
 
+    /// What is typed in "Search settings".
+    @State private var query = ""
+
     /// Where a "connect an account" finding sends somebody: the Accounts
     /// group, further down this same screen.
     private static let accountsAnchor = "accounts"
+
+    /// Whether a group stays while searching: one of its rows is named like it.
+    private func shows(_ titles: String...) -> Bool {
+        let typed = query.trimmingCharacters(in: .whitespaces)
+        return typed.isEmpty || titles.contains { $0.localizedCaseInsensitiveContains(typed) }
+    }
 
     var body: some View {
         ScrollViewReader { scroll in
@@ -51,29 +60,57 @@ struct ProfileView: View {
             // Out last. The full-screen "Connect your first account" gate that
             // stood between the profile and everything else (29 Sep) is gone;
             // with nothing connected, Accounts is simply the first group.
-            Section {
-                ProfileHeader()
-            }
+            // Searching (the pill at the bottom, Grok's) keeps only the groups
+            // with a matching row; the profile card and Sign Out step aside.
+            if query.isEmpty {
+                Section {
+                    ProfileHeader()
+                }
 
-            subscription
-            account
-            if session.needsAccount {
-                accounts.id(Self.accountsAnchor)
-            } else {
-                attention(scroll)
+                subscription
+                account
+                if session.needsAccount {
+                    accounts.id(Self.accountsAnchor)
+                } else {
+                    attention(scroll)
+                }
+            } else if shows("Subscription", "Usage", "Upgrade", "Plan") {
+                subscription
             }
-            brandSection
-            if !session.needsAccount {
+            if shows("Brand", "Content pillars", "Posting hours") {
+                brandSection
+            }
+            if !session.needsAccount || !query.isEmpty, shows("Accounts", "Connections", "TikTok", "YouTube", "Instagram") {
                 accounts.id(Self.accountsAnchor)
             }
-            autocast
-            app
-            data
-            legal
-            report
-            signOutAndDelete
+            if shows("Customize Autocast", "Chat", "Memory", "Autopilot", "Video generators", "Picture & video settings", "Post defaults") {
+                autocast
+            }
+            if shows("Appearance", "Notifications", "Show setup again", "Watch the intro") {
+                app
+            }
+            if shows("Activity", "Export my data", "Data & Information") {
+                data
+            }
+            if shows("Rate the App", "Terms of Use", "Privacy Policy") {
+                legal
+            }
+            if shows("Report a Problem", "Support") {
+                report
+            }
+            if query.isEmpty {
+                signOutAndDelete
+            }
         }
         .listStyle(.insetGrouped)
+        .animation(.snappy(duration: 0.25), value: query)
+        .safeAreaInset(edge: .bottom) {
+            if asSheet {
+                SearchPill(text: $query, prompt: "Search settings")
+                    .padding(.horizontal, 26)
+                    .padding(.bottom, 8)
+            }
+        }
         // The tab says "You", so the screen does too. They disagreed.
         .tabChrome(title: asSheet ? "Settings" : "You", mode: .inline)
         .refreshable {
@@ -266,8 +303,12 @@ struct ProfileView: View {
     /// how the assistant talks, and what it makes and runs on its own.
     private var autocast: some View {
         Section {
-            Button { chatSettings = true } label: {
-                SettingsRow("Chat settings", symbol: "text.bubble", accessory: .chevron)
+            // Grok's "Customize Grok", and Claude's memory beside it.
+            NavigationLink { ChatSettingsView() } label: {
+                SettingsLabel("Customize Autocast", symbol: "slider.horizontal.3")
+            }
+            NavigationLink { MemoryView() } label: {
+                SettingsLabel("Memory", symbol: "book.closed")
             }
             NavigationLink { AutopilotView() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
@@ -291,7 +332,6 @@ struct ProfileView: View {
             Text("Autocast")
         }
         .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
-        .sheet(isPresented: $chatSettings) { ChatSettingsView() }
     }
 
     // MARK: - App

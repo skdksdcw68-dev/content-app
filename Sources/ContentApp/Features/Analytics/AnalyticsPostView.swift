@@ -127,7 +127,7 @@ struct AnalyticsPostView: View {
             .raisedCard(radius: 18)
             .padding(.top, 4)
 
-            Text(video.fromAutocast ? "Posted with Autocast" : "Posted outside Autocast")
+            Text(video.fromAutocast ? "Posted with Postpilot" : "Posted outside Postpilot")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 9)
@@ -219,7 +219,7 @@ struct AnalyticsPostView: View {
         return AnalyticsCard(
             title: "Key metrics",
             subtitle: data.video.measuredAt.flatMap(PostgresTimestamp.parse).map { "As of \($0.formatted(date: .abbreviated, time: .shortened))" },
-            info: "Lifetime numbers for this video, as TikTok reported them at Autocast's last check. Rates are worked out from those numbers."
+            info: "Lifetime numbers for this video, as TikTok reported them at Postpilot's last check. Rates are worked out from those numbers."
         ) {
             LazyVGrid(columns: columns, spacing: 12) {
                 KeyTile(
@@ -287,8 +287,8 @@ struct AnalyticsPostView: View {
                     Image(systemName: "chart.xyaxis.line")
                         .font(.title3)
                         .foregroundStyle(.tertiary)
-                    Text(points.first.map { "One reading so far, at \($0.at.formatted(date: .omitted, time: .shortened)). Autocast checks every hour, so the curve appears within the hour." }
-                         ?? "No readings yet. Autocast checks every hour.")
+                    Text(points.first.map { "One reading so far, at \($0.at.formatted(date: .omitted, time: .shortened)). Postpilot checks every hour, so the curve appears within the hour." }
+                         ?? "No readings yet. Postpilot checks every hour.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -391,7 +391,7 @@ struct AnalyticsPostView: View {
                 Button {
                     ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did, and what should I post next?")
                 } label: {
-                    Text("Ask Autocast")
+                    Text("Ask Postpilot")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(ink)
                         .frame(maxWidth: .infinity, minHeight: 46)
@@ -521,7 +521,7 @@ struct AnalyticsPostView: View {
         Button {
             ask = AnalyticsAsk(text: "Why did my post \"\(title)\" perform the way it did?")
         } label: {
-            PrimaryButtonLabel(title: "Ask Autocast why", systemImage: "sparkles")
+            PrimaryButtonLabel(title: "Ask Postpilot why", systemImage: "sparkles")
         }
         .primaryButtonStyle()
 
@@ -543,7 +543,7 @@ struct AnalyticsPostView: View {
                     info("Hook", post.hook)
                     info("Caption", post.caption)
                     info("What it showed", post.concept)
-                    info("Call to action", nil, empty: "Not tracked yet: Autocast doesn't store a separate call to action")
+                    info("Call to action", nil, empty: "Not tracked yet: Postpilot doesn't store a separate call to action")
                     info("Format", post.format?.capitalized)
                     info("Theme", post.pillar)
                     info("Campaign", post.campaign)
@@ -555,7 +555,7 @@ struct AnalyticsPostView: View {
                     if let tags = data.context?.hashtags {
                         info("Hashtags", "\(tags)")
                     }
-                    Text("Posted outside Autocast, so there is no hook, theme or media record, only what TikTok reports.")
+                    Text("Posted outside Postpilot, so there is no hook, theme or media record, only what TikTok reports.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

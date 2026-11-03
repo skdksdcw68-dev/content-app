@@ -32,7 +32,7 @@ struct ScheduleView: View {
             } header: {
                 Text("Posts a day")
             } footer: {
-                Text("TikTok limits how often an account can post, so three is the most Autocast will plan.")
+                Text("TikTok limits how often an account can post, so three is the most Postpilot will plan.")
             }
 
             Section {
@@ -57,7 +57,7 @@ struct ScheduleView: View {
                     Button("Use this iPhone’s time zone") { timezone = TimeZone.current.identifier }
                 }
             } footer: {
-                Text("Every time you see in Autocast is in this zone.")
+                Text("Every time you see in Postpilot is in this zone.")
             }
         }
         .navigationTitle("Posting hours")

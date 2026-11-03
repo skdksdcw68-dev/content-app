@@ -78,8 +78,8 @@ targets:
         # ITMS-90129 -- and the upload SUCCEEDS, then the build is silently
         # discarded during processing, so the only symptom is that nothing
         # ever appears in TestFlight. email-app hit this with "Mail".
-        CFBundleDisplayName: Autocast
-        CFBundleName: Autocast
+        CFBundleDisplayName: Postpilot
+        CFBundleName: Postpilot
         # Xcode injects these automatically ONLY when it generates the
         # Info.plist. GENERATE_INFOPLIST_FILE is NO here, so they must be
         # declared by hand -- and without CFBundleIconName App Store Connect
@@ -126,12 +126,12 @@ targets:
           - UIInterfaceOrientationPortrait
         # Shown verbatim in the system prompt. An app that reaches the photo
         # library without declaring this is rejected at review.
-        NSPhotoLibraryAddUsageDescription: Autocast saves the videos it makes to your photo library so you can post or repurpose them yourself.
+        NSPhotoLibraryAddUsageDescription: Postpilot saves the videos it makes to your photo library so you can post or repurpose them yourself.
         # The create flow's own picker (TikTok's: tabs, Select multiple,
         # numbered order) needs to read the library, not just add to it.
-        NSPhotoLibraryUsageDescription: Autocast shows your photos and videos so you can pick what to edit and post.
+        NSPhotoLibraryUsageDescription: Postpilot shows your photos and videos so you can pick what to edit and post.
         # A voice note in the chat bar is recorded and turned into words.
-        NSMicrophoneUsageDescription: Autocast listens when you record a voice note, and turns it into words for your message.
+        NSMicrophoneUsageDescription: Postpilot listens when you record a voice note, and turns it into words for your message.
         # Declares no non-exempt encryption. Without this TestFlight blocks
         # every build behind a manual export-compliance question.
         ITSAppUsesNonExemptEncryption: false

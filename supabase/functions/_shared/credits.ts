@@ -138,7 +138,7 @@ export async function chargeForGeneration(
     const label = candidate?.label ?? "That model";
     throw new PublicError(
       minTier <= 1
-        ? `${capability === "image_generation" ? "Pictures are" : "Video is"} part of Autocast Pro. Pick a plan and I'll make it.`
+        ? `${capability === "image_generation" ? "Pictures are" : "Video is"} part of Postpilot Pro. Pick a plan and I'll make it.`
         : `${label} is on ${TIER_NAMES[Math.min(minTier, 3)]}. Your ${standing.name} plan can use the others.`,
       402,
       false,
@@ -249,12 +249,12 @@ export async function requireUsage(admin: SupabaseClient, userId: string): Promi
 /** One line for the chat to answer "how much do I have left" from. */
 export async function usageLine(admin: SupabaseClient, userId: string): Promise<string> {
   const { error, answer } = await meter(admin, userId);
-  if (error) return "Autocast usage: could not be read just now.";
+  if (error) return "Postpilot usage: could not be read just now.";
   const limit = Number(answer.limit ?? 0);
   const left = Number(answer.left ?? 0);
   const standing = await standingOf(admin, userId);
   const day = dayText(answer.resets_at);
-  return `Autocast usage this month (${standing.name} plan): ${percentText(limit - left, limit)} used, ` +
+  return `Postpilot usage this month (${standing.name} plan): ${percentText(limit - left, limit)} used, ` +
     `${percentText(left, limit)} left${day ? `, fills up again on ${day}` : ""}. ` +
     "Chat, plans and captions take a small share; pictures and videos take more, and the share is shown before anything is made.";
 }

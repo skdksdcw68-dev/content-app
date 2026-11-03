@@ -35,7 +35,7 @@ struct ChatComposer: View {
     var attachments: [PendingAttachment] = []
     /// What the empty field says. The video page asks for a video, not a
     /// question (Abel, 24 Sep 2026).
-    var placeholder = "Ask Autocast"
+    var placeholder = "Ask Postpilot"
     /// A strip above the field. The video page puts its attachment pills here
     /// -- "Image", "Start frame", "End frame". Nothing is drawn when nil.
     var accessory: AnyView?
@@ -326,7 +326,7 @@ struct ChatComposer: View {
         .alert("Microphone is off", isPresented: $micRefused) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("Turn it on for Autocast in Settings > Privacy > Microphone, then try again.")
+            Text("Turn it on for Postpilot in Settings > Privacy > Microphone, then try again.")
         }
     }
 

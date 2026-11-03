@@ -407,7 +407,7 @@ async function markPublished(
 export function plainReason(code: string): string | undefined {
   switch (code) {
     case "unaudited_client_can_only_post_to_private_accounts":
-      return "TikTok only accepts posts from private accounts until it has reviewed Autocast. Set your TikTok account to Private (TikTok → Settings → Privacy), then pick a new time.";
+      return "TikTok only accepts posts from private accounts until it has reviewed Postpilot. Set your TikTok account to Private (TikTok → Settings → Privacy), then pick a new time.";
     case "spam_risk_too_many_posts":
       return "TikTok's daily posting limit for this account was reached. Pick a time tomorrow.";
     case "spam_risk_user_banned_from_posting":

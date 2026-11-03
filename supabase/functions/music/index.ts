@@ -94,7 +94,7 @@ async function search(q: string, size: number): Promise<Track[]> {
   url.searchParams.set("category", "music");
   url.searchParams.set("license", LICENSES);
   url.searchParams.set("page_size", String(size));
-  const response = await fetch(url, { headers: { "User-Agent": "Autocast (netrocast.com)" } });
+  const response = await fetch(url, { headers: { "User-Agent": "Postpilot (netrocast.com)" } });
   if (response.status === 429) throw new PublicError("The music library is busy. Try again in a minute.", 429);
   if (!response.ok) throw new PublicError("The music library didn't answer.", 502);
   const data = await response.json() as { results?: Record<string, unknown>[] };

@@ -6,7 +6,7 @@
  * user inspirational videos to post, like VidIQ."
  *
  * WHAT MAKES THIS DIFFERENT FROM A TREND FEED. VidIQ and its like show what is
- * working on the platform. Autocast can see something nobody else can: what is
+ * working on the platform. Postpilot can see something nobody else can: what is
  * working on THIS account. `_shared/learning.ts` already turns the account's
  * own posts into findings -- "videos under 20 seconds get 2.4x the views on
  * this account, over 14 posts" -- and those findings are sitting in `insights`

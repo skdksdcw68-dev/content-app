@@ -249,7 +249,7 @@ struct PlanView: View {
             EmptyArt(name: "empty-plan", size: 110)
             Text("No posts in this plan yet")
                 .font(.headline)
-            Text("Upload one of your videos and Autocast writes the post, puts it at the next open time and checks it with TikTok.")
+            Text("Upload one of your videos and Postpilot writes the post, puts it at the next open time and checks it with TikTok.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

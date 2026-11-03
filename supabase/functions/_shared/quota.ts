@@ -7,7 +7,7 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { PublicError } from "./http.ts";
 
-/** HTTP 402: the app shows Autocast Pro when it sees this status. */
+/** HTTP 402: the app shows Postpilot Pro when it sees this status. */
 export const NEEDS_PRO = 402;
 
 export async function requireQuota(

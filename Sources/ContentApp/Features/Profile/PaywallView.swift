@@ -192,9 +192,9 @@ struct PaywallView: View {
     /// The heading changes with the plan, as SuperGrok's does.
     private func headline(_ tier: Tier) -> String {
         switch tier {
-        case .pro: return "Unlock the full power of Autocast"
+        case .pro: return "Unlock the full power of Postpilot"
         case .max: return "For people who post every day"
-        case .ultra: return "The most powerful version of Autocast"
+        case .ultra: return "The most powerful version of Postpilot"
         }
     }
 
@@ -351,7 +351,7 @@ struct PaywallView: View {
     private var planCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             // "SuperGrok Plus": the plan's own word in the accent.
-            Text("Autocast \(Text(tier.name).foregroundStyle(Theme.accent))")
+            Text("Postpilot \(Text(tier.name).foregroundStyle(Theme.accent))")
                 .font(.title3.weight(.semibold))
                 .contentTransition(.opacity)
 
@@ -430,7 +430,7 @@ struct PaywallView: View {
             .padding(.vertical, 6)
             .background(Theme.accent, in: Capsule())
 
-            Text("You’re on Autocast \(session.subscription?.title ?? "Pro")")
+            Text("You’re on Postpilot \(session.subscription?.title ?? "Pro")")
                 .font(.system(size: 28, weight: .heavy))
                 .multilineTextAlignment(.center)
 
@@ -594,10 +594,10 @@ struct PaywallView: View {
     /// SuperGrok's wording: "Upgrade to <plan>", for somebody on Free as much
     /// as for somebody moving up.
     private var buttonTitle: String {
-        guard let choice else { return "Upgrade to Autocast \(tier.name)" }
+        guard let choice else { return "Upgrade to Postpilot \(tier.name)" }
         if isSubscriber && isCurrentChoice { return "Your current plan" }
         if hasTrial(choice) && !isSubscriber { return "Start \(trialText(choice).lowercased())" }
-        return "Upgrade to Autocast \(tier.name)"
+        return "Upgrade to Postpilot \(tier.name)"
     }
 
     // MARK: - Words
@@ -722,7 +722,7 @@ struct PaywallView: View {
         if session.subscription?.isPro == true {
             close()
         } else if (session.lastError ?? "").isEmpty {
-            session.lastError = "No Autocast subscription was found for this Apple ID."
+            session.lastError = "No Postpilot subscription was found for this Apple ID."
         }
     }
 }

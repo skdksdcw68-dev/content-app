@@ -107,7 +107,7 @@ struct CampaignAnalyticsView: View {
                 AnalyticsNotice(
                     symbol: "megaphone",
                     title: "Not enough to judge yet",
-                    detail: "This campaign has \(report.top.count) published video\(report.top.count == 1 ? "" : "s") with numbers. Autocast compares posts once there are 3 or more."
+                    detail: "This campaign has \(report.top.count) published video\(report.top.count == 1 ? "" : "s") with numbers. Postpilot compares posts once there are 3 or more."
                 )
             } else if let best = report.top.first, let worst = report.top.last {
                 let median = report.medianViews ?? 0

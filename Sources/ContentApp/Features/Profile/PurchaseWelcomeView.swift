@@ -45,7 +45,7 @@ struct PurchaseWelcomeView: View {
                     .opacity(shown ? 1 : 0)
                     .accessibilityHidden(true)
 
-                Text("Welcome to Autocast \(tier.name)")
+                Text("Welcome to Postpilot \(tier.name)")
                     .font(.system(size: 30, weight: .heavy))
                     .multilineTextAlignment(.center)
                     .padding(.top, 22)

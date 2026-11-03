@@ -61,7 +61,7 @@ struct ExportTip: Tip {
 
 struct PlanMonthTip: Tip {
     var title: Text { Text("Plan a month") }
-    var message: Text? { Text("Autocast writes up to 30 days of posts. You approve before anything goes out.") }
+    var message: Text? { Text("Postpilot writes up to 30 days of posts. You approve before anything goes out.") }
     var image: Image? { Image(systemName: "calendar.badge.plus") }
     var options: [any TipOption] { AppTips.once }
 }
@@ -76,7 +76,7 @@ struct UploadTip: Tip {
 // MARK: - Chat
 
 struct ChatStartTip: Tip {
-    var title: Text { Text("Talk to Autocast") }
+    var title: Text { Text("Talk to Postpilot") }
     var message: Text? { Text("Ask it to plan, research, make a picture or video, or explain your numbers.") }
     var image: Image? { Image(systemName: "sparkles") }
     var options: [any TipOption] { AppTips.once }
@@ -84,7 +84,7 @@ struct ChatStartTip: Tip {
 
 struct ReplyActionsTip: Tip {
     var title: Text { Text("Rate the answer") }
-    var message: Text? { Text("Copy it, like or dislike it, or ask for a new one. Your ratings help Autocast improve.") }
+    var message: Text? { Text("Copy it, like or dislike it, or ask for a new one. Your ratings help Postpilot improve.") }
     var image: Image? { Image(systemName: "hand.thumbsup") }
     var options: [any TipOption] { AppTips.once }
 }

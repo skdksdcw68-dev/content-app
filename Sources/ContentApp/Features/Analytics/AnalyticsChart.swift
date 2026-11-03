@@ -36,7 +36,7 @@ struct KeyMetricsCard: View {
         AnalyticsCard(
             title: "Key metrics",
             subtitle: subtitle,
-            info: "What was gained in this range, compared with the same number of days just before it. Only days Autocast was already reading count; anything earlier is left out, never shown as zero."
+            info: "What was gained in this range, compared with the same number of days just before it. Only days Postpilot was already reading count; anything earlier is left out, never shown as zero."
         ) {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(readings, id: \.metric) { reading in
@@ -74,7 +74,7 @@ struct KeyMetricsCard: View {
             return "Not enough history yet"
         default:
             if let since = reading.since {
-                return "Since \(AnalyticsFormat.day(since)), when Autocast started reading"
+                return "Since \(AnalyticsFormat.day(since)), when Postpilot started reading"
             }
             return AnalyticsFormat.change(reading) ?? "No earlier period yet"
         }
@@ -108,7 +108,7 @@ struct FollowersCard: View {
         AnalyticsCard(
             title: "Key metrics",
             subtitle: subtitle,
-            info: "Total is what TikTok reports right now. Net is the change across the range, from Autocast's own readings."
+            info: "Total is what TikTok reports right now. Net is the change across the range, from Postpilot's own readings."
         ) {
             HStack(spacing: 12) {
                 KeyTile(
@@ -524,9 +524,9 @@ private struct AnalyticsEmptyChart: View {
             return "\(metric.title) belongs to the account, so it can't be split by a content filter."
         default:
             if let historyStarts {
-                return "The chart fills in as Autocast reads your numbers. It started on \(AnalyticsFormat.day(historyStarts)) and checks every 6 hours."
+                return "The chart fills in as Postpilot reads your numbers. It started on \(AnalyticsFormat.day(historyStarts)) and checks every 6 hours."
             }
-            return "No readings yet. Autocast checks your numbers every 6 hours once an account is connected."
+            return "No readings yet. Postpilot checks your numbers every 6 hours once an account is connected."
         }
     }
 

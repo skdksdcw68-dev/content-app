@@ -180,9 +180,9 @@ struct LearningProgressCard: View {
     var body: some View {
         if videos < needed {
             VStack(alignment: .leading, spacing: 12) {
-                Label("What Autocast learned", systemImage: "sparkles")
+                Label("What Postpilot learned", systemImage: "sparkles")
                     .font(.headline)
-                Text("Patterns start once Autocast has read \(needed) public videos. It never calls one video a pattern.")
+                Text("Patterns start once Postpilot has read \(needed) public videos. It never calls one video a pattern.")
                     .font(.subheadline)
                     .fixedSize(horizontal: false, vertical: true)
                 ProgressView(value: shownVideos, total: Double(needed))
@@ -249,7 +249,7 @@ struct PostsGridCard: View {
             info: "Each video's lifetime numbers, as TikTok reports them. TikTok only shares numbers for public videos."
         ) {
             if report.top.isEmpty {
-                Text("Publish a public video and Autocast shows it here within the hour.")
+                Text("Publish a public video and Postpilot shows it here within the hour.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

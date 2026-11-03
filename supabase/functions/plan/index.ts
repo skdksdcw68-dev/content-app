@@ -1,4 +1,4 @@
-// Autocast's planner. This is the part that decides.
+// Postpilot's planner. This is the part that decides.
 //
 // The provider key lives here, in Supabase's secret store, and never reaches
 // the iOS app -- anyone can pull strings out of an .ipa, so a key shipped in

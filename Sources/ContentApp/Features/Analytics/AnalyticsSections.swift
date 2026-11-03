@@ -68,7 +68,7 @@ struct TopPostsCard: View {
                     EmptyArt(name: "empty-analytics", size: 96)
                     Text("No top posts")
                         .font(.headline)
-                    Text("Publish a public video and Autocast ranks it here within 6 hours.")
+                    Text("Publish a public video and Postpilot ranks it here within 6 hours.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -212,17 +212,17 @@ struct LearnedSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(title: "What Autocast learned", subtitle: "Patterns across several posts, never one post")
+            AnalyticsSectionTitle(title: "What Postpilot learned", subtitle: "Patterns across several posts, never one post")
 
             if failed {
-                RetryNotice(title: "Couldn't load what Autocast learned", retry: retry)
+                RetryNotice(title: "Couldn't load what Postpilot learned", retry: retry)
             } else if let learning {
                 if learning.insights.isEmpty {
                     if videos < 10 {
                         AnalyticsNotice(
                             symbol: "brain",
                             title: "Not enough data yet",
-                            detail: "Publish a few more posts and Autocast will begin identifying reliable patterns. It needs 10 public videos with numbers; so far it has \(videos)."
+                            detail: "Publish a few more posts and Postpilot will begin identifying reliable patterns. It needs 10 public videos with numbers; so far it has \(videos)."
                         )
                     } else {
                         AnalyticsNotice(
@@ -318,7 +318,7 @@ struct RecommendationsSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            AnalyticsSectionTitle(title: "Autocast recommends", subtitle: "Only from what your numbers showed")
+            AnalyticsSectionTitle(title: "Postpilot recommends", subtitle: "Only from what your numbers showed")
 
             if failed {
                 RetryNotice(title: "Couldn't load recommendations", retry: retry)
@@ -327,7 +327,7 @@ struct RecommendationsSection: View {
                     AnalyticsNotice(
                         symbol: "lightbulb",
                         title: "No recommendations yet",
-                        detail: "Recommendations come only from patterns Autocast has measured. As soon as one holds up, it appears here with the reason."
+                        detail: "Recommendations come only from patterns Postpilot has measured. As soon as one holds up, it appears here with the reason."
                     )
                 } else {
                     VStack(spacing: 10) {
@@ -427,7 +427,7 @@ private struct RecommendationCard: View {
 
                 Menu {
                     Button { ask(recommendation) } label: {
-                        Label("Ask Autocast why", systemImage: "sparkles")
+                        Label("Ask Postpilot why", systemImage: "sparkles")
                     }
                     Button(role: .destructive) { act(recommendation, "ignore") } label: {
                         Label("Ignore", systemImage: "xmark")
@@ -497,7 +497,7 @@ struct BestTimeCard: View {
                     Image(systemName: "clock")
                         .font(.title3)
                         .foregroundStyle(.tertiary)
-                    Text("Not enough data yet. Autocast needs \(bestTime.minimum) videos with numbers before it recommends a time. So far: \(bestTime.videos).")
+                    Text("Not enough data yet. Postpilot needs \(bestTime.minimum) videos with numbers before it recommends a time. So far: \(bestTime.videos).")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -758,7 +758,7 @@ struct AutopilotSection: View {
                         title: report.isOn ? "Nothing made in this range" : "Autopilot is off",
                         detail: report.isOn
                             ? "Autopilot is on but had nothing scheduled to make in these dates. Plan a week and it starts each video a day ahead."
-                            : "Turn it on in You and Autocast makes each day's video ahead of time. Its results will show here."
+                            : "Turn it on in You and Postpilot makes each day's video ahead of time. Its results will show here."
                     )
                 } else {
                     card(report)

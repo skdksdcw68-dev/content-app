@@ -5,9 +5,9 @@
  *
  * Nothing the phone says is believed except what Apple signed. The purchase
  * also carries the user's id as its appAccountToken, and a transaction bound
- * to a different Autocast user is refused -- a receipt cannot be shared.
+ * to a different Postpilot user is refused -- a receipt cannot be shared.
  *
- * 🔴 But "a different user" is not the same as "a different id". Autocast signs
+ * 🔴 But "a different user" is not the same as "a different id". Postpilot signs
  * people in ANONYMOUSLY first. Somebody who buys while anonymous and then signs
  * in with Apple keeps a receipt stamped with the old anonymous id forever, and
  * a plain id comparison refuses it every time from then on -- silently, because
@@ -89,7 +89,7 @@ Deno.serve(async (request) => {
       if (rejected.length > 0) {
         console.warn("receipts claimed by another account:", rejected.join(", "));
         throw new PublicError(
-          "That subscription belongs to a different Autocast account. Sign in to that one to use it.",
+          "That subscription belongs to a different Postpilot account. Sign in to that one to use it.",
           409,
         );
       }

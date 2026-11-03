@@ -40,7 +40,7 @@ struct GeneratorsView: View {
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 } footer: {
-                    Text("Sign in with the account you already have. Autocast never sees your password, and you are billed by them for what they make, never by us.")
+                    Text("Sign in with the account you already have. Postpilot never sees your password, and you are billed by them for what they make, never by us.")
                 }
             }
 
@@ -102,7 +102,7 @@ struct GeneratorsView: View {
                 }
                 .disabled(session.isWorking)
             } footer: {
-                Text("Any generator that runs an MCP server behind a sign-in works here. Paste its address and Autocast signs you in, reads what it can make, and uses it like the others.")
+                Text("Any generator that runs an MCP server behind a sign-in works here. Paste its address and Postpilot signs you in, reads what it can make, and uses it like the others.")
             }
 
             Section {
@@ -121,11 +121,11 @@ struct GeneratorsView: View {
                 // Off by default and said out loud: everything this turns on
                 // spends money without asking again.
                 if !session.hasWorkingGenerator {
-                    Text("Connect a generator above and Autocast can start each video a day before its slot, without being asked.")
+                    Text("Connect a generator above and Postpilot can start each video a day before its slot, without being asked.")
                 } else if session.settings?.isOn == true {
                     Text("Each video is made about a day before its slot, takes its share of your month, and comes back to you for approval. Nothing is posted until you approve it.")
                 } else {
-                    Text("Turn this on and Autocast starts each video about a day before its slot. It still comes back to you before anything is posted.")
+                    Text("Turn this on and Postpilot starts each video about a day before its slot. It still comes back to you before anything is posted.")
                 }
             }
         }
@@ -268,7 +268,7 @@ private struct AddMCPServerSheet: View {
                 } header: {
                     Text("MCP address")
                 } footer: {
-                    Text("From the generator's developer docs. It has to start with https:// and be behind a sign-in; Autocast registers itself with it and opens the sign-in page.")
+                    Text("From the generator's developer docs. It has to start with https:// and be behind a sign-in; Postpilot registers itself with it and opens the sign-in page.")
                 }
 
                 Section {
@@ -288,7 +288,7 @@ private struct AddMCPServerSheet: View {
                     }
                     .disabled(!canConnect)
                 } footer: {
-                    Text("Once signed in, Autocast reads what the server can make and offers those models everywhere it offers the others.")
+                    Text("Once signed in, Postpilot reads what the server can make and offers those models everywhere it offers the others.")
                 }
             }
             .navigationTitle("Add an MCP server")
@@ -373,8 +373,8 @@ private struct ProviderRow: View {
             }
         } message: {
             Text(provider.isPastedKey
-                 ? "Your pasted key is deleted from Autocast. Nothing changes in your \(provider.providerName) account."
-                 : "Autocast stops using this account and forgets its sign-in. You can sign in again any time.")
+                 ? "Your pasted key is deleted from Postpilot. Nothing changes in your \(provider.providerName) account."
+                 : "Postpilot stops using this account and forgets its sign-in. You can sign in again any time.")
         }
     }
 }

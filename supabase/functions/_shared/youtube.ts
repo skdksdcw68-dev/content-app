@@ -39,7 +39,7 @@ export async function myChannel(token: string): Promise<Channel | null> {
   };
 }
 
-/** Autocast's visibility words, in YouTube's. */
+/** Postpilot's visibility words, in YouTube's. */
 export function youtubePrivacy(privacy: string): "public" | "unlisted" | "private" {
   if (privacy === "PUBLIC_TO_EVERYONE") return "public";
   if (privacy === "SELF_ONLY") return "private";
@@ -122,7 +122,7 @@ export async function uploadShort(
 export function plainYouTube(code: string): string | undefined {
   switch (code) {
     case "quotaExceeded":
-      return "YouTube’s daily upload allowance for Autocast is used up. It resets at midnight Pacific time.";
+      return "YouTube’s daily upload allowance for Postpilot is used up. It resets at midnight Pacific time.";
     case "uploadLimitExceeded":
       return "This channel has reached YouTube’s upload limit for now. Try again later.";
     case "youtubeSignupRequired":

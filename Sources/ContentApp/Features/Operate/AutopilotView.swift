@@ -290,7 +290,7 @@ struct AutopilotView: View {
                 Divider().padding(.vertical, 10)
                 controlRow(
                     "Posting hours",
-                    detail: settings.quietWindow + ". Autocast never schedules posts in quiet hours.",
+                    detail: settings.quietWindow + ". Postpilot never schedules posts in quiet hours.",
                     trailing: AnyView(EmptyView())
                 )
             }
@@ -379,7 +379,7 @@ struct AutopilotLogView: View {
         List {
             if events.isEmpty {
                 ContentUnavailableView("Nothing yet", systemImage: "list.bullet.rectangle.portrait",
-                                       description: Text("Everything Autocast does for \(brandName) shows up here."))
+                                       description: Text("Everything Postpilot does for \(brandName) shows up here."))
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(events) { event in

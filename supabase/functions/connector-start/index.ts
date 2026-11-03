@@ -136,7 +136,7 @@ Deno.serve(async (request) => {
     }
     const { resource, server } = found;
     if (!server.registration_endpoint) {
-      throw new PublicError("That server does not let apps register themselves, so Autocast cannot sign in to it.", 502);
+      throw new PublicError("That server does not let apps register themselves, so Postpilot cannot sign in to it.", 502);
     }
 
     const scope = (resource.scopes_supported ?? ["openid", "email", "offline_access"]).join(" ");

@@ -311,7 +311,7 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
         p_title: plan.title,
         p_body: {
           prompt: plan.hook,
-          model_label: "Autocast story",
+          model_label: "Postpilot story",
           seconds: durationS,
           aspect: production.aspect,
           scenes: plan.scenes.length,

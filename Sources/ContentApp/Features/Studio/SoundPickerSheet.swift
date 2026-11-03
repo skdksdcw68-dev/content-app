@@ -316,7 +316,7 @@ struct SoundPickerSheet: View {
             }
             previewFrom(out, 0)
         } catch {
-            failed = "That video has no sound Autocast could use."
+            failed = "That video has no sound Postpilot could use."
         }
     }
 

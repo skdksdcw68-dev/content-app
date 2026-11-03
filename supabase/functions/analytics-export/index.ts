@@ -5,7 +5,7 @@
  * recommendations the Analytics screen and Chat read, run as the person, so the
  * file cannot say anything the screen does not. Every figure keeps its status:
  * a metric TikTok does not give is written as "Not available for this
- * platform", and a period Autocast was not yet reading is "Not enough history",
+ * platform", and a period Postpilot was not yet reading is "Not enough history",
  * never 0.
  *
  * The file becomes an artefact in the person's own storage folder, like every
@@ -181,14 +181,14 @@ Deno.serve(async (request) => {
           v.relative === null ? "" : `${v.relative}x`, v.format ?? "", v.pillar ?? "", v.share_url ?? ""]));
       }
       lines.push("");
-      lines.push(csvRow(["What Autocast learned"]));
+      lines.push(csvRow(["What Postpilot learned"]));
       lines.push(csvRow(["Finding", "Posts", "Median views difference", "Confidence", "From", "To", "Platforms"]));
       if (insights.length === 0) lines.push(csvRow(["Not enough data yet"]));
       for (const i of insights) {
         lines.push(csvRow([i.statement, i.sample_size, `+${Math.round(Number(i.lift) * 100)}%`, i.confidence, i.period_start ?? "", i.period_end ?? "", (i.platforms ?? []).join(" ")]));
       }
       lines.push("");
-      lines.push(csvRow(["Autocast recommends"]));
+      lines.push(csvRow(["Postpilot recommends"]));
       lines.push(csvRow(["Recommendation", "Because", "Confidence", "Status"]));
       if (recs.length === 0) lines.push(csvRow(["None yet"]));
       for (const r of recs) lines.push(csvRow([r.title, r.because, r.confidence, r.status]));
@@ -227,13 +227,13 @@ Deno.serve(async (request) => {
                 `${i + 1}. ${v.hook || v.title || v.description || "Untitled"} - ${v.views} views, ${v.likes} likes, ${v.shares} shares${v.relative ? `, ${v.relative}x your median` : ""}`),
           },
           {
-            heading: "What Autocast learned",
+            heading: "What Postpilot learned",
             paragraphs: insights.length === 0
-              ? ["Not enough data yet. Autocast needs at least 3 public videos with numbers before it looks for patterns."]
+              ? ["Not enough data yet. Postpilot needs at least 3 public videos with numbers before it looks for patterns."]
               : insights.map((i) => `${i.statement} Based on ${i.sample_size} posts, +${Math.round(Number(i.lift) * 100)}% median views. Confidence: ${i.confidence}.`),
           },
           {
-            heading: "Autocast recommends",
+            heading: "Postpilot recommends",
             paragraphs: recs.length === 0 ? ["No recommendations yet."] : recs.map((r) => `${r.title}. Because: ${r.because} (${r.confidence} confidence, ${r.status})`),
           },
           ...(autopilot ? [{

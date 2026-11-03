@@ -315,7 +315,7 @@ struct AnalyticsView: View {
             AnalyticsNotice(
                 symbol: "play.rectangle",
                 title: "No public videos yet",
-                detail: "TikTok shares numbers for public videos only. Once one is public, Autocast reads it within 6 hours."
+                detail: "TikTok shares numbers for public videos only. Once one is public, Postpilot reads it within 6 hours."
             )
         }
         ViewsHeroCard(report: report, range: AnalyticsFormat.range(shownRange.from, shownRange.to))
@@ -428,7 +428,7 @@ struct AnalyticsView: View {
             parts.append("Filtered.")
         }
         if let started = report.historyStartDate, started > shownRange.from {
-            parts.append("Autocast started reading your numbers on \(AnalyticsFormat.day(started)); earlier days aren't counted.")
+            parts.append("Postpilot started reading your numbers on \(AnalyticsFormat.day(started)); earlier days aren't counted.")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " ")
     }
@@ -461,7 +461,7 @@ struct AnalyticsView: View {
         ConnectGate(
             art: "empty-analytics",
             title: "Connect an account to see analytics",
-            detail: "Views, what worked, what Autocast learned and what to post next, for every app you market."
+            detail: "Views, what worked, what Postpilot learned and what to post next, for every app you market."
         )
         .padding(.top, 12)
     }

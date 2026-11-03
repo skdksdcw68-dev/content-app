@@ -83,7 +83,7 @@ struct ProfileView: View {
             if !session.needsAccount || !query.isEmpty, shows("Accounts", "Connections", "TikTok", "YouTube", "Instagram") {
                 accounts.id(Self.accountsAnchor)
             }
-            if shows("Customize Autocast", "Chat", "Memory", "Autopilot", "Video generators", "Picture & video settings", "Post defaults") {
+            if shows("Customize Postpilot", "Chat", "Memory", "Autopilot", "Video generators", "Picture & video settings", "Post defaults") {
                 autocast
             }
             if shows("Appearance", "Notifications", "Show setup again", "Watch the intro") {
@@ -143,7 +143,7 @@ struct ProfileView: View {
             Button("Cancel", role: .cancel) {}
             Button("Continue", role: .destructive) { typingDelete = true }
         } message: {
-            Text("Your brands, plans, videos and connected accounts are deleted from Autocast for good. Videos already on TikTok stay there.")
+            Text("Your brands, plans, videos and connected accounts are deleted from Postpilot for good. Videos already on TikTok stay there.")
         }
         .alert("Type DELETE to confirm", isPresented: $typingDelete) {
             TextField("DELETE", text: $deleteWord)
@@ -197,16 +197,16 @@ struct ProfileView: View {
     private var subscription: some View {
         Section {
             if let plan = session.subscription, plan.isPro {
-                // Named from the plan: this row said "Autocast Pro" on a Max
+                // Named from the plan: this row said "Postpilot Pro" on a Max
                 // subscription, under a profile card that said Max (3 Nov 2026).
                 SubscriptionCard(
-                    title: "Autocast \(plan.title)",
+                    title: "Postpilot \(plan.title)",
                     detail: proDetail(plan),
                     action: plan.productId == "owner" ? nil : "Manage"
                 ) { managingSubscription = true }
             } else {
                 SubscriptionCard(
-                    title: "Autocast Pro",
+                    title: "Postpilot Pro",
                     detail: "Upgrade for pictures and videos",
                     action: "Upgrade"
                 ) { session.showingPaywall = true }
@@ -293,7 +293,7 @@ struct ProfileView: View {
         } header: {
             Text("Accounts")
         } footer: {
-            Text("Instagram needs a Business or Creator account. While Google and Meta review Autocast, only accounts added as testers can connect.")
+            Text("Instagram needs a Business or Creator account. While Google and Meta review Postpilot, only accounts added as testers can connect.")
         }
     }
 
@@ -305,7 +305,7 @@ struct ProfileView: View {
         Section {
             // Grok's "Customize Grok", and Claude's memory beside it.
             NavigationLink { ChatSettingsView() } label: {
-                SettingsLabel("Customize Autocast", symbol: "slider.horizontal.3")
+                SettingsLabel("Customize Postpilot", symbol: "slider.horizontal.3")
             }
             NavigationLink { MemoryView() } label: {
                 SettingsLabel("Memory", symbol: "book.closed")
@@ -329,7 +329,7 @@ struct ProfileView: View {
                 SettingsLabel("Post defaults", symbol: "slider.horizontal.3")
             }
         } header: {
-            Text("Autocast")
+            Text("Postpilot")
         }
         .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
     }
@@ -348,7 +348,7 @@ struct ProfileView: View {
             }
             // 🔴 Asked first. This threw somebody back to the welcome
             // screen on ONE tap, wearing a chevron -- which the design system
-            // says means "opens a screen inside Autocast", not "restart the
+            // says means "opens a screen inside Postpilot", not "restart the
             // whole app's setup".
             Button { confirmingSetup = true } label: {
                 SettingsRow("Show setup again", symbol: "arrow.counterclockwise")

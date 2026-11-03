@@ -77,7 +77,7 @@ struct MoveBanner: View {
                 .frame(width: 34, height: 34)
                 .background((yours ? Color.orange : Color.secondary).opacity(0.12), in: Circle())
             VStack(alignment: .leading, spacing: 2) {
-                Text(yours ? "Your move" : "Autocast is on it")
+                Text(yours ? "Your move" : "Postpilot is on it")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 Text(text)
@@ -611,7 +611,7 @@ struct ReviewSheet: View {
                 Text("Who can see this")
             } footer: {
                 if !info.privacyOptions.contains("PUBLIC_TO_EVERYONE") {
-                    Text("Public posting opens once TikTok has reviewed Autocast. These are the options your account offers today.")
+                    Text("Public posting opens once TikTok has reviewed Postpilot. These are the options your account offers today.")
                 }
             }
 
@@ -657,7 +657,7 @@ struct ReviewSheet: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             } footer: {
-                Text("You're approving this exact video and caption. If either changes, Autocast holds it and asks again.")
+                Text("You're approving this exact video and caption. If either changes, Postpilot holds it and asks again.")
             }
         }
     }

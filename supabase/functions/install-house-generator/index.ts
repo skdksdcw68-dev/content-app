@@ -1,5 +1,5 @@
 /**
- * Installs one of Autocast's own generators. Operator tool, not a feature.
+ * Installs one of Postpilot's own generators. Operator tool, not a feature.
  *
  * Abel pasted a fal key on 25 Sep 2026 and it had to go somewhere that is not
  * the repository, not a table in the clear, and not a screenshot. This seals it

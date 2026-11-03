@@ -68,12 +68,12 @@ enum AutopilotState: Equatable {
         switch self {
         case .off(let hasPlan):
             return hasPlan
-                ? "Turn it on and Autocast makes each day's video ahead of time. Nothing is posted until you approve it."
-                : "Plan a month first, then turn it on and Autocast makes each day's video for you."
+                ? "Turn it on and Postpilot makes each day's video ahead of time. Nothing is posted until you approve it."
+                : "Plan a month first, then turn it on and Postpilot makes each day's video for you."
         case .blocked(let found):
             return found.detail
         case .needsGenerator:
-            return "Sign in to the generator you already pay for and Autocast can make the videos."
+            return "Sign in to the generator you already pay for and Postpilot can make the videos."
         case .needsPlan:
             return "Plan a month and Autopilot takes it from there."
         case .waiting:

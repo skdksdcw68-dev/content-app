@@ -268,7 +268,7 @@ export async function route(
     "'not a video', or just a model name all continue what was being made before -- they are make,",
     "about the same subject, never a new plan or a chat.",
     "",
-    "This is Autocast, a content creation app. Here 'content' means posts and videos for their social",
+    "This is Postpilot, a content creation app. Here 'content' means posts and videos for their social",
     "accounts, and 'what's trending', 'what's new today', 'what's hot' mean what is trending for creators",
     "right now on TikTok, Reels, Shorts and X -- sounds, formats, challenges, memes, topics -- not the news.",
     "People type fast or speak: read slang, typos and short forms for what they mean ('u' is you, 'uk' is",
@@ -367,7 +367,7 @@ export async function route(
     "  likely options in the question. When a sensible reading exists, do not ask: take it and put what you",
     "  assumed in 'reading'. Never ask what the conversation or their settings already answer. When they",
     "  hand the choice to you ('you pick', 'you decide', 'give me the details yourself', 'handle it'),",
-    "  choose: null. Never ask again something Autocast already asked in the conversation: take the most",
+    "  choose: null. Never ask again something Postpilot already asked in the conversation: take the most",
     "  likely answer instead.",
   ].join("\n");
 
@@ -513,7 +513,7 @@ export function vagueSubject(subject: string | null | undefined): boolean {
   return words.every((word) => KIND_WORDS.has(word));
 }
 
-/** "surprise me", "you pick", "anything" -- what to make, left to Autocast. */
+/** "surprise me", "you pick", "anything" -- what to make, left to Postpilot. */
 export function leftToUs(message: string): boolean {
   return /\b(surprise me|you (choose|pick|decide)|up to you|your (choice|call)|anything|whatever|random)\b/i
     .test(message);

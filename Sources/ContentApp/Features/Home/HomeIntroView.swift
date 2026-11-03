@@ -101,7 +101,7 @@ struct HomeIntroView: View {
     private func caption(_ t: Double) -> some View {
         let lines: [(String, String, Double, Double)] = [
             ("Ask for a video", "Say what you want, in your words.", 0.6, 3.1),
-            ("Autocast makes it", "On the best video models.", 3.1, 5.0),
+            ("Postpilot makes it", "On the best video models.", 3.1, 5.0),
             ("It posts itself", "And tells you how it's doing.", 5.0, 8.4),
             ("Your content, on autopilot", "Plans, videos, captions and posting.", 8.4, 99),
         ]
@@ -307,7 +307,7 @@ private struct IntroScreen: View {
         let ask = "Make a 10s video about my coffee shop"
         let typed = Int(Double(ask.count) * ease(t, 1.0, 2.2))
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Autocast")
+            Text("Postpilot")
                 .font(.system(size: 13, weight: .bold))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 44)

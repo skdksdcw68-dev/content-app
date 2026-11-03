@@ -557,7 +557,7 @@ struct ChatView: View {
     private var conversation: some View {
         conversationLogic
         // No title. The page is the wordmark when empty and the conversation
-        // when not; a second "Autocast" in the bar would be clutter. The way
+        // when not; a second "Postpilot" in the bar would be clutter. The way
         // back is the system back button and swipe-back, because this is
         // pushed from the Chat tab like the email app's conversation.
         .navigationTitle("")
@@ -1097,7 +1097,7 @@ struct ChatView: View {
     /// picture -- "What's the video about?" over a photo of a dog is a question
     /// about something the person has already answered.
     private var generatorPlaceholder: String {
-        guard isGenerating else { return "Ask Autocast" }
+        guard isGenerating else { return "Ask Postpilot" }
         if choices.mode == .image {
             return hasPicture ? "What should change?" : "What's the image about?"
         }

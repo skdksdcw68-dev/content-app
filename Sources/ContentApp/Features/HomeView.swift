@@ -306,7 +306,7 @@ struct HomeView: View {
                 }
             }
         } message: {
-            Text("It’s removed from Autocast. Anything already on TikTok stays there.")
+            Text("It’s removed from Postpilot. Anything already on TikTok stays there.")
         }
     }
 
@@ -705,7 +705,7 @@ private struct GeneratorPromo: View {
 
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Let Autocast make the videos")
+                    Text("Let Postpilot make the videos")
                         .font(.headline)
                         .foregroundStyle(.primary)
                     Text(offer.map { "Sign in to \($0.name) once. Every post in your plan gets its video made ahead of time." }
@@ -750,7 +750,7 @@ private struct UpNextCard: View {
     /// Where the post is, in a person's words.
     private var standing: (symbol: String, text: String) {
         switch post.status {
-        case .planned:       ("lightbulb", "Idea in place. Autocast writes it next")
+        case .planned:       ("lightbulb", "Idea in place. Postpilot writes it next")
         case .scripted:      ("text.alignleft", "Written, the video comes next")
         case .sourcing:      ("wand.and.stars", "Being made now")
         case .needsApproval: ("hand.raised", "Ready for your approval")

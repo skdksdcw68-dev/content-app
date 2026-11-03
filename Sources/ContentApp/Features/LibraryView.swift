@@ -151,7 +151,7 @@ struct LibraryView: View {
                 }
             }
         } message: {
-            Text("It’s removed from Autocast. Anything already on TikTok stays there.")
+            Text("It’s removed from Postpilot. Anything already on TikTok stays there.")
         }
     }
 

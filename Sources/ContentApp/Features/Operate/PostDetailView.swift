@@ -130,8 +130,8 @@ struct PostDetailView: View {
             }
         } message: {
             Text(post?.stage == .published || post?.stage == .inDrafts
-                 ? "It’s removed from Autocast. The video on TikTok stays there."
-                 : "Its schedule is cancelled and it’s removed from Autocast.")
+                 ? "It’s removed from Postpilot. The video on TikTok stays there."
+                 : "Its schedule is cancelled and it’s removed from Postpilot.")
         }
         .pushedPage()
         .refreshable { await load() }
@@ -277,12 +277,12 @@ struct PostDetailView: View {
             MoveBanner(yours: false, text: "Making the video. It comes to you for review when it's done.")
         case .published:
             if let url = post.tiktokURL {
-                MoveBanner(yours: false, text: "Live. Autocast reads its numbers every hour and learns from them.",
+                MoveBanner(yours: false, text: "Live. Postpilot reads its numbers every hour and learns from them.",
                            action: ("Open", { UIApplication.shared.open(url) }))
             } else {
                 MoveBanner(yours: false, text: post.privacy == "SELF_ONLY"
                            ? "Published privately. Only you can see it on \(post.platformName)."
-                           : "Published. Autocast reads its numbers every hour and learns from them.")
+                           : "Published. Postpilot reads its numbers every hour and learns from them.")
             }
         case .inDrafts:
             MoveBanner(yours: true, text: "It's in your TikTok drafts (inbox). Open TikTok to add sound or effects and post it.",

@@ -104,7 +104,7 @@ export async function startJob(
   //
   // Somebody who connected their own Higgsfield is paying for it and is not
   // metered against our plan caps. Everybody else runs on the house generator
-  // (migration 0068), and that is Autocast's bill -- so the allowance is
+  // (migration 0068), and that is Postpilot's bill -- so the allowance is
   // spent HERE, before the job row and before the submission. A job that runs
   // and then discovers it was over budget has already cost the money.
   const lastGoodModel = await rememberedModel(admin, args.userId);

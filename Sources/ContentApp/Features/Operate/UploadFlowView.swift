@@ -75,7 +75,7 @@ struct UploadFlowView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Your video, posted for \(session.brand?.name ?? "your brand")")
                 .font(.title2.bold())
-            Text("Autocast watches it, writes the caption from what you've told it, puts it in your plan at the next open time, and checks it with TikTok. You approve it once; Autopilot does the rest.")
+            Text("Postpilot watches it, writes the caption from what you've told it, puts it in your plan at the next open time, and checks it with TikTok. You approve it once; Autopilot does the rest.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -99,7 +99,7 @@ struct UploadFlowView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    TextField("Anything Autocast should know about it? (optional)", text: $note, axis: .vertical)
+                    TextField("Anything Postpilot should know about it? (optional)", text: $note, axis: .vertical)
                         .lineLimit(3...5)
                         .font(.subheadline)
                         .disabled(running)

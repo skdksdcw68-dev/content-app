@@ -336,7 +336,7 @@ private struct ConnectGeneratorRow: View {
                     Text("Connect a generator")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("So Autocast can make the videos too")
+                    Text("So Postpilot can make the videos too")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

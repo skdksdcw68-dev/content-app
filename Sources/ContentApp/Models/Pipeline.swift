@@ -276,7 +276,7 @@ struct AutopilotOverview: Decodable, Sendable {
     /// One sentence about what happens next, and whose move it is.
     var next: Move {
         switch nextAction {
-        case "connect":      .yours("Connect TikTok so Autocast can publish for \(brand.name).")
+        case "connect":      .yours("Connect TikTok so Postpilot can publish for \(brand.name).")
         case "reconnect":    .yours("TikTok needs you to sign in again.")
         case "paused":       .yours("Autopilot is paused. Nothing is published until you resume.")
         case "fix":          .yours("\(counts.needsAttention) post\(counts.needsAttention == 1 ? "" : "s") need\(counts.needsAttention == 1 ? "s" : "") your attention.")

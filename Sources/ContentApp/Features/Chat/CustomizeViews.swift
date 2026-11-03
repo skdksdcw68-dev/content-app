@@ -40,7 +40,7 @@ struct ChatSettingsView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(GrokLook.sheet(scheme).ignoresSafeArea())
-        .navigationTitle("Customize Autocast")
+        .navigationTitle("Customize Postpilot")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -81,7 +81,7 @@ struct ChatSettingsView: View {
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 8) {
             GrokCaption("Instructions")
-            TextField("How should Autocast talk to you? What should it call you?", text: $own, axis: .vertical)
+            TextField("How should Postpilot talk to you? What should it call you?", text: $own, axis: .vertical)
                 .lineLimit(4...10)
                 .padding(16)
                 .background(GrokLook.card(scheme), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
@@ -234,7 +234,7 @@ struct MemoryView: View {
                 ))
                 .tint(Theme.accent)
             } footer: {
-                Text("Autocast learns from your conversations and uses it in every new chat.")
+                Text("Postpilot learns from your conversations and uses it in every new chat.")
             }
 
             Section {
@@ -250,7 +250,7 @@ struct MemoryView: View {
                     .onDelete(perform: forget)
                 }
             } header: {
-                Text("What Autocast remembers")
+                Text("What Postpilot remembers")
             } footer: {
                 if !notes.isEmpty { Text("Swipe a line to make it forget that.") }
             }
@@ -286,7 +286,7 @@ struct MemoryView: View {
                 }
             }
         } message: {
-            Text("Autocast forgets everything it learned about you. Your chats stay.")
+            Text("Postpilot forgets everything it learned about you. Your chats stay.")
         }
     }
 

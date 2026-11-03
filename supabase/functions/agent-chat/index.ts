@@ -716,7 +716,7 @@ Deno.serve(async (request) => {
         };
 
         /**
-         * The model offer this reply answers, if the last thing Autocast said
+         * The model offer this reply answers, if the last thing Postpilot said
          * was one. A typed "use Kling" or "make it a photo" is a reply to it,
          * and needs what it was offered for: the subject, the references, and
          * any settings already asked for.
@@ -730,7 +730,7 @@ Deno.serve(async (request) => {
         } | null> => {
           if (!threadId) return null;
           // Abel, 1 Nov 2026: he asked for four images like an outfit he had
-          // sent; the card's Generate answered "Pictures are part of Autocast
+          // sent; the card's Generate answered "Pictures are part of Postpilot
           // Pro"; he subscribed and typed "try again with gpt 2 image" -- and
           // the picture he sent was gone, so the model drew flowers. Only the
           // very last assistant message was read, and that note was it. A plain
@@ -766,7 +766,7 @@ Deno.serve(async (request) => {
         };
 
         /**
-         * The make request waiting on its subject, if the last thing Autocast
+         * The make request waiting on its subject, if the last thing Postpilot
          * said was "what should it be of?". The reply IS the subject -- "a cup
          * of tea" on its own reads as chat -- and the model and settings named
          * before the question still apply.
@@ -1104,7 +1104,7 @@ Deno.serve(async (request) => {
             capabilities: string[]; model_count: number;
           }>;
           if (conns.length === 0) {
-            lines.push("Connected: nothing of their own. Not needed: Autocast's own models make pictures and videos.");
+            lines.push("Connected: nothing of their own. Not needed: Postpilot's own models make pictures and videos.");
           }
           for (const c of conns) {
             const kinds = (c.capabilities ?? []).map((k) => k.replace("_generation", "")).join(", ");
@@ -1188,7 +1188,7 @@ Deno.serve(async (request) => {
             const count = (n: unknown) => (typeof n === "number" ? n.toLocaleString("en-US") : "unknown");
             lines.push(
               `TikTok @${handle.username}: ${count(account.followers)} followers, ${count(account.likes)} total likes, ` +
-                `${count(account.video_count)} public videos. Autocast reads these every 6 hours. It cannot see private ` +
+                `${count(account.video_count)} public videos. Postpilot reads these every 6 hours. It cannot see private ` +
                 `videos, drafts, or when the account was created.`,
             );
             // deno-lint-ignore no-explicit-any
@@ -1200,7 +1200,7 @@ Deno.serve(async (request) => {
                 const rate = v.views > 0 ? `${(((v.likes + v.comments + v.shares) / v.views) * 100).toFixed(1)}% engagement` : "no views yet";
                 lines.push(
                   `- "${String(v.title ?? "Untitled").slice(0, 70)}" posted ${posted}: ${v.views} views, ${v.likes} likes, ` +
-                    `${v.comments} comments, ${v.shares} shares (${rate})${v.from_autocast ? ", posted with Autocast" : ""}`,
+                    `${v.comments} comments, ${v.shares} shares (${rate})${v.from_autocast ? ", posted with Postpilot" : ""}`,
                 );
               }
             }
@@ -1212,15 +1212,15 @@ Deno.serve(async (request) => {
           }
           lines.push(
             kinds.size === 0
-              ? "Made with Autocast so far, across all conversations: nothing yet."
-              : `Made with Autocast so far, across all conversations: ${[...kinds].map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ")}.`,
+              ? "Made with Postpilot so far, across all conversations: nothing yet."
+              : `Made with Postpilot so far, across all conversations: ${[...kinds].map(([k, n]) => `${n} ${k}${n === 1 ? "" : "s"}`).join(", ")}.`,
           );
           return lines.join("\n");
         };
 
         /** The balance, as one line of STATE. Only when they asked about money. */
         const balanceLine = async (): Promise<string> => {
-          // Autocast's own meter first: it is what pays for everything made on
+          // Postpilot's own meter first: it is what pays for everything made on
           // our generator, and for chat itself (0079). In %, never units.
           const usage = await usageLine(admin, auth.user!.id);
           const { data } = await asUser.rpc("my_connections");
@@ -1545,7 +1545,7 @@ Deno.serve(async (request) => {
          * Abel, 3 Nov 2026: "you remember what I told you yesterday, but it
          * doesn't understand ... what I ask it now."
          */
-        // The person's two switches (Settings > Customize Autocast and Memory),
+        // The person's two switches (Settings > Customize Postpilot and Memory),
         // kept in their sign-in's metadata by the app.
         const metadata = (auth.user!.user_metadata ?? {}) as Record<string, unknown>;
         const memoryOff = metadata.memory_off === true;
@@ -1584,8 +1584,8 @@ Deno.serve(async (request) => {
                   {
                     role: "system",
                     content: [
-                      "You keep the long-term memory that Autocast, the assistant in a content creation app, has about ONE person.",
-                      "You get what is already remembered (numbered), their latest message, and Autocast's reply.",
+                      "You keep the long-term memory that Postpilot, the assistant in a content creation app, has about ONE person.",
+                      "You get what is already remembered (numbered), their latest message, and Postpilot's reply.",
                       "Keep only what will still matter in a future chat: how they write and what their words mean, what they",
                       "want and do not want from you, corrections they gave you, their goals, niche, platforms, audience, where",
                       "they are, languages, likes and dislikes, and decisions they made. Not one-off requests, not what the",
@@ -1601,7 +1601,7 @@ Deno.serve(async (request) => {
                     content: [
                       `Remembered so far:\n${notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n.note}`).join("\n") : "(nothing yet)"}`,
                       `Their message: ${asked.slice(0, 2000)}`,
-                      `Autocast's reply: ${said.slice(0, 1500)}`,
+                      `Postpilot's reply: ${said.slice(0, 1500)}`,
                     ].join("\n\n"),
                   },
                 ],
@@ -1949,13 +1949,13 @@ Deno.serve(async (request) => {
           ]);
           const context = [
             ...(memory.length > 0
-              ? [`(What Autocast remembers about this person from earlier: ${memory.map((n) => n.note).join(" ")})`]
+              ? [`(What Postpilot remembers about this person from earlier: ${memory.map((n) => n.note).join(" ")})`]
               : []),
             ...history.slice(0, -1).slice(-30).map((turn) =>
-              `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 600)}`
+              `${turn.role === "user" ? "Person" : "Postpilot"}: ${turn.content.replace(/\s+/g, " ").slice(0, 600)}`
             ),
             ...(pending
-              ? [`(Autocast then offered ${nounFor(pending.capability)} models for: "${pending.request}")`]
+              ? [`(Postpilot then offered ${nounFor(pending.capability)} models for: "${pending.request}")`]
               : []),
           ].join("\n");
 
@@ -2319,7 +2319,7 @@ Deno.serve(async (request) => {
               details,
             };
 
-            const rules = `You are Autocast, a sharp, friendly creator coach, answering a question about how this account's content is performing.
+            const rules = `You are Postpilot, a sharp, friendly creator coach, answering a question about how this account's content is performing.
 Answer ONLY from DATA. Every number you say must appear in DATA or be simple arithmetic on it.
 
 How to answer:
@@ -2328,13 +2328,13 @@ How to answer:
 - Talk like a person: "your other two videos", not "sample size". No jargon, no hedging paragraphs.
 - "Last post" / "latest video" means the newest item in latest, not the top one.
 - When a cause can't be proven, still say what stands out against their own other videos (views vs their median, engagement vs the others, how new it is) -- as an observation, clearly not a proven reason.
-- details holds the videos this question is about, in depth: video (numbers, length, caption), context (rank among their videos, share of all their views, the other videos' medians for views / engagement / length / hashtags / caption length, the hour it went out, hours live, their best posting block if known), readings (hourly running totals -- use them for "how fast is it growing": views gained per hour, since posting), post (hook, format, theme, when it was Autocast's), comparisons. Use all of it; be specific.
+- details holds the videos this question is about, in depth: video (numbers, length, caption), context (rank among their videos, share of all their views, the other videos' medians for views / engagement / length / hashtags / caption length, the hour it went out, hours live, their best posting block if known), readings (hourly running totals -- use them for "how fast is it growing": views gained per hour, since posting), post (hook, format, theme, when it was Postpilot's), comparisons. Use all of it; be specific.
 - Watch time, average watch time, retention / where people stopped, traffic sources (For You, search, profile), viewers, new vs returning, gender, age and location are NOT given to apps by TikTok without a TikTok Business connection, which this account does not have yet. When asked for any of them, say exactly that in one sentence, then give what you do know instead.
 
-- totals.current is the last ${span} days, totals.previous the ${span} days before. A total with unknown > 0 is incomplete: say Autocast's history only starts at history_starts, and do not compare it.
+- totals.current is the last ${span} days, totals.previous the ${span} days before. A total with unknown > 0 is incomplete: say Postpilot's history only starts at history_starts, and do not compare it.
 - availability says what the platform gives. Reach, saves, watch time, retention, profile visits, link clicks and conversions marked "unavailable" are not shared by TikTok with apps -- say that, never estimate them.
 - WHY questions: give a reason only when an item in learned supports it, and say its sample size and confidence. With nothing in learned, say plainly there is not enough data to know why yet and describe what the numbers do show. Never blame the algorithm, trends, timing or luck without a finding.
-- WHAT TO POST NEXT: use recommendations and learned. If both are empty, say Autocast needs more public posts before it can recommend reliably, and name the one or two top posts worth building on if top has any.
+- WHAT TO POST NEXT: use recommendations and learned. If both are empty, say Postpilot needs more public posts before it can recommend reliably, and name the one or two top posts worth building on if top has any.
 - Variations: suggest remaking posts whose times_median_views is 2 or more, naming them.
 - Best time: only when best_hours or best_day exists, with its confidence (best_hours.slot is the start of a 3-hour block in the brand's timezone; best_day.slot is 1=Monday). Otherwise say it needs at least best_time.minimum videos and has best_time.videos.
 - Autopilot: use autopilot. cost_cents null means the provider did not report a cost, not that it was free.
@@ -2935,7 +2935,7 @@ Want me to draft the packing video first? 🎬</good>
 </example>`;
 
           const system = `<autocast>
-You are Autocast, the content partner inside the Autocast app. You help one
+You are Postpilot, the content partner inside the Postpilot app. You help one
 person grow their social account: you talk ideas through, write hooks and
 captions, research, plan campaigns, and make images and videos with the
 generator they connected. You are talking to the owner of the account.
@@ -2966,7 +2966,7 @@ first ("My #1 pick"), then why it is a strong pick -- how it grows an audience a
 how it earns -- then the alternatives, and what you assumed. Never answer "it
 depends" without picking.
 
-Their brand is background, not a boundary. People use Autocast to find ANY kind of
+Their brand is background, not a boundary. People use Postpilot to find ANY kind of
 content that can win followers and earn money, and they may want a different niche
 from the account they set up. Do not tie answers to the brand, and do not keep
 repeating its name or niche. Use it only when the question is about it, or to help
@@ -3021,14 +3021,14 @@ Tell people how to do things here, concretely, when it helps:
 - Autopilot: the card on Home. It makes each day's video ahead of time; nothing
   is posted until they approve it.
 - Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
-Autocast brings the models: nothing needs connecting to make a picture or a video.
+Postpilot brings the models: nothing needs connecting to make a picture or a video.
 Their plan is a month of usage shown as a %, like Claude's or ChatGPT's. Chat
 replies, plans and captions take a tiny share; a picture well under 1%; a
 five-second video on Pro about 1 to 16%, depending on the model. The share is shown before
 anything is made, and it fills up again each month from the day they subscribed.
 There is nothing to top up: when the month is used up they wait for it to fill,
 or move to a bigger plan (Max is 3x Pro, Ultra about 8x). Free makes nothing; it is a
-few chat messages. Never talk about "credits" or a balance for Autocast's own
+few chat messages. Never talk about "credits" or a balance for Postpilot's own
 generator -- say % of their month.
 </this_app>
 
@@ -3040,7 +3040,7 @@ was checked. Use it. If they ask whether they have enough, answer from it with
 the actual numbers, and suggest the cheaper option that would work.
 
 The ACCOUNT block is their connected TikTok: handle, followers, likes, their
-latest public videos with numbers, and everything Autocast has made for them
+latest public videos with numbers, and everything Postpilot has made for them
 across all conversations. You CAN see these. Never say you have no access to
 their TikTok, their posts or what you made together -- answer from ACCOUNT.
 Only what is not in it is unknown (private videos, drafts, when the account was
@@ -3085,7 +3085,7 @@ A greeting gets their energy back and nothing else: no pitch, no list of what yo
 can make. They know what the app does; they will say what they want.
 
 <example>
-<state>Autocast usage this month (Pro plan): 96% used, 4% left, fills up again
+<state>Postpilot usage this month (Pro plan): 96% used, 4% left, fills up again
 on 3 Dec. Last video: Seedance 2.0 Fast, needed about 24%, refused. Prices seen:
 Kling 2.5 Turbo Pro about 4%, MiniMax H3 Max Turbo about 3%.</state>
 <user>so do I have to pay more or what?</user>

@@ -156,7 +156,7 @@ struct PostsLibraryView: View {
     private var videos: some View {
         if let library {
             if library.videos.isEmpty {
-                empty("No public videos yet", "Videos appear here once they're public on TikTok. Autocast checks every 6 hours.")
+                empty("No public videos yet", "Videos appear here once they're public on TikTok. Postpilot checks every 6 hours.")
             } else {
                 LazyVGrid(columns: columns, spacing: 2) {
                     ForEach(library.videos) { video in
@@ -298,7 +298,7 @@ private struct VideoCell: View {
                         .padding(5)
                         .background(Color.black.opacity(0.55), in: Circle())
                         .padding(5)
-                        .accessibilityLabel("Posted with Autocast")
+                        .accessibilityLabel("Posted with Postpilot")
                 }
             }
             .clipped()

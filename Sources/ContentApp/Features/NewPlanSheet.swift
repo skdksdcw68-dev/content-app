@@ -106,7 +106,7 @@ struct NewPlanSheet: View {
     private var lengthOptions: [OnboardingQuestion.Option] {
         var out: [OnboardingQuestion.Option] = []
         for length in PlanLength.allCases {
-            let detail: String = length.days > maxDays ? "Part of Autocast Pro" : length.detail
+            let detail: String = length.days > maxDays ? "Part of Postpilot Pro" : length.detail
             out.append(OnboardingQuestion.Option(
                 id: String(length.days),
                 label: length.label,
@@ -484,7 +484,7 @@ struct NewPlanSheet: View {
                     )
                     if session.planRank == 0 {
                         Label(
-                            "Video is part of Autocast Pro. Your plan can write the posts, and Pro makes the videos.",
+                            "Video is part of Postpilot Pro. Your plan can write the posts, and Pro makes the videos.",
                             systemImage: "exclamationmark.triangle"
                         )
                         .font(.footnote)

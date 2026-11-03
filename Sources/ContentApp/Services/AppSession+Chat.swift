@@ -311,7 +311,7 @@ extension AppSession {
             if http.statusCode == 402 {
                 // This month's chat allowance is used: say so, and offer Pro.
                 showingPaywall = true
-                onEvent(.failed("You’ve used this month’s chat messages. Autocast Pro gives you 1,000 a month."))
+                onEvent(.failed("You’ve used this month’s chat messages. Postpilot Pro gives you 1,000 a month."))
                 return
             }
             onEvent(.failed(

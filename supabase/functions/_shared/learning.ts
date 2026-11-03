@@ -1,5 +1,5 @@
 /**
- * What Autocast learned, from what actually happened.
+ * What Postpilot learned, from what actually happened.
  *
  * Deterministic on purpose. A model asked "what patterns do you see in these 14
  * videos?" will always see some, and state them with confidence -- the exact

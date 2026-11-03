@@ -463,7 +463,7 @@ export function buildDocx(doc: Document): Uint8Array {
 
   const footerXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>` +
     `<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/></w:pPr>` +
-    `<w:r><w:rPr><w:color w:val="98A2B3"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">Autocast · Page </w:t></w:r>` +
+    `<w:r><w:rPr><w:color w:val="98A2B3"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">Postpilot · Page </w:t></w:r>` +
     `<w:r><w:rPr><w:color w:val="98A2B3"/><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r>` +
     `<w:r><w:rPr><w:color w:val="98A2B3"/><w:sz w:val="18"/></w:rPr><w:instrText xml:space="preserve"> PAGE </w:instrText></w:r>` +
     `<w:r><w:rPr><w:color w:val="98A2B3"/><w:sz w:val="18"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r>` +
@@ -531,7 +531,7 @@ interface Piece {
 export async function buildPdf(doc: Document): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   pdf.setTitle(ansi(doc.title));
-  pdf.setProducer("Autocast");
+  pdf.setProducer("Postpilot");
 
   const fonts = {
     regular: await pdf.embedFont(StandardFonts.Helvetica),
@@ -719,7 +719,7 @@ export async function buildPdf(doc: Document): Promise<Uint8Array> {
   // Page numbers, once the pages are known.
   const pages = pdf.getPages();
   pages.forEach((each, index) => {
-    const label = `Autocast  -  ${index + 1} / ${pages.length}`;
+    const label = `Postpilot  -  ${index + 1} / ${pages.length}`;
     const width = measure(fonts.regular, label, 8);
     each.drawText(label, { x: (pageWidth - width) / 2, y: 30, size: 8, font: fonts.regular, color: quiet });
   });

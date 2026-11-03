@@ -159,7 +159,7 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
   ].map((f) => f.trim()).filter(Boolean).filter((f, i, all) => all.indexOf(f) === i);
 
   if (facts.length === 0) {
-    throw new PublicError(`Tell Autocast what ${brand.name} is first (You → your brand), so it doesn't guess.`, 409);
+    throw new PublicError(`Tell Postpilot what ${brand.name} is first (You → your brand), so it doesn't guess.`, 409);
   }
 
   const frames = (body.frames ?? []).filter((f) => typeof f === "string" && f.length > 100).slice(0, 4);
@@ -205,7 +205,7 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
       completion = await writeWithClaude({ json: true, effort: "low", openaiModel: MODEL, messages });
     } catch (thrown) {
       console.error("writer", thrown instanceof Error ? thrown.message : thrown);
-      throw new PublicError("Autocast couldn't look at the video just now. Try again.", 502);
+      throw new PublicError("Postpilot couldn't look at the video just now. Try again.", 502);
     }
     tokens += completion.usage?.total_tokens ?? 0;
     await recordUsage(admin, { userId, brandId: brand.id, kind: "video_understand", model: completion.model ?? MODEL, usage: completion.usage });
@@ -221,7 +221,7 @@ async function understand(admin: Admin, userId: string, brand: Brand, body: Body
   draft.cta = stripClaims(draft.cta ?? "");
 
   const hook = (draft.hook ?? "").trim().slice(0, 200);
-  if (!hook) throw new PublicError("Autocast couldn't write a post for this video. Try again.", 502);
+  if (!hook) throw new PublicError("Postpilot couldn't write a post for this video. Try again.", 502);
   const hashtags = (draft.hashtags ?? [])
     .filter((h) => typeof h === "string" && h.trim())
     .map((h) => (h.trim().startsWith("#") ? h.trim() : `#${h.trim()}`).toLowerCase().replace(/\s+/g, ""))
@@ -414,19 +414,19 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
         max_video_post_duration_sec: options.max_video_post_duration_sec ?? 600,
       });
       if (target.platform === "tiktok") {
-        // Until TikTok has reviewed Autocast it refuses posts from PUBLIC
+        // Until TikTok has reviewed Postpilot it refuses posts from PUBLIC
         // accounts. The inbox route (drafts) is left to TikTok to decide.
         if (Deno.env.get("TIKTOK_APP_AUDITED") !== "true" && body.mode !== "UPLOAD_TO_DRAFT") {
           const isPublic = options.privacy_level_options.includes("PUBLIC_TO_EVERYONE");
           add(key("private"), label("Account set to private"), !isPublic,
             isPublic
-              ? `TikTok only accepts posts from private accounts while it reviews Autocast. Set @${options.creator_username ?? "your account"} to Private in TikTok → Settings → Privacy, then check again.`
+              ? `TikTok only accepts posts from private accounts while it reviews Postpilot. Set @${options.creator_username ?? "your account"} to Private in TikTok → Settings → Privacy, then check again.`
               : "Private — TikTok will accept the post.");
         }
         const onlyPrivate = options.privacy_level_options.length === 1 && options.privacy_level_options[0] === "SELF_ONLY";
         add(key("posting"), label("TikTok allows posting"), options.privacy_level_options.length > 0,
           onlyPrivate
-            ? "Yes — as private (only you) while TikTok reviews Autocast."
+            ? "Yes — as private (only you) while TikTok reviews Postpilot."
             : `Yes — ${options.privacy_level_options.map(privacyName).join(", ")}.`);
       }
     } catch (error) {
@@ -438,7 +438,7 @@ async function validate(admin: Admin, userId: string, brand: Brand, body: Body) 
       add(key("video"), label("Video attached"), false, "No video on this post.");
     } else {
       add(key("size"), label("File size"), media.byte_size <= MAX_BYTES,
-        `${(media.byte_size / 1_048_576).toFixed(1)} MB${media.byte_size <= MAX_BYTES ? "" : " — over the 60 MB Autocast can send today"}`);
+        `${(media.byte_size / 1_048_576).toFixed(1)} MB${media.byte_size <= MAX_BYTES ? "" : " — over the 60 MB Postpilot can send today"}`);
       add(key("format"), label("Format"), /mp4|quicktime/.test(media.mime), media.mime.includes("quicktime") ? "MOV" : "MP4");
       if (media.duration_ms) {
         const seconds = media.duration_ms / 1000;

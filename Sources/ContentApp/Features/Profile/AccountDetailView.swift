@@ -58,9 +58,9 @@ struct AccountDetailView: View {
                     Label(Self.plain(scope), systemImage: Self.symbol(scope))
                 }
             } header: {
-                Text("What Autocast can do")
+                Text("What Postpilot can do")
             } footer: {
-                Text("Autocast never sees your \(connection.platform.networkName) password, and can’t do anything you haven’t allowed here.")
+                Text("Postpilot never sees your \(connection.platform.networkName) password, and can’t do anything you haven’t allowed here.")
             }
 
             Section {
@@ -107,16 +107,16 @@ struct AccountDetailView: View {
                 }
             }
         } message: {
-            Text("Autocast loses access to this \(connection.platform.networkName) account and anything scheduled for it is cancelled. Your videos there stay as they are.")
+            Text("Postpilot loses access to this \(connection.platform.networkName) account and anything scheduled for it is cancelled. Your videos there stay as they are.")
         }
     }
 
     /// What each platform says while Autocast is in its review.
     private var reviewNote: String {
         switch connection.platform {
-        case .tiktok: return "While Autocast is in TikTok’s review, it can only post straight to private accounts. Drafts work on any account."
-        case .shorts: return "While Google reviews Autocast, YouTube keeps uploads private, and you’ll need to reconnect about once a week."
-        case .reels: return "Instagram posts from Business and Creator accounts. While Meta reviews Autocast, only tester accounts can connect."
+        case .tiktok: return "While Postpilot is in TikTok’s review, it can only post straight to private accounts. Drafts work on any account."
+        case .shorts: return "While Google reviews Postpilot, YouTube keeps uploads private, and you’ll need to reconnect about once a week."
+        case .reels: return "Instagram posts from Business and Creator accounts. While Meta reviews Postpilot, only tester accounts can connect."
         }
     }
 

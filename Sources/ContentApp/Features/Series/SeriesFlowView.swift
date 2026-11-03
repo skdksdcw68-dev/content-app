@@ -216,7 +216,7 @@ struct SeriesFlowView: View {
             .alert("One more thing", isPresented: $needsGenerator) {
                 Button("OK") { dismiss() }
             } message: {
-                Text("Your series is on. To make the videos it needs a generator: sign in to one under Home → Let Autocast make the videos.")
+                Text("Your series is on. To make the videos it needs a generator: sign in to one under Home → Let Postpilot make the videos.")
             }
         }
     }
@@ -617,7 +617,7 @@ struct SeriesFlowView: View {
                 // Said before anybody counts on it. The script is always
                 // written; whether it is SPOKEN depends on the model that
                 // makes the video, and not all of them make sound.
-                Text("Autocast writes the script either way. It is spoken by video models that make sound; on the others the words stay in the caption.")
+                Text("Postpilot writes the script either way. It is spoken by video models that make sound; on the others the words stay in the caption.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -693,7 +693,7 @@ struct SeriesFlowView: View {
     private var howLong: some View {
         FlowStep(
             title: "How long should each video be?",
-            subtitle: "In seconds. Or let Autocast pick per post.",
+            subtitle: "In seconds. Or let Postpilot pick per post.",
             button: "Continue",
             action: { step = .look }
         ) {
@@ -871,7 +871,7 @@ struct SeriesFlowView: View {
                     // Said here, not discovered later: this style is a person
                     // talking, and no generator can be that person.
                     Label(
-                        "This style is you on camera. Autocast writes the script and books the slot; you film it and tap Post.",
+                        "This style is you on camera. Postpilot writes the script and books the slot; you film it and tap Post.",
                         systemImage: "video.badge.checkmark"
                     )
                     .font(.footnote)

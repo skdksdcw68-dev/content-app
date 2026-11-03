@@ -64,12 +64,12 @@ struct ProfileHeader: View {
         .sheet(isPresented: $editing) { EditProfileView() }
     }
 
-    /// "Autocast Pro · Drobe": the plan, when it has been read, and the brand
+    /// "Postpilot Pro · Drobe": the plan, when it has been read, and the brand
     /// or the email.
     private var line: String? {
         var parts: [String] = []
         if let plan = session.subscription {
-            parts.append(plan.isPro ? "Autocast \(plan.title)" : "Free plan")
+            parts.append(plan.isPro ? "Postpilot \(plan.title)" : "Free plan")
         }
         if let subtitle { parts.append(subtitle) }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")

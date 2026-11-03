@@ -50,7 +50,7 @@ struct SetupNudge: View {
                 } header: {
                     Text("Where to post")
                 } footer: {
-                    Text("Autocast posts only what you approve. You can connect these any time in Profile → Accounts.")
+                    Text("Postpilot posts only what you approve. You can connect these any time in Profile → Accounts.")
                 }
             }
             .navigationTitle("Finish setting up")

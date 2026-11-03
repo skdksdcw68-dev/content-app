@@ -76,7 +76,7 @@ enum PostInsights {
             }
         } else if context.others == 0 {
             out.append(.init(id: "views", direction: .info, title: "Your only video with numbers",
-                             detail: "Comparisons start once Autocast has read another public video."))
+                             detail: "Comparisons start once Postpilot has read another public video."))
         }
 
         if let rate = video.engagementRate, let usual = context.medianEngagement, usual > 0 {
@@ -117,7 +117,7 @@ enum PostInsights {
                     id: "time",
                     direction: .info,
                     title: "Posted at \(posted)",
-                    detail: "Autocast needs 8 videos with numbers before it can say which hours work best for you."
+                    detail: "Postpilot needs 8 videos with numbers before it can say which hours work best for you."
                 ))
             }
         }

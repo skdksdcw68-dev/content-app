@@ -211,7 +211,7 @@ extension AppSession {
 
     // MARK: - A post
 
-    /// Removes a post from Autocast. The database refuses while it is on its
+    /// Removes a post from Postpilot. The database refuses while it is on its
     /// way to TikTok; a video already there stays there.
     @discardableResult
     func deletePost(_ id: UUID) async -> Bool {

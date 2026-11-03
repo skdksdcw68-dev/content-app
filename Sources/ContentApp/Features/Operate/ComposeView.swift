@@ -212,7 +212,7 @@ struct ComposeView: View {
                 } header: {
                     platformHeader(.shorts)
                 } footer: {
-                    Text("Your description goes under the video. While Google reviews Autocast, YouTube keeps uploads private.")
+                    Text("Your description goes under the video. While Google reviews Postpilot, YouTube keeps uploads private.")
                 }
             }
 

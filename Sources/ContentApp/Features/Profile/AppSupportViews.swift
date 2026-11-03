@@ -17,7 +17,7 @@ struct AppearanceView: View {
                 .labelsHidden()
                 .onChange(of: appearance) { _, value in AppAppearance.current = value }
             } footer: {
-                Text("Light is Autocast’s look. System follows your iPhone.")
+                Text("Light is Postpilot’s look. System follows your iPhone.")
             }
         }
         .navigationTitle("Appearance")
@@ -50,7 +50,7 @@ enum AutocastLinks {
         parts.scheme = "mailto"
         parts.path = supportEmail
         parts.queryItems = [
-            URLQueryItem(name: "subject", value: "Autocast \(version) (\(build))"),
+            URLQueryItem(name: "subject", value: "Postpilot \(version) (\(build))"),
         ]
         return parts.url ?? URL(string: "mailto:\(supportEmail)")!
     }
@@ -59,7 +59,7 @@ enum AutocastLinks {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Autocast \(version) (\(build))"
+        return "Postpilot \(version) (\(build))"
     }
 }
 

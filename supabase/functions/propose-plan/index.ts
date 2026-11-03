@@ -287,7 +287,7 @@ Deno.serve(async (request) => {
     const allowedDays = await maxPlanDays(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
     if (days > allowedDays) {
       throw new PublicError(
-        `Your plan writes up to ${allowedDays} days at a time. Autocast Pro plans the whole month.`,
+        `Your plan writes up to ${allowedDays} days at a time. Postpilot Pro plans the whole month.`,
         NEEDS_PRO, false, "needs_pro",
       );
     }

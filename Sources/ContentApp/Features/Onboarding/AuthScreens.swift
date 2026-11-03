@@ -397,7 +397,7 @@ struct VerifiedScreen: View {
 
             Spacer()
 
-            OnboardingButton(title: "Go to Autocast", action: onContinue)
+            OnboardingButton(title: "Go to Postpilot", action: onContinue)
         }
         .onAppear { celebrated = true }
         .sensoryFeedback(.success, trigger: celebrated)

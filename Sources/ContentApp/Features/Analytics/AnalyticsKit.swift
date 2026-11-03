@@ -154,7 +154,7 @@ struct BusinessOnlyCard: View {
                         .fixedSize(horizontal: false, vertical: true)
                     Text(needsFollowers
                          ? "Comes with a TikTok Business connection, once the account has 100 followers."
-                         : "Comes with a TikTok Business connection. Autocast shows it as soon as that is set up.")
+                         : "Comes with a TikTok Business connection. Postpilot shows it as soon as that is set up.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

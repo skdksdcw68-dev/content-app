@@ -1,5 +1,5 @@
 /**
- * "Export my data": a ZIP of everything Autocast holds about the person, as
+ * "Export my data": a ZIP of everything Postpilot holds about the person, as
  * JSON, with a README saying what each file is.
  *
  * Every table is read with the person's own JWT, so RLS decides what is in it
@@ -19,16 +19,16 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const TABLES: Array<[string, string]> = [
-  ["brands", "Your apps and what Autocast knows about each one"],
+  ["brands", "Your apps and what Postpilot knows about each one"],
   ["brand_settings", "Posting hours, daily limits and autopilot switches"],
-  ["brand_memory", "Facts you gave Autocast about your brand"],
+  ["brand_memory", "Facts you gave Postpilot about your brand"],
   ["content_pillars", "The themes plans are built from"],
   ["content_plans", "Every plan, including archived ones"],
   ["posts", "Every post: idea, hook, caption, CTA, hashtags, schedule"],
   ["post_targets", "Where each post went and what happened"],
   ["media_assets", "Your videos and pictures (details, not the files)"],
   ["platform_connections", "Connected accounts (no tokens -- those are never exported)"],
-  ["activity_events", "Everything Autocast did, in order"],
+  ["activity_events", "Everything Postpilot did, in order"],
   ["usage_events", "What was used and any recorded cost"],
 ];
 
@@ -47,7 +47,7 @@ Deno.serve(async (request) => {
 
     const files = [];
     const lines = [
-      "Your Autocast data",
+      "Your Postpilot data",
       `Exported ${new Date().toISOString()} for account ${auth.user.id}.`,
       "",
       "Each .json file is one table, as rows.",
@@ -64,7 +64,7 @@ Deno.serve(async (request) => {
     }
     files.unshift({ path: "README.txt", bytes: strToU8(lines.join("\n") + "\n") });
 
-    const { bytes } = buildZip("Autocast export", files);
+    const { bytes } = buildZip("Postpilot export", files);
     const stamp = new Date().toISOString().slice(0, 10);
     const filename = `autocast-export-${stamp}.zip`;
     const path = `${auth.user.id}/exports/${crypto.randomUUID()}/${filename}`;

@@ -13,7 +13,7 @@
  * yesterday's number as well as today's.
  *
  * After reading, it relearns (`_shared/learning.ts`): the loop from a post's
- * numbers to what Autocast recommends next runs every time numbers arrive.
+ * numbers to what Postpilot recommends next runs every time numbers arrive.
  *
  * Two ways in:
  *   - the phone, with a session, for one connection (the brand on screen);

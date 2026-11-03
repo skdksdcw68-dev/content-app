@@ -409,7 +409,7 @@ private struct OnboardingIncluded: View {
                 .font(.system(size: 76))
                 .foregroundStyle(Theme.accent)
 
-            Text("Here’s what Autocast does")
+            Text("Here’s what Postpilot does")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
                 .padding(.top, 22)

@@ -66,7 +66,7 @@ struct ExploreView: View {
                 if !typed.isEmpty {
                     // Whatever they typed is also something to ask for.
                     NavigationLink(value: AppRoute.chatOpening(typed)) {
-                        ExploreRow(symbol: "sparkles", title: "Ask Autocast", subtitle: "“\(typed)”")
+                        ExploreRow(symbol: "sparkles", title: "Ask Postpilot", subtitle: "“\(typed)”")
                     }
                     .buttonStyle(.plain)
                 } else {
@@ -124,7 +124,7 @@ struct ExploreView: View {
                 HStack(alignment: .top, spacing: 12) {
                     if loadingTrends {
                         ForEach(0..<3, id: \.self) { _ in
-                            TrendCardView(trend: TrendCard(kind: "Sound", title: "Looking up today's trends", why: "One moment while Autocast checks TikTok and Reels.", idea: ""))
+                            TrendCardView(trend: TrendCard(kind: "Sound", title: "Looking up today's trends", why: "One moment while Postpilot checks TikTok and Reels.", idea: ""))
                                 .redacted(reason: .placeholder)
                         }
                     } else {

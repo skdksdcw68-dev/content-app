@@ -271,7 +271,7 @@ private struct StartupFailedView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(.secondary)
 
-            Text("Could not reach Netro Autocast")
+            Text("Could not reach Postpilot AI")
                 .font(.headline)
 
             Text(reason)

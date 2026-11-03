@@ -8,6 +8,8 @@ struct ContentAppApp: App {
     /// the brand and its connected accounts. Signing in happens on launch, so
     /// the first screen is the product rather than a login wall.
     @State private var session = AppSession()
+    /// Push notifications: the phone's address for them and what a tap opens.
+    @UIApplicationDelegateAdaptor(PushDelegate.self) private var pushDelegate
 
     init() {
         #if DEBUG
@@ -58,6 +60,7 @@ struct ContentAppApp: App {
                     await session.loadPlanTiers()
                     await session.loadProducts()
                 } else {
+                    pushDelegate.session = session
                     await Self.signInForStoreShots(session)
                     await session.start()
                     await Self.openForStoreShots(session)

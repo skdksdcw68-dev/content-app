@@ -292,6 +292,7 @@ final class AppSession {
                     group.addTask { await self.refreshSettings() }
                     group.addTask { await self.refreshHealth() }
                     group.addTask { await self.refreshSubscription() }
+                    group.addTask { await self.refreshPushRegistration() }
                     // Anything bought on another device, or renewed while closed.
                     group.addTask { await self.syncPurchases() }
                     // So the paywall has prices before it is ever opened.

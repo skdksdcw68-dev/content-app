@@ -523,7 +523,11 @@ struct ChatView: View {
             }
             restoring = false
         }
+        // Pings for this chat are not shown over it.
+        .onAppear { PushDelegate.openThread = thread }
+        .onChange(of: thread) { _, now in PushDelegate.openThread = now }
         .onDisappear {
+            if PushDelegate.openThread == thread { PushDelegate.openThread = nil }
             // So the next visit opens on what was said this time.
             guard let thread else { return }
             Task { _ = await session.freshMessages(in: thread) }
@@ -1198,6 +1202,9 @@ struct ChatView: View {
             saveKey(key)
             return
         }
+
+        // Asked once, now that there is about to be something worth a ping.
+        Task { await session.askForPushOnce() }
 
         // 🔴 On the video page, SEND IS GENERATE.
         //

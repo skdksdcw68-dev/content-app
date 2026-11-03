@@ -31,6 +31,7 @@ import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { push } from "../_shared/push.ts";
 import { answerFromTheWeb, asResponsesTurn, webRules, whereTheyAre } from "../_shared/web.ts";
 import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
 import { parseStoryCommand } from "../_shared/video/command.ts";
@@ -390,6 +391,9 @@ Deno.serve(async (request) => {
          *  once the stream ends. Storing per delta would be one write per
          *  token and a transcript full of fragments. */
         let said = "";
+        /** A plain answer, which pings when it is stored. Making something
+         *  pings when the job ends instead (push-run). */
+        let answerOnly = false;
 
         const remember = async (hint: Record<string, unknown> | null = null) => {
           if (!threadId || (!said && !hint)) return;
@@ -2034,6 +2038,7 @@ Deno.serve(async (request) => {
           }
           // "Edit the second one" changes a picture that exists, which is making.
           if (routed.intent === "revise" && routed.jobs.length > 0) routed = { ...routed, intent: "make" };
+          answerOnly = routed.intent === "chat";
 
           // What it took the message to mean, for the sheet behind "Thinking"
           // (Abel, 2 Nov 2026, of Grok: tapping it shows what it is thinking).
@@ -3339,6 +3344,15 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           closeStream();
         } finally {
           // The stream is closed by now; the isolate is held by `release`.
+          // The phone hides the banner while that chat is on screen.
+          if (answerOnly && said.trim() && threadId) {
+            const line = said.replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+            await push(admin, auth.user.id, "reply", {
+              title: "Postpilot replied",
+              body: line.length > 140 ? `${line.slice(0, 137).trimEnd()}...` : line,
+              thread: threadId,
+            }).catch((error) => console.log("push: reply", String(error)));
+          }
           await updateMemory();
           release();
         }

@@ -80,6 +80,7 @@ extension AppSession {
     /// Signs out, then opens again as a new empty anonymous account. The Apple
     /// account and everything in it is still there to sign back in to.
     func signOut() async {
+        await forgetPush()
         // The default scope revokes the refresh token on the server, which
         // needs the network and fails on a bad one. Swallowing that left the
         // session on the phone and nothing happened at all (Abel, 23 Sep

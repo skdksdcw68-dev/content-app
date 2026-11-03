@@ -96,6 +96,7 @@ extension AppSession {
     func deleteThread(_ thread: UUID) async {
         do {
             try await client.rpc("delete_thread", params: ["p_thread": thread.uuidString]).execute()
+            ChatCache.shared.remove(thread)
         } catch {
             lastError = readableMessage(error)
         }
@@ -107,6 +108,7 @@ extension AppSession {
         struct Params: Encodable { let p_brand: String? }
         do {
             try await client.rpc("clear_my_threads", params: Params(p_brand: brand?.id.uuidString)).execute()
+            ChatCache.shared.removeAll()
             return true
         } catch {
             lastError = readableMessage(error)
@@ -114,44 +116,66 @@ extension AppSession {
         }
     }
 
-    func messages(in thread: UUID) async -> [ChatMessage] {
-        do {
-            let rows: [StoredMessage] = try await client
-                .rpc("thread_messages", params: ["p_thread": thread.uuidString])
-                .execute()
-                .value
-            // An explicit closure rather than a key path. The key path form is
-            // tidier and its backslash has now been eaten four times by shell
-            // escaping in this project, which is a good enough reason.
-            var turns = rows.map { $0.asTurn }
+    /// The conversation as the phone last saw it, at once, or nil when it has
+    /// never been opened here. Abel, 3 Nov 2026: leaving a chat and coming
+    /// back "automatically reloads the chat ... it doesn't save things
+    /// locally". `messages(in:)` then brings it up to date.
+    func cachedMessages(in thread: UUID) -> [ChatMessage]? {
+        guard let data = ChatCache.shared.read(thread) else { return nil }
+        return try? readTurns(from: data)
+    }
 
-            // An offer or a question somebody already replied to is settled,
-            // not live. Left tappable, a reopened model picker would start a
-            // second generation -- on somebody's own credits -- for a request
-            // that was already made.
-            for index in turns.indices where turns[index].role == .assistant {
-                let later = turns[(index + 1)...]
-                // Something made after an offer settles it too. Abel, 1 Nov
-                // 2026: "Right after you generate a photo, you can still click
-                // the generate button again." Generate is a tap, which leaves no
-                // reply, so when the picture landed and the conversation was
-                // read back the card was live again.
-                if turns[index].offer != nil,
-                   later.contains(where: { $0.role == .assistant && ($0.runId != nil || $0.artifactId != nil) }) {
-                    turns[index].chosenModel = "Generated"
-                }
-                guard let reply = later.first(where: { $0.role == .user }) else { continue }
-                if turns[index].offer != nil, turns[index].chosenModel == nil {
-                    turns[index].chosenModel = settledChoice(reply.text)
-                }
-                for question in turns[index].questions {
-                    turns[index].answered[question.key] = "Answered"
-                }
+    /// The conversation from the server, or nil when it is exactly what the
+    /// phone already shows -- so a reopened chat does not redraw for nothing.
+    func freshMessages(in thread: UUID) async -> [ChatMessage]? {
+        guard let data = try? await client
+            .rpc("thread_messages", params: ["p_thread": thread.uuidString])
+            .execute()
+            .data
+        else { return nil }
+        if data == ChatCache.shared.read(thread) { return nil }
+        guard let fresh = try? readTurns(from: data) else { return nil }
+        ChatCache.shared.write(data, for: thread)
+        return fresh
+    }
+
+    func messages(in thread: UUID) async -> [ChatMessage] {
+        if let fresh = await freshMessages(in: thread) { return fresh }
+        return cachedMessages(in: thread) ?? []
+    }
+
+    /// Stored rows, read into turns the way the conversation went.
+    private func readTurns(from data: Data) throws -> [ChatMessage] {
+        let rows = try JSONDecoder().decode([StoredMessage].self, from: data)
+        // An explicit closure rather than a key path. The key path form is
+        // tidier and its backslash has now been eaten four times by shell
+        // escaping in this project, which is a good enough reason.
+        var turns = rows.map { $0.asTurn }
+
+        // An offer or a question somebody already replied to is settled,
+        // not live. Left tappable, a reopened model picker would start a
+        // second generation -- on somebody's own credits -- for a request
+        // that was already made.
+        for index in turns.indices where turns[index].role == .assistant {
+            let later = turns[(index + 1)...]
+            // Something made after an offer settles it too. Abel, 1 Nov
+            // 2026: "Right after you generate a photo, you can still click
+            // the generate button again." Generate is a tap, which leaves no
+            // reply, so when the picture landed and the conversation was
+            // read back the card was live again.
+            if turns[index].offer != nil,
+               later.contains(where: { $0.role == .assistant && ($0.runId != nil || $0.artifactId != nil) }) {
+                turns[index].chosenModel = "Generated"
             }
-            return turns
-        } catch {
-            return []
+            guard let reply = later.first(where: { $0.role == .user }) else { continue }
+            if turns[index].offer != nil, turns[index].chosenModel == nil {
+                turns[index].chosenModel = settledChoice(reply.text)
+            }
+            for question in turns[index].questions {
+                turns[index].answered[question.key] = "Answered"
+            }
         }
+        return turns
     }
 
 

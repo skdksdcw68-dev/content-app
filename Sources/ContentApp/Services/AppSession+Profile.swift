@@ -92,6 +92,7 @@ extension AppSession {
         }
         // Or the next Google sign-in silently reuses the same account.
         GoogleAuth.signOut()
+        ChatCache.shared.removeAll()
         // Setup belongs to a person, so signing out starts it again -- said
         // here rather than inferred from the id changing, which is the rule
         // that used to fire on every sign-in too.
@@ -112,6 +113,7 @@ extension AppSession {
                 options: FunctionInvokeOptions(body: ["confirm": "DELETE"])
             )
             guard result.deleted else { return false }
+            ChatCache.shared.removeAll()
             try? await client.auth.signOut(scope: .local)
             await restart()
             return true

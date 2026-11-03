@@ -491,7 +491,13 @@ struct ChatView: View {
         .task {
             guard let threadId, turns.isEmpty else { return }
             thread = threadId
-            restoring = true
+            // The copy kept on the phone, at once. The server's replaces it
+            // below only when something changed.
+            if let cached = session.cachedMessages(in: threadId), !cached.isEmpty {
+                turns = cached
+            } else {
+                restoring = true
+            }
             // What this thread IS comes back with it. The route that opened
             // it says nothing: from the chats list every thread arrives as
             // `.chat(id)`, and a generation reopened that way was losing its
@@ -510,8 +516,17 @@ struct ChatView: View {
                     choices.model = models.first(where: \.recommended) ?? models.first
                 }
             }
-            turns = await session.messages(in: threadId)
+            let shown = turns.map(\.id)
+            if let fresh = await session.freshMessages(in: threadId),
+               turns.map(\.id) == shown {
+                turns = fresh
+            }
             restoring = false
+        }
+        .onDisappear {
+            // So the next visit opens on what was said this time.
+            guard let thread else { return }
+            Task { _ = await session.freshMessages(in: thread) }
         }
         .task {
             // Asked for on the way in. Sent as though it had been typed, so the

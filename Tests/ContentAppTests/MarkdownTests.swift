@@ -100,6 +100,40 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(text.string, "see the guide now")
     }
 
+    /// The typewriter never shows half a link: it waits for the end, then
+    /// shows the whole of it at once.
+    func testTheRevealNeverStopsInsideALink() {
+        let link = "[a.com](cite:https://a.com/x)"
+        let text = "Hi. " + link + " after"
+        XCTAssertEqual(ChatMarkdown.revealCut(text, wanted: 2), 2)
+        XCTAssertEqual(ChatMarkdown.revealCut(text, wanted: 8), 4 + link.count)
+        XCTAssertEqual(ChatMarkdown.revealCut("Hi. [a.com](cite:https://a.c", wanted: 10), 4)
+        XCTAssertEqual(ChatMarkdown.revealCut("Hi. [a.com", wanted: 7), 4)
+        XCTAssertEqual(ChatMarkdown.revealCut("a [x] b and more words", wanted: 6), 6)
+        // Less waiting than one step, ending inside a link.
+        XCTAssertEqual(ChatMarkdown.revealCut("ok [a.c", wanted: 50), 3)
+        XCTAssertEqual(ChatMarkdown.revealCut("all done", wanted: 50), 8)
+    }
+
+    /// A web answer's source arrives as a `cite:` link and is drawn as one chip
+    /// -- a single picture in the line -- that opens the page, not the label.
+    func testACiteLinkBecomesAChipThatOpensThePage() {
+        let text = ChatMarkdown.inline(
+            "Kick-off 8:45 PM. [livescore.com +1](cite:https://www.livescore.com/x)",
+            font: .systemFont(ofSize: 17), color: .label
+        )
+        XCTAssertFalse(text.string.contains("livescore"))
+        XCTAssertTrue(text.string.hasPrefix("Kick-off 8:45 PM. "))
+        var chips = 0
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, range, _ in
+            guard value is NSTextAttachment else { return }
+            chips += 1
+            let link = text.attribute(.link, at: range.location, effectiveRange: nil) as? URL
+            XCTAssertEqual(link?.absoluteString, "https://www.livescore.com/x")
+        }
+        XCTAssertEqual(chips, 1)
+    }
+
     // MARK: - The whole answer
 
     func testAnAnswerBecomesOneRunWithBulletsAndNumbers() {

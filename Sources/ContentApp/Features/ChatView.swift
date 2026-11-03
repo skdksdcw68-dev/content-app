@@ -1307,6 +1307,15 @@ struct ChatView: View {
                         }
                     case .thought(let words):
                         turns[replyIndex].thought = words
+                    case .searching(let words, let sites):
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            turns[replyIndex].searching = words
+                            turns[replyIndex].searchSites = sites
+                        }
+                    case .sources(let pages):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].sources = pages
+                        }
                     case .voices(let samples):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].voices = samples
@@ -1768,7 +1777,10 @@ struct ChatView: View {
             while !stream.pending.isEmpty {
                 try? await Task.sleep(nanoseconds: Self.flushMilliseconds * 1_000_000)
                 guard turns.indices.contains(index) else { break }
-                let step = max(6, stream.pending.count / 20)
+                // Never half a link: "[livescore.com +1](cite:htt" is raw
+                // markdown on screen until the rest arrives.
+                let step = ChatMarkdown.revealCut(stream.pending, wanted: max(6, stream.pending.count / 20))
+                guard step > 0 else { continue }
                 turns[index].text += String(stream.pending.prefix(step))
                 stream.pending = String(stream.pending.dropFirst(step))
             }

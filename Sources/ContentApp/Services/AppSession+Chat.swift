@@ -175,6 +175,10 @@ extension AppSession {
         case voices([VoiceSample])
         /// What the server took the message to mean, shown behind "Thinking".
         case thought(String)
+        /// A web answer is looking things up, with the sites read so far.
+        case searching(String, sites: [String])
+        /// The pages that web answer was built from.
+        case sources([WebSource])
         case thread(UUID)
         /// Questions to answer, with the request and length they were asked
         /// for, so the answers can go straight on to a strategy.
@@ -291,6 +295,10 @@ extension AppSession {
         // This build draws markdown, so the reply may use it. An older one shows
         // it as plain text and says nothing, and is never sent it.
         body["markdown"] = true
+        // Where they are, so "what's on tonight" comes back in their time and
+        // their country -- ChatGPT gave Abel kick-offs in Ethiopian time.
+        body["timezone"] = TimeZone.current.identifier
+        if let region = Locale.current.region?.identifier { body["region"] = region }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let started = try await ChatTransport.open(request)
@@ -350,6 +358,22 @@ extension AppSession {
                 if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
                     onEvent(.voices(frame.items))
                 }
+                continue
+            }
+
+            if kind == "sources" {
+                struct Frame: Decodable { let items: [WebSource] }
+                if let frame = try? JSONDecoder().decode(Frame.self, from: data) {
+                    onEvent(.sources(frame.items))
+                }
+                continue
+            }
+
+            if kind == "searching" {
+                onEvent(.searching(
+                    event["v"] as? String ?? "Searching the web",
+                    sites: event["sites"] as? [String] ?? []
+                ))
                 continue
             }
 
@@ -525,6 +549,8 @@ private struct StoredMessage: Decodable {
         let batch: String?
         /// Voices offered to be heard, when this turn is a voices card.
         let items: [VoiceSample]?
+        /// The pages a web answer was built from.
+        let sources: [WebSource]?
         /// What the reply did on the way, for the sheet behind "Thinking".
         let thinking: Thinking?
 
@@ -541,7 +567,7 @@ private struct StoredMessage: Decodable {
         }
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days, options, width, height, batch, items, thinking
+            case kind, questions, choices, request, references, paths, days, options, width, height, batch, items, sources, thinking
             case artifactKind = "artifact_kind"
             case runId = "run_id"
             case runIds = "run_ids"
@@ -573,6 +599,7 @@ private struct StoredMessage: Decodable {
             turn.suggestions = renderHint?.options ?? []
         }
         if renderHint?.kind == "voices" { turn.voices = renderHint?.items ?? [] }
+        turn.sources = renderHint?.sources ?? []
         // The trail is kept, unlike the live state around it: it is a record
         // of what was done, and every step of it finished long ago.
         if let thinking = renderHint?.thinking {

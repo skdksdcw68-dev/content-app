@@ -500,6 +500,16 @@ struct VoiceSample: Identifiable, Equatable, Decodable, Sendable {
     let preview: String
 }
 
+/// A page a web answer was built from, for the Sources sheet under it.
+struct WebSource: Identifiable, Equatable, Decodable, Sendable {
+    let url: String
+    let title: String
+    /// The bare domain ("livescore.com"), for its logo and its name.
+    let site: String
+
+    var id: String { url }
+}
+
 struct ChatMessage: Identifiable, Equatable {
     enum Role: Equatable {
         case user
@@ -592,6 +602,12 @@ struct ChatMessage: Identifiable, Equatable {
     var thought: String? = nil
     /// Voices offered to be heard on this turn, each with its own sample.
     var voices: [VoiceSample] = []
+    /// "Searching the web" while a web answer looks things up, with the sites
+    /// read so far -- ChatGPT's line before the answer. Nil for any other reply.
+    var searching: String? = nil
+    var searchSites: [String] = []
+    /// The pages a web answer used, behind the Sources pill under it.
+    var sources: [WebSource] = []
     /// When the reply was asked for, and how long it took once it was done --
     /// the foot of the "Thinking" sheet.
     var thinkingStarted: Date? = nil

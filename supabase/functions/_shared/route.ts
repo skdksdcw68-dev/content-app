@@ -34,7 +34,17 @@ export const MODELS = {
   /** Strategy, research synthesis, a month of planning, major changes. Used
    *  where the decision is actually worth the tokens and nowhere else. */
   deep: Deno.env.get("DEEP_MODEL") ?? "gpt-4.1",
+  /** A chat answer that searches the web first. Tested 3 Nov 2026 on "what games
+   *  are available today" from Addis: gpt-4.1 was quick (5-7 s) but got kick-off
+   *  times three hours out; gpt-4.1-mini, gpt-5.4-mini and gpt-5.5 at low effort
+   *  were quicker still and said there were no games at all. gpt-5.5 at medium
+   *  gave ChatGPT's own answer -- the Champions League night at 8:45 and 11 PM,
+   *  the Championship games, a pick -- first words at about 15 s. */
+  web: Deno.env.get("WEB_MODEL") ?? "gpt-5.5",
 } as const;
+
+/** How hard the web model thinks before it writes; see `MODELS.web`. */
+export const WEB_EFFORT = (Deno.env.get("WEB_EFFORT") ?? "medium") as "minimal" | "low" | "medium";
 
 export type Intent =
   | "chat"        // talk to me
@@ -93,6 +103,11 @@ export interface Routed {
   /** They ask to HEAR or browse the voices on offer ("show me some voices").
    *  Nothing is made: a few samples are played back instead. */
   voices: boolean;
+  /** The answer needs the live web -- today's games, news, prices, anything
+   *  current or specific -- so the reply searches before it writes, in the
+   *  chat, in seconds. Abel, 3 Nov 2026, with ChatGPT answering "what games
+   *  are on today" in 9 s beside our five-minute report on Google Doodles. */
+  web: boolean;
 }
 
 /** One thing to make, as the person described it. */
@@ -233,7 +248,7 @@ export async function route(
     "Classify the LAST message from someone running a social media account. JSON only.",
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
-    '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,' +
+    '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,"web":boolean,' +
     '"jobs":[{"media":"image|video|audio"|null,"speech":boolean,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
@@ -244,10 +259,13 @@ export async function route(
     "plan     — wants content planned across a stretch of days.",
     "revise   — wants something that already exists changed.",
     "make     — wants an image or a video generated now.",
-    "research — they ask you to research, investigate or dig into something OUTSIDE themselves: a market,",
-    "  competitors, an industry, a trend, a technology. NEVER a question about their own content, account,",
-    "  audience or what they should do: 'what kind of content should I make', 'what should I post', 'how do I",
-    "  grow', 'give me ideas' are advice -- chat, depth full -- or plan when they want it built.",
+    "research — they ask for a REPORT or DEEP research: 'deep research ...', 'write me a report on ...', 'a full",
+    "  breakdown I can export', 'research it thoroughly'. It runs for minutes and comes back as a document.",
+    "  Anything that only needs looking up -- 'what games are on today', 'search for ...', 'check Google for ...',",
+    "  'research the best ring lights' -- is chat with web true, answered in seconds the way ChatGPT does.",
+    "  NEVER a question about their own content, account, audience or what they should do: 'what kind of",
+    "  content should I make', 'what should I post', 'how do I grow', 'give me ideas' are advice -- chat,",
+    "  depth full -- or plan when they want it built.",
     "export   — wants something from this conversation as a file: a document, a PDF, a zip.",
     "explain  — asking what you know, what you did, or why.",
     "insights — asking how THEIR posts or account are performing: views, likes, followers, why a post did",
@@ -308,6 +326,12 @@ export async function route(
     "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
     "voices: true when they ask to hear, see, browse or choose between voices ('show me some voices', 'what",
     "  voices do you have', 'let me hear a few'). Nothing is made: it is chat, with jobs [].",
+    "web: true when a good answer needs the internet -- facts you cannot know without looking: anything about",
+    "  today, tonight, this week or now (games and matches, scores, news, weather, prices, releases, events,",
+    "  what is trending), a specific product, place, company, person, app or website, or they say search,",
+    "  google, look up, check online. Read casual words the way a person means them: 'what games are on",
+    "  today' is the day's matches, not games to play. false for small talk, advice from what you already",
+    "  know, their own account (ACCOUNT has it), and for make.",
     "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
     "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
     "  question is chat, not make.",
@@ -375,6 +399,9 @@ export async function route(
         ? parsed.show.map(String).filter((handle: string) => /^P\d{1,3}$/.test(handle)).slice(0, 8)
         : [],
       voices: parsed?.voices === true,
+      // Looking things up is part of a chat answer; a report searches on its
+      // own, and making something never needs it.
+      web: parsed?.web === true && intent === "chat",
     };
   } catch {
     return fallback(message);
@@ -459,5 +486,6 @@ function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
     subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [], voices: false,
+    web: false,
   };
 }

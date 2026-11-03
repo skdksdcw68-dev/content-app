@@ -24,13 +24,14 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { leftToUs, missingForPlan, MODELS, route, type RoutedJob, vagueSubject } from "../_shared/route.ts";
+import { leftToUs, missingForPlan, MODELS, route, type RoutedJob, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
 import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
+import { answerFromTheWeb, asResponsesTurn, webRules, whereTheyAre } from "../_shared/web.ts";
 import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
 import { parseStoryCommand } from "../_shared/video/command.ts";
 import { makeBrief, type VideoBrief } from "../_shared/video/brief.ts";
@@ -128,6 +129,10 @@ interface Body {
   /** This build draws markdown (headings, bold, lists, tables), so the reply
    *  may use it. Older builds show it as plain text and are never sent it. */
   markdown?: boolean;
+  /** The phone's time zone ("Africa/Addis_Ababa") and region ("ET"), so "today"
+   *  and "tonight" in a web answer are theirs. Older builds send neither. */
+  timezone?: string;
+  region?: string;
 }
 
 interface GeneratorPref {
@@ -805,18 +810,86 @@ Deno.serve(async (request) => {
          * not a picture, or is over 8 MB, is skipped.
          */
         const loadPictures = async (paths: string[]): Promise<Array<{ type: "image_url"; image_url: { url: string } }>> => {
-          const pictures: Array<{ type: "image_url"; image_url: { url: string } }> = [];
-          for (const path of paths) {
+          // All at once, kept in order: one after another, four pictures were
+          // four round trips to storage in front of the first word.
+          const loaded = await Promise.all(paths.map(async (path) => {
             const { data: file } = await admin.storage.from("artifacts").download(path);
-            if (!file || !/^image\//.test(file.type) || file.size > 8 * 1024 * 1024) continue;
+            if (!file || !/^image\//.test(file.type) || file.size > 8 * 1024 * 1024) return null;
             const bytes = new Uint8Array(await file.arrayBuffer());
             let binary = "";
             for (let i = 0; i < bytes.length; i += 0x8000) {
               binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
             }
-            pictures.push({ type: "image_url", image_url: { url: `data:${file.type};base64,${btoa(binary)}` } });
+            return { type: "image_url" as const, image_url: { url: `data:${file.type};base64,${btoa(binary)}` } };
+          }));
+          return loaded.filter((picture): picture is NonNullable<typeof picture> => picture !== null);
+        };
+
+        /**
+         * The pictures from earlier in this conversation -- what they sent and
+         * what was made -- so "go check the one I sent" and "you know what I
+         * asked" are answered by looking. Abel, 1 Nov 2026: "after it sent you a
+         * photo, it doesn't know what the photo is ... when you ask it, it
+         * doesn't know what you sent." The history the app sends is words only;
+         * the pictures were never in it. Asked about four outfits that came back
+         * as flowers, the reply said "I already generated that".
+         *
+         * The last four, newest one at full detail and the rest at low (85
+         * tokens each), so a conversation full of pictures stays cheap.
+         */
+        const earlierPictures = async (): Promise<{
+          images: Array<{ type: "image_url"; image_url: { url: string; detail: "low" | "auto" } }>;
+          lines: string[];
+        }> => {
+          const images: Array<{ type: "image_url"; image_url: { url: string; detail: "low" | "auto" } }> = [];
+          const lines: string[] = [];
+          if (!threadId) return { images, lines };
+          const { data: rows } = await asUser
+            .from("messages")
+            .select("role, render_hint")
+            .eq("thread_id", threadId)
+            .order("seq", { ascending: false })
+            .limit(24);
+          const found: Array<{ path?: string; artifactId?: string; who: "sent" | "made" }> = [];
+          for (const row of (rows ?? []) as Array<{ role: string; render_hint: Record<string, unknown> | null }>) {
+            const hint = row.render_hint;
+            if (row.role === "user" && hint?.kind === "attachments" && Array.isArray(hint.paths)) {
+              // This turn's own pictures are attached on their own.
+              for (const path of hint.paths.map(String)) if (!attachments.includes(path)) found.push({ path, who: "sent" });
+            } else if (row.role === "assistant" && hint?.kind === "artifact" && typeof hint.artifact_id === "string") {
+              found.push({ artifactId: hint.artifact_id, who: "made" });
+            }
+            if (found.length >= 6) break;
           }
-          return pictures;
+          const ids = found.flatMap((f) => (f.artifactId ? [f.artifactId] : []));
+          const { data: madeRows } = ids.length > 0
+            ? await asUser.from("artifacts").select("id, kind, storage_path, body").in("id", ids)
+            : { data: [] };
+          const made = new Map(
+            ((madeRows ?? []) as Array<{ id: string; kind: string; storage_path: string | null; body: Record<string, unknown> | null }>)
+              .filter((row) => row.kind === "image" && row.storage_path)
+              .map((row) => [row.id, row]),
+          );
+          const usable = found
+            .filter((f) => f.path || (f.artifactId && made.has(f.artifactId)))
+            .slice(0, 4)
+            .reverse();
+          const loaded = await Promise.all(usable.map((item) => {
+            const row = item.artifactId ? made.get(item.artifactId) : undefined;
+            return loadPictures([item.path ?? row!.storage_path!]).then(([picture]) => picture);
+          }));
+          for (const [index, item] of usable.entries()) {
+            const picture = loaded[index];
+            if (!picture) continue;
+            const row = item.artifactId ? made.get(item.artifactId) : undefined;
+            images.push({
+              type: "image_url",
+              image_url: { url: picture.image_url.url, detail: index === usable.length - 1 ? "auto" : "low" },
+            });
+            const about = typeof row?.body?.prompt === "string" ? ` of "${String(row.body.prompt).slice(0, 120)}"` : "";
+            lines.push(`${images.length}. ${item.who === "sent" ? "a picture they sent you" : `a picture you made${about}`}`);
+          }
+          return { images, lines };
         };
 
         /**
@@ -1759,12 +1832,49 @@ Deno.serve(async (request) => {
           // put seconds in front of the first word.
           const routeUsage = (model: string, usage: { prompt_tokens?: number; completion_tokens?: number } | null) =>
             recordUsage(admin, { userId: auth.user!.id, brandId: brandWanted ?? null, kind: "chat_route", model, usage });
-          const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
-            route(asked, OPENAI_KEY, context, routeUsage, pics.lines),
+          // Wrapped in a real promise: a query builder runs again every time
+          // it is awaited, and this one is read by several things below.
+          const brandQuery = Promise.resolve(
             brandWanted
               ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
               : asUser.from("brands").select("id, name, niche, audience")
                 .order("created_at", { ascending: true }).limit(1).maybeSingle(),
+          );
+          const brandOf = (read: { data: unknown }) =>
+            read.data as { id: string; name: string; niche: string; audience: string } | null;
+
+          // ⚡ Everything a reply reads that the router's answer does not change,
+          // started now, beside the router -- not one after another once it
+          // has answered. Abel, 3 Nov 2026, timing his "Bro" beside ChatGPT's:
+          // ours took 5 s to the first word, ChatGPT 3. The facts, the chat
+          // settings, the account summary and the conversation's pictures were
+          // each awaited in turn after the router, the pictures downloaded one
+          // by one. A turn that makes something instead wastes a few reads.
+          const factsAhead = brandQuery.then(async (read): Promise<{ data: unknown }> => {
+            const found = brandOf(read);
+            return found
+              ? await asUser.from("brand_memory").select("fact").eq("brand_id", found.id).limit(40)
+              : { data: [] };
+          });
+          const instructionsAhead = brandQuery.then(async (read): Promise<{ data: unknown }> => {
+            const found = brandOf(read);
+            return found
+              ? await asUser.from("brand_settings").select("chat_instructions").eq("brand_id", found.id).maybeSingle()
+              : { data: null };
+          });
+          const accountAhead = brandQuery.then((read) => accountLines(brandOf(read)?.id ?? null));
+          const attachedAhead = loadPictures(attachments);
+          const earlierAhead = earlierPictures();
+          // A branch that never reads one of these must not leave its failure
+          // unhandled: that would take the whole function down. Whoever does
+          // read one still gets the error, exactly as before.
+          for (const ahead of [factsAhead, instructionsAhead, accountAhead, attachedAhead, earlierAhead]) {
+            ahead.catch(() => {});
+          }
+
+          const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
+            route(asked, OPENAI_KEY, context, routeUsage, pics.lines),
+            brandQuery,
             asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
             describeState(false),
           ]);
@@ -1774,7 +1884,10 @@ Deno.serve(async (request) => {
           // invented prompt for "turn it into a video". The extra seconds come
           // before a job that takes a minute.
           let routed = firstRead;
-          if (routed.intent === "make" || routed.intent === "revise") {
+          // A report is minutes of work too, and the small model sends a quick
+          // look-up there ("research the best ring lights under $50") that the
+          // better one answers in seconds from the web.
+          if (routed.intent === "make" || routed.intent === "revise" || routed.intent === "research") {
             routed = await route(asked, OPENAI_KEY, context, routeUsage, pics.lines, "deep");
           }
           // It cannot go on without a guess they would care about: it asks, and
@@ -1793,8 +1906,10 @@ Deno.serve(async (request) => {
           // The router's own one-line reading, not an invented monologue.
           // Only when it is worth thinking about -- an analysis, research, a plan --
           // so a "hi" keeps the plain dot and is answered at once.
-          const needsThought = routed.depth === "full" ||
-            ["plan", "research", "insights", "explain"].includes(routed.intent);
+          // A web answer says "Searching the web" instead, the moment the search
+          // starts, as ChatGPT does.
+          const needsThought = !routed.web && (routed.depth === "full" ||
+            ["plan", "research", "insights", "explain"].includes(routed.intent));
           if (needsThought && routed.reading && routed.reading !== asked.slice(0, 80)) {
             send({ t: "thought", v: routed.reading });
           } else if (
@@ -1868,11 +1983,9 @@ Deno.serve(async (request) => {
             }
           }
 
-          const brand = brandRead.data as { id: string; name: string; niche: string; audience: string } | null;
+          const brand = brandOf(brandRead);
 
-          const { data: facts } = brand
-            ? await asUser.from("brand_memory").select("fact").eq("brand_id", brand.id).limit(40)
-            : { data: [] };
+          const { data: facts } = await factsAhead;
           const known = ((facts ?? []) as Array<{ fact: string }>).map((row) => row.fact).filter(Boolean);
           const previous = ((recentRead.data ?? []) as Array<{ hook: string }>).map((row) => row.hook).filter(Boolean);
 
@@ -2734,8 +2847,10 @@ Tell people how to do things here, concretely, when it helps:
   of..."). They'll see models with real prices from their own account, and can
   tap one or let you choose. Naming a model ("with nano banana 2") uses it.
 - Animate an image: the Animate button under any image you made.
-- Research: "research ..." runs in the background for a few minutes and comes
-  back as a report they can read and export.
+- Look something up: just ask ("what games are on today", "search for ...").
+  You search the web and answer in seconds, with the sources under the answer.
+- Deep research: "deep research ..." or "write me a report on ..." runs in the
+  background for a few minutes and comes back as a report they can export.
 - Export: "export that as PDF / Word / ZIP", or the Export button on a report or
   campaign.
 - Campaigns: "plan a two-week launch campaign for ...". You ask two or three
@@ -2796,10 +2911,18 @@ good answer only.
 
 <example>
 <user>how's it going</user>
-<good>Good! Ready when you are. Want to make something for Kettle today, or talk
-through ideas for the week?</good>
+<good>Going great! How about you, what's going on today?</good>
 <bad>Fine. What do you want to work on?</bad>
 </example>
+
+<example>
+<user>Bro</user>
+<good>BROOO 😂 What's happening? Tell me, I'm listening.</good>
+<bad>Bro, what's the move? Want me to make you some slick images or a short video
+for Kettle?</bad>
+</example>
+A greeting gets their energy back and nothing else: no pitch, no list of what you
+can make. They know what the app does; they will say what they want.
 
 <example>
 <state>Autocast usage this month (Pro plan): 96% used, 4% left, fills up again
@@ -2842,85 +2965,27 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // them. Their words, verbatim, after the rules -- it shapes tone
           // and length; it cannot turn the honesty rules off.
           let ownerBlock = "";
-          if (brand) {
-            const { data: settingsRow } = await asUser
-              .from("brand_settings")
-              .select("chat_instructions")
-              .eq("brand_id", brand.id)
-              .maybeSingle();
-            const instructions = (settingsRow?.chat_instructions ?? "").trim();
-            if (instructions) {
-              ownerBlock = `OWNER'S INSTRUCTIONS (how they want you to talk to them; follow these unless they conflict with the honesty rules):\n${instructions}`;
-            }
+          const { data: settingsRow } = await instructionsAhead;
+          const instructions = String((settingsRow as { chat_instructions?: string } | null)?.chat_instructions ?? "").trim();
+          if (instructions) {
+            ownerBlock = `OWNER'S INSTRUCTIONS (how they want you to talk to them; follow these unless they conflict with the honesty rules):\n${instructions}`;
           }
 
           const stateBlock = [
             routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState,
-            await accountLines(brand?.id ?? null),
+            await accountAhead,
           ].join("\n\n");
 
           // Attached pictures go to the model as image data on the last turn,
           // so "write a caption for this" is about this picture.
-          const pictures = await loadPictures(attachments);
+          const pictures = await attachedAhead;
           if (pictures.length > 0) {
             send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }
 
-          // The pictures from earlier in this conversation -- what they sent and
-          // what was made -- so "go check the one I sent" and "you know what I
-          // asked" are answered by looking. Abel, 1 Nov 2026: "after it sent
-          // you a photo, it doesn't know what the photo is ... when you ask it,
-          // it doesn't know what you sent." The history the app sends is words
-          // only; the pictures were never in it. Asked about four outfits that
-          // came back as flowers, the reply said "I already generated that".
-          //
-          // The last four, newest one at full detail and the rest at low (85
-          // tokens each), so a conversation full of pictures stays cheap.
-          const earlier: Array<{ type: "image_url"; image_url: { url: string; detail: "low" | "auto" } }> = [];
-          const earlierLines: string[] = [];
-          if (threadId) {
-            const { data: rows } = await asUser
-              .from("messages")
-              .select("role, render_hint")
-              .eq("thread_id", threadId)
-              .order("seq", { ascending: false })
-              .limit(24);
-            const found: Array<{ path?: string; artifactId?: string; who: "sent" | "made" }> = [];
-            for (const row of (rows ?? []) as Array<{ role: string; render_hint: Record<string, unknown> | null }>) {
-              const hint = row.render_hint;
-              if (row.role === "user" && hint?.kind === "attachments" && Array.isArray(hint.paths)) {
-                // This turn's own pictures are already attached above.
-                for (const path of hint.paths.map(String)) if (!attachments.includes(path)) found.push({ path, who: "sent" });
-              } else if (row.role === "assistant" && hint?.kind === "artifact" && typeof hint.artifact_id === "string") {
-                found.push({ artifactId: hint.artifact_id, who: "made" });
-              }
-              if (found.length >= 6) break;
-            }
-            const ids = found.flatMap((f) => (f.artifactId ? [f.artifactId] : []));
-            const { data: madeRows } = ids.length > 0
-              ? await asUser.from("artifacts").select("id, kind, storage_path, body").in("id", ids)
-              : { data: [] };
-            const made = new Map(
-              ((madeRows ?? []) as Array<{ id: string; kind: string; storage_path: string | null; body: Record<string, unknown> | null }>)
-                .filter((row) => row.kind === "image" && row.storage_path)
-                .map((row) => [row.id, row]),
-            );
-            const usable = found
-              .filter((f) => f.path || (f.artifactId && made.has(f.artifactId)))
-              .slice(0, 4)
-              .reverse();
-            for (const [index, item] of usable.entries()) {
-              const row = item.artifactId ? made.get(item.artifactId) : undefined;
-              const [loaded] = await loadPictures([item.path ?? row!.storage_path!]);
-              if (!loaded) continue;
-              earlier.push({
-                type: "image_url",
-                image_url: { url: loaded.image_url.url, detail: index === usable.length - 1 ? "auto" : "low" },
-              });
-              const about = typeof row?.body?.prompt === "string" ? ` of "${String(row.body.prompt).slice(0, 120)}"` : "";
-              earlierLines.push(`${earlier.length}. ${item.who === "sent" ? "a picture they sent you" : `a picture you made${about}`}`);
-            }
-          }
+          // The pictures from earlier in this conversation, read beside the
+          // router: see `earlierPictures`.
+          const { images: earlier, lines: earlierLines } = await earlierAhead;
 
           const turns = history.map((turn, index) => {
             if (index !== history.length - 1 || pictures.length + earlier.length === 0) return turn;
@@ -2936,6 +3001,53 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           const depthNote = routed.depth === "full"
             ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
             : "";
+
+          // A question the web answers: one call that searches and then writes,
+          // streamed into the chat the way ChatGPT does it -- "Searching the
+          // web", the answer, then its sources under it. Abel, 3 Nov 2026, with
+          // a screen recording: ChatGPT answered "what games are available
+          // today" in 9 seconds, kick-off times in his time zone, while ours
+          // started a five-minute report about Google Doodles. Same voice and
+          // rules as any other reply; only the writer can look things up.
+          if (routed.web && OPENAI_KEY) {
+            const where = whereTheyAre(body.timezone, body.region);
+            // Its own model: see `MODELS.web` for why speed alone lost.
+            const answer = await answerFromTheWeb({
+              apiKey: OPENAI_KEY,
+              model: MODELS.web,
+              effort: WEB_EFFORT,
+              instructions: [
+                system,
+                [brief, factBlock, stateBlock, avoid, ownerBlock, depthNote, webRules(where.now)].filter(Boolean).join("\n\n"),
+              ].join("\n\n"),
+              input: turns.map((turn) => asResponsesTurn(turn as { role: string; content: unknown })),
+              location: where.location,
+              onSearching: () => send({ t: "searching", v: "Searching the web", sites: [] }),
+              onRead: (sites) => send({ t: "searching", v: "Searching the web", sites: sites.slice(0, 12) }),
+              onText: (text) => speak(text),
+            });
+
+            if (answer && answer.text.trim()) {
+              if (answer.sources.length > 0) send({ t: "sources", items: answer.sources });
+              // Under `sources`, not `items`: the app reads a stored `items` as
+              // voice samples, and a list it cannot read as those fails the
+              // whole conversation's load in builds already out.
+              await remember(answer.sources.length > 0 ? { kind: "sources", sources: answer.sources } : null);
+              await recordUsage(admin, {
+                userId: auth.user.id,
+                brandId: brand?.id ?? null,
+                kind: "chat_reply",
+                model: MODELS.web,
+                usage: answer.usage,
+              });
+              send({ t: "done" });
+              closeStream();
+              return;
+            }
+            // The search could not answer: the ordinary reply still does, from
+            // what the model knows, rather than leaving them with an error.
+            console.error("web answer: nothing written, answering without the web");
+          }
 
           const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",

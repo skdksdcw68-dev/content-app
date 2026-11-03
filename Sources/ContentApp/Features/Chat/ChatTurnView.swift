@@ -103,7 +103,9 @@ struct ChatTurnView: View {
                     // A dot while it thinks; a line only while it is doing
                     // real work -- making, pricing, researching. Nothing is
                     // announced for an ordinary answer.
-                    if turn.steps.isEmpty {
+                    if let searching = turn.searching {
+                        SearchingLine(text: searching, sites: turn.searchSites)
+                    } else if turn.steps.isEmpty {
                         ThinkingIndicator(thought: turn.thought)
                     } else {
                         LiveThinking(read: turn.thought, steps: turn.steps)
@@ -237,6 +239,7 @@ struct ChatTurnView: View {
                         } else {
                             ReplyActions(
                                 text: turn.text,
+                                sources: turn.sources,
                                 rating: turn.rating,
                                 onRate: onRate,
                                 onRegenerate: onRegenerate,
@@ -289,6 +292,8 @@ struct ChatTurnView: View {
 /// every assistant app has it. Quiet grey icons that only colour when used.
 private struct ReplyActions: View {
     let text: String
+    /// The pages a web answer used; the row ends in a Sources pill when any.
+    let sources: [WebSource]
     let rating: String?
     let onRate: (String, String?) -> Void
     let onRegenerate: (() -> Void)?
@@ -360,6 +365,10 @@ private struct ReplyActions: View {
             }
             .accessibilityLabel("Share")
 
+            if !sources.isEmpty {
+                SourcesButton(sources: sources)
+            }
+
             Spacer(minLength: 0)
         }
         .font(.subheadline.weight(.medium))
@@ -367,6 +376,85 @@ private struct ReplyActions: View {
         .buttonStyle(PressButtonStyle())
         .sensoryFeedback(.selection, trigger: rating)
         .padding(.top, 2)
+    }
+}
+
+/// "Sources" at the end of the row under a web answer, with the logos of the
+/// first sites -- ChatGPT's pill. Tapping it lists every page.
+private struct SourcesButton: View {
+    let sources: [WebSource]
+
+    @State private var open = false
+
+    private var sites: [String] {
+        var seen: [String] = []
+        for source in sources where !seen.contains(source.site) { seen.append(source.site) }
+        return seen
+    }
+
+    var body: some View {
+        Button { open = true } label: {
+            HStack(spacing: 6) {
+                SiteIcons(domains: sites, size: 16, limit: 3)
+                Text("Sources")
+                    .font(.footnote.weight(.medium))
+            }
+            .padding(.leading, 5)
+            .padding(.trailing, 10)
+            .padding(.vertical, 4)
+            .background(Color.primary.opacity(0.06), in: Capsule())
+        }
+        .accessibilityLabel("Sources, \(sites.count) sites")
+        .sheet(isPresented: $open) {
+            SourcesSheet(sources: sources)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+    }
+}
+
+/// Every page a web answer used: the site, then the page's title. Tapping one
+/// opens it in Safari.
+private struct SourcesSheet: View {
+    let sources: [WebSource]
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Sources")
+                .font(.headline)
+                .padding(.horizontal, 20)
+                .padding(.top, 24)
+                .padding(.bottom, 8)
+
+            List(sources) { source in
+                Button {
+                    if let url = URL(string: source.url) { openURL(url) }
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        SiteIcon(domain: source.site, size: 20)
+                            .padding(.top, 1)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(source.site)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                            Text(source.title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Opens the page")
+            }
+            .listStyle(.plain)
+        }
     }
 }
 
@@ -598,6 +686,30 @@ struct ThinkingIndicator: View {
         }
         .accessibilityLabel("Thinking")
         .accessibilityHint("Shows what I'm working out")
+    }
+}
+
+/// "Searching the web" while a web answer looks things up -- ChatGPT's line:
+/// a globe, the words with light passing over them, and the logos of the sites
+/// read so far, arriving as each search finishes. It gives way to the answer.
+private struct SearchingLine: View {
+    let text: String
+    let sites: [String]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "globe")
+                .foregroundStyle(.secondary)
+            ShimmerText(text: text, font: .subheadline)
+            if !sites.isEmpty {
+                SiteIcons(domains: sites, size: 18, limit: 4)
+                    .transition(.opacity.combined(with: .scale(scale: 0.8)))
+            }
+        }
+        .font(.subheadline)
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(sites.isEmpty ? text : "\(text), \(sites.count) sites so far")
     }
 }
 

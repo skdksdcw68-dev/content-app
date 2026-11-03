@@ -268,7 +268,7 @@ enum ChatMarkdown {
     /// One line of text with its markers turned into styling. A marker that is
     /// never closed is bold to the end (what a half-streamed answer should look
     /// like) or, for a lone `*`, just a character: "5 * 3" stays "5 * 3".
-    static func inline(_ text: String, font: UIFont, color: UIColor) -> NSAttributedString {
+    static func inline(_ text: String, font: UIFont, color: UIColor, dark: Bool = false) -> NSAttributedString {
         let result = NSMutableAttributedString()
         let characters = Array(text)
         var buffer = ""
@@ -347,6 +347,17 @@ enum ChatMarkdown {
                 flush()
                 let label = String(characters[(index + 1)..<close])
                 let target = String(characters[(close + 2)..<paren])
+                // A web answer's source: drawn as ChatGPT's grey chip, opening
+                // the page it names.
+                if target.hasPrefix("cite:") {
+                    let chip = NSMutableAttributedString(attachment: sourceChip(label, font: font, dark: dark))
+                    if let url = URL(string: String(target.dropFirst(5))) {
+                        chip.addAttribute(.link, value: url, range: NSRange(location: 0, length: chip.length))
+                    }
+                    result.append(chip)
+                    index = paren + 1
+                    continue
+                }
                 var linked = attributes()
                 if let url = URL(string: target) { linked[.link] = url }
                 result.append(NSAttributedString(string: label, attributes: linked))
@@ -361,6 +372,64 @@ enum ChatMarkdown {
         return result
     }
 
+    /// How much of `text` the typewriter may show when it wants `wanted`
+    /// characters, without stopping inside a link: a cut inside "[label](url)"
+    /// moves to the link's end, or -- while its end has not arrived -- back to
+    /// its start. Half a link is raw markdown on screen, and half a source chip
+    /// is "[livescore.com +1](cite:htt".
+    static func revealCut(_ text: String, wanted: Int) -> Int {
+        let characters = Array(text)
+        // All of what is waiting can still end inside a link.
+        let wanted = min(wanted, characters.count)
+        guard let open = characters[..<wanted].lastIndex(of: "[") else { return wanted }
+        var at = open + 1
+        while at < characters.count, characters[at] != "]", characters[at] != "\n" { at += 1 }
+        guard at < characters.count else { return open }          // the label is still coming
+        guard characters[at] == "]" else { return wanted }        // a bracket, not a link
+        guard at + 1 < characters.count else { return open }      // its "(" may still come
+        guard characters[at + 1] == "(" else { return wanted }    // "[x] then words": not a link
+        at += 2
+        while at < characters.count, characters[at] != ")", !characters[at].isWhitespace { at += 1 }
+        guard at < characters.count else { return open }          // the address is still coming
+        guard characters[at] == ")" else { return wanted }
+        return max(wanted, at + 1)
+    }
+
+    /// Chips already drawn, so redrawing the same answer hands the text view the
+    /// same attachment and it leaves the text alone. Keyed by label, size and
+    /// light or dark.
+    nonisolated(unsafe) private static var chips: [String: NSTextAttachment] = [:]
+
+    /// ChatGPT's source chip: the site's name ("livescore.com +1") in a small
+    /// grey capsule, sitting in the line like a word (Abel, 3 Nov 2026: "add the
+    /// ChatGPT small source chips").
+    static func sourceChip(_ label: String, font: UIFont, dark: Bool) -> NSTextAttachment {
+        let key = "\(label)|\(font.pointSize)|\(dark)"
+        if let drawn = chips[key] { return drawn }
+
+        let traits = UITraitCollection(userInterfaceStyle: dark ? .dark : .light)
+        let face = UIFont.systemFont(ofSize: (font.pointSize * 0.72).rounded(), weight: .medium)
+        let words = NSAttributedString(string: label, attributes: [
+            .font: face,
+            .foregroundColor: UIColor.secondaryLabel.resolvedColor(with: traits),
+        ])
+        let measured = words.size()
+        let size = CGSize(width: ceil(measured.width) + 16, height: ceil(face.lineHeight) + 6)
+        let image = UIGraphicsImageRenderer(size: size).image { _ in
+            UIColor.tertiarySystemFill.resolvedColor(with: traits).setFill()
+            UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: size.height / 2).fill()
+            words.draw(at: CGPoint(x: 8, y: (size.height - measured.height) / 2))
+        }
+        let attachment = NSTextAttachment(image: image)
+        // Centred on the letters around it, not sitting on their baseline.
+        attachment.bounds = CGRect(
+            x: 0, y: (font.capHeight - size.height) / 2,
+            width: size.width, height: size.height
+        )
+        chips[key] = attachment
+        return attachment
+    }
+
     /// Inline markdown for a SwiftUI `Text` -- a table cell.
     static func attributedString(_ text: String) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
@@ -373,7 +442,7 @@ enum ChatMarkdown {
 
     /// Everything that is text -- headings, paragraphs, lists, quotes, code --
     /// as ONE attributed string, so it is one selectable run.
-    static func attributed(_ blocks: [MarkdownBlock], base: UIFont, color: UIColor) -> NSAttributedString {
+    static func attributed(_ blocks: [MarkdownBlock], base: UIFont, color: UIColor, dark: Bool = false) -> NSAttributedString {
         let out = NSMutableAttributedString()
 
         func paragraphStyle(
@@ -408,13 +477,13 @@ enum ChatMarkdown {
                 let extra: CGFloat = level == 1 ? 5 : level == 2 ? 3 : 1
                 let font = UIFont.systemFont(ofSize: base.pointSize + extra, weight: .bold)
                 add(
-                    inline(text, font: font, color: color),
+                    inline(text, font: font, color: color, dark: dark),
                     style: paragraphStyle(spacing: 6, before: position == 0 ? 0 : 8),
                     last: isLast
                 )
 
             case .paragraph(let text):
-                add(inline(text, font: base, color: color), style: paragraphStyle(spacing: 10), last: isLast)
+                add(inline(text, font: base, color: color, dark: dark), style: paragraphStyle(spacing: 10), last: isLast)
 
             case .bullets(let items):
                 for (at, item) in items.enumerated() {
@@ -422,7 +491,7 @@ enum ChatMarkdown {
                         string: "•\t",
                         attributes: [.font: base, .foregroundColor: color]
                     )
-                    line.append(inline(item, font: base, color: color))
+                    line.append(inline(item, font: base, color: color, dark: dark))
                     let lastItem = at == items.count - 1
                     add(
                         line,
@@ -437,7 +506,7 @@ enum ChatMarkdown {
                         string: "\(start + at).\t",
                         attributes: [.font: base, .foregroundColor: color]
                     )
-                    line.append(inline(item, font: base, color: color))
+                    line.append(inline(item, font: base, color: color, dark: dark))
                     let lastItem = at == items.count - 1
                     add(
                         line,
@@ -448,7 +517,7 @@ enum ChatMarkdown {
 
             case .quote(let text):
                 add(
-                    inline(text, font: base, color: UIColor.secondaryLabel),
+                    inline(text, font: base, color: UIColor.secondaryLabel, dark: dark),
                     style: paragraphStyle(spacing: 10, indent: 12),
                     last: isLast
                 )
@@ -477,6 +546,9 @@ enum ChatMarkdown {
 struct MarkdownText: View {
     let text: String
 
+    /// Source chips are pictures, drawn for light or dark.
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         let segments = ChatMarkdown.segments(ChatMarkdown.blocks(text))
         VStack(alignment: .leading, spacing: 14) {
@@ -487,7 +559,8 @@ struct MarkdownText: View {
                         attributed: ChatMarkdown.attributed(
                             blocks,
                             base: UIFont.preferredFont(forTextStyle: .body),
-                            color: UIColor.label
+                            color: UIColor.label,
+                            dark: colorScheme == .dark
                         )
                     )
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -30,8 +30,10 @@ struct ProfileView: View {
     @State private var deleting = false
     @State private var signingUp = false
     @State private var managingSubscription = false
-    /// The generator's settings sheet, from Autopilot & AI.
+    /// The generator's settings sheet, from the Autocast group.
     @State private var generatorSettings = false
+    /// The chat's settings -- the same sheet as the gear on the chat list.
+    @State private var chatSettings = false
 
     /// Where a "connect an account" finding sends somebody: the Accounts
     /// group, further down this same screen.
@@ -40,53 +42,33 @@ struct ProfileView: View {
     var body: some View {
         ScrollViewReader { scroll in
         List {
-            // Grok's profile card, on a card of its own (Abel, 1 Nov 2026).
+            // Grok's Settings, top to bottom (Abel, 3 Nov 2026, with his screen
+            // recording: "put their profile at the top"): the person, their
+            // subscription as a card of its own, then short groups -- and Sign
+            // Out last. The full-screen "Connect your first account" gate that
+            // stood between the profile and everything else (29 Sep) is gone;
+            // with nothing connected, Accounts is simply the first group.
             Section {
                 ProfileHeader()
             }
 
+            subscription
+            account
             if session.needsAccount {
-                // 🔴 No account, no profile -- almost.
-                //
-                // Abel, 29 Sep 2026: "analytics, you, and a plus icon. Those
-                // three must have a connection, at least with one connector."
-                // So the brand, Autopilot and the numbers step aside and the
-                // one thing to do fills the screen. What stays is what a
-                // person must always be able to reach: their plan, how they
-                // are signed in, support and legal, and Sign out and Delete --
-                // App Review requires the last two whatever else is locked.
-                Section {
-                    ConnectGate(
-                        art: "empty-plan",
-                        title: "Connect your first account",
-                        detail: "Your accounts, your brand and your plan live here. Start with one."
-                    )
-                    .padding(.horizontal, Style.gutter)
-                    .padding(.vertical, 8)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-
-                pro
-                account
-                app
-                support
-                signOutAndDelete
-            } else {
-                // Grok's order (Abel, 1 Nov 2026): what needs you, your plan,
-                // your brand, where it posts, what runs on its own, the app,
-                // help, and Sign Out last.
-                attention(scroll)
-                pro
-                account
-                brandSection
                 accounts.id(Self.accountsAnchor)
-                autopilot
-                app
-                support
-                signOutAndDelete
+            } else {
+                attention(scroll)
             }
+            brandSection
+            if !session.needsAccount {
+                accounts.id(Self.accountsAnchor)
+            }
+            autocast
+            app
+            data
+            legal
+            report
+            signOutAndDelete
         }
         .listStyle(.insetGrouped)
         // The tab says "You", so the screen does too. They disagreed.
@@ -167,36 +149,40 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Autocast Pro
+    // MARK: - Subscription
 
+    /// Grok's SuperGrok card: the plan on a colour of its own, with the one
+    /// thing to do about it -- Upgrade, or Manage -- as a pill. Usage under it.
     @ViewBuilder
-    private var pro: some View {
+    private var subscription: some View {
         Section {
             if let plan = session.subscription, plan.isPro {
-                Button { managingSubscription = true } label: {
-                    SettingsRow("Autocast Pro", symbol: "sparkles", value: proDetail(plan), accessory: .chevron)
-                }
-                .disabled(plan.productId == "owner")
+                // Named from the plan: this row said "Autocast Pro" on a Max
+                // subscription, under a profile card that said Max (3 Nov 2026).
+                SubscriptionCard(
+                    title: "Autocast \(plan.title)",
+                    detail: proDetail(plan),
+                    action: plan.productId == "owner" ? nil : "Manage"
+                ) { managingSubscription = true }
             } else {
-                Button { session.showingPaywall = true } label: {
-                    SettingsRow("Get Autocast Pro", symbol: "sparkles", accessory: .chevron)
-                }
+                SubscriptionCard(
+                    title: "Autocast Pro",
+                    detail: "Upgrade for pictures and videos",
+                    action: "Upgrade"
+                ) { session.showingPaywall = true }
             }
-            // How much of the month is gone, beside the plan it comes from.
+        } header: {
+            Text("Subscription")
+        }
+        .manageSubscriptionsSheet(isPresented: $managingSubscription)
+
+        // How much of the month is gone, right under the plan it comes from.
+        Section {
             NavigationLink { UsageView().pushedPage() } label: {
                 SettingsValueLabel("Usage", symbol: "gauge.with.dots.needle.33percent",
                                    value: session.credits.map { "\(UsageFormat.percent($0.percentUsed)) used" })
             }
-        } header: {
-            Text("Plan")
-        } footer: {
-            if let plan = session.subscription, !plan.isPro {
-                // Not the old caps: chat and captions draw on one monthly
-                // meter now (0079), and Free's is a few messages.
-                Text("Free: \(plan.limits.planDays)-day plans and a few chat messages a month. Pictures and videos come with a paid plan.")
-            }
         }
-        .manageSubscriptionsSheet(isPresented: $managingSubscription)
     }
 
     private func proDetail(_ plan: MyPlan) -> String {
@@ -271,10 +257,15 @@ struct ProfileView: View {
         }
     }
 
-    // MARK: - Autopilot & AI
+    // MARK: - Autocast
 
-    private var autopilot: some View {
+    /// What Grok calls its own group ("Customize Grok, Skills, Connectors"):
+    /// how the assistant talks, and what it makes and runs on its own.
+    private var autocast: some View {
         Section {
+            Button { chatSettings = true } label: {
+                SettingsRow("Chat settings", symbol: "text.bubble", accessory: .chevron)
+            }
             NavigationLink { AutopilotView() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
             }
@@ -294,9 +285,10 @@ struct ProfileView: View {
                 SettingsLabel("Post defaults", symbol: "slider.horizontal.3")
             }
         } header: {
-            Text("Autopilot & AI")
+            Text("Autocast")
         }
         .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
+        .sheet(isPresented: $chatSettings) { ChatSettingsView() }
     }
 
     // MARK: - App
@@ -310,9 +302,6 @@ struct ProfileView: View {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
             } label: {
                 SettingsRow("Notifications", symbol: "bell", accessory: .external)
-            }
-            NavigationLink { ActivityHistoryView().pushedPage() } label: {
-                SettingsLabel("Activity", symbol: "list.bullet.rectangle")
             }
             // 🔴 Asked first. This threw somebody back to the welcome
             // screen on ONE tap, wearing a chevron -- which the design system
@@ -330,25 +319,17 @@ struct ProfileView: View {
         } header: {
             // Two unlabelled blocks ran together here, so "Usage this month"
             // and "Appearance" read as one long list of unrelated rows.
-            Text("General")
+            Text("App")
         }
     }
 
-    // MARK: - Support
+    // MARK: - Data, legal, report
 
-    private var support: some View {
+    /// Grok's "Data & Information": what happened, and a copy of all of it.
+    private var data: some View {
         Section {
-            Button { openURL(AutocastLinks.supportMail) } label: {
-                SettingsRow("Contact support", symbol: "envelope", accessory: .external)
-            }
-            Button { requestReview() } label: {
-                SettingsRow("Rate Autocast", symbol: "star", accessory: .none)
-            }
-            Button { web = WebPage(url: AutocastLinks.privacy) } label: {
-                SettingsRow("Privacy Policy", symbol: "hand.raised", accessory: .chevron)
-            }
-            Button { web = WebPage(url: AutocastLinks.terms) } label: {
-                SettingsRow("Terms of Use", symbol: "doc.text", accessory: .chevron)
+            NavigationLink { ActivityHistoryView().pushedPage() } label: {
+                SettingsLabel("Activity", symbol: "list.bullet.rectangle")
             }
             Button {
                 Task {
@@ -364,7 +345,31 @@ struct ProfileView: View {
             }
             .disabled(exporting)
         } header: {
-            Text("Help & legal")
+            Text("Data & Information")
+        }
+    }
+
+    /// Rate, Terms, Privacy -- one unlabelled group, as Grok has it.
+    private var legal: some View {
+        Section {
+            Button { requestReview() } label: {
+                SettingsRow("Rate the App", symbol: "star", accessory: .none)
+            }
+            Button { web = WebPage(url: AutocastLinks.terms) } label: {
+                SettingsRow("Terms of Use", symbol: "doc.text", accessory: .chevron)
+            }
+            Button { web = WebPage(url: AutocastLinks.privacy) } label: {
+                SettingsRow("Privacy Policy", symbol: "hand.raised", accessory: .chevron)
+            }
+        }
+    }
+
+    /// Report a Problem on its own, above Sign Out. It writes to support.
+    private var report: some View {
+        Section {
+            Button { openURL(AutocastLinks.supportMail) } label: {
+                SettingsRow("Report a Problem", symbol: "exclamationmark.bubble", accessory: .external)
+            }
         }
     }
 
@@ -404,6 +409,60 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity)
             .padding(.top, 14)
         }
+    }
+}
+
+/// Grok's SuperGrok card in Autocast's colour: the plan, one line about it,
+/// and one pill to act on it -- Upgrade, or Manage.
+private struct SubscriptionCard: View {
+    let title: String
+    let detail: String
+    /// "Upgrade" or "Manage"; nil when there is nothing to do here.
+    let action: String?
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.title3.weight(.semibold))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                    Text(detail)
+                        .font(.footnote)
+                        .opacity(0.85)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let action {
+                    Text(action)
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.28), in: Capsule())
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(LinearGradient(
+                        colors: [Theme.accent, Theme.accent.opacity(0.78)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(PressButtonStyle())
+        .disabled(action == nil)
+        .listRowInsets(EdgeInsets())
+        .listRowBackground(Color.clear)
+        .accessibilityLabel("\(title), \(detail)")
+        .accessibilityHint(action == "Upgrade" ? "Shows the plans" : "Manage your subscription")
     }
 }
 

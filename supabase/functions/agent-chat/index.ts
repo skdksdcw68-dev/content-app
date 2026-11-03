@@ -24,7 +24,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { leftToUs, missingForPlan, MODELS, route, type RoutedJob, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
+import { leftToUs, missingForPlan, MODELS, REPLY_EFFORT, route, type RoutedJob, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
@@ -54,12 +54,20 @@ const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
 // no differently on the smaller model (Abel, 23 Sep 2026: "reduce our cost
 // from AI"). Strategy drafting below still uses MODELS.deep, where depth
 // is the point.
-const MODEL = MODELS.chat;
+// 3 Nov 2026: gpt-5.6-luna, which costs what gpt-4.1-mini did; the big
+// questions go to MODELS.smart. See `MODELS.quick`.
+const MODEL = MODELS.quick;
 
-/** How much conversation goes back to the model. Past this the cost grows for
- *  context nobody refers to; a chat that has run longer keeps its most recent
- *  turns, which is where the pronouns point. */
-const TURNS_KEPT = 12;
+/** How much conversation goes back to the model. It was 12, and Abel's "you
+ *  already gave me earlier" (3 Nov 2026) pointed at a reply that had already
+ *  fallen out. Turns older than `TURNS_WHOLE` are cut short, so a long chat
+ *  stays affordable; what lasts beyond it is in the person's memory. */
+const TURNS_KEPT = 40;
+const TURNS_WHOLE = 12;
+const OLD_TURN_CHARS = 1200;
+
+/** What the chat keeps about a person across conversations (0092). */
+const MEMORY_KEPT = 60;
 
 interface Turn {
   role: "user" | "assistant";
@@ -606,10 +614,20 @@ Deno.serve(async (request) => {
           strategyId: string,
           request: string,
           days: number,
+          /** The conversation and what it remembers about them. Without it,
+           *  "handle every single thing for me" right after "forget about Drobe"
+           *  became a Drobe campaign (Abel, 3 Nov 2026). */
+          conversation = "",
         ) => {
-          const { data: rows } = await asUser.rpc("current_strategy", { p_brand: brand.id });
-          const strategy = ((rows ?? []) as Array<Record<string, unknown>>).find((row) => row.id === strategyId) ??
-            (rows ?? [])[0] ?? {};
+          // The strategy it was handed, read by id. `current_strategy` returns
+          // only one row and prefers an approved one, so a fresh draft beside
+          // an approved strategy was read as the approved one.
+          const { data: row } = await asUser
+            .from("strategies")
+            .select("id, goal, appetite, audience, cadence, approved_at")
+            .eq("id", strategyId)
+            .maybeSingle();
+          const strategy = (row ?? {}) as Record<string, unknown>;
 
           const { data: facts } = await asUser
             .from("brand_memory").select("fact").eq("brand_id", brand.id).limit(40);
@@ -622,7 +640,7 @@ Deno.serve(async (request) => {
           const completion = await writeWithClaude({
               json: true,
               effort: "medium",
-              openaiModel: MODELS.deep,
+              openaiModel: MODELS.smart,
               messages: [
                 {
                   role: "system",
@@ -632,11 +650,14 @@ Deno.serve(async (request) => {
                     "title: under seven words, what the campaign is. summary: two or three plain sentences on what it does and why it fits the goal.",
                     "angle: one sentence, the through-line every post shares. pillars: three or four content themes whose shares sum to 100.",
                     "Use only the facts given. Never invent a feature, a customer, a number, a price or a date. No hype words.",
+                    "The conversation comes first. The account is background, not a boundary: when they asked for content",
+                    "outside its subject, or said to leave the brand out, plan what they asked for.",
                   ].join("\n"),
                 },
                 {
                   role: "user",
                   content: [
+                    ...(conversation ? [`Conversation so far:\n${conversation}`, ""] : []),
                     `Account: ${brand.name}. Subject: ${brand.niche || "not stated"}.`,
                     `Request: ${request || "plan the next stretch of content"}`,
                     `Days: ${days}. Goal: ${strategy.goal ?? "not stated"}. Appetite: ${strategy.appetite ?? "balanced"}.`,
@@ -646,7 +667,7 @@ Deno.serve(async (request) => {
                 },
               ],
           });
-          await recordUsage(admin, { userId: auth.user!.id, brandId: brand.id, kind: "campaign_write", model: completion.model ?? MODELS.deep, usage: completion.usage });
+          await recordUsage(admin, { userId: auth.user!.id, brandId: brand.id, kind: "campaign_write", model: completion.model ?? MODELS.smart, usage: completion.usage });
           const drafted = JSON.parse(completion.choices?.[0]?.message?.content ?? "{}");
 
           const pillars = (Array.isArray(drafted.pillars) ? drafted.pillars : [])
@@ -1518,6 +1539,105 @@ Deno.serve(async (request) => {
           return finish();
         };
 
+        /**
+         * What it remembers about them from earlier messages and chats (0092),
+         * oldest first. Started now: the router and the reply both read it.
+         * Abel, 3 Nov 2026: "you remember what I told you yesterday, but it
+         * doesn't understand ... what I ask it now."
+         */
+        const memoryAhead: Promise<Array<{ id: string; note: string }>> = Promise.resolve(
+          admin.from("person_memory").select("id, note").eq("user_id", auth.user!.id)
+            .order("created_at", { ascending: false }).limit(MEMORY_KEPT),
+        ).then(({ data, error }) => {
+          if (error) console.warn("memory not read", error.message);
+          return ((data ?? []) as Array<{ id: string; note: string }>).reverse();
+        }).catch(() => []);
+
+        const memoryBlock = (notes: Array<{ note: string }>) =>
+          notes.length > 0
+            ? "MEMORY -- what you have learned about this person in earlier messages and chats, oldest first. " +
+              "A newer note wins over an older one. Use it without announcing it, and never ask what it " +
+              `already answers:\n${notes.map((n) => `- ${n.note}`).join("\n")}`
+            : "";
+
+        /**
+         * After the reply: the model decides what, if anything, from this turn is
+         * worth keeping for every future chat, and what it makes out of date.
+         * Runs after the stream has closed, so nobody waits for it.
+         */
+        const updateMemory = async () => {
+          if (!OPENAI_KEY || !asked.trim() || !said.trim()) return;
+          const notes = await memoryAhead;
+          try {
+            const ask = (model: string) => fetch("https://api.openai.com/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model,
+                response_format: { type: "json_object" },
+                messages: [
+                  {
+                    role: "system",
+                    content: [
+                      "You keep the long-term memory that Autocast, the assistant in a content creation app, has about ONE person.",
+                      "You get what is already remembered (numbered), their latest message, and Autocast's reply.",
+                      "Keep only what will still matter in a future chat: how they write and what their words mean, what they",
+                      "want and do not want from you, corrections they gave you, their goals, niche, platforms, audience, where",
+                      "they are, languages, likes and dislikes, and decisions they made. Not one-off requests, not what the",
+                      "reply said, not passing moods, nothing about other people.",
+                      "Each note is one short sentence about them, in the third person: 'Writes \"uk\" to mean \"you know\".',",
+                      "'Does not want answers tied to the Drobe brand.'",
+                      'JSON only: {"add":[string],"remove":[number]}. remove: the numbers of notes this message makes wrong or',
+                      "replaces. Do not add what is already there. Most messages change nothing: both empty.",
+                    ].join("\n"),
+                  },
+                  {
+                    role: "user",
+                    content: [
+                      `Remembered so far:\n${notes.length > 0 ? notes.map((n, i) => `${i + 1}. ${n.note}`).join("\n") : "(nothing yet)"}`,
+                      `Their message: ${asked.slice(0, 2000)}`,
+                      `Autocast's reply: ${said.slice(0, 1500)}`,
+                    ].join("\n\n"),
+                  },
+                ],
+              }),
+            });
+            let response = await ask(MODELS.quick);
+            if (!response.ok) {
+              await response.body?.cancel().catch(() => {});
+              response = await ask(MODELS.chat);
+            }
+            if (!response.ok) {
+              console.warn("memory not updated", response.status);
+              return;
+            }
+            const body = await response.json();
+            await recordUsage(admin, { userId: auth.user!.id, kind: "chat_memory", model: body.model ?? MODELS.chat, usage: body.usage });
+            const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
+            const gone = (Array.isArray(parsed?.remove) ? parsed.remove : [])
+              .map(Number)
+              .filter((n: number) => Number.isInteger(n) && n >= 1 && n <= notes.length)
+              .map((n: number) => notes[n - 1].id);
+            const added = (Array.isArray(parsed?.add) ? parsed.add : [])
+              .filter((note: unknown) => typeof note === "string" && note.trim())
+              .map((note: string) => note.trim().slice(0, 300))
+              .slice(0, 5);
+            if (gone.length > 0) await admin.from("person_memory").delete().in("id", gone);
+            if (added.length > 0) {
+              await admin.from("person_memory").insert(added.map((note: string) => ({ user_id: auth.user!.id, note })));
+            }
+            // Past the cap, the oldest go first.
+            const over = notes.length - gone.length + added.length - MEMORY_KEPT;
+            if (over > 0) {
+              const oldest = notes.filter((n) => !gone.includes(n.id)).slice(0, over).map((n) => n.id);
+              if (oldest.length > 0) await admin.from("person_memory").delete().in("id", oldest);
+            }
+            if (gone.length + added.length > 0) console.log("memory", { added: added.length, removed: gone.length });
+          } catch (thrown) {
+            console.warn("memory not updated", thrown instanceof Error ? thrown.message : thrown);
+          }
+        };
+
         try {
           // A photo and nothing else. The picture is the message, so the reply
           // is what can be done with it -- as taps, since "animate it" is a
@@ -1812,12 +1932,21 @@ Deno.serve(async (request) => {
           // openings") made the agent look like it was checking up on
           // somebody before answering "hi". Steps are for work a person would
           // want to watch: making something, pricing it, researching.
-          // What the router sees: twenty messages, not six, at six hundred
-          // characters, not three; and every picture in the conversation under a
-          // handle. It used to read a few lines of words and none of the pictures.
-          const [pending, awaiting, pics] = await Promise.all([lastOffer(), lastAwaiting(), conversationPictures()]);
+          // What the router sees: thirty messages at six hundred characters (it
+          // was six at three hundred), what it remembers about the person, and
+          // every picture in the conversation under a handle. It used to read a
+          // few lines of words and none of the pictures.
+          const [pending, awaiting, pics, memory] = await Promise.all([
+            lastOffer(),
+            lastAwaiting(),
+            conversationPictures(),
+            memoryAhead,
+          ]);
           const context = [
-            ...history.slice(0, -1).slice(-20).map((turn) =>
+            ...(memory.length > 0
+              ? [`(What Autocast remembers about this person from earlier: ${memory.map((n) => n.note).join(" ")})`]
+              : []),
+            ...history.slice(0, -1).slice(-30).map((turn) =>
               `${turn.role === "user" ? "Person" : "Autocast"}: ${turn.content.replace(/\s+/g, " ").slice(0, 600)}`
             ),
             ...(pending
@@ -2214,7 +2343,7 @@ How to answer:
             try {
               answered = await writeStreaming({
                 effort: "medium",
-                openaiModel: MODEL,
+                openaiModel: MODELS.smart,
                 messages: [
                   { role: "system", content: rules },
                   { role: "system", content: `DATA:\n${JSON.stringify(data)}` },
@@ -2636,7 +2765,7 @@ How to answer:
               const { data: strategyRow } = known.strategy_id
                 ? await asUser
                   .from("strategies")
-                  .select("goal, appetite, audience, cadence")
+                  .select("goal, appetite, audience, cadence, approved_at")
                   .eq("id", known.strategy_id)
                   .maybeSingle()
                 : { data: null };
@@ -2647,11 +2776,24 @@ How to answer:
               // straight to the strategy card, which is still a confirmation.
               if (questions.length === 0) {
                 let strategyId = known.strategy_id as string | null;
-                if (!strategyId) {
-                  const { data } = await asUser.rpc("record_answers", { p_brand: brand.id, p_thread: threadId });
+                // An approved strategy is never rewritten, and a new request is a
+                // new plan: it starts a fresh draft from the same answers. It used
+                // to draft over the approved one and say "Here's the strategy you
+                // approved" about a card nobody had approved (Abel, 3 Nov 2026).
+                const approved = strategyRow && (strategyRow as { approved_at?: string | null }).approved_at;
+                if (!strategyId || approved) {
+                  const row = (strategyRow ?? {}) as { goal?: string; appetite?: string; audience?: string; cadence?: number };
+                  const { data } = await asUser.rpc("record_answers", {
+                    p_brand: brand.id,
+                    p_thread: threadId,
+                    p_goal: row.goal ?? null,
+                    p_appetite: row.appetite ?? null,
+                    p_audience: row.audience ?? null,
+                    p_cadence: row.cadence ?? null,
+                  });
                   strategyId = data as string;
                 }
-                return await draftCampaign(brand, strategyId, asked, routed.days ?? 30);
+                return await draftCampaign(brand, strategyId, asked, routed.days ?? 30, context);
               }
 
               if (questions.length > 0) {
@@ -2827,6 +2969,19 @@ rank options when it really matters -- and say so when you do. For "what content
 should I make", think across niches, formats and platforms, with real reasons each
 could grow and earn.
 
+This is a content app. "What's trending", "what's new today", "what's hot" mean what
+is trending for creators right now on TikTok, Instagram Reels, YouTube Shorts and X:
+sounds, formats, challenges, memes, and the topics people are making videos about.
+News is only one source of content angles. Look it up -- your own knowledge is old.
+When they ask you to make content from it, or hand the choice to you ("you pick",
+"give me the details yourself", "handle it", "do everything"), choose the strongest
+option yourself and deliver the actual content: the idea, the hook, the script or
+shot list, the caption and where to post it -- then offer to make the video or
+picture. Never ask them again what they already answered or left to you, and never
+ask the same question twice.
+People type fast or by voice: read slang and typos for what they mean ("uk" is often
+"you know"). When they correct you, take the correction and keep it.
+
 ${formatRules}
 
 No filler openers ("Great question", "Absolutely", "I'd be happy to"). Personality is
@@ -2950,7 +3105,7 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
 </autocast>`;
 
           const brief = brand
-            ? `Background, not a boundary: the account they set up is ${brand.name} (${brand.niche || "niche not stated"}, audience: ${brand.audience || "not stated"}). They may want content outside it.`
+            ? `Background only: the account they set up is ${brand.name} (${brand.niche || "niche not stated"}, audience: ${brand.audience || "not stated"}). Leave it out of your answer -- no "${brand.name} angle" -- unless they ask about it or about their own account. They may want content in any niche.`
             : "The account has not described itself yet.";
 
           const factBlock = known.length > 0
@@ -2988,6 +3143,11 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           const { images: earlier, lines: earlierLines } = await earlierAhead;
 
           const turns = history.map((turn, index) => {
+            // The older part of a long chat, cut short: enough to know what was
+            // said, without paying for every table again on every message.
+            if (index < history.length - TURNS_WHOLE && turn.content.length > OLD_TURN_CHARS) {
+              return { role: turn.role, content: `${turn.content.slice(0, OLD_TURN_CHARS)} [...]` };
+            }
             if (index !== history.length - 1 || pictures.length + earlier.length === 0) return turn;
             const note = earlier.length > 0
               ? `\n\n(For you only: after ${pictures.length > 0 ? "the pictures they just sent" : "their message"} come pictures from earlier in this conversation, oldest first:\n${earlierLines.join("\n")}\nUse them when they refer back to a picture. Judge what you made honestly against what they asked for.)`
@@ -2997,28 +3157,39 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
 
           // A question about their numbers or a "why" gets the better model and a
           // full answer; "hi" does not.
-          const replyModel = routed.depth === "full" ? MODELS.deep : MODEL;
+          const replyModel = routed.depth === "full" ? MODELS.smart : MODEL;
           const depthNote = routed.depth === "full"
             ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
             : "";
 
-          // A question the web answers: one call that searches and then writes,
-          // streamed into the chat the way ChatGPT does it -- "Searching the
-          // web", the answer, then its sources under it. Abel, 3 Nov 2026, with
-          // a screen recording: ChatGPT answered "what games are available
-          // today" in 9 seconds, kick-off times in his time zone, while ours
-          // started a five-minute report about Google Doodles. Same voice and
-          // rules as any other reply; only the writer can look things up.
-          if (routed.web && OPENAI_KEY) {
-            const where = whereTheyAre(body.timezone, body.region);
-            // Its own model: see `MODELS.web` for why speed alone lost.
+          // Today's date and where they are, for every reply. Only web answers
+          // had it, so the rest took gpt-4.1's 2024 for now: "what's trending"
+          // came back as the Eras Tour and EURO 2024 in November 2026.
+          const where = whereTheyAre(body.timezone, body.region);
+          const remembered = memoryBlock(await memoryAhead);
+
+          // Every reply can look things up, the way ChatGPT does: the model
+          // decides when it needs to ("auto"), and when the router already knows
+          // it must, it always does ("required", on the web model). Streamed into
+          // the chat -- "Searching the web" only when it searches, the answer,
+          // then its sources under it. Abel, 3 Nov 2026, with a screen
+          // recording: ChatGPT answered "what games are available today" in 9
+          // seconds, kick-off times in his time zone, while ours started a
+          // five-minute report about Google Doodles; later the same day, "what's
+          // trending" was answered from memory because the router said no search.
+          if (OPENAI_KEY) {
+            const forced = routed.web;
             const answer = await answerFromTheWeb({
               apiKey: OPENAI_KEY,
-              model: MODELS.web,
-              effort: WEB_EFFORT,
+              // See `MODELS.web` for why speed alone lost on a forced search.
+              model: forced ? MODELS.web : replyModel,
+              effort: forced ? WEB_EFFORT : REPLY_EFFORT,
+              search: forced ? "required" : "auto",
+              fallbackModel: MODELS.chat,
               instructions: [
                 system,
-                [brief, factBlock, stateBlock, avoid, ownerBlock, depthNote, webRules(where.now)].filter(Boolean).join("\n\n"),
+                [brief, remembered, factBlock, stateBlock, avoid, ownerBlock, depthNote, webRules(where.now, forced ? "always" : "maybe")]
+                  .filter(Boolean).join("\n\n"),
               ].join("\n\n"),
               input: turns.map((turn) => asResponsesTurn(turn as { role: string; content: unknown })),
               location: where.location,
@@ -3037,36 +3208,54 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
                 userId: auth.user.id,
                 brandId: brand?.id ?? null,
                 kind: "chat_reply",
-                model: MODELS.web,
+                model: answer.model,
                 usage: answer.usage,
+                searches: answer.searches,
               });
               send({ t: "done" });
               closeStream();
               return;
             }
-            // The search could not answer: the ordinary reply still does, from
-            // what the model knows, rather than leaving them with an error.
-            console.error("web answer: nothing written, answering without the web");
+            // Nothing came back: the plain reply below still answers, from what
+            // the model knows, rather than leaving them with an error.
+            console.error("reply with search: nothing written, answering without it");
           }
 
-          const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+          const writeWith = (model: string) => fetch("https://api.openai.com/v1/chat/completions", {
             method: "POST",
             headers: {
               Authorization: `Bearer ${OPENAI_KEY}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              model: replyModel,
+              model,
               stream: true,
               // The last chunk then carries the real token counts.
               stream_options: { include_usage: true },
               messages: [
                 { role: "system", content: system },
-                { role: "system", content: [brief, factBlock, stateBlock, avoid, ownerBlock, depthNote].filter(Boolean).join("\n\n") },
+                {
+                  role: "system",
+                  content: [
+                    where.now,
+                    "Your own knowledge is old: never give something from memory as today's news or trends. If the answer needs something current, say in one line that you could not look it up just now.",
+                    brief, remembered, factBlock, stateBlock, avoid, ownerBlock, depthNote,
+                  ].filter(Boolean).join("\n\n"),
+                },
                 ...turns,
               ],
             }),
           });
+
+          let writer: string = replyModel;
+          let upstream = await writeWith(writer);
+          // Refused (no credit for the newer models): the older one still answers.
+          if (!upstream.ok && writer !== MODELS.chat) {
+            console.warn("reply: falling back", writer, upstream.status);
+            await upstream.body?.cancel().catch(() => {});
+            writer = MODELS.chat;
+            upstream = await writeWith(writer);
+          }
 
           if (!upstream.ok || !upstream.body) {
             const detail = await upstream.text().catch(() => "");
@@ -3120,7 +3309,7 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             send({ t: "error", message: "Nothing came back. Try rephrasing." });
           }
           await remember();
-          await recordUsage(admin, { userId: auth.user.id, brandId: brand?.id ?? null, kind: "chat_reply", model: replyModel, usage });
+          await recordUsage(admin, { userId: auth.user.id, brandId: brand?.id ?? null, kind: "chat_reply", model: writer, usage });
           send({ t: "done" });
           closeStream();
         } catch (thrown) {
@@ -3132,6 +3321,8 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           send({ t: "error", message: "Something went wrong writing that." });
           closeStream();
         } finally {
+          // The stream is closed by now; the isolate is held by `release`.
+          await updateMemory();
           release();
         }
       },

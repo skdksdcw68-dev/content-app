@@ -205,20 +205,33 @@ export async function writeStreaming(request: WriterRequest, onText: (piece: str
 
 // ------------------------------------------------------------------ fallback
 
+/** Tried when the chosen OpenAI model is refused: on 3 Nov 2026 the account ran
+ *  out of credit and only gpt-4.1-mini still answered. */
+const OPENAI_FALLBACK = Deno.env.get("CHAT_MODEL") ?? "gpt-4.1-mini";
+
 async function openai(request: WriterRequest): Promise<Completion> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: request.openaiModel,
-      ...(request.json ? { response_format: { type: "json_object" } } : {}),
-      messages: request.messages,
-    }),
-  });
+  const ask = (model: string) =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        ...(request.json ? { response_format: { type: "json_object" } } : {}),
+        messages: request.messages,
+      }),
+    });
+  let model = request.openaiModel;
+  let response = await ask(model);
+  if (!response.ok && model !== OPENAI_FALLBACK) {
+    console.warn("writer: falling back", model, response.status);
+    await response.body?.cancel().catch(() => {});
+    model = OPENAI_FALLBACK;
+    response = await ask(model);
+  }
   const body = await response.json();
   if (!response.ok) throw new Error(`openai ${response.status}: ${JSON.stringify(body?.error ?? body).slice(0, 200)}`);
   return {
-    model: body.model ?? request.openaiModel,
+    model: body.model ?? model,
     usage: {
       prompt_tokens: body.usage?.prompt_tokens ?? 0,
       completion_tokens: body.usage?.completion_tokens ?? 0,
@@ -230,16 +243,25 @@ async function openai(request: WriterRequest): Promise<Completion> {
 }
 
 async function openaiStreaming(request: WriterRequest, onText: (piece: string) => void): Promise<Completion> {
-  const upstream = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: request.openaiModel,
-      stream: true,
-      stream_options: { include_usage: true },
-      messages: request.messages,
-    }),
-  });
+  const ask = (model: string) =>
+    fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: request.messages,
+      }),
+    });
+  let model = request.openaiModel;
+  let upstream = await ask(model);
+  if (!upstream.ok && model !== OPENAI_FALLBACK) {
+    console.warn("writer: falling back", model, upstream.status);
+    await upstream.body?.cancel().catch(() => {});
+    model = OPENAI_FALLBACK;
+    upstream = await ask(model);
+  }
   if (!upstream.ok || !upstream.body) {
     throw new Error(`openai ${upstream.status}: ${(await upstream.text().catch(() => "")).slice(0, 200)}`);
   }
@@ -272,5 +294,5 @@ async function openaiStreaming(request: WriterRequest, onText: (piece: string) =
       }
     }
   }
-  return { model: request.openaiModel, usage, choices: [{ message: { content: said } }] };
+  return { model, usage, choices: [{ message: { content: said } }] };
 }

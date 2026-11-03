@@ -24,13 +24,23 @@ const PRICES: Record<string, { input: number; output: number; cached?: number; c
   "gpt-5-nano": { input: 0.05, output: 0.4, cached: 0.005 },
   "gpt-5.4-mini": { input: 0.75, output: 4.5 },
   "gpt-5.4-nano": { input: 0.2, output: 1.25 },
-  "gpt-5.6-luna": { input: 0.2, output: 1.2 },
+  // gpt-5.5 and the 5.6 family from the same page, checked 3 Nov 2026
+  // (standard tier, up to 272K input). Sol's price is a promotion "at least
+  // through November 21, 2026".
+  "gpt-5.5": { input: 5.0, output: 30.0, cached: 0.5 },
+  "gpt-5.6-sol": { input: 4.0, output: 20.0, cached: 0.4 },
+  "gpt-5.6-terra": { input: 2.0, output: 12.0, cached: 0.2 },
+  "gpt-5.6-luna": { input: 0.2, output: 1.2, cached: 0.02 },
   // Claude, from Anthropic's price list (19 Oct 2026). Thinking is billed as
   // output and is inside `output_tokens`, so it is counted.
   "claude-sonnet-5-5": { input: 2.0, output: 10.0, cached: 0.2, cacheWrite: 2.5 },
   "claude-haiku-5-5": { input: 0.1, output: 0.5, cached: 0.01, cacheWrite: 0.125 },
   "claude-opus-5-5": { input: 4.0, output: 20.0, cached: 0.2, cacheWrite: 5.0 },
 };
+
+/** One web search call: "$10.00 / 1k calls" for every model on OpenAI's
+ *  pricing page (3 Nov 2026). What it reads is billed as the model's tokens. */
+export const WEB_SEARCH_USD = 0.01;
 
 export interface TokenUsage {
   /** Every input token, cached or not (OpenAI's meaning). */
@@ -86,9 +96,19 @@ export function unitsFor(usd: number): number {
  */
 export async function recordUsage(
   admin: SupabaseClient,
-  row: { userId: string; brandId?: string | null; kind: string; model: string; usage: TokenUsage | null | undefined },
+  row: {
+    userId: string;
+    brandId?: string | null;
+    kind: string;
+    model: string;
+    usage: TokenUsage | null | undefined;
+    /** Web searches the call ran, billed per search on top of the tokens. */
+    searches?: number;
+  },
 ): Promise<void> {
-  const cost = costUSD(row.model, row.usage);
+  const tokens = costUSD(row.model, row.usage);
+  const searched = Math.max(0, row.searches ?? 0) * WEB_SEARCH_USD;
+  const cost = tokens === null && searched === 0 ? null : (tokens ?? 0) + searched;
   const { error } = await admin.from("usage_events").insert({
     user_id: row.userId,
     brand_id: row.brandId ?? null,

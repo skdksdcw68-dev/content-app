@@ -40,11 +40,23 @@ export const MODELS = {
    *  were quicker still and said there were no games at all. gpt-5.5 at medium
    *  gave ChatGPT's own answer -- the Champions League night at 8:45 and 11 PM,
    *  the Championship games, a pick -- first words at about 15 s. */
-  web: Deno.env.get("WEB_MODEL") ?? "gpt-5.5",
+  //  3 Nov 2026: gpt-5.6-terra at low searched and answered "what's trending" in
+  //  about 11 s, better than gpt-5.5, at under half its price.
+  web: Deno.env.get("WEB_MODEL") ?? "gpt-5.6-terra",
+  /** The chat's everyday replies and the router's first read. Abel, 3 Nov
+   *  2026: the chat felt "so dumb" on gpt-4.1-mini, a 2025 model that thought it
+   *  was 2024. gpt-5.6-luna costs the same per message and is a 2026 model. */
+  quick: Deno.env.get("QUICK_MODEL") ?? "gpt-5.6-luna",
+  /** The chat's big questions (depth full), the router's second read for
+   *  anything that makes something, and campaign strategy. */
+  smart: Deno.env.get("SMART_MODEL") ?? "gpt-5.6-terra",
 } as const;
 
 /** How hard the web model thinks before it writes; see `MODELS.web`. */
-export const WEB_EFFORT = (Deno.env.get("WEB_EFFORT") ?? "medium") as "minimal" | "low" | "medium";
+export const WEB_EFFORT = (Deno.env.get("WEB_EFFORT") ?? "low") as "none" | "low" | "medium";
+
+/** How hard the chat's own replies think. "low" answered "yo bro" in about 2 s. */
+export const REPLY_EFFORT = (Deno.env.get("REPLY_EFFORT") ?? "low") as "none" | "low" | "medium";
 
 export type Intent =
   | "chat"        // talk to me
@@ -256,9 +268,19 @@ export async function route(
     "'not a video', or just a model name all continue what was being made before -- they are make,",
     "about the same subject, never a new plan or a chat.",
     "",
-    "plan     — wants content planned across a stretch of days.",
+    "This is Autocast, a content creation app. Here 'content' means posts and videos for their social",
+    "accounts, and 'what's trending', 'what's new today', 'what's hot' mean what is trending for creators",
+    "right now on TikTok, Reels, Shorts and X -- sounds, formats, challenges, memes, topics -- not the news.",
+    "People type fast or speak: read slang, typos and short forms for what they mean ('u' is you, 'uk' is",
+    "often 'you know').",
+    "",
+    "plan     — wants content planned across a stretch of days: 'plan my month', 'a two-week campaign'.",
+    "  'Handle everything', 'do it all for me', 'you do it' are NOT plan on their own: they continue",
+    "  what the conversation was about, and you pick and do it -- usually chat, depth full.",
     "revise   — wants something that already exists changed.",
-    "make     — wants an image or a video generated now.",
+    "make     — wants an image, a video or a voice generated now. 'Let's make content', 'make a content",
+    "  about it' with no picture, video or voice named is chat, depth full: the reply writes the actual",
+    "  content -- the idea, the hook, the script, the caption -- and offers to make it.",
     "research — they ask for a REPORT or DEEP research: 'deep research ...', 'write me a report on ...', 'a full",
     "  breakdown I can export', 'research it thoroughly'. It runs for minutes and comes back as a document.",
     "  Anything that only needs looking up -- 'what games are on today', 'search for ...', 'check Google for ...',",
@@ -330,8 +352,9 @@ export async function route(
     "  today, tonight, this week or now (games and matches, scores, news, weather, prices, releases, events,",
     "  what is trending), a specific product, place, company, person, app or website, or they say search,",
     "  google, look up, check online. Read casual words the way a person means them: 'what games are on",
-    "  today' is the day's matches, not games to play. false for small talk, advice from what you already",
-    "  know, their own account (ACCOUNT has it), and for make.",
+    "  today' is the day's matches, not games to play. Advice or content BUILT ON what is happening now",
+    "  ('make content from the trends', 'what should I post today') needs it too. false for small talk,",
+    "  advice that does not depend on today, their own account (ACCOUNT has it), and for make.",
     "about_credits: true when they ask about credits, balance, top up, cost, price or their plan",
     "  ('do I have to top up?', 'how many credits do I have', 'why did it fail, is it money'). Such a",
     "  question is chat, not make.",
@@ -342,33 +365,47 @@ export async function route(
     "  picture they mean when several fit, what a video or a set should be of when nothing earlier says, two",
     "  instructions that contradict each other, something that would cost real money to get wrong. Name the",
     "  likely options in the question. When a sensible reading exists, do not ask: take it and put what you",
-    "  assumed in 'reading'. Never ask what the conversation or their settings already answer.",
+    "  assumed in 'reading'. Never ask what the conversation or their settings already answer. When they",
+    "  hand the choice to you ('you pick', 'you decide', 'give me the details yourself', 'handle it'),",
+    "  choose: null. Never ask again something Autocast already asked in the conversation: take the most",
+    "  likely answer instead.",
   ].join("\n");
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        // The chat tier, not the fast one, since the router started reading
-        // the conversation. "Try again please" was classified as a planning
-        // request by the cheap model reading one line in isolation -- and a
-        // misread here costs a round trip or, worse, the wrong paid job.
-        model: tier === "deep" ? MODELS.deep : MODELS.chat,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          ...(context ? [{ role: "user", content: `Recent conversation:\n${context}` }] : []),
-          ...(pictures ? [{ role: "user", content: `Pictures in this conversation, oldest first:\n${pictures}` }] : []),
-          { role: "user", content: `Last message: ${message}` },
-        ],
-      }),
-    });
+    const read = (model: string) =>
+      fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          // The chat tier, not the fast one, since the router started reading
+          // the conversation. "Try again please" was classified as a planning
+          // request by the cheap model reading one line in isolation -- and a
+          // misread here costs a round trip or, worse, the wrong paid job.
+          model,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            ...(context ? [{ role: "user", content: `Recent conversation:\n${context}` }] : []),
+            ...(pictures ? [{ role: "user", content: `Pictures in this conversation, oldest first:\n${pictures}` }] : []),
+            { role: "user", content: `Last message: ${message}` },
+          ],
+        }),
+      });
+
+    let model: string = tier === "deep" ? MODELS.smart : MODELS.quick;
+    let response = await read(model);
+    // Refused -- no credit for the newer models, as on 3 Nov 2026, when only
+    // gpt-4.1-mini still answered: the old model rather than no reading at all.
+    if (!response.ok && model !== MODELS.chat) {
+      console.warn("route: falling back", model, response.status);
+      model = MODELS.chat;
+      response = await read(model);
+    }
 
     if (!response.ok) return fallback(message);
 
     const body = await response.json();
-    await onUsage?.(body.model ?? MODELS.chat, body.usage ?? null).catch(() => {});
+    await onUsage?.(body.model ?? model, body.usage ?? null).catch(() => {});
     const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
     const intent = parsed?.intent;
     const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;

@@ -174,8 +174,25 @@ export function asResponsesTurn(turn: { role: string; content: unknown }): Recor
   };
 }
 
-/** How the answer should read, added to the reply's own rules. */
-export function webRules(now: string): string {
+/**
+ * How the answer should read, added to the reply's own rules. `always` when the
+ * search is forced; `maybe` when the model decides for itself whether to look.
+ */
+export function webRules(now: string, mode: "always" | "maybe" = "always"): string {
+  if (mode === "maybe") {
+    return [
+      now,
+      "YOU CAN SEARCH THE WEB. Your own knowledge is old -- it stops in 2024 or 2025 -- and the world has",
+      "moved on. Search before you answer whenever a good answer depends on anything current: today, this",
+      "week or now; what is trending (sounds, formats, challenges, memes, topics); news, events, games,",
+      "prices, releases; a specific product, app, company or person; or content built on any of these.",
+      "Never give something from memory as today's news or today's trends. Do not search for small talk,",
+      "for their own account (ACCOUNT has it), or for advice that does not depend on today.",
+      "When you did search, answer from what you found the way ChatGPT does: the answer first, then only",
+      "what helps them use it. Do not say in the text which site said what: the app shows the sources",
+      "under the answer.",
+    ].join("\n");
+  }
   return [
     "YOU SEARCHED THE WEB FOR THIS MESSAGE. Answer from what you found, the way ChatGPT answers with",
     "search: the answer first, then only what helps them use it -- a small table when several items share",
@@ -195,7 +212,11 @@ export interface WebAnswer {
   /** Everything shown, citations taken out. Empty when nothing came back. */
   text: string;
   sources: WebSource[];
-  usage: { prompt_tokens?: number; completion_tokens?: number } | null;
+  usage: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } } | null;
+  /** How many web searches it ran -- each is billed on top of the tokens. */
+  searches: number;
+  /** The model that wrote it: `model`, or `fallbackModel` when that was refused. */
+  model: string;
 }
 
 /**
@@ -213,34 +234,55 @@ export async function answerFromTheWeb(options: {
   input: Array<Record<string, unknown>>;
   location: Record<string, string> | null;
   /** For a reasoning model: how hard it thinks before it writes. */
-  effort?: "minimal" | "low" | "medium";
+  effort?: "none" | "low" | "medium";
+  /** `required` searches every time (the router said it needs the web);
+   *  `auto` lets the model decide, the way ChatGPT does. */
+  search?: "required" | "auto";
+  /** Tried when `model` is refused -- an older model that still answers when
+   *  the account has no credit for the newer ones. */
+  fallbackModel?: string;
+  /** Called when a search begins: at once when it is required, otherwise when
+   *  the model starts one. Never called for an answer that did not search. */
   onSearching: () => void;
   /** After each search, every site read so far, so their logos can show while
    *  it keeps working -- ChatGPT's "Searching websites" with the icons. */
   onRead?: (sites: string[]) => void;
   onText: (text: string) => void;
 }): Promise<WebAnswer | null> {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: options.model,
-      stream: true,
-      tools: [{ type: "web_search", ...(options.location ? { user_location: options.location } : {}) }],
-      // The router decided this needs looking up; an answer from memory about
-      // "today" is exactly what this replaces.
-      tool_choice: "required",
-      // Every page the search read, not only the ones the text cites: an
-      // answer can cite nothing and still have been built from five sites.
-      include: ["web_search_call.action.sources"],
-      ...(options.effort ? { reasoning: { effort: options.effort } } : {}),
-      instructions: options.instructions,
-      input: options.input,
-    }),
-  }).catch((error) => {
-    console.error("web answer", error instanceof Error ? error.message : error);
-    return null;
-  });
+  const call = (model: string, effort: typeof options.effort) =>
+    fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${options.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        tools: [{ type: "web_search", ...(options.location ? { user_location: options.location } : {}) }],
+        // Required when the router decided this needs looking up -- an answer
+        // from memory about "today" is exactly what this replaces. Otherwise the
+        // model looks things up when it judges it needs to.
+        tool_choice: options.search ?? "required",
+        // Every page the search read, not only the ones the text cites: an
+        // answer can cite nothing and still have been built from five sites.
+        include: ["web_search_call.action.sources"],
+        ...(effort ? { reasoning: { effort } } : {}),
+        instructions: options.instructions,
+        input: options.input,
+      }),
+    }).catch((error) => {
+      console.error("web answer", error instanceof Error ? error.message : error);
+      return null;
+    });
+
+  let model = options.model;
+  let response = await call(model, options.effort);
+  // Refused (no credit for the newer models, as on 3 Nov 2026): the fallback
+  // model, which takes no reasoning effort, before giving up.
+  if (response && !response.ok && options.fallbackModel && options.fallbackModel !== model) {
+    console.warn("web answer: falling back", model, response.status);
+    await response.body?.cancel().catch(() => {});
+    model = options.fallbackModel;
+    response = await call(model, undefined);
+  }
 
   if (!response) return null;
   if (!response.ok || !response.body) {
@@ -248,10 +290,14 @@ export async function answerFromTheWeb(options: {
     return null;
   }
 
-  // The search is under way the moment the call is taken: it is forced, and
-  // OpenAI reports it only when the written answer arrives with it, in one
-  // burst about four seconds later -- too late to be worth saying.
-  options.onSearching();
+  // A forced search is under way the moment the call is taken: OpenAI reports
+  // it only when the written answer arrives with it, in one burst about four
+  // seconds later -- too late to be worth saying. One the model chooses is
+  // said when it starts.
+  const forced = (options.search ?? "required") === "required";
+  let searching = forced;
+  if (forced) options.onSearching();
+  let searches = 0;
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -298,9 +344,16 @@ export async function answerFromTheWeb(options: {
         continue;
       }
       switch (event?.type) {
+        case "response.output_item.added":
+          if (event.item?.type === "web_search_call" && !searching) {
+            searching = true;
+            options.onSearching();
+          }
+          break;
         case "response.output_item.done":
           // A finished search, with every page it read.
           if (event.item?.type === "web_search_call") {
+            searches += 1;
             const before = read.length;
             for (const page of (event.item.action?.sources ?? []) as Array<Record<string, any>>) {
               const source = webSource(page.url, page.title);
@@ -320,7 +373,13 @@ export async function answerFromTheWeb(options: {
           break;
         case "response.completed": {
           const used = event.response?.usage;
-          usage = used ? { prompt_tokens: used.input_tokens, completion_tokens: used.output_tokens } : null;
+          usage = used
+            ? {
+              prompt_tokens: used.input_tokens,
+              completion_tokens: used.output_tokens,
+              prompt_tokens_details: { cached_tokens: used.input_tokens_details?.cached_tokens ?? 0 },
+            }
+            : null;
           // The finished answer's own citations, in case any were not
           // announced on the way.
           for (const item of (event.response?.output ?? []) as Array<Record<string, any>>) {
@@ -345,5 +404,5 @@ export async function answerFromTheWeb(options: {
   for (const page of read) {
     if (!sources.some((known) => known.url === page.url)) sources.push(page);
   }
-  return { text, sources: sources.slice(0, 12), usage };
+  return { text, sources: sources.slice(0, 12), usage, searches, model };
 }

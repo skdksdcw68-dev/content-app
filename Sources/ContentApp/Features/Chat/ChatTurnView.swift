@@ -8,6 +8,8 @@ import UIKit
 /// reply.
 struct ChatTurnView: View {
     let turn: ChatMessage
+    /// The words of a message opened to be selected piece by piece.
+    @State private var selecting: String?
     /// Answering a question is the same as saying it out loud, so it goes back
     /// as an ordinary turn rather than through a side channel. The transcript
     /// then reads the way the conversation actually went.
@@ -88,7 +90,24 @@ struct ChatTurnView: View {
                                     RoundedRectangle(cornerRadius: 18, style: .continuous)
                                         .fill(Theme.accent.opacity(0.10))
                                 }
-                                .textSelection(.enabled)
+                                // Holding a message: copy it whole, or open it to pick
+                                // words out. SwiftUI's own selection did nothing in the
+                                // scrolling chat.
+                                .contextMenu {
+                                    Button {
+                                        UIPasteboard.general.string = parts.typed
+                                    } label: {
+                                        Label("Copy", systemImage: "doc.on.doc")
+                                    }
+                                    Button {
+                                        selecting = parts.typed
+                                    } label: {
+                                        Label("Select text", systemImage: "text.cursor")
+                                    }
+                                }
+                        }
+                        .sheet(isPresented: Binding(get: { selecting != nil }, set: { if !$0 { selecting = nil } })) {
+                            SelectTextSheet(text: selecting ?? "")
                         }
                     }
                     if let transcript = parts.transcript {
@@ -875,5 +894,30 @@ private struct TranscriptBlock: View {
             .padding(12)
             .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
+    }
+}
+
+/// A message's words on their own, in a sheet, where a word or a sentence can be
+/// picked out with the usual handles and copied.
+private struct SelectTextSheet: View {
+    let text: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                SelectableText(text: text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+            }
+            .navigationTitle("Select text")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

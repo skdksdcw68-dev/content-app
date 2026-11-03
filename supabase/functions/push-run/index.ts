@@ -9,7 +9,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json } from "../_shared/http.ts";
-import { firstTime, push, type PushKind } from "../_shared/push.ts";
+import { firstTime, probeApns, push, type PushKind } from "../_shared/push.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -21,7 +21,8 @@ Deno.serve(async (request) => {
   if (!CRON_SECRET || !sameText(request.headers.get("x-cron-secret") ?? "", CRON_SECRET)) {
     return json({ error: "no" }, 401);
   }
-  const { run_id: runId } = await request.json().catch(() => ({}));
+  const { run_id: runId, probe } = await request.json().catch(() => ({}));
+  if (probe === true) return json(await probeApns().catch((error) => ({ status: -1, reason: String(error) })));
   if (typeof runId !== "string") return json({ error: "run_id" }, 400);
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);

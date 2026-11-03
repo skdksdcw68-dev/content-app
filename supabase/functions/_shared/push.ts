@@ -106,6 +106,20 @@ export async function push(admin: SupabaseClient, userId: string, kind: PushKind
   return sent;
 }
 
+/** A health check: Apple's answer to a fake phone. "BadDeviceToken" means the
+ *  key, team and app are all accepted. */
+export async function probeApns(): Promise<{ status: number; reason: string }> {
+  const jwt = await providerToken();
+  if (!jwt) return { status: 0, reason: "no key" };
+  const response = await fetch(`https://api.push.apple.com/3/device/${"0".repeat(64)}`, {
+    method: "POST",
+    headers: { authorization: `bearer ${jwt}`, "apns-topic": TOPIC, "apns-push-type": "alert", "content-type": "application/json" },
+    body: JSON.stringify({ aps: { alert: "probe" } }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  return { status: response.status, reason: String((await response.json().catch(() => ({})))?.reason ?? "") };
+}
+
 /** True the first time a key is claimed: one ping per job or per set. */
 export async function firstTime(admin: SupabaseClient, key: string): Promise<boolean> {
   const { data } = await admin.from("push_sent").upsert({ key }, { onConflict: "key", ignoreDuplicates: true }).select("key");

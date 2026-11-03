@@ -341,10 +341,8 @@ struct ProfileView: View {
             NavigationLink { AppearanceView().pushedPage() } label: {
                 SettingsValueLabel("Appearance", symbol: "circle.lefthalf.filled", value: AppAppearance.current.title)
             }
-            Button {
-                if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-            } label: {
-                SettingsRow("Notifications", symbol: "bell", accessory: .external)
+            NavigationLink { NotificationsView().pushedPage() } label: {
+                SettingsLabel("Notifications", symbol: "bell")
             }
             // 🔴 Asked first. This threw somebody back to the welcome
             // screen on ONE tap, wearing a chevron -- which the design system

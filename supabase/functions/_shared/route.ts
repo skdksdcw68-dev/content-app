@@ -120,6 +120,23 @@ export interface Routed {
    *  chat, in seconds. Abel, 3 Nov 2026, with ChatGPT answering "what games
    *  are on today" in 9 s beside our five-minute report on Google Doodles. */
   web: boolean;
+  /** They want what they asked for made and SENT to them at a set time, once
+   *  or on repeat ("send them at 2 am", "every morning"). Abel, 3 Nov 2026:
+   *  "it can produce whenever, but it must send it at the exact time." */
+  schedule: RoutedSchedule | null;
+}
+
+/** When a scheduled request arrives, in the person's own local time. */
+export interface RoutedSchedule {
+  /** The first delivery, local: "2026-11-04T02:00". */
+  at: string;
+  repeat: "none" | "daily" | "weekdays" | "weekly" | "custom";
+  /** 0 = Sunday ... 6 = Saturday, for weekly and custom. */
+  days: number[];
+  /** The words to send with it ("a caption for each"), or null. */
+  text: string | null;
+  /** A short name for it: "5 outfit pictures + captions". */
+  label: string;
 }
 
 /** One thing to make, as the person described it. */
@@ -261,6 +278,7 @@ export async function route(
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,"web":boolean,' +
+    '"schedule":{"at":"YYYY-MM-DDTHH:MM","repeat":"none|daily|weekdays|weekly|custom","days":[number],"text":string|null,"label":string}|null,' +
     '"jobs":[{"media":"image|video|audio"|null,"speech":boolean,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
@@ -344,6 +362,13 @@ export async function route(
     "    video is '16:9'; a TikTok, Reel, Short or Story is '9:16'; an Instagram feed post is '4:5'; a profile",
     "    picture or logo is '1:1'. Do not leave aspect_ratio null for these, and do not repeat an earlier shape",
     "    that was for somewhere else.",
+    "schedule: when they want what they ask for made and SENT TO THEM at a set time or on repeat ('send them at",
+    "  2 am', 'every morning at 9', 'every Friday', 'daily'). intent is make and jobs are written as usual. at = the",
+    "  FIRST delivery in THEIR local time, read from the 'Now, where they are' line (a time already past today",
+    "  means tomorrow). repeat: none, daily, weekdays, weekly (days = that weekday) or custom (days = the weekdays),",
+    "  days 0=Sunday..6=Saturday. text = the words to send along with it ('a caption for each', 'a hook and a",
+    "  caption') or null. label = a short name for what arrives ('5 outfit pictures + captions'). null when they",
+    "  want it now. Posting to their social accounts at a time is not this.",
     "show: handles (P1, P2 ...) of pictures YOU made that they ask to be SENT or SHOWN again -- 'send me the",
     "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
     "voices: true when they ask to hear, see, browse or choose between voices ('show me some voices', 'what",
@@ -439,6 +464,7 @@ export async function route(
       // Looking things up is part of a chat answer; a report searches on its
       // own, and making something never needs it.
       web: parsed?.web === true && intent === "chat",
+      schedule: intent === "make" ? readSchedule(parsed?.schedule) : null,
     };
   } catch {
     return fallback(message);
@@ -523,6 +549,21 @@ function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
     subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [], voices: false,
-    web: false,
+    web: false, schedule: null,
   };
+}
+
+/** The schedule, read defensively; null unless it names a usable first time. */
+function readSchedule(raw: unknown): RoutedSchedule | null {
+  if (!raw || typeof raw !== "object") return null;
+  const s = raw as Record<string, unknown>;
+  const at = typeof s.at === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}/.test(s.at) ? s.at.slice(0, 16) : null;
+  if (!at) return null;
+  const repeat = ["none", "daily", "weekdays", "weekly", "custom"].includes(String(s.repeat)) ? s.repeat as RoutedSchedule["repeat"] : "none";
+  const days = Array.isArray(s.days)
+    ? [...new Set(s.days.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+    : [];
+  const text = typeof s.text === "string" && s.text.trim() ? s.text.trim().slice(0, 200) : null;
+  const label = typeof s.label === "string" && s.label.trim() ? s.label.trim().slice(0, 60) : "Your drop";
+  return { at, repeat, days, text, label };
 }

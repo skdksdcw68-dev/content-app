@@ -21,7 +21,7 @@ struct SettingsIcon: View {
         Image(systemName: symbol)
             .font(.body)
             .symbolRenderingMode(.monochrome)
-            .foregroundStyle(Color.primary)
+            .foregroundStyle(Color.primary.opacity(0.78))
             .frame(width: width, alignment: .center)
             .accessibilityHidden(true)
     }

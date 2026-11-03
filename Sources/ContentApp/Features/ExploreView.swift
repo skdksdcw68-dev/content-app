@@ -379,8 +379,20 @@ struct SettingsSheet: View {
                     }
                 }
         }
+        .grokSettings()
         .presentationDetents([.large])
         .presentationCornerRadius(34)
         .presentationDragIndicator(.hidden)
+    }
+}
+
+extension View {
+    /// Grok's settings, measured from Abel's recordings (3 Nov 2026): 15 pt
+    /// rows 45 pt tall, and Apple's own green switches. On the whole sheet, so
+    /// every page pushed inside it gets them too.
+    func grokSettings() -> some View {
+        font(.system(size: 15))
+            .environment(\.defaultMinListRowHeight, 45)
+            .toggleStyle(SwitchToggleStyle(tint: .green))
     }
 }

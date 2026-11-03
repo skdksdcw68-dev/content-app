@@ -197,6 +197,10 @@ struct ChatTurnView: View {
                         VoicesCard(voices: turn.voices)
                     }
 
+                    if let scheduleId = turn.scheduleId {
+                        ScheduleCard(scheduleId: scheduleId, opensAtOnce: turn.scheduleIsNew)
+                    }
+
                     ForEach(turn.questions) { question in
                         QuestionCard(
                             question: question,

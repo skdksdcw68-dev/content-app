@@ -205,7 +205,6 @@ private struct SwitchRow: View {
                 }
             }
         }
-        .tint(Theme.accent)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
@@ -232,7 +231,6 @@ struct MemoryView: View {
                         Task { await session.set(.memoryOff, !on) }
                     }
                 ))
-                .tint(Theme.accent)
             } footer: {
                 Text("Postpilot learns from your conversations and uses it in every new chat.")
             }

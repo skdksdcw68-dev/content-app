@@ -24,7 +24,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { leftToUs, missingForPlan, MODELS, REPLY_EFFORT, route, type RoutedJob, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
+import { leftToUs, missingForPlan, MODELS, REPLY_EFFORT, route, type RoutedJob, type RoutedSchedule, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
@@ -597,6 +597,37 @@ Deno.serve(async (request) => {
           send({ t: "run", id: ids[0], kind: "generate", ids });
           kickWorker();
           await remember({ kind: "run", run_id: ids[0], run_ids: ids, run_kind: "generate" });
+          finish();
+        };
+
+        /**
+         * Something to be made and SENT at a time (Abel, 3 Nov 2026: "send it at
+         * exactly 2 am"). Nothing is charged or started here: the jobs are saved
+         * on a draft schedule, and the phone opens the Schedule sheet so the time
+         * can be checked or changed. run-schedules makes it ahead and posts it on
+         * the minute.
+         */
+        const offerSchedule = async (inputs: Array<Record<string, unknown>>, plan: RoutedSchedule) => {
+          const zone = typeof body.timezone === "string" && body.timezone.length < 64 ? body.timezone : "UTC";
+          const startsAt = zonedToUtc(plan.at, zone) ?? new Date(Date.now() + 60 * 60_000);
+          const { data: row, error } = await admin.from("schedules").insert({
+            user_id: auth.user!.id,
+            thread_id: threadId,
+            status: "draft",
+            request: asked.slice(0, 2000),
+            summary: plan.label,
+            inputs,
+            with_text: plan.text,
+            timezone: zone,
+            starts_at: startsAt.toISOString(),
+            time_of_day: `${plan.at.slice(11, 16)}:00`,
+            repeat: plan.repeat,
+            days: plan.days,
+          }).select("id").single();
+          if (error || !row) throw error ?? new Error("the schedule was not saved");
+          speak("Got it. Check the time and tap Schedule, and I'll have it ready and send it right on time.");
+          send({ t: "schedule", id: row.id });
+          await remember({ kind: "schedule", schedule_id: row.id });
           finish();
         };
 
@@ -1952,6 +1983,7 @@ Deno.serve(async (request) => {
             memoryAhead,
           ]);
           const context = [
+            `(${whereTheyAre(body.timezone, body.region).now})`,
             ...(memory.length > 0
               ? [`(What Postpilot remembers about this person from earlier: ${memory.map((n) => n.note).join(" ")})`]
               : []),
@@ -2471,6 +2503,7 @@ How to answer:
           const resumedJobs = awaiting && awaiting.jobs.length > 0 && routed.jobs.length <= 1 ? awaiting.jobs : null;
           if (
             (routed.intent === "make" && (routed.jobs.length > 1 || routed.jobs.some((job) => job.uses.length > 0))) ||
+            (routed.intent === "make" && routed.schedule !== null) ||
             resumedJobs
           ) {
             let plan: RoutedJob[] = routed.jobs;
@@ -2585,6 +2618,7 @@ How to answer:
               done.push(bag[0]);
             }
 
+            if (routed.schedule) return await offerSchedule(done.map((d) => d.input), routed.schedule);
             if (done.length === 1) return await startRun("generate", done[0].input, null, done[0].announce);
 
             const count = (capability: string, one: string, many: string) => {
@@ -3371,3 +3405,25 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
     return fail(error);
   }
 });
+
+/** "2026-11-04T02:00" in a time zone, as the instant it is. Null if unreadable. */
+function zonedToUtc(local: string, zone: string): Date | null {
+  const match = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2})/.exec(local);
+  if (!match) return null;
+  const [year, month, day, hour, minute] = match.slice(1).map(Number);
+  const guess = Date.UTC(year, month - 1, day, hour, minute);
+  const offsetAt = (at: number) => {
+    try {
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat("en-US", {
+          timeZone: zone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+        }).formatToParts(new Date(at)).map((part) => [part.type, part.value]),
+      );
+      return Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute) - at;
+    } catch {
+      return 0;
+    }
+  };
+  const first = guess - offsetAt(guess);
+  return new Date(guess - offsetAt(first));
+}

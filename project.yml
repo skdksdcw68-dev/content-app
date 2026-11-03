@@ -132,6 +132,8 @@ targets:
         NSPhotoLibraryUsageDescription: Postpilot shows your photos and videos so you can pick what to edit and post.
         # A voice note in the chat bar is recorded and turned into words.
         NSMicrophoneUsageDescription: Postpilot listens when you record a voice note, and turns it into words for your message.
+        # "Add to my Calendar" on a scheduled drop. Write-only: it never reads the calendar.
+        NSCalendarsWriteOnlyAccessUsageDescription: Postpilot adds your scheduled drops to your calendar so you know when they arrive.
         # Declares no non-exempt encryption. Without this TestFlight blocks
         # every build behind a manual export-compliance question.
         ITSAppUsesNonExemptEncryption: false

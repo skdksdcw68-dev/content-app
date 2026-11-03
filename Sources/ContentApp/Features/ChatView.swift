@@ -1381,6 +1381,11 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].suggestions = options
                         }
+                    case .schedule(let id):
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            turns[replyIndex].scheduleId = id
+                            turns[replyIndex].scheduleIsNew = true
+                        }
                     case .paywall:
                         // The sentence about it is already in the reply. What
                         // is left is the way out: the plans, opened.

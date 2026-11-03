@@ -551,6 +551,10 @@ struct ChatMessage: Identifiable, Equatable {
     var runKind: String? = nil
     /// Something the agent made, drawn from the object rather than from prose.
     var artifactId: UUID? = nil
+    /// A scheduled drop this reply set up, drawn as its small card.
+    var scheduleId: UUID? = nil
+    /// Set up just now, so its sheet opens without a tap.
+    var scheduleIsNew = false
     /// The set this picture belongs to, when several were asked for at once.
     var batch: String? = nil
     /// Every picture of that set, gathered onto the first of them when the

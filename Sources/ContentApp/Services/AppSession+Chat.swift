@@ -222,6 +222,9 @@ extension AppSession {
         /// and said so in the conversation. The plans are offered next.
         /// `needs_credits`, `needs_pro` or `needs_tier`.
         case paywall(String)
+        /// Something to be made and sent at a time, saved as a draft; the
+        /// Schedule sheet opens for it (0095).
+        case schedule(UUID)
         case failed(String)
     }
 
@@ -430,6 +433,11 @@ extension AppSession {
                 continue
             }
 
+            if kind == "schedule", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
+                onEvent(.schedule(uuid))
+                continue
+            }
+
             if kind == "thread", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
                 onEvent(.thread(uuid))
                 continue
@@ -561,6 +569,8 @@ private struct StoredMessage: Decodable {
         let runIds: [UUID]?
         let runKind: String?
         let artifactId: UUID?
+        /// A scheduled drop's card (0095).
+        let scheduleId: UUID?
         let paths: [String]?
         let days: Int?
         let options: [String]?
@@ -597,6 +607,7 @@ private struct StoredMessage: Decodable {
             case runIds = "run_ids"
             case runKind = "run_kind"
             case artifactId = "artifact_id"
+            case scheduleId = "schedule_id"
         }
     }
 
@@ -612,6 +623,7 @@ private struct StoredMessage: Decodable {
         turn.runIds = renderHint?.runIds ?? []
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId
+        if renderHint?.kind == "schedule" { turn.scheduleId = renderHint?.scheduleId }
         turn.batch = renderHint?.batch
         if let id = renderHint?.artifactId { turn.batchArtifacts = [id] }
         turn.artifactKind = renderHint?.artifactKind

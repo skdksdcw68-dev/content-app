@@ -592,12 +592,23 @@ struct ChatMessage: Identifiable, Equatable {
     var thought: String? = nil
     /// Voices offered to be heard on this turn, each with its own sample.
     var voices: [VoiceSample] = []
+    /// When the reply was asked for, and how long it took once it was done --
+    /// the foot of the "Thinking" sheet.
+    var thinkingStarted: Date? = nil
+    var thinkingSeconds: Int? = nil
+
+    /// Whether this reply did work worth showing behind "Thinking": steps the
+    /// server reported, or what it took the request to mean. A "hi" has
+    /// neither, and gets no line.
+    var hasThinking: Bool { thought != nil || !steps.isEmpty }
 
     static func user(_ text: String) -> ChatMessage {
         ChatMessage(role: .user, text: text)
     }
 
     static var thinking: ChatMessage {
-        ChatMessage(role: .assistant, text: "", isPending: true)
+        var turn = ChatMessage(role: .assistant, text: "", isPending: true)
+        turn.thinkingStarted = Date()
+        return turn
     }
 }

@@ -525,9 +525,23 @@ private struct StoredMessage: Decodable {
         let batch: String?
         /// Voices offered to be heard, when this turn is a voices card.
         let items: [VoiceSample]?
+        /// What the reply did on the way, for the sheet behind "Thinking".
+        let thinking: Thinking?
+
+        /// The steps the server took for this reply, in order, what it took the
+        /// request to mean, and how long the whole turn took.
+        struct Thinking: Decodable {
+            struct Step: Decodable {
+                let kind: String?
+                let detail: String
+            }
+            let read: String?
+            let steps: [Step]?
+            let secs: Int?
+        }
 
         private enum CodingKeys: String, CodingKey {
-            case kind, questions, choices, request, references, paths, days, options, width, height, batch, items
+            case kind, questions, choices, request, references, paths, days, options, width, height, batch, items, thinking
             case artifactKind = "artifact_kind"
             case runId = "run_id"
             case runIds = "run_ids"
@@ -559,6 +573,17 @@ private struct StoredMessage: Decodable {
             turn.suggestions = renderHint?.options ?? []
         }
         if renderHint?.kind == "voices" { turn.voices = renderHint?.items ?? [] }
+        // The trail is kept, unlike the live state around it: it is a record
+        // of what was done, and every step of it finished long ago.
+        if let thinking = renderHint?.thinking {
+            turn.thought = thinking.read
+            turn.steps = (thinking.steps ?? []).map { stored in
+                var step = TaskStep(kind: TaskStep.Kind(rawValue: stored.kind ?? "") ?? .reading, detail: stored.detail)
+                step.isDone = true
+                return step
+            }
+            turn.thinkingSeconds = thinking.secs
+        }
         turn.isTap = renderHint?.kind == "tap"
         turn.createdAt = createdAt
         // A job's steps are marked "progress". Lines a story wrote before the

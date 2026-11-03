@@ -106,7 +106,7 @@ struct ChatTurnView: View {
                     if turn.steps.isEmpty {
                         ThinkingIndicator(thought: turn.thought)
                     } else {
-                        TaskTrail(steps: turn.steps)
+                        LiveThinking(read: turn.thought, steps: turn.steps)
                     }
                 } else if turn.failed {
                     // No error in red, no reason. Whatever went wrong, what a
@@ -125,10 +125,15 @@ struct ChatTurnView: View {
                     .buttonStyle(.plain)
                     .accessibilityHint("That didn't go through")
                 } else {
-                    // The steps are gone once the answer lands. They were
-                    // there to show it was working; afterwards only the answer
-                    // matters, and a folded "3 steps" above every reply was
-                    // the agent narrating itself.
+                    // Once the answer lands its steps fold into one quiet
+                    // "Thinking ›" above it, and the sheet behind it lists what
+                    // was done (Abel, 3 Nov 2026, of Grok's "Thoughts": "so the
+                    // user can see what it does with a sheet"). Only on a reply
+                    // that did real work -- a "hi" has no line, so this is not
+                    // the agent narrating every answer.
+                    if turn.hasThinking {
+                        ThinkingRow(read: turn.thought, steps: turn.steps, seconds: turn.thinkingSeconds)
+                    }
                     if !turn.text.isEmpty, turn.artifactKind == "image" {
                         // A picture's line is a quiet label above it, the way
                         // ChatGPT says "Image created" -- the picture is the
@@ -587,8 +592,8 @@ struct ThinkingIndicator: View {
             withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { sweep = 1.0 }
         }
         .sheet(isPresented: $opened) {
-            ThoughtSheet(thought: thought)
-                .presentationDetents([.medium])
+            ThinkingSheet(read: thought, steps: [], seconds: nil, working: true)
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
         .accessibilityLabel("Thinking")
@@ -596,30 +601,139 @@ struct ThinkingIndicator: View {
     }
 }
 
-/// What it is thinking, in the words the server reported -- nothing invented
-/// to fill the space. Before the server has said, it says so.
-private struct ThoughtSheet: View {
-    let thought: String?
+/// The steps while they are being taken, tappable for the same sheet the
+/// finished reply has. The sheet fills in live: it is drawn from the same
+/// steps as the trail.
+private struct LiveThinking: View {
+    let read: String?
+    let steps: [TaskStep]
+
+    @State private var opened = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        Button { opened = true } label: {
+            TaskTrail(steps: steps)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $opened) {
+            ThinkingSheet(read: read, steps: steps, seconds: nil, working: true)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .accessibilityHint("Shows what I'm doing")
+    }
+}
+
+/// "Thinking ›" above a finished reply that did real work, as Grok's
+/// "Thoughts ›". Tapping it opens what was done.
+private struct ThinkingRow: View {
+    let read: String?
+    let steps: [TaskStep]
+    let seconds: Int?
+
+    @State private var opened = false
+
+    var body: some View {
+        Button { opened = true } label: {
+            HStack(spacing: 4) {
+                Text("Thinking")
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $opened) {
+            ThinkingSheet(read: read, steps: steps, seconds: seconds, working: false)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .accessibilityLabel("Thinking")
+        .accessibilityHint("Shows what I did for this answer")
+    }
+}
+
+/// What it did, step by step, in the words the server reported after doing
+/// each thing -- nothing invented to fill the space (Grok's "Thoughts" sheet:
+/// a tick per step, "Done" at the end). What it took the request to mean sits
+/// first, in a box, because it is the router's reading rather than an action.
+private struct ThinkingSheet: View {
+    let read: String?
+    let steps: [TaskStep]
+    let seconds: Int?
+    /// The reply is still being worked on: the open step pulses and the last
+    /// line says so instead of "Done".
+    let working: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
             Text("Thinking")
                 .font(.headline)
-            if let thought, !thought.isEmpty {
-                Text("What I took you to mean")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Text(thought)
-                    .font(.body)
-            } else {
-                Text("Reading your message. This fills in as soon as I know what you're after.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    if let read, !read.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            line("What I took you to mean", done: true)
+                            Text(read)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                                }
+                                .padding(.leading, 26)
+                        }
+                    }
+
+                    ForEach(steps) { step in
+                        line(step.detail, done: step.isDone || !working)
+                    }
+
+                    if working {
+                        line(read == nil && steps.isEmpty ? "Reading your message" : "Working", done: false)
+                    } else {
+                        line(seconds.map { "Done in \(Self.duration($0))" } ?? "Done", done: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 28)
             }
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(24)
+    }
+
+    private func line(_ text: String, done: Bool) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Group {
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                } else {
+                    PulsingDot()
+                }
+            }
+            .frame(width: 14, height: 14)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// "6s", "1m 05s".
+    private static func duration(_ seconds: Int) -> String {
+        seconds < 60 ? "\(seconds)s" : "\(seconds / 60)m \(String(format: "%02d", seconds % 60))s"
     }
 }
 

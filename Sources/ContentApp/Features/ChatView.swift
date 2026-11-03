@@ -1387,6 +1387,12 @@ struct ChatView: View {
 
             if broke { return }
 
+            // How long it took, measured to the end of the reply rather than
+            // the end of the typing -- the foot of the "Thinking" sheet.
+            if turns.indices.contains(replyIndex), let started = turns[replyIndex].thinkingStarted {
+                turns[replyIndex].thinkingSeconds = max(1, Int(Date().timeIntervalSince(started).rounded()))
+            }
+
             // What is still being typed finishes typing, rather than the rest
             // landing at once; a few seconds at most.
             var waited = 0

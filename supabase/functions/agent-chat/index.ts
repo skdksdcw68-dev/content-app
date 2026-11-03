@@ -337,7 +337,20 @@ Deno.serve(async (request) => {
         // whole when they come back (Abel, 2 Nov 2026: "it says there is an error
         // in red ... when I open the chat again, the message was sent and replied").
         let gone = false;
+        /** What this turn did on the way, for the sheet behind "Thinking" in
+         *  the app (Abel, 3 Nov 2026, of Grok's "Thoughts" sheet: "so the user
+         *  can see what it does"). Only steps already sent -- each is sent after
+         *  the thing it describes has happened -- and the router's own reading
+         *  of the request. Stored with the reply by `remember`. */
+        const trail: Array<{ kind: string; detail: string }> = [];
+        let readAs: string | null = null;
+        const turnStarted = Date.now();
         const send = (event: Record<string, unknown>) => {
+          // Kept whether or not anyone is still listening.
+          if (event.t === "step" && typeof event.detail === "string") {
+            trail.push({ kind: typeof event.kind === "string" ? event.kind : "reading", detail: event.detail });
+          }
+          if (event.t === "thought" && typeof event.v === "string") readAs = event.v;
           if (gone) return;
           try {
             controller.enqueue(new TextEncoder().encode(sse(event)));
@@ -367,11 +380,21 @@ Deno.serve(async (request) => {
 
         const remember = async (hint: Record<string, unknown> | null = null) => {
           if (!threadId || (!said && !hint)) return;
+          // The trail rides on the reply it belongs to, once: a second stored
+          // message this turn starts clean.
+          const thinking = trail.length > 0 || readAs
+            ? {
+              read: readAs,
+              steps: trail.splice(0),
+              secs: Math.max(1, Math.round((Date.now() - turnStarted) / 1000)),
+            }
+            : null;
+          readAs = null;
           const { error } = await admin.rpc("append_message", {
             p_thread: threadId,
             p_role: "assistant",
             p_text: said,
-            p_render_hint: hint,
+            p_render_hint: thinking ? { ...(hint ?? {}), thinking } : hint,
           });
           if (error) console.error("append_message assistant", error);
         };
@@ -445,6 +468,16 @@ Deno.serve(async (request) => {
             if (charge) await refundCredits(admin, auth.user!.id, charge.ref);
             throw error ?? new Error("the run did not start");
           }
+          // What was started, with the settings it went out with, for the
+          // "Thinking" sheet -- the shape and quality are what a wrong result
+          // usually comes down to. Sent after the run exists.
+          const settings = input.settings && typeof input.settings === "object"
+            ? Object.values(input.settings as Record<string, unknown>)
+              .filter((value) => typeof value === "string" || typeof value === "number")
+              .join(" · ")
+            : "";
+          const what = typeof input.model === "string" ? input.model : kind;
+          send({ t: "step", kind: "writing", detail: `Started ${what}${settings ? ` · ${settings}` : ""}` });
           send({ t: "run", id: runId, kind });
           kickWorker();
           await remember({ kind: "run", run_id: runId, run_kind: kind });
@@ -1764,6 +1797,16 @@ Deno.serve(async (request) => {
             ["plan", "research", "insights", "explain"].includes(routed.intent);
           if (needsThought && routed.reading && routed.reading !== asked.slice(0, 80)) {
             send({ t: "thought", v: routed.reading });
+          } else if (
+            (routed.intent === "make" || routed.intent === "revise") &&
+            routed.reading && routed.reading !== asked.slice(0, 80)
+          ) {
+            // Kept for the "Thinking" sheet only: a request to make something
+            // keeps its plain dot while it works, but afterwards the sheet
+            // shows what it was taken to mean -- which is where a wrong
+            // reading ("Do not rotate any text" made as a picture of its own)
+            // can be seen.
+            readAs = routed.reading;
           }
 
           // "Show me some voices": a few ElevenLabs voices to HEAR, each with its

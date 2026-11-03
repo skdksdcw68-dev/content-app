@@ -114,6 +114,9 @@ struct RootView: View {
         .sheet(isPresented: $session.showingPaywall, onDismiss: { session.lastError = nil }) {
             PaywallView()
         }
+        .sheet(isPresented: $session.showingSettings) {
+            SettingsSheet()
+        }
         .task { await session.listenForTransactions() }
         // Back from the background: read the accounts again, so a change made
         // while the app was away is on screen without a pull to refresh.
@@ -171,13 +174,12 @@ struct RootView: View {
                 AnalyticsView().environment(\.chromeTab, .analytics)
             }
 
-            // The badge is where Home's warnings went. A native count on the
-            // tab, not a red box on the first screen -- and not nothing,
-            // because a failure nobody sees is how September happened.
-            Tab("You", systemImage: "person.crop.circle.fill", value: AppTab.you) {
-                ProfileView().environment(\.chromeTab, .you)
+            // Explore took the You tab's place (Abel, 3 Nov 2026). The person's
+            // own page is Settings, a sheet from the round photo at the top
+            // right; the warnings' red dot is on that photo.
+            Tab("Explore", systemImage: "safari.fill", value: AppTab.explore) {
+                ExploreView().environment(\.chromeTab, .explore)
             }
-            .badge(session.attentionCount)
 
             // The detached one, sitting in its own circle beside the bar.
             //

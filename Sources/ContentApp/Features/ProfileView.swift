@@ -9,6 +9,9 @@ import StoreKit
 /// Remi's Profile, in its way: a native inset-grouped list, outline symbols in
 /// one column, sub-pages as forms, destructive things centred and asked twice.
 struct ProfileView: View {
+    /// Shown inside the Settings sheet (the round photo at the top right of every
+    /// tab) rather than as a tab of its own.
+    var asSheet = false
     @Environment(AppSession.self) private var session
     @Environment(\.requestReview) private var requestReview
     @Environment(\.colorScheme) private var colorScheme
@@ -72,7 +75,7 @@ struct ProfileView: View {
         }
         .listStyle(.insetGrouped)
         // The tab says "You", so the screen does too. They disagreed.
-        .tabChrome(title: "You", mode: .inline)
+        .tabChrome(title: asSheet ? "Settings" : "You", mode: .inline)
         .refreshable {
             await session.refreshConnections()
             await session.refreshSettings()

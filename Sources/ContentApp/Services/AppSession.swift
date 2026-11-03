@@ -132,6 +132,8 @@ final class AppSession {
     internal(set) var planTiers: [PlanTierInfo] = []
     /// Set when a Pro limit is reached anywhere; the root shows the paywall.
     var showingPaywall = false
+    /// Settings, the sheet from the round photo at the top right of every tab.
+    var showingSettings = false
 
     /// The one navigation stack, around the tabs. A tab root goes somewhere
     /// by appending a route here; see `AppRoute`.

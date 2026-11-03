@@ -232,10 +232,7 @@ struct ChatListView: View {
                     }
                     .accessibilityLabel(searching ? "Close search" : "Search")
 
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .accessibilityLabel("Chat settings")
+                    SettingsAvatarButton()
                 }
             )
         )

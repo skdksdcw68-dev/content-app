@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The tabs, named. Shared by the shell and by the chrome each tab publishes.
 enum AppTab: Hashable {
-    case home, chat, analytics, you, create
+    case home, chat, analytics, you, explore, create
 }
 
 /// Everywhere a tab's root can go by value.
@@ -139,6 +139,7 @@ extension AppTab {
         case "chat": return .chat
         case "analytics": return .analytics
         case "you": return .you
+        case "explore": return .explore
         case "create": return .create
         default: return .home
         }

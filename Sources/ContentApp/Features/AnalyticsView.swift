@@ -203,8 +203,10 @@ struct AnalyticsView: View {
 
                     exportMenu
                         .popoverTip(tips.currentTip as? ExportTip, arrowEdge: .top)
+
+                    SettingsAvatarButton()
                 }
-            ) : nil
+            ) : AnyView(SettingsAvatarButton())
         )
         // Saved numbers first, which is instant; then a fresh reading from
         // TikTok, after which every section reloads.

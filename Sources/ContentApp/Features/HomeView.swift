@@ -227,10 +227,7 @@ struct HomeView: View {
                         Button("Upgrade") { session.showingPaywall = true }
                             .font(.subheadline.weight(.semibold))
                     }
-                    NavigationLink { ProfileView() } label: {
-                        ProfileAvatar(size: 30)
-                    }
-                    .accessibilityLabel("Your profile")
+                    SettingsAvatarButton()
                 }
             )
         )

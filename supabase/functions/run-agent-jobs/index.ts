@@ -1094,7 +1094,8 @@ async function saveGenerated(
   await admin.rpc("finish_agent_run", {
     p_run: run.id,
     p_status: "succeeded",
-    p_result: { artifact_id: artifactId },
+    // The kind and shape too, so a scheduled drop can post it later.
+    p_result: { artifact_id: artifactId, artifact_kind: what, width: extra.width ?? null, height: extra.height ?? null },
   });
   // Made: settle the credits to what the provider actually charged. The quote
   // taken at the start is an estimate, and the router may have fallen back to
@@ -1107,6 +1108,12 @@ async function saveGenerated(
     typeof run.input.credits === "number" ? run.input.credits : null,
     submitted.charged,
   );
+  // Part of a scheduled drop that is not out yet: run-schedules posts it at its
+  // minute. Abel's 4 Nov test: two pictures due at 8:07 showed up at 8:03.
+  if (typeof run.input.drop_id === "string") {
+    const { data: drop } = await admin.from("schedule_drops").select("status").eq("id", run.input.drop_id).maybeSingle();
+    if (drop?.status === "making") return "done";
+  }
   // The shape travels with the message, so the card can hold the right space
   // before the picture arrives. Without it the row was 72 points tall, then
   // suddenly the height of a photo, and the conversation jumped under a

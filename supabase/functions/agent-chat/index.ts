@@ -602,32 +602,79 @@ Deno.serve(async (request) => {
 
         /**
          * Something to be made and SENT at a time (Abel, 3 Nov 2026: "send it at
-         * exactly 2 am"). Nothing is charged or started here: the jobs are saved
-         * on a draft schedule, and the phone opens the Schedule sheet so the time
-         * can be checked or changed. run-schedules makes it ahead and posts it on
-         * the minute.
+         * exactly 2 am"). Saved and switched on here, one schedule per time
+         * asked for; nothing is charged until run-schedules makes it ahead and
+         * posts it on the minute. No card and no sheet (Abel, 4 Nov 2026): the
+         * reply says when, and Settings > Notifications changes or stops it.
          */
         const offerSchedule = async (inputs: Array<Record<string, unknown>>, plan: RoutedSchedule) => {
           const zone = typeof body.timezone === "string" && body.timezone.length < 64 ? body.timezone : "UTC";
-          const startsAt = zonedToUtc(plan.at, zone) ?? new Date(Date.now() + 60 * 60_000);
-          const { data: row, error } = await admin.from("schedules").insert({
-            user_id: auth.user!.id,
-            thread_id: threadId,
-            status: "draft",
-            request: asked.slice(0, 2000),
-            summary: plan.label,
-            inputs,
-            with_text: plan.text,
-            timezone: zone,
-            starts_at: startsAt.toISOString(),
-            time_of_day: `${plan.at.slice(11, 16)}:00`,
-            repeat: plan.repeat,
-            days: plan.days,
-          }).select("id").single();
-          if (error || !row) throw error ?? new Error("the schedule was not saved");
-          speak("Got it. Check the time and tap Schedule, and I'll have it ready and send it right on time.");
-          send({ t: "schedule", id: row.id });
-          await remember({ kind: "schedule", schedule_id: row.id });
+          const times: Date[] = [];
+          for (const at of [plan.at, ...plan.also]) {
+            const startsAt = zonedToUtc(at, zone);
+            if (startsAt) times.push(startsAt);
+          }
+          if (times.length === 0) times.push(new Date(Date.now() + 60 * 60_000));
+          times.sort((a, b) => a.getTime() - b.getTime());
+
+          const dow = (at: Date) =>
+            ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(at));
+          for (const startsAt of times) {
+            const local = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(startsAt);
+            const days = plan.repeat === "weekly" && plan.days.length === 0 ? [dow(startsAt)] : plan.days;
+            let next: string = startsAt.toISOString();
+            if (startsAt.getTime() <= Date.now()) {
+              if (plan.repeat === "none") next = new Date().toISOString();
+              else {
+                const { data } = await admin.rpc("schedule_next", {
+                  p_after: new Date().toISOString(), p_repeat: plan.repeat, p_days: days, p_time: `${local}:00`, p_tz: zone,
+                });
+                if (typeof data === "string") next = data;
+              }
+            }
+            const { error } = await admin.from("schedules").insert({
+              user_id: auth.user!.id,
+              thread_id: threadId,
+              status: "active",
+              request: asked.slice(0, 2000),
+              summary: plan.label,
+              inputs,
+              with_text: plan.text,
+              timezone: zone,
+              starts_at: startsAt.toISOString(),
+              time_of_day: `${local}:00`,
+              repeat: plan.repeat,
+              days,
+              next_at: next,
+              // No sheet, so nothing puts it in their calendar.
+              options: { calendar: false, ping: true, fresh: true },
+            });
+            if (error) throw error;
+          }
+
+          const clock = (at: Date) => new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(at);
+          const dayOf = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(at);
+          const today = dayOf(new Date());
+          const tomorrow = dayOf(new Date(Date.now() + 24 * 60 * 60_000));
+          const day = (at: Date) =>
+            dayOf(at) === today
+              ? "today"
+              : dayOf(at) === tomorrow
+              ? "tomorrow"
+              : new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", month: "short", day: "numeric" }).format(at);
+          const clocks = times.map(clock);
+          const atTimes = clocks.length > 1 ? `${clocks.slice(0, -1).join(", ")} and ${clocks[clocks.length - 1]}` : clocks[0];
+          const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+          const pickedDays = (plan.days.length > 0 ? plan.days : [dow(times[0])]).map((d) => names[d]);
+          const when = plan.repeat === "none"
+            ? `${day(times[0])} at ${atTimes}`
+            : plan.repeat === "daily"
+            ? `every day at ${atTimes}`
+            : plan.repeat === "weekdays"
+            ? `every weekday at ${atTimes}`
+            : `every ${pickedDays.join(" and ")} at ${atTimes}`;
+          speak(`Scheduled: ${plan.label}, ${when}. I'll ping you when it's here. You can change or stop it in Settings › Notifications.`);
+          await remember();
           finish();
         };
 
@@ -762,6 +809,8 @@ Deno.serve(async (request) => {
           references: string[];
           settings: Record<string, unknown>;
           sourceArtifactId: string | null;
+          /** One per picture, when the card offered a set of different ones. */
+          prompts: string[];
         } | null> => {
           if (!threadId) return null;
           // Abel, 1 Nov 2026: he asked for four images like an outfit he had
@@ -797,6 +846,7 @@ Deno.serve(async (request) => {
             references: Array.isArray(hint.references) ? (hint.references as string[]) : [],
             settings: (hint.settings as Record<string, unknown>) ?? {},
             sourceArtifactId: typeof hint.source_artifact_id === "string" ? hint.source_artifact_id : null,
+            prompts: Array.isArray(hint.prompts) ? (hint.prompts as unknown[]).filter((p): p is string => typeof p === "string") : [],
           };
         };
 
@@ -1118,7 +1168,7 @@ Deno.serve(async (request) => {
          */
         const describeState = async (checkCredits: boolean): Promise<string> => {
           const none = Promise.resolve({ data: [] as unknown[] });
-          const [connsRead, runsRead, madeRead, offerRead] = await Promise.all([
+          const [connsRead, runsRead, madeRead, offerRead, plannedRead] = await Promise.all([
             asUser.rpc("my_connections"),
             threadId
               ? admin.from("agent_runs").select("kind, status, error, input, result, created_at")
@@ -1131,6 +1181,10 @@ Deno.serve(async (request) => {
                 .eq("thread_id", threadId).eq("render_hint->>kind", "models")
                 .order("seq", { ascending: false }).limit(1)
               : none,
+            admin.from("schedules")
+              .select("summary, status, repeat, next_at, delivered, thread_id")
+              .eq("user_id", auth.user!.id).in("status", ["active", "paused", "done"])
+              .order("updated_at", { ascending: false }).limit(6),
           ]);
 
           const lines: string[] = [];
@@ -1188,6 +1242,27 @@ Deno.serve(async (request) => {
             lines.push(`Prices seen for "${String(hint?.request ?? "").slice(0, 60)}": ${
               options.slice(0, 8).map((o) => `${o.label} ${trim(o.cost.amount!)} ${o.cost.unit}`).join(", ")
             }.`);
+          }
+
+          // What is set to be sent to them later. Without it, "what about
+          // resending it?" right after scheduling got "I can't send them 13
+          // minutes later" (Abel, 4 Nov 2026).
+          const planned = plannedRead.data;
+          const zone = typeof body.timezone === "string" && body.timezone.length < 64 ? body.timezone : "UTC";
+          const clock = (at: string) =>
+            new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(at));
+          lines.push(
+            "Scheduling: Postpilot CAN make things and send them at a set time or on repeat, with a ping. It is set up " +
+              "when they ask in words ('send me 2 pictures at 8 pm'); they change or stop it in Settings › Notifications.",
+          );
+          for (const s of (planned ?? []) as Array<{ summary: string; status: string; repeat: string; next_at: string | null; delivered: number; thread_id: string | null }>) {
+            const where = s.thread_id === threadId ? "this chat" : "another chat";
+            const state = s.status === "active" && s.next_at
+              ? `next ${clock(s.next_at)}${s.repeat !== "none" ? `, repeats ${s.repeat}` : ""}`
+              : s.status === "paused"
+              ? "paused"
+              : "already sent";
+            lines.push(`- Scheduled "${s.summary}" (${where}): ${state}; sent ${s.delivered} time(s).`);
           }
 
           if (checkCredits) lines.push(await balanceLine());
@@ -1301,6 +1376,9 @@ Deno.serve(async (request) => {
           intro?: string;
           /** What the card starts on, decided from the request. */
           brief?: VideoBrief | null;
+          /** Pictures of a set that are each of something different: kept on
+           *  the card's offer, so its Generate makes each as asked. */
+          prompts?: string[];
         }) => {
           // What they set once in the generator's settings -- the model, how
           // many, the shape, the quality, a video's length. What they said in
@@ -1431,8 +1509,17 @@ Deno.serve(async (request) => {
           // starts -- the way Grok makes a picture. What it used is said under
           // the result. A photo video keeps its one Make it: its plan is the
           // brief, not a model, and it is the dearest thing made here.
-          const startNow = !!job.collect || !(job.capability === "video_generation" &&
-            (job.brief?.kind === "photo" || (!job.brief && !job.named && !job.sourceArtifactId)));
+          //
+          // Abel, 4 Nov 2026: a picture or a video starts at once only when
+          // the model is already decided -- named (or "always use X", which
+          // the router reads from memory) or set as the default in Create
+          // settings. Otherwise the card asks which model first. Voice and
+          // music still start at once.
+          const visual = job.capability === "image_generation" || job.capability === "video_generation";
+          const decided = (job.only && job.settled) || (!job.only && typeof pref?.model === "string" && !!pref.model);
+          const startNow = !!job.collect || (
+            (decided || !visual) && !(job.capability === "video_generation" && job.brief?.kind === "photo")
+          );
           if (startNow) {
             let chosen: (typeof choices.options)[number] | undefined;
             // A model they named and cannot afford is never swapped for
@@ -1504,7 +1591,9 @@ Deno.serve(async (request) => {
                 ...(job.sourceArtifactId ? { source_artifact_id: job.sourceArtifactId } : {}),
                 ...(remix.length > 0 ? { remix } : {}),
               };
-              const what = job.prompt.split("\n\n")[0].slice(0, 140);
+              // Cut at a word, not inside one ("...with clear non-ex with GPT Image 2").
+              const said = job.prompt.split("\n\n")[0];
+              const what = said.length <= 140 ? said : `${said.slice(0, 140).replace(/\s+\S*$/, "")}…`;
               const lead = job.unmatched ? `I couldn't find "${job.named}", so I'm using ${chosen.label}. ` : "";
               const announce = job.sourceArtifactId
                 ? `${lead}Animating it with ${chosen.label}.`
@@ -1570,6 +1659,7 @@ Deno.serve(async (request) => {
             references: job.references,
             settings: job.settings,
             source_artifact_id: job.sourceArtifactId ?? null,
+            ...(job.prompts ? { prompts: job.prompts } : {}),
           });
           return finish();
         };
@@ -1761,7 +1851,7 @@ Deno.serve(async (request) => {
                 ? Math.min(10, Math.max(1, Math.round(wanted)))
                 : 1;
               if (count > 1) {
-                return await startBatch(count, {
+                const base = {
                   capability,
                   prompt: action.prompt,
                   model: action.model ?? null,
@@ -1769,7 +1859,14 @@ Deno.serve(async (request) => {
                   quoted_cost: quoted,
                   references,
                   ...(source ? { source_artifact_id: source } : {}),
-                }, `Making ${count} pictures of ${String(action.prompt ?? "").split("\n\n")[0].slice(0, 120)}.`);
+                };
+                // A set where each picture is of something different, as the
+                // card offered it: each made as asked.
+                const each = same && offer!.prompts.length === count ? offer!.prompts : null;
+                if (each) {
+                  return await startJobs(each.map((prompt) => ({ ...base, prompt })), `Making ${count} different pictures.`);
+                }
+                return await startBatch(count, base, `Making ${count} pictures of ${String(action.prompt ?? "").split("\n\n")[0].slice(0, 120)}.`);
               }
               return await startRun("generate", {
                 capability,
@@ -2551,11 +2648,7 @@ How to answer:
               return finish();
             }
 
-            type Collected = { input: Record<string, unknown>; announce: string; label: string };
-            const done: Collected[] = [];
-            const asNamed = new Map<string, Collected>();
-            const unfound: string[] = [];
-            for (const job of plan) {
+            const shapeOf = (job: RoutedJob) => {
               const capability = kindOf(job);
               const used = job.uses.map((handle) => pics.refs[handle]).filter(Boolean);
               // A video starts from its first picture and, where there are two or
@@ -2571,6 +2664,47 @@ How to answer:
                   references = [used[0], used[used.length - 1]].filter((ref, at, all) => all.indexOf(ref) === at);
                 }
               }
+              return { capability, references, sourceArtifactId };
+            };
+
+            // No model decided -- none named, none remembered, no default in
+            // Create settings -- for pictures of one size or for one video: the
+            // card asks which model first (Abel, 4 Nov 2026). A scheduled drop,
+            // or a mix of kinds or sizes, still starts as asked.
+            const first = shapeOf(plan[0]);
+            const defaultModel = first.capability === "image_generation"
+              ? body.prefs?.image?.model
+              : first.capability === "video_generation"
+              ? body.prefs?.video?.model
+              : undefined;
+            const oneShape = plan.every((job) => {
+              const shape = shapeOf(job);
+              return JSON.stringify([shape, job.settings]) === JSON.stringify([first, plan[0].settings]);
+            });
+            if (
+              !routed.schedule && oneShape && plan.every((job) => !job.model) && !defaultModel &&
+              (first.capability === "image_generation" || (first.capability === "video_generation" && plan.length === 1))
+            ) {
+              const prompts = plan.map(wordsFor);
+              const alike = prompts.every((prompt) => prompt === prompts[0]);
+              return await produce({
+                capability: first.capability,
+                prompt: alike ? prompts[0] : prompts.join("\n"),
+                settings: { ...plan[0].settings, ...(plan.length > 1 ? { count: plan.length } : {}) },
+                references: first.references,
+                sourceArtifactId: first.sourceArtifactId,
+                brandId: brand?.id ?? null,
+                brief: null,
+                ...(alike ? {} : { prompts, intro: `Ready to make ${prompts.length} different pictures.` }),
+              });
+            }
+
+            type Collected = { input: Record<string, unknown>; announce: string; label: string };
+            const done: Collected[] = [];
+            const asNamed = new Map<string, Collected>();
+            const unfound: string[] = [];
+            for (const job of plan) {
+              const { capability, references, sourceArtifactId } = shapeOf(job);
 
               // Entries that differ only in what they are OF share one pricing and one
               // model choice, instead of asking the providers once for each.

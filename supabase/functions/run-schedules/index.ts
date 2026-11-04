@@ -161,13 +161,10 @@ async function prepare(admin: SupabaseClient, schedule: Schedule, drop: Drop) {
 
 /** Posts a drop whose jobs are done (or have had long enough), and pings. */
 async function deliver(admin: SupabaseClient, schedule: Schedule, drop: Drop, now: number): Promise<boolean> {
-  let finished = drop.run_ids;
   if (drop.run_ids.length > 0) {
     const { data: runs } = await admin.from("agent_runs").select("id, status").in("id", drop.run_ids);
-    const list = runs ?? [];
-    const waiting = list.some((run) => ["queued", "running", "waiting_on_user"].includes(run.status));
+    const waiting = (runs ?? []).some((run) => ["queued", "running", "waiting_on_user"].includes(run.status));
     if (waiting && now < Date.parse(drop.due_at) + WAIT_MINUTES * 60_000) return false;
-    finished = list.filter((run) => run.status === "succeeded").map((run) => run.id);
   }
 
   // Claimed before anything is posted: a slow tick and the next one never both deliver.
@@ -179,18 +176,47 @@ async function deliver(admin: SupabaseClient, schedule: Schedule, drop: Drop, no
     .select("id");
   if (!claimed || claimed.length === 0) return false;
 
-  const lead = drop.text?.trim() || `Here's your ${schedule.summary}.`;
+  // Read after the claim: a job finishing from here on posts itself
+  // (run-agent-jobs holds only while the drop is still "making").
+  type Made = { id: string; status: string; result: Record<string, unknown> | null };
+  const { data: runs } = drop.run_ids.length > 0
+    ? await admin.from("agent_runs").select("id, status, result").in("id", drop.run_ids)
+    : { data: [] as Made[] };
+  const made = drop.run_ids
+    .map((id) => ((runs ?? []) as Made[]).find((run) => run.id === id))
+    .filter((run): run is Made => run?.status === "succeeded" && typeof run.result?.artifact_id === "string");
+
   if (schedule.thread_id) {
-    const hint = finished.length > 0
-      ? { kind: "run", run_id: finished[0], run_ids: finished, run_kind: "generate", schedule_id: schedule.id }
-      : { kind: "drop", schedule_id: schedule.id };
-    const { error } = await admin.rpc("append_message", {
-      p_thread: schedule.thread_id,
-      p_role: "assistant",
-      p_text: lead,
-      p_render_hint: hint,
-    });
-    if (error) console.error("schedule: append_message", error.message);
+    const post = async (text: string, hint: Record<string, unknown>, run: string | null = null) => {
+      const { error } = await admin.rpc("append_message", {
+        p_thread: schedule.thread_id,
+        p_role: "assistant",
+        p_text: text,
+        p_render_hint: hint,
+        p_run: run,
+      });
+      if (error) console.error("schedule: append_message", error.message);
+    };
+    // The things themselves, one message each, as one set: the chat draws them
+    // as a grid under one line, like pictures made on the spot.
+    const lead = `Here ${made.length > 1 ? "are" : "is"} your ${schedule.summary}.`;
+    const set = crypto.randomUUID();
+    for (const run of made) {
+      const result = run.result!;
+      await post(lead, {
+        kind: "artifact",
+        artifact_id: result.artifact_id,
+        artifact_kind: result.artifact_kind ?? "image",
+        width: result.width ?? null,
+        height: result.height ?? null,
+        schedule_id: schedule.id,
+        ...(made.length > 1 ? { batch: set, batch_of: made.length } : {}),
+      }, run.id);
+    }
+    // Then the words that go with them, as a message of their own to copy.
+    const words = drop.text?.trim();
+    if (words) await post(words, { kind: "drop", schedule_id: schedule.id });
+    else if (made.length === 0) await post(`Your scheduled ${schedule.summary} didn't come out this time.`, { kind: "drop", schedule_id: schedule.id });
   }
   if (schedule.options?.ping !== false) {
     await push(admin, schedule.user_id, "drop", {

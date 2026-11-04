@@ -130,6 +130,10 @@ export interface Routed {
 export interface RoutedSchedule {
   /** The first delivery, local: "2026-11-04T02:00". */
   at: string;
+  /** More times for the same thing, local ("at 8:21 and again at 8:23"). Abel's
+   *  4 Nov test asked for two; only the first was kept and the second went into
+   *  the caption. */
+  also: string[];
   repeat: "none" | "daily" | "weekdays" | "weekly" | "custom";
   /** 0 = Sunday ... 6 = Saturday, for weekly and custom. */
   days: number[];
@@ -278,7 +282,7 @@ export async function route(
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,"web":boolean,' +
-    '"schedule":{"at":"YYYY-MM-DDTHH:MM","repeat":"none|daily|weekdays|weekly|custom","days":[number],"text":string|null,"label":string}|null,' +
+    '"schedule":{"at":"YYYY-MM-DDTHH:MM","also":["YYYY-MM-DDTHH:MM"],"repeat":"none|daily|weekdays|weekly|custom","days":[number],"text":string|null,"label":string}|null,' +
     '"jobs":[{"media":"image|video|audio"|null,"speech":boolean,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
@@ -349,7 +353,8 @@ export async function route(
     "    Animating a picture: subject is what should HAPPEN in it -- the motion -- or null when they did not",
     "    say. Never a phrase pointing back at the picture. 'animate this photo' -> null.",
     "  model: a generation model they named for THIS entry, exactly as written ('nano banana pro2', 'soul 2',",
-    "    'kling'), else null. A model named for everything goes on every entry.",
+    "    'kling'), else the one they told you to ALWAYS use for this kind (in the conversation or in what Postpilot",
+    "    remembers), else null. A model named for everything goes on every entry.",
     "  uses: the pictures this entry starts from or must follow, by the handles in 'Pictures in this",
     "    conversation' (P1, P2 ...). 'edit the second one' -> ['P2']; 'use the photo I sent' -> its handle; a",
     "    video from pictures ('turn them into a video', 'make a video from these') is media 'video' and uses =",
@@ -365,10 +370,12 @@ export async function route(
     "schedule: when they want what they ask for made and SENT TO THEM at a set time or on repeat ('send them at",
     "  2 am', 'every morning at 9', 'every Friday', 'daily'). intent is make and jobs are written as usual. at = the",
     "  FIRST delivery in THEIR local time, read from the 'Now, where they are' line (a time already past today",
-    "  means tomorrow). repeat: none, daily, weekdays, weekly (days = that weekday) or custom (days = the weekdays),",
-    "  days 0=Sunday..6=Saturday. text = the words to send along with it ('a caption for each', 'a hook and a",
-    "  caption') or null. label = a short name for what arrives ('5 outfit pictures + captions'). null when they",
-    "  want it now. Posting to their social accounts at a time is not this.",
+    "  means tomorrow; 'in 5 minutes' is now plus 5). also = every OTHER time the same thing is sent ('at 8:21 and",
+    "  again at 8:23' -> also ['...T08:23']), else []. repeat: none, daily, weekdays, weekly (days = that weekday) or",
+    "  custom (days = the weekdays), days 0=Sunday..6=Saturday. text = the WORDS they asked to get with it ('a",
+    "  caption for each', 'a hook and a caption'), else null -- never an instruction, a time or a note to yourself.",
+    "  label = a short name for what arrives ('5 outfit pictures + captions'). null when they want it now. Posting",
+    "  to their social accounts at a time is not this.",
     "show: handles (P1, P2 ...) of pictures YOU made that they ask to be SENT or SHOWN again -- 'send me the",
     "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
     "voices: true when they ask to hear, see, browse or choose between voices ('show me some voices', 'what",
@@ -565,5 +572,11 @@ function readSchedule(raw: unknown): RoutedSchedule | null {
     : [];
   const text = typeof s.text === "string" && s.text.trim() ? s.text.trim().slice(0, 200) : null;
   const label = typeof s.label === "string" && s.label.trim() ? s.label.trim().slice(0, 60) : "Your drop";
-  return { at, repeat, days, text, label };
+  const also = Array.isArray(s.also)
+    ? [...new Set(
+      s.also.filter((t): t is string => typeof t === "string" && /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}/.test(t))
+        .map((t) => t.slice(0, 16)),
+    )].filter((t) => t !== at).slice(0, 10)
+    : [];
+  return { at, also, repeat, days, text, label };
 }

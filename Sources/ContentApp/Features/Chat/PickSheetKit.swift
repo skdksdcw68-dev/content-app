@@ -21,7 +21,7 @@ enum PickKit {
 }
 
 struct PickCardFill: View {
-    @Environment(.colorScheme) private var scheme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         RoundedRectangle(cornerRadius: 21, style: .continuous)
@@ -31,7 +31,7 @@ struct PickCardFill: View {
 
 /// The sheet behind the cards.
 struct PickSheetFill: View {
-    @Environment(.colorScheme) private var scheme
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GrokLook.sheet(scheme).ignoresSafeArea()
@@ -41,7 +41,7 @@ struct PickSheetFill: View {
 /// Generate, drawn as the paywall's Subscribe button: a solid capsule in the
 /// page's colour reversed, and nothing else on it (Abel, 4 Nov 2026).
 struct PickButtonStyle: ButtonStyle {
-    @Environment(.isEnabled) private var isEnabled
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -345,7 +345,7 @@ struct PickVoiceList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(shown, id: .self) { option in
+            ForEach(shown, id: \.self) { option in
                 row(option)
                 Divider().padding(.leading, 58)
             }
@@ -354,7 +354,7 @@ struct PickVoiceList: View {
                     withAnimation(.snappy(duration: 0.25)) { showsAll.toggle() }
                 } label: {
                     HStack {
-                        Text(showsAll ? "Show fewer" : "All (options.count) voices")
+                        Text(showsAll ? "Show fewer" : "All \(options.count) voices")
                         Spacer(minLength: 8)
                         Image(systemName: showsAll ? "chevron.up" : "chevron.down")
                             .font(.footnote.weight(.semibold))
@@ -402,7 +402,7 @@ struct PickVoiceList: View {
             }
             .buttonStyle(.plain)
             .disabled(sample == nil)
-            .accessibilityLabel(playing ? "Stop (name)" : "Hear (name)")
+            .accessibilityLabel(playing ? "Stop \(name)" : "Hear \(name)")
 
             Button {
                 withAnimation(.snappy(duration: 0.18)) { selection = option }

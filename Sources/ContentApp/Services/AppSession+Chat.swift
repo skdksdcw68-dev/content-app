@@ -225,6 +225,11 @@ extension AppSession {
         /// Something to be made and sent at a time, saved as a draft; the
         /// Schedule sheet opens for it (0095).
         case schedule(UUID)
+        /// An answer that needs an account nobody connected: its Connect card,
+        /// and the question to ask again once it is read.
+        case connect(Platform, question: String?)
+        /// An answer's numbers as a chart (mockup screen 7).
+        case chart(ChatChart)
         case failed(String)
     }
 
@@ -438,6 +443,18 @@ extension AppSession {
                 continue
             }
 
+            if kind == "connect", let name = event["platform"] as? String, let platform = Platform(rawValue: name) {
+                onEvent(.connect(platform, question: event["question"] as? String))
+                continue
+            }
+
+            if kind == "chart", let raw = event["chart"],
+               let data = try? JSONSerialization.data(withJSONObject: raw),
+               let chart = try? JSONDecoder().decode(ChatChart.self, from: data) {
+                onEvent(.chart(chart))
+                continue
+            }
+
             if kind == "thread", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
                 onEvent(.thread(uuid))
                 continue
@@ -587,6 +604,11 @@ private struct StoredMessage: Decodable {
         let sources: [WebSource]?
         /// What the reply did on the way, for the sheet behind "Thinking".
         let thinking: Thinking?
+        /// A Connect card: the network, and the question to ask again.
+        let platform: String?
+        let question: String?
+        /// An answer's numbers, drawn as a chart.
+        let chart: ChatChart?
 
         /// The steps the server took for this reply, in order, what it took the
         /// request to mean, and how long the whole turn took.
@@ -602,6 +624,7 @@ private struct StoredMessage: Decodable {
 
         private enum CodingKeys: String, CodingKey {
             case kind, questions, choices, request, references, paths, days, options, width, height, batch, items, sources, thinking
+            case platform, question, chart
             case artifactKind = "artifact_kind"
             case runId = "run_id"
             case runIds = "run_ids"
@@ -624,6 +647,11 @@ private struct StoredMessage: Decodable {
         turn.runKind = renderHint?.runKind
         turn.artifactId = renderHint?.artifactId
         if renderHint?.kind == "schedule" { turn.scheduleId = renderHint?.scheduleId }
+        if renderHint?.kind == "connect", let name = renderHint?.platform {
+            turn.connectPlatform = Platform(rawValue: name)
+            turn.connectQuestion = renderHint?.question
+        }
+        turn.chart = renderHint?.chart
         turn.batch = renderHint?.batch
         if let id = renderHint?.artifactId { turn.batchArtifacts = [id] }
         turn.artifactKind = renderHint?.artifactKind

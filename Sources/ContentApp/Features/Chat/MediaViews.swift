@@ -306,113 +306,64 @@ struct AudioCard: View {
     let artifact: Artifact
 
     @Environment(AppSession.self) private var session
-    @State private var file: URL?
-    @State private var player: AVPlayer?
-    @State private var playing = false
-    @State private var progress: Double = 0
-    @State private var watcher: Any?
-
-    private var length: Double? { artifact.body.seconds }
+    @State private var playback = VoicePlayback()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
-                Button(action: toggle) {
-                    Image(systemName: playing ? "pause.fill" : "play.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Theme.onAccent)
-                        .frame(width: 40, height: 40)
-                        .background(Circle().fill(Theme.accent))
-                        .contentTransition(.symbolEffect(.replace))
+                Button(action: tap) {
+                    VoiceButton(playback: playback)
                 }
                 .buttonStyle(PressButtonStyle())
-                .disabled(file == nil && session.cachedCopy(of: artifact) == nil)
-                .accessibilityLabel(playing ? "Pause" : "Play")
+                .accessibilityLabel(playback.stage == .ready ? (playback.playing ? "Pause" : "Play") : "Download and play")
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(artifact.body.prompt ?? artifact.title)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    // A plain line filling as it plays: a waveform we did not
-                    // measure would be decoration pretending to be data.
-                    GeometryReader { proxy in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.primary.opacity(0.10))
-                            Capsule().fill(Theme.accent)
-                                .frame(width: max(0, min(1, progress)) * proxy.size.width)
-                        }
-                    }
-                    .frame(height: 4)
-                }
-
-                if let length {
-                    Text(clock(length))
+                VStack(alignment: .leading, spacing: 5) {
+                    VoiceWaveform(bars: playback.bars, played: playback.progress, live: playback.hasWave)
+                    Text(playback.caption)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                if playback.stage == .ready {
+                    Button { playback.cycleRate() } label: {
+                        Text(playback.rateLabel)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 7)
+                            .frame(height: 22)
+                            .background(Capsule().fill(Color.primary.opacity(0.12)))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Speed \(playback.rateLabel)")
                 }
             }
-            .padding(12)
-            .frame(width: 280)
+            .padding(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 12))
+            .frame(width: 290, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.surface)
+                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
             }
 
             MediaFooting(artifact: artifact, onAnimate: nil)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .task(id: artifact.id) {
-            guard file == nil else { return }
-            file = session.cachedCopy(of: artifact)
-            if file == nil { file = await session.localCopy(of: artifact) }
+            playback.look(artifact, in: session)
+            // Telegram's way: it comes down by itself and stays on the phone,
+            // so the tap plays at once.
+            if playback.stage == .absent { playback.fetch(artifact, in: session) }
         }
-        .onDisappear { stop() }
+        .onDisappear { playback.stop() }
     }
 
-    private func toggle() {
-        if playing {
-            player?.pause()
-            playing = false
-            return
+    private func tap() {
+        switch playback.stage {
+        case .ready: playback.toggle()
+        case .downloading: break
+        case .absent, .failed: playback.fetch(artifact, in: session, thenPlay: true)
         }
-        guard let url = file ?? session.cachedCopy(of: artifact) else { return }
-        PlaybackAudio.sound(true)
-        let engine = player ?? AVPlayer(url: url)
-        player = engine
-        if watcher == nil {
-            watcher = engine.addPeriodicTimeObserver(
-                forInterval: CMTime(seconds: 0.2, preferredTimescale: 600), queue: .main
-            ) { time in
-                // Hopping back to the main actor: the observer's queue is main,
-                // but the compiler cannot know that.
-                let seconds = time.seconds
-                Task { @MainActor in advance(to: seconds) }
-            }
-        }
-        engine.play()
-        playing = true
-    }
-
-    private func advance(to seconds: Double) {
-        let total = player?.currentItem?.duration.seconds
-        let whole = (total?.isFinite == true ? total : length) ?? 0
-        guard whole > 0 else { return }
-        progress = seconds / whole
-        if seconds >= whole - 0.05 {
-            player?.seek(to: .zero)
-            player?.pause()
-            playing = false
-            progress = 0
-        }
-    }
-
-    private func stop() {
-        player?.pause()
-        playing = false
-        if let watcher { player?.removeTimeObserver(watcher) }
-        watcher = nil
-        PlaybackAudio.sound(false)
     }
 }
 

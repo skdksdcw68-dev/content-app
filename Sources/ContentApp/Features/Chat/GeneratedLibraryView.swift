@@ -79,6 +79,21 @@ struct GeneratedLibraryView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 48)
                     .padding(.horizontal, 32)
+                } else if filter == .audio {
+                    // Sounds as a list, the way Telegram lists shared voices:
+                    // each plays right here from the phone's copy.
+                    VStack(spacing: 0) {
+                        ForEach(shown) { artifact in
+                            VoiceListRow(artifact: artifact)
+                            if artifact.id != shown.last?.id {
+                                Divider().padding(.leading, 64)
+                            }
+                        }
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
+                    }
+                    .padding(.horizontal, 16)
                 } else {
                     LazyVGrid(columns: grid, spacing: 3) {
                         ForEach(shown) { artifact in

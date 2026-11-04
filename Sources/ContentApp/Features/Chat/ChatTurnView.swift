@@ -10,6 +10,9 @@ struct ChatTurnView: View {
     let turn: ChatMessage
     /// The words of a message opened to be selected piece by piece.
     @State private var selecting: String?
+    /// The pictures of a set still being made, for "2 of 4 ready". Only runs
+    /// seen working count: a reopened chat's finished set shows no line.
+    @State private var liveRuns: Set<UUID> = []
     /// Answering a question is the same as saying it out loud, so it goes back
     /// as an ordinary turn rather than through a side channel. The transcript
     /// then reads the way the conversation actually went.
@@ -44,6 +47,39 @@ struct ChatTurnView: View {
 
     /// Two pictures a row, for a set made from one request.
     private static let grid = [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)]
+
+    /// A set of pictures: how many are ready, then one frame per picture,
+    /// each going when its own picture is done.
+    @ViewBuilder
+    private var pictureSet: some View {
+            if !liveRuns.isEmpty {
+                HStack {
+                    Text("Creating \(turn.runIds.count) pictures")
+                        .foregroundStyle(.primary)
+                    Spacer(minLength: 8)
+                    Text("\(turn.runIds.count - liveRuns.count) of \(turn.runIds.count) ready")
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                }
+                .font(.subheadline)
+                .animation(.snappy(duration: 0.2), value: liveRuns.count)
+            }
+            LazyVGrid(columns: Self.grid, spacing: 6) {
+                ForEach(turn.runIds, id: \.self) { id in
+                    RunCard(
+                        runId: id,
+                        kind: turn.runKind,
+                        expectedKind: "image",
+                        tile: true,
+                        onFinished: { onRunFinished(id) },
+                        onLive: { live in
+                            if live { liveRuns.insert(id) } else { liveRuns.remove(id) }
+                        }
+                    )
+                }
+            }
+    }
 
     /// The pictures this turn shows: a whole set, or the one picture.
     private var pictureIds: [UUID] {
@@ -205,6 +241,16 @@ struct ChatTurnView: View {
                         ScheduleCard(scheduleId: scheduleId, opensAtOnce: turn.scheduleIsNew)
                     }
 
+                    if let chart = turn.chart {
+                        ChatChartCard(chart: chart)
+                    }
+
+                    if let platform = turn.connectPlatform {
+                        ChatConnectCard(platform: platform) {
+                            onSuggest(turn.connectQuestion ?? "How is my \(platform.networkName) doing?")
+                        }
+                    }
+
                     ForEach(turn.questions) { question in
                         QuestionCard(
                             question: question,
@@ -214,12 +260,8 @@ struct ChatTurnView: View {
 
                     if turn.runIds.count > 1 {
                         // A set of pictures: one frame per picture, each going
-                        // when its own picture is done.
-                        LazyVGrid(columns: Self.grid, spacing: 6) {
-                            ForEach(turn.runIds, id: \.self) { id in
-                                RunCard(runId: id, kind: turn.runKind, expectedKind: "image", tile: true) { onRunFinished(id) }
-                            }
-                        }
+                        // when its own picture is done, with how many are ready.
+                        pictureSet
                     } else if let runId = turn.runId {
                         RunCard(runId: runId, kind: turn.runKind, expectedKind: turn.artifactKind) { onRunFinished(runId) }
                     }

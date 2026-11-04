@@ -699,7 +699,8 @@ Deno.serve(async (request) => {
             return finish();
           }
 
-          for (const at of unique) await save(at, "active");
+          const ids: string[] = [];
+          for (const at of unique) ids.push(await save(at, "active"));
           const dayOf = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(at);
           const today = dayOf(new Date());
           const tomorrow = dayOf(new Date(Date.now() + 24 * 60 * 60_000));
@@ -721,7 +722,10 @@ Deno.serve(async (request) => {
             ? `every weekday at ${atTimes}`
             : `every ${pickedDays.join(" and ")} at ${atTimes}`;
           speak(`Scheduled: ${plan.label}, ${when}. I'll ping you when it's here. You can change or stop it in Settings › Notifications.`);
-          await remember();
+          // Its small status card (mockup screen 6). It opens no sheet: the
+          // card only opens one for a draft.
+          send({ t: "schedule", id: ids[0] });
+          await remember({ kind: "schedule", schedule_id: ids[0] });
           finish();
         };
 
@@ -2548,7 +2552,20 @@ How to answer:
               return;
             }
 
-            await remember();
+            // Under the answer: its numbers as a chart, or -- with nothing
+            // connected -- the account to connect, right there (Abel's mockup,
+            // 4 Nov 2026, screens 7 and 10).
+            const { data: linked } = await asUser.from("platform_connections")
+              .select("platform").eq("brand_id", brand.id).eq("status", "active").limit(1);
+            if ((linked ?? []).length === 0) {
+              const ask = { platform: "tiktok", question: asked.slice(0, 300) };
+              send({ t: "connect", ...ask });
+              await remember({ kind: "connect", ...ask });
+            } else {
+              const chart = chartFrom(data);
+              if (chart) send({ t: "chart", chart });
+              await remember(chart ? { kind: "chart", chart } : null);
+            }
             await recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "insight_reply", model: answered.model, usage: answered.usage });
             return finish();
           }
@@ -3612,4 +3629,67 @@ function zonedToUtc(local: string, zone: string): Date | null {
   };
   const first = guess - offsetAt(guess);
   return new Date(guess - offsetAt(first));
+}
+
+/**
+ * The chat's chart card (Abel's mockup, 4 Nov 2026, screen 7), from the same
+ * DATA the answer was written from, so the picture and the words never
+ * disagree. Null when there is nothing to draw.
+ */
+// deno-lint-ignore no-explicit-any
+function chartFrom(data: Record<string, any>): Record<string, unknown> | null {
+  const compact = (n: unknown): string | null => {
+    if (typeof n !== "number" || !Number.isFinite(n)) return null;
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+    return String(Math.round(n));
+  };
+  const day = (iso: unknown): string =>
+    typeof iso === "string" && iso
+      ? new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+      : "—";
+
+  const stats: Array<{ label: string; value: string; change: string | null }> = [];
+  const account = data.account ?? {};
+  const followers = compact(account.followers);
+  if (followers) stats.push({ label: "Followers", value: followers, change: null });
+  const current = data.totals?.current;
+  const previous = data.totals?.previous;
+  const views = current && !(Number(current.unknown) > 0) ? compact(current.views) : null;
+  if (views) {
+    let change: string | null = null;
+    if (previous && !(Number(previous.unknown) > 0) && Number(previous.views) > 0) {
+      const pct = Math.round(((current.views - previous.views) / previous.views) * 100);
+      change = pct === 0 ? "same" : `${pct > 0 ? "▲" : "▼"} ${Math.abs(pct)}%`;
+    }
+    stats.push({ label: `Views, ${data.asked_about_days} days`, value: views, change });
+  }
+  const likes = compact(account.likes);
+  if (likes) stats.push({ label: "Total likes", value: likes, change: null });
+
+  // Oldest to newest, so the bars read left to right like a timeline.
+  const seen = new Map<string, number>();
+  // deno-lint-ignore no-explicit-any
+  const bars = ((data.latest ?? []) as Array<Record<string, any>>).slice(0, 7).reverse()
+    .filter((v) => typeof v.views === "number")
+    .map((v) => {
+      let label = day(v.posted_at);
+      const n = (seen.get(label) ?? 0) + 1;
+      seen.set(label, n);
+      if (n > 1) label = `${label} (${n})`;
+      return { label, value: v.views, display: compact(v.views) };
+    });
+  // deno-lint-ignore no-explicit-any
+  const top = ((data.top ?? []) as Array<Record<string, any>>).slice(0, 3)
+    .filter((v) => typeof v.views === "number")
+    .map((v) => ({ label: String(v.title ?? "Untitled").replace(/\s+/g, " ").trim().slice(0, 48), value: v.views, display: compact(v.views) }));
+
+  if (stats.length === 0 && bars.length === 0) return null;
+  return {
+    stats: stats.slice(0, 3),
+    bars_title: bars.length > 0 ? "Views on your latest videos" : null,
+    bars,
+    top_title: top.length > 0 ? "Your top videos" : null,
+    top,
+  };
 }

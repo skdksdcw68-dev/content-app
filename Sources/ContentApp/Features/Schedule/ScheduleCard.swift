@@ -80,6 +80,11 @@ struct ScheduleCard: View {
         guard let schedule else { return " " }
         if schedule.status == "active", let next = schedule.nextAt {
             let when = next.formatted(Date.FormatStyle(timeZone: schedule.zone).weekday(.abbreviated).hour().minute())
+            // Close by, it says how close (mockup screen 6: "arrives 9:51 AM, in 12 min").
+            let left = next.timeIntervalSinceNow
+            if left > 0, left < 3 * 3600 {
+                return "\(schedule.summary) · \(when), \(next.formatted(.relative(presentation: .named)))"
+            }
             return "\(schedule.summary) · next \(when)"
         }
         if schedule.status == "draft" { return "\(schedule.summary) · \(schedule.whenText)" }

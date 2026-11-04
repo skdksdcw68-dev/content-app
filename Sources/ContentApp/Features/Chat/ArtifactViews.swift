@@ -29,6 +29,9 @@ struct RunCard: View {
     /// Told once, when the run reaches an end, so the conversation can pull in
     /// the result the worker wrote.
     var onFinished: () -> Void = {}
+    /// True once it is seen working, false when that work ends -- for a set's
+    /// "2 of 4 ready". A run that ended before the card opened says nothing.
+    var onLive: (Bool) -> Void = { _ in }
 
     @Environment(AppSession.self) private var session
     @State private var steps: [TaskStep] = []
@@ -90,6 +93,7 @@ struct RunCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 ShimmerText(text: expectedKind == "image" ? "Creating image" : expectedKind == "video" ? "Creating video" : expectedKind == "audio" ? "Making the track" : "Creating…")
                 MakingCard(kind: expectedKind)
+                TimeLeft(expected: MakingProgress.expected(for: expectedKind), pings: expectedKind == "video")
             }
             .padding(.vertical, 4)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -163,9 +167,13 @@ struct RunCard: View {
             }
             loaded = true
             if outcome != nil {
-                if sawRunning { onFinished() }
+                if sawRunning {
+                    onLive(false)
+                    onFinished()
+                }
                 return
             }
+            if !sawRunning { onLive(true) }
             sawRunning = true
             try? await Task.sleep(for: .seconds(1))
         }

@@ -53,12 +53,13 @@ struct MakingProgress: View {
 extension MakingProgress {
     /// Roughly how long each kind takes, from what this app has actually seen
     /// rather than from a provider's marketing. A 5-second Wan video measured
-    /// 101 seconds on 25 Sep 2026; images come back in a fraction of that.
+    /// 101 seconds on 25 Sep 2026. Measured again on 4 Nov 2026 over 20 days:
+    /// pictures took 39 s (75 s for the slow tenth), AI videos 110-180 s.
     static func expected(for kind: String?) -> TimeInterval {
         switch kind {
-        case "image": return 18
+        case "image": return 40
         case "audio": return 30
-        default:      return 110
+        default:      return 150
         }
     }
 }
@@ -78,5 +79,36 @@ struct MakingCard: View {
             .overlay { MakingSheen() }
             .overlay { MakingProgress(expected: MakingProgress.expected(for: kind)) }
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
+/// How long is left, said plainly under the frame (Abel's mockup, 4 Nov 2026,
+/// screen 6: "About 2 minutes left · I'll ping you when it's done"). Counted
+/// from the measured typical time, and it never claims "done" before it is.
+struct TimeLeft: View {
+    let expected: TimeInterval
+    var pings = false
+
+    @State private var began = Date.now
+
+    private func line(at now: Date) -> String {
+        let left = expected - now.timeIntervalSince(began)
+        let time = left > 90
+            ? "About \(Int((left / 60).rounded())) minutes left"
+            : left > 45
+            ? "About a minute left"
+            : left > 0
+            ? "Less than a minute left"
+            : "Almost done"
+        return pings ? "\(time) · I'll ping you when it's done" : time
+    }
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 5)) { context in
+            Text(line(at: context.date))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .contentTransition(.opacity)
+        }
     }
 }

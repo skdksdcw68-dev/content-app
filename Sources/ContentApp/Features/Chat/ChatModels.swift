@@ -540,6 +540,12 @@ struct ChatMessage: Identifiable, Equatable {
     var offerReferences: [String] = []
     /// The offer arrived in this session, so its sheet opens by itself.
     var offerIsNew = false
+    /// The account this answer needs, as a Connect card, and the question to
+    /// ask again once it is connected and read.
+    var connectPlatform: Platform? = nil
+    var connectQuestion: String? = nil
+    /// The answer's numbers, drawn under it.
+    var chart: ChatChart? = nil
     /// What the questions on this turn were asked for, so the answers can go
     /// straight on to a strategy without the router reading them back.
     var questionRequest: String? = nil

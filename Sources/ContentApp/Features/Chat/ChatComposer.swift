@@ -345,10 +345,9 @@ struct ChatComposer: View {
             Circle().fill(.red).frame(width: 9, height: 9)
             Text(recorder.clock)
                 .font(.system(size: 16, weight: .medium).monospacedDigit())
-            Text("Recording")
-                .font(.system(size: 15))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+            // Your voice as you speak, scrolling in from the right.
+            RecordingWave(levels: recorder.levels)
+                .frame(maxWidth: .infinity)
 
             Button {
                 guard let file = recorder.stop() else { return }
@@ -439,5 +438,24 @@ struct PressButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .opacity(configuration.isPressed ? 0.7 : 1)
             .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+/// The recording's loudness as bars, newest on the right: ChatGPT's waveform
+/// while you talk, so you can see it hears you.
+struct RecordingWave: View {
+    let levels: [Float]
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
+                Capsule()
+                    .fill(Color.primary.opacity(0.75))
+                    .frame(width: 2.5, height: max(3, CGFloat(level) * 24))
+            }
+        }
+        .frame(height: 26)
+        .animation(.linear(duration: 0.06), value: levels)
+        .accessibilityLabel("Recording")
     }
 }

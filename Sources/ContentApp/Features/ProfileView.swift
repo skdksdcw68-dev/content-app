@@ -103,6 +103,10 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
+        // On the list, not on its section: a sheet hung on a row of a List
+        // closed by itself whenever the list redrew -- tapping Picture model
+        // inside it shut the whole thing (Abel, 4 Nov 2026).
+        .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
         .animation(.snappy(duration: 0.25), value: query)
         .safeAreaInset(edge: .bottom) {
             if asSheet {
@@ -331,7 +335,6 @@ struct ProfileView: View {
         } header: {
             Text("Postpilot")
         }
-        .sheet(isPresented: $generatorSettings) { GeneratorSettingsSheet() }
     }
 
     // MARK: - App

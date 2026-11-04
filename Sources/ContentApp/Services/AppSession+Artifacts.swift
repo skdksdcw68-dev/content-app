@@ -419,6 +419,10 @@ extension AppSession {
     /// for the words in it. Nil, with `lastError` set, when either step fails.
     func transcribeSound(at file: URL) async -> String? {
         guard let userID, let data = try? Data(contentsOf: file) else { return nil }
+        // Small enough to go in the request itself: one trip instead of an
+        // upload, a download and the call (Abel, 4 Nov 2026: ChatGPT and Claude
+        // "are so fast"). The old way stays as the fallback.
+        if data.count < 6 * 1024 * 1024, let text = await transcribeDirectly(data) { return text }
         let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).m4a"
         do {
             _ = try await client.storage
@@ -438,4 +442,25 @@ extension AppSession {
 
 private struct Transcribed: Decodable {
     let text: String
+}
+
+extension AppSession {
+    /// The recording in the body of one request to `transcribe`. Nil on any
+    /// trouble, so the caller can fall back to uploading it first.
+    fileprivate func transcribeDirectly(_ data: Data) async -> String? {
+        do {
+            let token = try await client.auth.session.accessToken
+            var request = URLRequest(url: Config.supabaseURL.appendingPathComponent("functions/v1/transcribe"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 30
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            request.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")
+            request.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+            let (body, response) = try await URLSession.shared.upload(for: request, from: data)
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+            return try JSONDecoder().decode(Transcribed.self, from: body).text
+        } catch {
+            return nil
+        }
+    }
 }

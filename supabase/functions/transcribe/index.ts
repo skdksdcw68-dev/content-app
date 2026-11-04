@@ -32,20 +32,46 @@ Deno.serve(async (request) => {
     if (!authorization) throw new PublicError("Sign in first.", 401);
     if (!OPENAI_KEY) throw new PublicError("Transcribing isn't set up here yet.", 503);
 
-    const asUser = createClient(SUPABASE_URL, ANON_KEY, { global: { headers: { Authorization: authorization } } });
-    const { data: auth } = await asUser.auth.getUser();
-    if (!auth.user) throw new PublicError("Sign in first.", 401);
-
-    const body = (await request.json().catch(() => ({}))) as { path?: string };
-    const path = String(body.path ?? "");
-    // Their own folder and nobody else's.
-    if (!path.startsWith(`${auth.user.id}/uploads/`) || path.includes("..")) {
-      throw new PublicError("That file isn't yours.", 403);
-    }
+    // The gateway has already checked this sign-in (verify_jwt in config.toml),
+    // so the person is read from the token instead of asked of the auth server
+    // again -- that second trip was about half the wait for a voice note.
+    const userId = signedInUser(authorization) ?? (await createClient(SUPABASE_URL, ANON_KEY, {
+      global: { headers: { Authorization: authorization } },
+    }).auth.getUser()).data.user?.id;
+    if (!userId) throw new PublicError("Sign in first.", 401);
+    const auth = { user: { id: userId } };
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-    const { data: file, error } = await admin.storage.from("artifacts").download(path);
-    if (error || !file) throw new PublicError("That recording didn't arrive. Try again.", 404);
+    let file: Blob;
+    let name = "audio.m4a";
+    const type = request.headers.get("Content-Type") ?? "";
+    if (type.startsWith("audio/")) {
+      // A voice note comes in the request itself: no upload first and no
+      // download here, so the words are back in about a second (Abel, 4 Nov
+      // 2026: "they are so fast" -- ChatGPT and Claude beside ours).
+      file = new Blob([await request.arrayBuffer()], { type });
+      // OpenAI reads the format from the name, so it must say what this is.
+      const ext = type.includes("mpeg") || type.includes("mp3")
+        ? "mp3"
+        : type.includes("wav")
+        ? "wav"
+        : type.includes("webm")
+        ? "webm"
+        : "m4a";
+      name = `note.${ext}`;
+    } else {
+      const body = (await request.json().catch(() => ({}))) as { path?: string };
+      const path = String(body.path ?? "");
+      // Their own folder and nobody else's.
+      if (!path.startsWith(`${auth.user.id}/uploads/`) || path.includes("..")) {
+        throw new PublicError("That file isn't yours.", 403);
+      }
+      const { data, error } = await admin.storage.from("artifacts").download(path);
+      if (error || !data) throw new PublicError("That recording didn't arrive. Try again.", 404);
+      file = data;
+      name = path.split("/").pop() ?? name;
+    }
+    if (file.size === 0) throw new PublicError("That recording came through empty. Try again.", 400);
     if (file.size > MAX_BYTES) {
       throw new PublicError("That's too long to listen to in one go. Try a shorter one, under about 20 minutes.", 413);
     }
@@ -53,7 +79,7 @@ Deno.serve(async (request) => {
     const form = new FormData();
     form.append("model", "gpt-4o-mini-transcribe");
     form.append("response_format", "json");
-    form.append("file", file, path.split("/").pop() ?? "audio.m4a");
+    form.append("file", file, name);
 
     const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -82,3 +108,17 @@ Deno.serve(async (request) => {
     return fail(thrown);
   }
 });
+
+/** The signed-in person's id from a token the gateway already verified; null
+ *  for anything else (the anon key carries no person). */
+function signedInUser(authorization: string): string | null {
+  try {
+    const token = authorization.replace(/^Bearer\s+/i, "");
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=")));
+    return payload?.role === "authenticated" && typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
+  }
+}

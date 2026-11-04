@@ -14,9 +14,14 @@ import UniformTypeIdentifiers
 final class VoiceRecorder {
     private(set) var isRecording = false
     private(set) var seconds = 0
+    /// How loud the last moments were, 0 to 1, newest last: the waveform the
+    /// bar draws while you talk, the way ChatGPT shows it.
+    private(set) var levels: [Float] = Array(repeating: 0, count: VoiceRecorder.bars)
+    static let bars = 40
 
     private var recorder: AVAudioRecorder?
     private var ticker: Task<Void, Never>?
+    private var meter: Task<Void, Never>?
     private(set) var fileURL: URL?
 
     /// Starts recording. False when the microphone was refused, so the caller
@@ -40,12 +45,24 @@ final class VoiceRecorder {
                 AVEncoderBitRateKey: 32_000,
             ]
             let recorder = try AVAudioRecorder(url: url, settings: settings)
+            recorder.isMeteringEnabled = true
             guard recorder.record() else { return false }
 
             self.recorder = recorder
             fileURL = url
             seconds = 0
+            levels = Array(repeating: 0, count: Self.bars)
             isRecording = true
+            meter = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(60))
+                    guard let self, self.isRecording, let recorder = self.recorder else { return }
+                    recorder.updateMeters()
+                    // -50 dB is silence enough; 0 dB is as loud as it gets.
+                    let level = max(0, min(1, (recorder.averagePower(forChannel: 0) + 50) / 50))
+                    self.levels = Array(self.levels.dropFirst()) + [level]
+                }
+            }
             ticker = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
@@ -67,6 +84,8 @@ final class VoiceRecorder {
         recorder = nil
         ticker?.cancel()
         ticker = nil
+        meter?.cancel()
+        meter = nil
         isRecording = false
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         let kept = seconds >= 1 ? fileURL : nil

@@ -1352,11 +1352,13 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].offer = offer
                         }
-                    case .run(let id, let kind, let all):
+                    case .run(let id, let kind, let all, let makes):
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].runId = id
                             turns[replyIndex].runIds = all
                             turns[replyIndex].runKind = kind
+                            // What is being made, so a voice is not drawn as a picture frame.
+                            if let makes { turns[replyIndex].artifactKind = makes }
                         }
                     case .chose(let choice):
                         turns[replyIndex].chosenModel = choice.label

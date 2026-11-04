@@ -214,7 +214,7 @@ extension AppSession {
         case chose(ModelChoice)
         /// Long work handed to the worker. The card follows it from here.
         /// `all` is every run of a set of pictures, when there are several.
-        case run(UUID, kind: String, all: [UUID])
+        case run(UUID, kind: String, all: [UUID], makes: String?)
         /// Things worth saying next, as taps. A suggestion ending in a space is
         /// an invitation to finish the sentence rather than a message to send.
         case suggestions([String])
@@ -412,7 +412,7 @@ extension AppSession {
             if kind == "run", let id = event["id"] as? String, let uuid = UUID(uuidString: id) {
                 // A set of pictures is one run each; `ids` lists them all.
                 let all = (event["ids"] as? [String] ?? []).compactMap(UUID.init(uuidString:))
-                onEvent(.run(uuid, kind: event["kind"] as? String ?? "run", all: all))
+                onEvent(.run(uuid, kind: event["kind"] as? String ?? "run", all: all, makes: event["artifact_kind"] as? String))
                 continue
             }
 

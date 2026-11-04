@@ -236,6 +236,8 @@ struct ModelOffer: Equatable, Decodable {
     /// the person's series, so the create card starts on answers instead of
     /// asking. Absent when it could not be decided, and on older turns.
     let brief: VideoBrief?
+    /// For a voice: each voice's name and the sample to hear it by.
+    let samples: [String: String]?
 }
 
 /// The create card's answers, decided by the server from what the person said

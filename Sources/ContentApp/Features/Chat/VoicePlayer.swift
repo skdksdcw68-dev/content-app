@@ -322,3 +322,46 @@ struct VoiceListRow: View {
         }
     }
 }
+
+/// While a voice or a track is being made: the bubble it will arrive in, with
+/// its bars moving. Still when Reduce Motion is on.
+struct MakingVoice: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle().fill(Theme.accent.opacity(0.85))
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(Theme.onAccent)
+            }
+            .frame(width: 44, height: 44)
+
+            TimelineView(.animation(minimumInterval: 0.12, paused: reduceMotion)) { context in
+                bars(at: context.date.timeIntervalSinceReferenceDate)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 12))
+        .frame(width: 290, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Theme.surface)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Making the voice")
+    }
+
+    private func bars(at time: Double) -> some View {
+        HStack(alignment: .center, spacing: 2) {
+            ForEach(0..<28, id: \.self) { index in
+                let level = reduceMotion ? 0.3 : (sin(time * 5 + Double(index) * 0.55) + 1) / 2
+                Capsule()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(width: 3, height: 5 + CGFloat(level) * 18)
+            }
+        }
+        .frame(height: 26)
+    }
+}

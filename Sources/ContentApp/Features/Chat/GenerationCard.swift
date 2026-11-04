@@ -20,6 +20,8 @@ struct GenerationCard: View {
     /// A new offer opens its sheet at once, once per `key`.
     var opensAtOnce = false
     var key = ""
+    /// Inline: what sits above the rows (the video sheet's Photo | AI pills).
+    var header: AnyView? = nil
     let onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void
 
     @Environment(AppSession.self) private var session
@@ -43,6 +45,8 @@ struct GenerationCard: View {
     @State private var prompt = ""
     /// How many separate pictures. Each is its own job, priced as one.
     @State private var count = 1
+    /// "Don't ask me again": this model, without the sheet, from now on.
+    @State private var skipsSheet = false
     @State private var price: ModelCost?
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
@@ -117,12 +121,6 @@ struct GenerationCard: View {
     private var promptTitle: String {
         isVideo ? "What should happen?" : isPicture ? "What should it show?" : isVoice ? "What should it say?" : "What should it sound like?"
     }
-    /// How long it really takes, measured (Nov 2026).
-    private var timing: String {
-        isVideo ? "Takes 2 to 5 minutes. I'll ping you when it's ready."
-            : isPicture ? "Usually ready in under a minute."
-            : "Ready in a few seconds."
-    }
 
     var body: some View {
         if let settled {
@@ -130,7 +128,7 @@ struct GenerationCard: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.accent)
         } else if inline {
-            watched(form)
+            watched(sheetBody(header: header))
                 .navigationDestination(isPresented: $listing) { modelList }
         } else {
             watched(summary)
@@ -153,6 +151,10 @@ struct GenerationCard: View {
             .onChange(of: extras) { _, _ in reprice() }
             // Sound moves the price -- Veo is half as much without it.
             .onChange(of: sound) { _, _ in reprice() }
+            .onChange(of: skipsSheet) { _, on in writeSkip(on) }
+            .onChange(of: selectedID) { _, _ in
+                if skipsSheet { writeSkip(true) }
+            }
     }
 
     // MARK: - In the chat
@@ -198,29 +200,36 @@ struct GenerationCard: View {
         if let resolution { parts.append(PickKit.resolutionLabel(resolution)) }
         if let quality { parts.append(quality.capitalized) }
         if hasLength, let duration { parts.append("\(Int(duration.rounded()))s") }
-        if let share = shareText(for: selected, times: count) { parts.append("\(share) of your month") }
         return parts.isEmpty ? "Pick a model, then tap Generate" : parts.joined(separator: " · ")
     }
 
     // MARK: - The sheet
 
+    /// The rows, scrolling, with Generate held at the bottom.
+    private func sheetBody(header: AnyView?) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if let header { header }
+                form
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
+            .padding(.bottom, 16)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background(PickSheetFill())
+        .safeAreaInset(edge: .bottom) {
+            generateTap
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 6)
+                .background(PickSheetFill())
+        }
+    }
+
     private var pickSheet: some View {
         NavigationStack {
-            ScrollView {
-                form
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
-                    .padding(.bottom, 16)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Color(.systemGroupedBackground))
-            .safeAreaInset(edge: .bottom) {
-                generateArea
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 6)
-                    .background(Color(.systemGroupedBackground))
-            }
+            sheetBody(header: nil)
             .navigationTitle(kindTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -245,7 +254,8 @@ struct GenerationCard: View {
                 PickModelRow(
                     name: selected?.label ?? "Pick a model",
                     detail: selected?.about ?? selected?.reason,
-                    share: shareText(for: selected)
+                    share: shareText(for: selected),
+                    maker: selected.map { ModelMaker.of($0) }
                 )
             }
             .buttonStyle(.plain)
@@ -263,8 +273,18 @@ struct GenerationCard: View {
                 PickTextCard(placeholder: "What should the voice say? (optional)", text: $voiceover)
             }
 
-            if inline {
-                generateArea.padding(.top, 10)
+            if isPicture || isVideo {
+                PickRow("Don't ask me again") {
+                    Toggle("Don't ask me again", isOn: $skipsSheet)
+                        .labelsHidden()
+                        .tint(.green)
+                }
+                .padding(.top, 8)
+                Text("On, every \(isVideo ? "video" : "picture") is made with \(selected?.label ?? "this model") without this sheet. Change it in Settings › Picture & video settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -314,20 +334,15 @@ struct GenerationCard: View {
     @ViewBuilder
     private func askRow(_ ask: ModelConstraints.Ask) -> some View {
         let binding = Binding<String?>(get: { extras[ask.name] }, set: { extras[ask.name] = $0 })
-        if ask.options.count > 6 {
+        if let samples = offer.samples, !samples.isEmpty, ask.options.count > 4 {
+            PickHeading(ask.label)
+            PickVoiceList(options: ask.options, samples: samples, selection: binding)
+        } else if ask.options.count > 6 {
             PickHeading(ask.label)
             PickList(options: ask.options, selection: binding)
         } else {
             PickChoice(title: ask.label, options: ask.options, selection: binding, label: { $0 })
         }
-    }
-
-    private var generateArea: some View {
-        VStack(spacing: 8) {
-            PickNote(text: timing, symbol: "clock")
-            generateTap
-        }
-        .frame(maxWidth: .infinity)
     }
 
     private var generateTap: some View {
@@ -340,24 +355,9 @@ struct GenerationCard: View {
             showing = false
             onGenerate(selected, settings, price ?? selected.cost)
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                Text(count > 1 ? "Generate \(count)" : "Generate")
-                    .fontWeight(.semibold)
-                Spacer(minLength: 8)
-                if pricing {
-                    ProgressView().controlSize(.small).tint(Theme.onAccent)
-                } else if let share = shareText(for: selected, times: count) {
-                    Text("\(share) of your month")
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                        .accessibilityLabel("Uses \(share) of your month")
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 30)
+            Text(count > 1 ? "Generate \(count)" : "Generate")
         }
-        .buttonStyle(RemiFilledButtonStyle())
-        .tint(Theme.accent)
-        .controlSize(.large)
+        .buttonStyle(PickButtonStyle())
         .disabled(selected == nil || selected?.affordable == false)
     }
 
@@ -409,6 +409,10 @@ struct GenerationCard: View {
         // The first price was asked for the settings Postpilot guessed; if the
         // card starts on different ones, ask again so the button is true.
         if resolution != nil || duration != nil { reprice() }
+        let prefs = GeneratorPrefs.current
+        skipsSheet = isVideo
+            ? prefs.videoSkipsSheet == true && prefs.videoModel != nil
+            : isPicture && prefs.imageSkipsSheet == true && prefs.imageModel != nil
         if opensAtOnce, !inline, !key.isEmpty, !Self.opened.contains(key) {
             Self.opened.insert(key)
             showing = true
@@ -481,6 +485,29 @@ struct GenerationCard: View {
         return text == asked || text.isEmpty ? nil : text
     }
 
+    /// "Don't ask me again" on: this model becomes the default and the sheet
+    /// is skipped from now on. Off: the default stays, the sheet comes back.
+    private func writeSkip(_ on: Bool) {
+        guard isPicture || isVideo else { return }
+        var prefs = GeneratorPrefs.current
+        if on, let selected {
+            if isVideo {
+                prefs.videoModel = selected.externalId
+                prefs.videoModelLabel = selected.label
+                prefs.videoSkipsSheet = true
+            } else {
+                prefs.imageModel = selected.externalId
+                prefs.imageModelLabel = selected.label
+                prefs.imageSkipsSheet = true
+            }
+        } else if isVideo {
+            prefs.videoSkipsSheet = nil
+        } else {
+            prefs.imageSkipsSheet = nil
+        }
+        GeneratorPrefs.current = prefs
+    }
+
     private func match(_ wanted: String?, in options: [String]) -> String? {
         guard let wanted else { return nil }
         return options.first { $0.lowercased() == wanted.lowercased() }
@@ -509,9 +536,8 @@ struct GenerationCard: View {
     }
 }
 
-/// Which model: Auto, the offered ones with their share of the month, every
-/// model one tap further, and -- for pictures and videos -- "Always use", which
-/// sets the default in Create settings so the chat stops asking.
+/// Which model: Auto, the offered ones with their share of the month, and
+/// every model one tap further.
 struct PickModelList: View {
     let title: String
     let options: [ModelChoice]
@@ -524,11 +550,8 @@ struct PickModelList: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
-    @State private var always = false
 
     private var isVideo: Bool { capability == "video_generation" }
-    private var keepsDefault: Bool { capability == "image_generation" || capability == "video_generation" }
-    private var noun: String { isVideo ? "video" : "picture" }
 
     var body: some View {
         ScrollView {
@@ -564,31 +587,12 @@ struct PickModelList: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-
-                if keepsDefault {
-                    PickRow("Always use for \(noun)s") {
-                        Toggle("Always use for \(noun)s", isOn: $always)
-                            .labelsHidden()
-                            .tint(.green)
-                    }
-                    .padding(.top, 8)
-                    Text("On, the chat stops asking and makes every \(noun) with this model. Change it any time in Create settings.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
             }
             .padding(16)
         }
-        .background(Color(.systemGroupedBackground))
+        .background(PickSheetFill())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { always = isDefault }
-        .onChange(of: always) { _, on in setDefault(on) }
-        .onChange(of: selectedID) { _, _ in
-            if always { setDefault(true) }
-        }
     }
 
     private func autoRow(_ auto: ModelChoice) -> some View {
@@ -644,6 +648,7 @@ struct PickModelList: View {
             }
         } label: {
             HStack(spacing: 12) {
+                ModelMakerMark(maker: ModelMaker.of(option), side: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(option.label)
@@ -684,24 +689,5 @@ struct PickModelList: View {
         }
         .buttonStyle(.plain)
         .disabled(!usable && lockedTo == nil)
-    }
-
-    private var isDefault: Bool {
-        guard let selectedID else { return false }
-        let prefs = GeneratorPrefs.current
-        return (isVideo ? prefs.videoModel : prefs.imageModel) == selectedID
-    }
-
-    private func setDefault(_ on: Bool) {
-        var prefs = GeneratorPrefs.current
-        let label = options.first { $0.externalId == selectedID }?.label
-        if isVideo {
-            prefs.videoModel = on ? selectedID : nil
-            prefs.videoModelLabel = on ? label : nil
-        } else {
-            prefs.imageModel = on ? selectedID : nil
-            prefs.imageModelLabel = on ? label : nil
-        }
-        GeneratorPrefs.current = prefs
     }
 }

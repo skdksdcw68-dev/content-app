@@ -146,6 +146,8 @@ interface Body {
 
 interface GeneratorPref {
   model?: string;
+  /** "Don't ask me again" on the model sheet: the default is used without the sheet. */
+  skip_sheet?: boolean;
   count?: number;
   aspect_ratio?: string;
   resolution?: string;
@@ -495,9 +497,10 @@ Deno.serve(async (request) => {
             : "";
           const what = typeof input.model === "string" ? input.model : kind;
           send({ t: "step", kind: "writing", detail: `Started ${what}${settings ? ` · ${settings}` : ""}` });
-          send({ t: "run", id: runId, kind });
+          const makes = kindOfMade(input.capability);
+          send({ t: "run", id: runId, kind, ...(makes ? { artifact_kind: makes } : {}) });
           kickWorker();
-          await remember({ kind: "run", run_id: runId, run_kind: kind });
+          await remember({ kind: "run", run_id: runId, run_kind: kind, ...(makes ? { artifact_kind: makes } : {}) });
           finish();
         };
 
@@ -594,9 +597,10 @@ Deno.serve(async (request) => {
             speak(`Only ${ids.length} of the ${count} could start; the others were not charged.`);
           }
 
-          send({ t: "run", id: ids[0], kind: "generate", ids });
+          const makes = together ? "image" : kindOfMade(inputs[0]?.capability);
+          send({ t: "run", id: ids[0], kind: "generate", ids, ...(makes ? { artifact_kind: makes } : {}) });
           kickWorker();
-          await remember({ kind: "run", run_id: ids[0], run_ids: ids, run_kind: "generate" });
+          await remember({ kind: "run", run_id: ids[0], run_ids: ids, run_kind: "generate", ...(makes ? { artifact_kind: makes } : {}) });
           finish();
         };
 
@@ -1491,7 +1495,11 @@ Deno.serve(async (request) => {
           // provider for a quote, and that was most of the thirteen seconds
           // between "Generate 5 random images" and "Making 5 pictures" (usage
           // log, 2 Nov 2026). If it cannot be used, everything is priced as before.
-          const preferred = !job.only && typeof pref?.model === "string" && pref.model ? [pref.model] : undefined;
+          // Abel, 4 Nov 2026: a default only picks the model first on the sheet;
+          // only "Don't ask me again" skips the sheet, so only then is that one
+          // model all that is priced.
+          const skipsSheet = !job.only && typeof pref?.model === "string" && !!pref.model && pref?.skip_sheet === true;
+          const preferred = skipsSheet ? [pref!.model!] : undefined;
           const pricingStarted = Date.now();
           let choices = await choicesFor(
             admin,
@@ -1548,9 +1556,19 @@ Deno.serve(async (request) => {
           // Generate button on it starts the job. Abel asked for exactly this:
           // be asked which model and which resolution, see the cost, confirm.
           // A model they named precisely is simply the one already selected.
+          // Their default is on the sheet and picked first, even when it is not
+          // among the shortlist.
+          const defaultModel = !job.only && typeof pref?.model === "string" && pref.model ? pref.model : null;
+          if (defaultModel && !skipsSheet && !choices.options.some((o) => o.externalId === defaultModel)) {
+            const mine = await choicesFor(admin, auth.user!.id, job.capability, { ...intentFor, only: [defaultModel] });
+            const found = mine.options.find((o) => o.affordable !== false);
+            if (found) choices = { ...choices, options: [found, ...choices.options] };
+          }
           const preselect = job.only && job.settled
             ? choices.options[0]?.externalId
-            : choices.auto?.externalId ?? affordable[0]?.externalId;
+            : (defaultModel && choices.options.some((o) => o.externalId === defaultModel && o.affordable !== false)
+              ? defaultModel
+              : choices.auto?.externalId ?? affordable[0]?.externalId);
 
           // Ask, and it starts. Abel, 1 Nov 2026: "i hate the way it also sends
           // the sheets ... even after u told it use this and generate it, it
@@ -1569,7 +1587,7 @@ Deno.serve(async (request) => {
           // starts at once.
           const visual = job.capability === "image_generation" || job.capability === "video_generation" ||
             job.capability === "voice_generation";
-          const decided = (job.only && job.settled) || (!job.only && typeof pref?.model === "string" && !!pref.model);
+          const decided = (job.only && job.settled) || skipsSheet;
           const startNow = !!job.collect || (
             (decided || !visual) && !(job.capability === "video_generation" && job.brief?.kind === "photo")
           );
@@ -1669,6 +1687,7 @@ Deno.serve(async (request) => {
             total: pool.length,
             withPicture,
             ...(job.brief ? { brief: job.brief } : {}),
+            ...(job.capability === "voice_generation" ? { samples: await voiceSamples() } : {}),
           };
 
           const money = affordable.length === 0 && credits
@@ -2749,17 +2768,18 @@ How to answer:
             // card asks which model first (Abel, 4 Nov 2026). A scheduled drop,
             // or a mix of kinds or sizes, still starts as asked.
             const first = shapeOf(plan[0]);
-            const defaultModel = first.capability === "image_generation"
-              ? body.prefs?.image?.model
+            const firstPref = first.capability === "image_generation"
+              ? body.prefs?.image
               : first.capability === "video_generation"
-              ? body.prefs?.video?.model
+              ? body.prefs?.video
               : undefined;
+            const skips = !!firstPref?.model && firstPref?.skip_sheet === true;
             const oneShape = plan.every((job) => {
               const shape = shapeOf(job);
               return JSON.stringify([shape, job.settings]) === JSON.stringify([first, plan[0].settings]);
             });
             if (
-              !routed.schedule && oneShape && plan.every((job) => !job.model) && !defaultModel &&
+              !routed.schedule && oneShape && plan.every((job) => !job.model) && !skips &&
               (first.capability === "image_generation" || (first.capability === "video_generation" && plan.length === 1))
             ) {
               const prompts = plan.map(wordsFor);
@@ -3700,4 +3720,33 @@ function chartFrom(data: Record<string, any>): Record<string, unknown> | null {
     top_title: top.length > 0 ? "Your top videos" : null,
     top,
   };
+}
+
+
+/** What a capability makes, as the chat names it: "image", "video", "audio". */
+function kindOfMade(capability: unknown): string | null {
+  if (capability === "image_generation") return "image";
+  if (capability === "video_generation") return "video";
+  if (capability === "voice_generation" || capability === "audio_generation") return "audio";
+  return null;
+}
+
+/** Each stock ElevenLabs voice's name and its sample, so the voice sheet can
+ *  play them. Listing voices costs nothing; any trouble gives an empty map. */
+async function voiceSamples(): Promise<Record<string, string>> {
+  const key = Deno.env.get("ELEVENLABS_API_KEY");
+  if (!key) return {};
+  try {
+    const listed = await fetch("https://api.elevenlabs.io/v1/voices", {
+      headers: { "xi-api-key": key },
+      signal: AbortSignal.timeout(4000),
+    }).then((r) => (r.ok ? r.json() : null));
+    const out: Record<string, string> = {};
+    for (const v of (listed?.voices ?? []) as Array<Record<string, unknown>>) {
+      if (typeof v.name === "string" && typeof v.preview_url === "string") out[v.name] = v.preview_url;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }

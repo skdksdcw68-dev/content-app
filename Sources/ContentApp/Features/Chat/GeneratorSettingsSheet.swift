@@ -25,6 +25,17 @@ struct GeneratorSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     heading("Pictures")
                     modelRow(.image)
+                    if prefs.imageModel != nil {
+                        // The chat's "Don't ask me again", undone here.
+                        row("Ask before making") {
+                            Toggle("Ask before making", isOn: Binding(
+                                get: { prefs.imageSkipsSheet != true },
+                                set: { prefs.imageSkipsSheet = $0 ? nil : true }
+                            ))
+                            .labelsHidden()
+                            .tint(.green)
+                        }
+                    }
                     row("Pictures each time") {
                         segments(GeneratorPrefs.counts, selection: $prefs.imageCount) { "\($0)" }
                     }
@@ -36,6 +47,16 @@ struct GeneratorSettingsSheet: View {
                     heading("Videos")
                         .padding(.top, 14)
                     modelRow(.video)
+                    if prefs.videoModel != nil {
+                        row("Ask before making") {
+                            Toggle("Ask before making", isOn: Binding(
+                                get: { prefs.videoSkipsSheet != true },
+                                set: { prefs.videoSkipsSheet = $0 ? nil : true }
+                            ))
+                            .labelsHidden()
+                            .tint(.green)
+                        }
+                    }
                     row("Length") {
                         segments(GeneratorPrefs.lengths, selection: $prefs.videoSeconds) { "\($0)s" }
                     }

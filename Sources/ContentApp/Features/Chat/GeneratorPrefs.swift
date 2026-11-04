@@ -22,6 +22,11 @@ struct GeneratorPrefs: Codable, Equatable {
     var videoSeconds: Int
     var videoResolution: String
     var videoAspect: String
+    /// "Don't ask me again" on the chat's model sheet (Abel, 4 Nov 2026): the
+    /// model above is used without the sheet. Optional, so prefs saved before
+    /// it still read.
+    var imageSkipsSheet: Bool?
+    var videoSkipsSheet: Bool?
 
     /// Pictures start vertical, as they always have here: they go into
     /// TikToks, Shorts and Reels. One at a time until they say otherwise.
@@ -58,9 +63,15 @@ struct GeneratorPrefs: Codable, Equatable {
     /// As the server reads it (`prefs` on agent-chat's body).
     var payload: [String: Any] {
         var image: [String: Any] = ["count": imageCount, "aspect_ratio": imageAspect, "resolution": imageQuality]
-        if let imageModel { image["model"] = imageModel }
+        if let imageModel {
+            image["model"] = imageModel
+            if imageSkipsSheet == true { image["skip_sheet"] = true }
+        }
         var video: [String: Any] = ["duration": videoSeconds, "resolution": videoResolution, "aspect_ratio": videoAspect]
-        if let videoModel { video["model"] = videoModel }
+        if let videoModel {
+            video["model"] = videoModel
+            if videoSkipsSheet == true { video["skip_sheet"] = true }
+        }
         return ["image": image, "video": video]
     }
 }

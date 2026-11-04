@@ -84,6 +84,16 @@ struct RunCard: View {
                 .overlay { MakingSheen() }
                 .overlay { MakingProgress(expected: MakingProgress.expected(for: "image")) }
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if kind == "generate" && expectedKind == "audio" {
+            // A voice or a track: the bubble it will arrive in, its bars
+            // moving -- not a picture's frame (Abel, 4 Nov 2026).
+            VStack(alignment: .leading, spacing: 8) {
+                ShimmerText(text: "Making the voice")
+                MakingVoice()
+                TimeLeft(expected: MakingProgress.expected(for: "audio"))
+            }
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else if kind == "generate" {
             // Making a picture or a video: the same card the video page shows
             // -- light down an empty frame and a count -- not a line of text

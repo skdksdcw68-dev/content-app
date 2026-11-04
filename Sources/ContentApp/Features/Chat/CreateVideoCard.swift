@@ -237,27 +237,44 @@ struct CreateVideoCard: View {
     /// what that kind needs.
     private var videoSheet: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    if photoAllowed { kindPicker }
-                    if showsAI {
-                        GenerationCard(offer: offer, request: request, settled: nil, inline: true) { choice, settings, price in
-                            showing = false
-                            onGenerate(choice, settings, price)
+            Group {
+                if showsAI {
+                    // The model sheet itself, with Photo | AI on top and
+                    // Generate held at the bottom.
+                    GenerationCard(
+                        offer: offer,
+                        request: request,
+                        settled: nil,
+                        inline: true,
+                        header: photoAllowed ? AnyView(kindPicker) : nil
+                    ) { choice, settings, price in
+                        showing = false
+                        onGenerate(choice, settings, price)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            if photoAllowed { kindPicker }
+                            photoPanel
+                                .padding(14)
+                                .background(PickKit.card)
+                                .padding(.top, 8)
                         }
-                    } else {
-                        photoPanel
-                            .padding(14)
-                            .background(PickKit.card)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .background(PickSheetFill())
+                    .safeAreaInset(edge: .bottom) {
+                        makeItButton
+                            .padding(.horizontal, 16)
                             .padding(.top, 8)
+                            .padding(.bottom, 6)
+                            .background(PickSheetFill())
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
-                .padding(.bottom, 24)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .background(Color(.systemGroupedBackground))
             .navigationTitle("Video")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -285,6 +302,20 @@ struct CreateVideoCard: View {
         .presentationDetents([.large])
         .presentationCornerRadius(34)
         .presentationDragIndicator(.visible)
+    }
+
+    /// Make it, at the bottom of the sheet, as the Subscribe button is drawn.
+    private var makeItButton: some View {
+        Button {
+            guard let choice, !choice.topic.isEmpty else { return }
+            sampler.stop()
+            showing = false
+            onStory(choice)
+        } label: {
+            Text(brief == nil ? "Create photo video" : "Make it")
+        }
+        .buttonStyle(PickButtonStyle())
+        .disabled(choice == nil || (request ?? "").isEmpty)
     }
 
     /// Photo video | AI video, as the Create settings pills.
@@ -366,24 +397,6 @@ struct CreateVideoCard: View {
                         .fill(Color.primary.opacity(0.04))
                 }
             }
-
-            Button {
-                guard let choice, !choice.topic.isEmpty else { return }
-                sampler.stop()
-                showing = false
-                onStory(choice)
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                    Text(brief == nil ? "Create photo video" : "Make it")
-                    if let share = photoShare {
-                        Text(share).fontWeight(.medium).opacity(0.85)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(RemiFilledButtonStyle())
-            .disabled(choice == nil || (request ?? "").isEmpty)
 
             if showsPlan {
                 Button {

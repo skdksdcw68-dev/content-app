@@ -120,10 +120,16 @@ struct CreateVideoCard: View {
     /// Photo video is offered only for a plain request: a picture to animate
     /// is a job for a video model.
     let photoAllowed: Bool
+    /// A new offer opens its sheet at once, once per `key` (Abel, 4 Nov 2026:
+    /// the video gets the same sheet as the picture).
+    var opensAtOnce = false
+    var key = ""
     let onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void
     let onStory: (StoryChoice) -> Void
 
     @Environment(AppSession.self) private var session
+    @State private var showing = false
+    @MainActor private static var opened: Set<String> = []
 
     @State private var kind: VideoAsk.Kind = .photo
     @State private var templates: [ContentTemplate] = []
@@ -176,31 +182,92 @@ struct CreateVideoCard: View {
         if let settled {
             settledLine(settled)
         } else {
-            VStack(alignment: .leading, spacing: 14) {
-                if asksKind {
-                    HStack(spacing: 10) {
-                        kindTile(.photo, symbol: "photo.stack", title: "Photo video",
-                                 line: "Pictures that move, with voice and captions", price: photoPriceLine)
-                        kindTile(.ai, symbol: "film", title: "AI video",
-                                 line: "Real moving clips from a video model", price: "Video model price")
+            summary
+                .task {
+                    if opensAtOnce, !key.isEmpty, !Self.opened.contains(key) {
+                        Self.opened.insert(key)
+                        showing = true
                     }
+                    await prepare()
                 }
+                .onDisappear { sampler.stop() }
+                .sheet(isPresented: $showing, onDismiss: { sampler.stop() }) { videoSheet }
+        }
+    }
 
-                if showsAI {
-                    GenerationCard(offer: offer, request: request, settled: nil, onGenerate: onGenerate)
-                    if photoAllowed && !asksKind { switchLink(to: .photo) }
-                } else {
-                    photoPanel
+    /// What stays in the chat: one row that opens the sheet again.
+    private var summary: some View {
+        Button { showing = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: showsAI ? "film" : "photo.stack")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(showsAI ? "Video · AI video" : "Video · Photo video")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(showsAI
+                         ? "Pick a model, then tap Generate"
+                         : choice.map { $0.summary.replacingOccurrences(of: "Photo video · ", with: "") }
+                            ?? "Pictures that move, with voice and captions")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 8)
+                Text("Open")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
             }
-            .padding(14)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
-                    .fill(Theme.surface)
+                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.surface)
             }
-            .task { await prepare() }
-            .onDisappear { sampler.stop() }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressButtonStyle())
+        .accessibilityHint("Opens the video settings")
+    }
+
+    /// The Create settings sheet for a video: Photo or AI on top, then only
+    /// what that kind needs.
+    private var videoSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if photoAllowed { kindPicker }
+                    if showsAI {
+                        GenerationCard(offer: offer, request: request, settled: nil, inline: true) { choice, settings, price in
+                            showing = false
+                            onGenerate(choice, settings, price)
+                        }
+                    } else {
+                        photoPanel
+                            .padding(14)
+                            .background(PickKit.card)
+                            .padding(.top, 8)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Video")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showing = false } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close")
+                }
+            }
             .sheet(item: $sheet, onDismiss: { sampler.stop() }) { which in
                 NavigationStack {
                     sheetBody(which)
@@ -215,6 +282,40 @@ struct CreateVideoCard: View {
                 .presentationDragIndicator(.visible)
             }
         }
+        .presentationDetents([.large])
+        .presentationCornerRadius(34)
+        .presentationDragIndicator(.visible)
+    }
+
+    /// Photo video | AI video, as the Create settings pills.
+    private var kindPicker: some View {
+        HStack(spacing: 2) {
+            kindPill(.photo, title: "Photo video")
+            kindPill(.ai, title: "AI video")
+        }
+        .padding(3)
+        .background(Capsule().fill(Color.primary.opacity(0.07)))
+        .padding(.top, 4)
+    }
+
+    private func kindPill(_ which: VideoAsk.Kind, title: String) -> some View {
+        let on = kind == which
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) { kind = which }
+            sampler.stop()
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(on ? .semibold : .regular))
+                .foregroundStyle(on ? Color(.systemBackground) : Color.secondary)
+                .frame(maxWidth: .infinity, minHeight: 34)
+                .background {
+                    if on { Capsule().fill(Color.primary) }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .sensoryFeedback(.selection, trigger: kind)
     }
 
     // MARK: - Photo video
@@ -269,6 +370,7 @@ struct CreateVideoCard: View {
             Button {
                 guard let choice, !choice.topic.isEmpty else { return }
                 sampler.stop()
+                showing = false
                 onStory(choice)
             } label: {
                 HStack(spacing: 8) {
@@ -300,8 +402,6 @@ struct CreateVideoCard: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-
-            if photoAllowed && !asksKind { switchLink(to: .ai) }
         }
     }
 

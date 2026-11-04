@@ -1348,6 +1348,7 @@ struct ChatView: View {
                     case .models(let offer, let request, let references):
                         turns[replyIndex].offerRequest = request
                         turns[replyIndex].offerReferences = references
+                        turns[replyIndex].offerIsNew = true
                         withAnimation(.easeOut(duration: 0.2)) {
                             turns[replyIndex].offer = offer
                         }

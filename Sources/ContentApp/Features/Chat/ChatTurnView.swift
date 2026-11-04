@@ -179,6 +179,8 @@ struct ChatTurnView: View {
                                 request: turn.offerRequest,
                                 settled: turn.chosenModel,
                                 photoAllowed: offer.withPicture != true && turn.offerReferences.isEmpty,
+                                opensAtOnce: turn.offerIsNew,
+                                key: turn.id.uuidString,
                                 onGenerate: { choice, settings, price in onGenerate(choice, settings, price) },
                                 onStory: onStory
                             )
@@ -186,7 +188,9 @@ struct ChatTurnView: View {
                             GenerationCard(
                                 offer: offer,
                                 request: turn.offerRequest,
-                                settled: turn.chosenModel
+                                settled: turn.chosenModel,
+                                opensAtOnce: turn.offerIsNew,
+                                key: turn.id.uuidString
                             ) { choice, settings, price in
                                 onGenerate(choice, settings, price)
                             }

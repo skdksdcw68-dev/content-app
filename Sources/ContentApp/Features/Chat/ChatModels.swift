@@ -538,6 +538,8 @@ struct ChatMessage: Identifiable, Equatable {
     /// exactly that job instead of the router guessing what "Use Kling" means.
     var offerRequest: String? = nil
     var offerReferences: [String] = []
+    /// The offer arrived in this session, so its sheet opens by itself.
+    var offerIsNew = false
     /// What the questions on this turn were asked for, so the answers can go
     /// straight on to a strategy without the router reading them back.
     var questionRequest: String? = nil

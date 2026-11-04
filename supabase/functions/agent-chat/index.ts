@@ -1560,9 +1560,11 @@ Deno.serve(async (request) => {
           // Abel, 4 Nov 2026: a picture or a video starts at once only when
           // the model is already decided -- named (or "always use X", which
           // the router reads from memory) or set as the default in Create
-          // settings. Otherwise the card asks which model first. Voice and
-          // music still start at once.
-          const visual = job.capability === "image_generation" || job.capability === "video_generation";
+          // settings. Otherwise the card asks which model first -- for voices
+          // too (Abel, 4 Nov 2026: "also apply it for the voices"). Music still
+          // starts at once.
+          const visual = job.capability === "image_generation" || job.capability === "video_generation" ||
+            job.capability === "voice_generation";
           const decided = (job.only && job.settled) || (!job.only && typeof pref?.model === "string" && !!pref.model);
           const startNow = !!job.collect || (
             (decided || !visual) && !(job.capability === "video_generation" && job.brief?.kind === "photo")

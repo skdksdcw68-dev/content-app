@@ -2,57 +2,55 @@ import SwiftUI
 
 /// Choose, see the price, confirm -- then it is made.
 ///
-/// Replaces a list of model names that started a paid job on the first tap.
-/// Abel asked for the shape Higgsfield's own screen has: pick the model, pick
-/// the quality, see exactly what it costs, press Generate. So:
+/// Pick the model, pick what it offers, see exactly what it costs, press
+/// Generate. Nothing is spent until that button is pressed.
 ///
-///   - the models that can do it, cheapest first, each with its real price
-///     from the provider and the provider's own one-line description; any the
-///     balance cannot cover are shown but cannot be picked
-///   - the quality and length the SELECTED model actually offers, read from
-///     its catalogue entry, starting on its own default or on what was asked
-///   - one button carrying the price of exactly that combination, asked of the
-///     provider again whenever something changes
-///
-/// Nothing is spent until that button is pressed.
+/// Abel, 4 Nov 2026: the choosing happens on a sheet laid out exactly like the
+/// Create settings sheet, holding only what this kind of thing needs -- a
+/// picture gets picture rows, never video ones. A new offer opens the sheet by
+/// itself; the chat keeps a small card that opens it again.
 struct GenerationCard: View {
     let offer: ModelOffer
     let request: String?
     /// Set once Generate was pressed (or on a reopened conversation, once it
     /// was answered). The card then settles into one line saying what was made.
     let settled: String?
+    /// Drawn straight into a sheet that is already open (the video sheet).
+    var inline = false
+    /// A new offer opens its sheet at once, once per `key`.
+    var opensAtOnce = false
+    var key = ""
     let onGenerate: (ModelChoice, GenerationSettings, ModelCost?) -> Void
 
     @Environment(AppSession.self) private var session
     @State private var selectedID: String?
-    /// A model chosen from the full list, which the offer's eight rows do not
-    /// contain. It joins them at the top rather than replacing the card.
+    /// A model chosen from the full list, which the offer's rows do not
+    /// contain. It joins them at the top.
     @State private var picked: ModelChoice?
+    @State private var showing = false
+    @State private var listing = false
     @State private var browsing = false
     @State private var resolution: String?
     @State private var duration: Double?
     @State private var quality: String?
     /// What the chosen model asks for by name: a voice, an engine. Keyed by
-    /// the provider's own parameter name, so nothing about them is written
-    /// down here.
+    /// the provider's own parameter name.
     @State private var extras: [String: String] = [:]
-    /// The size, the sound and the line to be spoken -- what the card used to
-    /// leave out entirely. Netro, 29 Sep 2026, with a screenshot of it: "it
-    /// doesn't include every single thing, doesn't include all the required
-    /// things like voiceover, the pixels, the size."
     @State private var aspect: String?
     @State private var sound = true
     @State private var voiceover = ""
-    /// What should happen, in the person's words. Starts on the request the
-    /// agent understood, and is theirs to change: the card is the last place
-    /// to say it before anything is spent.
+    /// What should happen, in the person's words. Starts on the request.
     @State private var prompt = ""
+    /// How many separate pictures. Each is its own job, priced as one.
+    @State private var count = 1
     @State private var price: ModelCost?
     @State private var pricing = false
     @State private var pricingTask: Task<Void, Never>?
 
-    /// The rows on the card: what was offered, plus anything chosen from the
-    /// full list.
+    /// Offers whose sheet already opened by itself, so scrolling back past one
+    /// does not open it again.
+    @MainActor private static var opened: Set<String> = []
+
     private var options: [ModelChoice] {
         guard let picked, !offer.options.contains(where: { $0.externalId == picked.externalId }) else {
             return offer.options
@@ -64,127 +62,85 @@ struct GenerationCard: View {
         options.first { $0.externalId == selectedID }
     }
 
+    private var isPicture: Bool { offer.capability == "image_generation" }
+    private var isVideo: Bool { offer.capability == "video_generation" }
+    private var isVoice: Bool { offer.capability == "voice_generation" }
     /// A picture has no length; a video and a piece of music both do.
-    private var hasLength: Bool { offer.capability != "image_generation" }
+    private var hasLength: Bool { !isPicture }
+    private var withPicture: Bool { offer.withPicture ?? false }
 
-    /// How many separate pictures were asked for. Each is its own job, priced
-    /// as one; the button shows the total. Abel, 1 Nov 2026: asked for four,
-    /// he got one picture split into four.
-    private var count: Int {
-        guard offer.capability == "image_generation" else { return 1 }
+    /// How many pictures were asked for. Abel, 1 Nov 2026: asked for four, he
+    /// got one picture split into four -- so each is its own job.
+    private var offeredCount: Int {
+        guard isPicture else { return 1 }
         return min(10, max(1, offer.settings?.count ?? 1))
     }
-
-    private var isVideo: Bool { offer.capability == "video_generation" }
-    private var withPicture: Bool { offer.withPicture ?? false }
+    private var counts: [Int] { Array(Set([1, 2, 4, offeredCount])).sorted() }
+    private var countBinding: Binding<Int?> {
+        Binding(get: { count }, set: { count = $0 ?? 1 })
+    }
 
     /// The shapes the chosen model makes.
     private var shapes: [String] { selected?.constraints.aspectRatios ?? [] }
-
-    /// The size is the person's to choose, unless a picture decides it: a video
-    /// that starts from one takes its shape.
+    /// A video that starts from a picture takes the picture's shape.
     private var choosesShape: Bool { shapes.count > 1 && !(isVideo && withPicture) }
+    private var resolutionOptions: [String] { selected?.constraints.resolutions ?? [] }
+    private var qualityOptions: [String] { selected?.constraints.qualities ?? [] }
+    private var lengthOptions: [Double] { hasLength ? (selected?.constraints.durations ?? []) : [] }
+    private var asks: [ModelConstraints.Ask] { selected?.constraints.choices ?? [] }
 
-    /// Sound is a row only where the model says it makes sound AND can switch
-    /// it. A switch on a model that cannot is a switch that does nothing.
+    /// Sound is a row only where the model makes sound AND can switch it.
     private var hasSound: Bool {
         guard isVideo, let constraints = selected?.constraints, constraints.audio == true else { return false }
         return constraints.audioSwitch != false
     }
-
-    /// Makes sound that cannot be turned off (MiniMax H3). Said in a line.
+    /// Makes sound that cannot be turned off (MiniMax H3).
     private var soundIsAlwaysOn: Bool {
         guard isVideo, let constraints = selected?.constraints else { return false }
         return constraints.audio == true && constraints.audioSwitch == false
     }
-
     /// The model will read a line out, if given one.
     private var canSpeak: Bool { (hasSound && sound) || soundIsAlwaysOn }
+
+    private var hasSettings: Bool {
+        isPicture || isVideo || resolutionOptions.count > 1 || qualityOptions.count > 1
+            || lengthOptions.count > 1 || !asks.isEmpty
+    }
+
+    private var kindTitle: String {
+        isPicture ? "Picture" : isVideo ? "Video" : isVoice ? "Voice" : "Sound"
+    }
+    private var kindSymbol: String {
+        isPicture ? "photo" : isVideo ? "film" : isVoice ? "waveform" : "music.note"
+    }
+    private var groupTitle: String { isPicture ? "Pictures" : kindTitle }
+    private var promptTitle: String {
+        isVideo ? "What should happen?" : isPicture ? "What should it show?" : isVoice ? "What should it say?" : "What should it sound like?"
+    }
+    /// How long it really takes, measured (Nov 2026).
+    private var timing: String {
+        isVideo ? "Takes 2 to 5 minutes. I'll ping you when it's ready."
+            : isPicture ? "Usually ready in under a minute."
+            : "Ready in a few seconds."
+    }
 
     var body: some View {
         if let settled {
             Label(settled, systemImage: "checkmark.circle.fill")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Theme.accent)
+        } else if inline {
+            watched(form)
+                .navigationDestination(isPresented: $listing) { modelList }
         } else {
-            VStack(alignment: .leading, spacing: 14) {
-                models
+            watched(summary)
+                .sheet(isPresented: $showing) { pickSheet }
+        }
+    }
 
-                // The size. For a video that starts from a picture there is
-                // nothing to choose, and the card says so rather than dropping
-                // the row without a word.
-                if choosesShape {
-                    ChoiceChips(title: "Size", options: shapes, label: { $0 }, selection: $aspect)
-                } else if isVideo, withPicture {
-                    Label("The video takes the shape of your picture", systemImage: "photo")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                // The pixels. "Resolution" to a provider; pixels to everyone else.
-                if let options = selected?.constraints.resolutions, options.count > 1 {
-                    ChoiceChips(title: "Pixels", options: options, label: resolutionLabel, selection: $resolution)
-                }
-
-                if let options = selected?.constraints.qualities, options.count > 1 {
-                    ChoiceChips(title: "Quality", options: options, label: { $0.capitalized }, selection: $quality)
-                }
-
-                // Whatever else this model will not run without -- Inworld's
-                // thirteen voices, an engine to use. Read from its own entry.
-                ForEach(selected?.constraints.choices ?? []) { ask in
-                    ChoiceChips(
-                        title: ask.label,
-                        options: ask.options,
-                        label: { $0 },
-                        selection: Binding(
-                            get: { extras[ask.name] },
-                            set: { extras[ask.name] = $0 }
-                        )
-                    )
-                }
-
-                if hasLength, let options = selected?.constraints.durations, options.count > 1 {
-                    ChoiceChips(
-                        title: "Length",
-                        options: options,
-                        label: { "\(Int($0.rounded()))s" },
-                        selection: $duration
-                    )
-                }
-
-                if hasSound {
-                    soundRow
-                } else if soundIsAlwaysOn {
-                    Label("Sound is included", systemImage: "speaker.wave.2")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if isVideo, selected?.constraints.audio == false {
-                    // Said, not left out: "where is the voiceover?" is the
-                    // question a card with no sound row invites.
-                    Label("This model makes silent video", systemImage: "speaker.slash")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if canSpeak {
-                    voiceoverField
-                }
-
-                // Last before Generate, on purpose. The conversation scrolls to
-                // its end when the keyboard rises, and a field at the top of a
-                // tall card would be scrolled out of sight under the words being
-                // typed into it.
-                promptField
-
-                generateButton
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Theme.surface)
-            }
+    /// Everything that keeps the price true, on whichever view stays on screen.
+    private func watched<Content: View>(_ content: Content) -> some View {
+        content
             .task { start() }
             .onChange(of: selectedID) { _, _ in
                 // A new model has its own choices; keep what still applies.
@@ -197,131 +153,181 @@ struct GenerationCard: View {
             .onChange(of: extras) { _, _ in reprice() }
             // Sound moves the price -- Veo is half as much without it.
             .onChange(of: sound) { _, _ in reprice() }
-            .sheet(isPresented: $browsing) {
-                ModelBrowser(
-                    capability: offer.capability,
-                    request: request ?? "",
-                    settings: current,
-                    withPicture: offer.withPicture ?? false,
-                    selected: selectedID
-                ) { choice in
-                    picked = choice
-                    selectedID = choice.externalId
-                }
-            }
-        }
     }
 
-    // MARK: - Pieces
+    // MARK: - In the chat
 
-    /// What should happen, editable. The card used to show only model names,
-    /// so the one thing the person had actually typed was nowhere on it.
-    private var promptField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(isVideo ? "What should happen?" : offer.capability == "image_generation" ? "What should it show?" : "Prompt")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            TextField("Describe it", text: $prompt, axis: .vertical)
-                .lineLimit(1...5)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
+    private var summary: some View {
+        Button { showing = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: kindSymbol)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(selected.map { "\(kindTitle) · \($0.label)" } ?? kindTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text(summaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
-        }
-    }
-
-    private var soundRow: some View {
-        Toggle(isOn: $sound) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Sound")
+                Spacer(minLength: 8)
+                Text("Open")
                     .font(.subheadline.weight(.semibold))
-                Text(sound ? "It makes its own sound" : "Silent, and it costs less")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Theme.accent)
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.surface)
+            }
+            .contentShape(Rectangle())
         }
-        .tint(Theme.accent)
+        .buttonStyle(PressButtonStyle())
+        .accessibilityHint("Opens the \(kindTitle.lowercased()) settings")
     }
 
-    /// The line the voice reads. Optional: left empty, the model chooses what
-    /// to say, or nothing.
-    private var voiceoverField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Voiceover")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            TextField("What should the voice say? (optional)", text: $voiceover, axis: .vertical)
-                .lineLimit(1...4)
-                .font(.subheadline)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                }
-        }
+    private var summaryLine: String {
+        var parts: [String] = []
+        if isPicture, count > 1 { parts.append("\(count) pictures") }
+        if choosesShape, let aspect { parts.append(aspect) }
+        if let resolution { parts.append(PickKit.resolutionLabel(resolution)) }
+        if let quality { parts.append(quality.capitalized) }
+        if hasLength, let duration { parts.append("\(Int(duration.rounded()))s") }
+        if let share = shareText(for: selected, times: count) { parts.append("\(share) of your month") }
+        return parts.isEmpty ? "Pick a model, then tap Generate" : parts.joined(separator: " · ")
     }
 
-    private var models: some View {
-        VStack(spacing: 6) {
-            ForEach(options) { option in
-                let usable = option.affordable != false
-                // A model for a higher plan opens the plans instead of being
-                // chosen: the tap is a wish to use it, and the answer is how.
-                let lockedTo: String? = option.minimumTier(isVideo: isVideo) > session.planRank
-                    ? option.unlockedBy(isVideo: isVideo)
-                    : nil
-                Button {
-                    if lockedTo != nil {
-                        session.showingPaywall = true
-                    } else if usable {
-                        selectedID = option.externalId
+    // MARK: - The sheet
+
+    private var pickSheet: some View {
+        NavigationStack {
+            ScrollView {
+                form
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 16)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .background(Color(.systemGroupedBackground))
+            .safeAreaInset(edge: .bottom) {
+                generateArea
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .background(Color(.systemGroupedBackground))
+            }
+            .navigationTitle(kindTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showing = false } label: {
+                        Image(systemName: "xmark")
                     }
-                } label: {
-                    ModelOptionRow(
-                        option: option,
-                        isSelected: option.externalId == selectedID,
-                        price: option.externalId == selectedID ? (price ?? option.cost) : option.cost,
-                        lockedTo: lockedTo
-                    )
+                    .accessibilityLabel("Close")
                 }
-                .buttonStyle(PressButtonStyle())
-                .disabled(!usable)
+            }
+            .navigationDestination(isPresented: $listing) { modelList }
+        }
+        .presentationDetents([.large])
+        .presentationCornerRadius(34)
+        .presentationDragIndicator(.visible)
+    }
+
+    private var form: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            PickHeading("Model")
+            Button { listing = true } label: {
+                PickModelRow(
+                    name: selected?.label ?? "Pick a model",
+                    detail: selected?.about ?? selected?.reason,
+                    share: shareText(for: selected)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if hasSettings {
+                PickHeading(groupTitle)
+                settingsRows
             }
 
-            // Eight rows is a shortlist. The rest are one tap away, grouped by
-            // family, searchable and priced as they are looked at.
-            Button { browsing = true } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "square.grid.2x2")
-                    Text(offer.total.map { "All \($0) models" } ?? "All models")
-                        .fontWeight(.semibold)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                    Spacer(minLength: 0)
-                }
-                .font(.subheadline)
-                .foregroundStyle(Theme.accent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .contentShape(Rectangle())
+            PickHeading(promptTitle)
+            PickTextCard(placeholder: "Describe it", text: $prompt)
+
+            if canSpeak {
+                PickHeading("Voiceover")
+                PickTextCard(placeholder: "What should the voice say? (optional)", text: $voiceover)
             }
-            .buttonStyle(PressButtonStyle())
+
+            if inline {
+                generateArea.padding(.top, 10)
+            }
         }
     }
 
-    private var generateButton: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if count > 1 {
-                Label("\(count) separate pictures, each made on its own", systemImage: "square.grid.2x2")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    @ViewBuilder
+    private var settingsRows: some View {
+        if isPicture {
+            PickChoice(title: "How many", options: counts, selection: countBinding, label: { "\($0)" })
+        }
+        if choosesShape {
+            PickShapes(shapes: shapes, selection: $aspect)
+        } else if isVideo, withPicture {
+            PickNote(text: "The video takes the shape of your picture", symbol: "photo")
+        }
+        if resolutionOptions.count > 1 {
+            PickChoice(
+                title: resolutionOptions.allSatisfy { !$0.contains(where: \.isNumber) } ? "Quality" : "Resolution",
+                options: resolutionOptions,
+                selection: $resolution,
+                label: PickKit.resolutionLabel
+            )
+        }
+        if qualityOptions.count > 1 {
+            PickChoice(title: "Quality", options: qualityOptions, selection: $quality, label: { $0.capitalized })
+        }
+        // Whatever else this model will not run without -- its voices, an
+        // engine. Read from its own entry.
+        ForEach(asks) { ask in
+            askRow(ask)
+        }
+        if lengthOptions.count > 1 {
+            PickChoice(title: "Length", options: lengthOptions, selection: $duration, label: { "\(Int($0.rounded()))s" })
+        }
+        if hasSound {
+            PickRow("Sound") {
+                Toggle("Sound", isOn: $sound)
+                    .labelsHidden()
+                    .tint(.green)
             }
+        } else if soundIsAlwaysOn {
+            PickNote(text: "Sound is included", symbol: "speaker.wave.2")
+        } else if isVideo, selected?.constraints.audio == false {
+            PickNote(text: "This model makes silent video", symbol: "speaker.slash")
+        }
+    }
+
+    @ViewBuilder
+    private func askRow(_ ask: ModelConstraints.Ask) -> some View {
+        let binding = Binding<String?>(get: { extras[ask.name] }, set: { extras[ask.name] = $0 })
+        if ask.options.count > 6 {
+            PickHeading(ask.label)
+            PickList(options: ask.options, selection: binding)
+        } else {
+            PickChoice(title: ask.label, options: ask.options, selection: binding, label: { $0 })
+        }
+    }
+
+    private var generateArea: some View {
+        VStack(spacing: 8) {
+            PickNote(text: timing, symbol: "clock")
             generateTap
         }
+        .frame(maxWidth: .infinity)
     }
 
     private var generateTap: some View {
@@ -331,6 +337,7 @@ struct GenerationCard: View {
             // of the provider: some would multiply it in, some would not.
             var settings = current
             if count > 1 { settings.extras["count"] = "\(count)" }
+            showing = false
             onGenerate(selected, settings, price ?? selected.cost)
         } label: {
             HStack(spacing: 8) {
@@ -340,17 +347,10 @@ struct GenerationCard: View {
                 Spacer(minLength: 8)
                 if pricing {
                     ProgressView().controlSize(.small).tint(Theme.onAccent)
-                } else if let share = session.usageShare(of: price ?? selected?.cost).map({ $0 * Double(count) }) {
-                    // As a share of the month: what the server will take, and
-                    // what the bar and the model list show.
-                    HStack(spacing: 4) {
-                        Image(systemName: "gauge.with.dots.needle.33percent")
-                            .font(.system(size: 11))
-                        Text(UsageFormat.short(share))
-                            .font(.subheadline.weight(.semibold).monospacedDigit())
-                    }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Uses \(UsageFormat.percent(share)) of your month")
+                } else if let share = shareText(for: selected, times: count) {
+                    Text("\(share) of your month")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .accessibilityLabel("Uses \(share) of your month")
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 30)
@@ -361,11 +361,43 @@ struct GenerationCard: View {
         .disabled(selected == nil || selected?.affordable == false)
     }
 
+    private var modelList: some View {
+        PickModelList(
+            title: "\(kindTitle) model",
+            options: options,
+            auto: offer.auto,
+            total: offer.total,
+            capability: offer.capability,
+            selectedID: $selectedID,
+            price: price,
+            onBrowse: { browsing = true }
+        )
+        .sheet(isPresented: $browsing) {
+            ModelBrowser(
+                capability: offer.capability,
+                request: request ?? "",
+                settings: current,
+                withPicture: withPicture,
+                selected: selectedID
+            ) { choice in
+                picked = choice
+                selectedID = choice.externalId
+            }
+        }
+    }
+
+    private func shareText(for model: ModelChoice?, times: Int = 1) -> String? {
+        guard let model else { return nil }
+        let cost = model.externalId == selectedID ? (price ?? model.cost) : model.cost
+        return session.usageShare(of: cost).map { UsageFormat.short($0 * Double(times)) }
+    }
+
     // MARK: - Behaviour
 
     private func start() {
         guard selectedID == nil else { return }
         if prompt.isEmpty { prompt = request ?? "" }
+        count = offeredCount
         let usable = offer.options.filter { $0.affordable != false }
         selectedID = [offer.preselect, offer.auto?.externalId]
             .compactMap { $0 }
@@ -374,9 +406,13 @@ struct GenerationCard: View {
             ?? offer.options.first?.externalId
         adoptDefaults(keeping: false)
         price = selected?.cost
-        // The first price was asked for the settings Autocast guessed; if the
+        // The first price was asked for the settings Postpilot guessed; if the
         // card starts on different ones, ask again so the button is true.
         if resolution != nil || duration != nil { reprice() }
+        if opensAtOnce, !inline, !key.isEmpty, !Self.opened.contains(key) {
+            Self.opened.insert(key)
+            showing = true
+        }
     }
 
     /// The selected model's own defaults, or what was asked for in words when
@@ -390,7 +426,7 @@ struct GenerationCard: View {
             ?? resolutions.first
 
         // The size: kept if the new model makes it, else what was asked for in
-        // words, else vertical -- this app makes videos for a phone.
+        // words, else vertical -- this app makes things for a phone.
         let shapes = selected.constraints.aspectRatios ?? []
         aspect = match(keeping ? aspect : offer.settings?.aspectRatio, in: shapes)
             ?? match("9:16", in: shapes)
@@ -423,13 +459,8 @@ struct GenerationCard: View {
             ?? qualities.first
     }
 
-    /// Everything set on the card, as it would be sent.
-    ///
-    /// 🔴 The size, the sound and the person's own words all stayed on the
-    /// card. Only the pixels, the length and a quality ever left it, so "9:16"
-    /// could not have been chosen and a silent video could not have been asked
-    /// for. The adapter takes each of these in that model's own spelling and
-    /// drops what it does not have.
+    /// Everything set on the sheet, as it would be sent. The adapter takes each
+    /// of these in that model's own spelling and drops what it does not have.
     private var current: GenerationSettings {
         var all = extras
         if choosesShape, let aspect { all["aspect_ratio"] = aspect }
@@ -441,7 +472,7 @@ struct GenerationCard: View {
 
     /// The words as they will be sent: what is in the field, and the line to
     /// speak on the end. Nil when neither changed anything, so an unedited
-    /// card still answers the offer it came from.
+    /// sheet still answers the offer it came from.
     private var finalPrompt: String? {
         let written = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let asked = (request ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -476,130 +507,201 @@ struct GenerationCard: View {
             pricing = false
         }
     }
-
-    private func resolutionLabel(_ value: String) -> String {
-        // "1k" reads as a typo; "1K" reads as a resolution. And a bare "768"
-        // is a height in pixels, which people know as "768p".
-        if value.hasSuffix("k") { return value.uppercased() }
-        if !value.isEmpty, value.allSatisfy(\.isNumber) { return "\(value)p" }
-        return value
-    }
 }
 
-/// One model: a radio mark, its name and what it is for, and its price.
-private struct ModelOptionRow: View {
-    @Environment(AppSession.self) private var session
-    let option: ModelChoice
-    let isSelected: Bool
-    let price: ModelCost
-    /// The plan that unlocks it, when the person is not on it.
-    var lockedTo: String? = nil
+/// Which model: Auto, the offered ones with their share of the month, every
+/// model one tap further, and -- for pictures and videos -- "Always use", which
+/// sets the default in Create settings so the chat stops asking.
+struct PickModelList: View {
+    let title: String
+    let options: [ModelChoice]
+    let auto: ModelChoice?
+    let total: Int?
+    let capability: String
+    @Binding var selectedID: String?
+    let price: ModelCost?
+    let onBrowse: () -> Void
 
-    private var usable: Bool { option.affordable != false }
+    @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @State private var always = false
+
+    private var isVideo: Bool { capability == "video_generation" }
+    private var keepsDefault: Bool { capability == "image_generation" || capability == "video_generation" }
+    private var noun: String { isVideo ? "video" : "picture" }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                .font(.body)
-                .foregroundStyle(isSelected ? Theme.accent : Color.secondary.opacity(0.5))
-                .padding(.top, 1)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                if let auto, options.contains(where: { $0.externalId == auto.externalId }) {
+                    autoRow(auto)
+                }
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(option.label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    ForEach(option.badges ?? [], id: \.self) { badge in
-                        Text(badge)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(badge == "Cheapest" ? Color.green : Theme.accent)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Capsule().fill((badge == "Cheapest" ? Color.green : Theme.accent).opacity(0.12)))
-                    }
-                    if let lockedTo {
-                        HStack(spacing: 3) {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 8, weight: .bold))
-                            Text(lockedTo)
-                                .font(.caption2.weight(.semibold))
+                PickHeading("Your models · share of your month each")
+                VStack(spacing: 0) {
+                    ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                        modelButton(option)
+                        if index < options.count - 1 {
+                            Divider().padding(.leading, 14)
                         }
+                    }
+                }
+                .background(PickKit.card)
+
+                Button(action: onBrowse) {
+                    HStack {
+                        Text(total.map { "All \($0) models" } ?? "All models")
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.body)
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 14)
+                    .frame(minHeight: 50)
+                    .background(PickKit.card)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                if keepsDefault {
+                    PickRow("Always use for \(noun)s") {
+                        Toggle("Always use for \(noun)s", isOn: $always)
+                            .labelsHidden()
+                            .tint(.green)
+                    }
+                    .padding(.top, 8)
+                    Text("On, the chat stops asking and makes every \(noun) with this model. Change it any time in Create settings.")
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color.primary.opacity(0.08)))
-                    }
-                }
-                if let note = option.constraints.notes?.first {
-                    Text(note)
-                        .font(.caption)
-                        .foregroundStyle(usable ? Color.secondary : Color.orange)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-
-            Spacer(minLength: 8)
-
-            // A share of the month: the same number as the button and the bar.
-            HStack(spacing: 3) {
-                Image(systemName: "gauge.with.dots.needle.33percent")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                Text(session.usageShare(of: price).map { UsageFormat.short($0) } ?? "N/A")
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                    .foregroundStyle(usable ? Color.primary : Color.secondary)
-            }
+            .padding(16)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(isSelected ? Theme.accent.opacity(0.10) : Color.clear)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { always = isDefault }
+        .onChange(of: always) { _, on in setDefault(on) }
+        .onChange(of: selectedID) { _, _ in
+            if always { setDefault(true) }
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(isSelected ? Theme.accent.opacity(0.35) : Color(uiColor: .separator).opacity(0.5), lineWidth: 1)
-        }
-        .opacity(usable ? 1 : 0.55)
-        .contentShape(Rectangle())
     }
-}
 
-/// A row of options, one selected. Used for quality and length.
-private struct ChoiceChips<Value: Hashable>: View {
-    let title: String
-    let options: [Value]
-    let label: (Value) -> String
-    @Binding var selection: Value?
+    private func autoRow(_ auto: ModelChoice) -> some View {
+        Button {
+            selectedID = auto.externalId
+            dismiss()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 32, height: 32)
+                    .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Auto")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("The best for the price · \(auto.label)")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if selectedID == auto.externalId {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 62)
+            .background(PickKit.card)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-            // Scrolls, because a model can offer thirteen voices and a phone is
-            // 390 points wide. Two or three read exactly as they did.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(options, id: \.self) { option in
-                        let isOn = option == selection
-                        Button { selection = option } label: {
-                            Text(label(option))
-                                .font(.subheadline.weight(.semibold))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .foregroundStyle(isOn ? Theme.onAccent : Color.primary)
-                                .background(Capsule().fill(isOn ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color.primary.opacity(0.07))))
+    private func modelButton(_ option: ModelChoice) -> some View {
+        let usable = option.affordable != false
+        // A model for a higher plan opens the plans instead of being chosen:
+        // the tap is a wish to use it, and the answer is how.
+        let lockedTo: String? = option.minimumTier(isVideo: isVideo) > session.planRank
+            ? option.unlockedBy(isVideo: isVideo)
+            : nil
+        let on = selectedID == option.externalId
+        let cost = on ? (price ?? option.cost) : option.cost
+        return Button {
+            if lockedTo != nil {
+                session.showingPaywall = true
+            } else if usable {
+                selectedID = option.externalId
+                dismiss()
+            }
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(option.label)
+                            .font(.body.weight(on ? .semibold : .regular))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if let lockedTo {
+                            Label(lockedTo, systemImage: "lock.fill")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
                         }
-                        .buttonStyle(PressButtonStyle())
+                    }
+                    if let detail = option.about ?? option.constraints.notes?.first, !detail.isEmpty {
+                        Text(detail)
+                            .font(.footnote)
+                            .foregroundStyle(usable ? Color.secondary : Color.orange)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
                     }
                 }
-                .padding(.vertical, 1)
+                Spacer(minLength: 8)
+                if let share = session.usageShare(of: cost) {
+                    Text(UsageFormat.short(share))
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if on {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
             }
-            .scrollClipDisabled()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(minHeight: 58)
+            .contentShape(Rectangle())
+            .opacity(usable ? 1 : 0.55)
         }
+        .buttonStyle(.plain)
+        .disabled(!usable && lockedTo == nil)
+    }
+
+    private var isDefault: Bool {
+        guard let selectedID else { return false }
+        let prefs = GeneratorPrefs.current
+        return (isVideo ? prefs.videoModel : prefs.imageModel) == selectedID
+    }
+
+    private func setDefault(_ on: Bool) {
+        var prefs = GeneratorPrefs.current
+        let label = options.first { $0.externalId == selectedID }?.label
+        if isVideo {
+            prefs.videoModel = on ? selectedID : nil
+            prefs.videoModelLabel = on ? label : nil
+        } else {
+            prefs.imageModel = on ? selectedID : nil
+            prefs.imageModelLabel = on ? label : nil
+        }
+        GeneratorPrefs.current = prefs
     }
 }

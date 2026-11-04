@@ -1687,9 +1687,15 @@ Deno.serve(async (request) => {
             const many = Number(job.settings.count) > 1 ? Number(job.settings.count) : 0;
             const what = many ? `${many} pictures of ${job.prompt}` : job.prompt;
             const picked = choices.options.find((o) => o.externalId === preselect)?.label;
+            // A voice SAYS its line: "Ready to make welcome to my channel" read badly.
+            const voiceLine = job.capability === "voice_generation"
+              ? `Ready to say "${job.prompt.split("\n\n")[0].slice(0, 140)}"${picked ? ` with ${picked}` : ""}. Pick a voice and tap Generate.`
+              : null;
             speak(
               job.unmatched ? `I couldn't find "${job.named}" among your models. ` : "",
-              job.only && job.settled
+              voiceLine && !job.only
+                ? voiceLine
+                : job.only && job.settled
                 ? `Ready to make ${what} with ${choices.options[0].label}. Tap Generate.`
                 : job.only
                 ? `More than one model matches "${job.named}". Pick one and tap Generate.`
@@ -2557,13 +2563,15 @@ How to answer:
             // 4 Nov 2026, screens 7 and 10).
             const { data: linked } = await asUser.from("platform_connections")
               .select("platform").eq("brand_id", brand.id).eq("status", "active").limit(1);
+            // The numbers already kept are drawn either way; a lapsed or
+            // missing account also gets its Connect card, for fresh ones.
+            const chart = chartFrom(data);
+            if (chart) send({ t: "chart", chart });
             if ((linked ?? []).length === 0) {
               const ask = { platform: "tiktok", question: asked.slice(0, 300) };
               send({ t: "connect", ...ask });
-              await remember({ kind: "connect", ...ask });
+              await remember({ kind: "connect", ...ask, ...(chart ? { chart } : {}) });
             } else {
-              const chart = chartFrom(data);
-              if (chart) send({ t: "chart", chart });
               await remember(chart ? { kind: "chart", chart } : null);
             }
             await recordUsage(admin, { userId: auth.user!.id, brandId: brand?.id ?? null, kind: "insight_reply", model: answered.model, usage: answered.usage });

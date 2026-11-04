@@ -602,40 +602,66 @@ Deno.serve(async (request) => {
 
         /**
          * Something to be made and SENT at a time (Abel, 3 Nov 2026: "send it at
-         * exactly 2 am"). Saved and switched on here, one schedule per time
-         * asked for; nothing is charged until run-schedules makes it ahead and
-         * posts it on the minute. No card and no sheet (Abel, 4 Nov 2026): the
-         * reply says when, and Settings > Notifications changes or stops it.
+         * exactly 2 am"). One schedule per time asked for; nothing is charged
+         * until run-schedules makes it ahead and posts it on the minute.
+         *
+         * Abel, 4 Nov 2026: when they said exactly what and when, it is simply
+         * set and the reply says so. When something was vague, or the time is
+         * sooner than it can honestly be made, the Schedule sheet opens on the
+         * draft so they can check it.
          */
         const offerSchedule = async (inputs: Array<Record<string, unknown>>, plan: RoutedSchedule) => {
           const zone = typeof body.timezone === "string" && body.timezone.length < 64 ? body.timezone : "UTC";
-          const times: Date[] = [];
+          // How much notice the slowest thing needs: making it (measured, Nov
+          // 2026: pictures ~40 s and up to 2 min, voices seconds, AI video 2-3
+          // min) plus the minute run-schedules wakes on.
+          const kinds = inputs.map((input) => String(input.capability ?? ""));
+          const slowest = kinds.includes("video_generation") ? "video" : kinds.includes("image_generation") ? "picture" : "voice";
+          const notice = { video: 10, picture: 3, voice: 2 }[slowest];
+          const earliest = new Date(Math.ceil((Date.now() + notice * 60_000) / 60_000) * 60_000);
+
+          const wanted: Date[] = [];
           for (const at of [plan.at, ...plan.also]) {
             const startsAt = zonedToUtc(at, zone);
-            if (startsAt) times.push(startsAt);
+            if (startsAt) wanted.push(startsAt);
           }
-          if (times.length === 0) times.push(new Date(Date.now() + 60 * 60_000));
-          times.sort((a, b) => a.getTime() - b.getTime());
+          if (wanted.length === 0) wanted.push(new Date(Date.now() + 60 * 60_000));
+          wanted.sort((a, b) => a.getTime() - b.getTime());
 
+          const clock = (at: Date) => new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(at);
+          const localTime = (at: Date) =>
+            new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(at);
           const dow = (at: Date) =>
             ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short" }).format(at));
-          for (const startsAt of times) {
-            const local = new Intl.DateTimeFormat("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(startsAt);
+
+          // Too soon to make: a one-off moves to the earliest honest time; a
+          // repeat starts on its next day instead.
+          let tooSoon: Date | null = null;
+          const times: Date[] = [];
+          for (const at of wanted) {
+            if (at.getTime() >= earliest.getTime()) times.push(at);
+            else if (plan.repeat === "none") {
+              tooSoon ??= at;
+              times.push(earliest);
+            } else times.push(at);
+          }
+          const unique = times.filter((at, i) => times.findIndex((other) => other.getTime() === at.getTime()) === i);
+          const sheet = !plan.settled || (tooSoon !== null);
+
+          const save = async (startsAt: Date, status: "draft" | "active") => {
+            const local = localTime(startsAt);
             const days = plan.repeat === "weekly" && plan.days.length === 0 ? [dow(startsAt)] : plan.days;
-            let next: string = startsAt.toISOString();
-            if (startsAt.getTime() <= Date.now()) {
-              if (plan.repeat === "none") next = new Date().toISOString();
-              else {
-                const { data } = await admin.rpc("schedule_next", {
-                  p_after: new Date().toISOString(), p_repeat: plan.repeat, p_days: days, p_time: `${local}:00`, p_tz: zone,
-                });
-                if (typeof data === "string") next = data;
-              }
+            let next: string | null = startsAt.toISOString();
+            if (plan.repeat !== "none" && startsAt.getTime() < earliest.getTime()) {
+              const { data } = await admin.rpc("schedule_next", {
+                p_after: earliest.toISOString(), p_repeat: plan.repeat, p_days: days, p_time: `${local}:00`, p_tz: zone,
+              });
+              if (typeof data === "string") next = data;
             }
-            const { error } = await admin.from("schedules").insert({
+            const { data: row, error } = await admin.from("schedules").insert({
               user_id: auth.user!.id,
               thread_id: threadId,
-              status: "active",
+              status,
               request: asked.slice(0, 2000),
               summary: plan.label,
               inputs,
@@ -645,14 +671,35 @@ Deno.serve(async (request) => {
               time_of_day: `${local}:00`,
               repeat: plan.repeat,
               days,
-              next_at: next,
-              // No sheet, so nothing puts it in their calendar.
-              options: { calendar: false, ping: true, fresh: true },
-            });
-            if (error) throw error;
+              next_at: status === "active" ? next : null,
+              // The sheet asks about the calendar; set straight from the chat, nothing does.
+              ...(status === "active" ? { options: { calendar: false, ping: true, fresh: true } } : {}),
+            }).select("id").single();
+            if (error || !row) throw error ?? new Error("the schedule was not saved");
+            return row.id as string;
+          };
+
+          if (sheet) {
+            // The first goes to the sheet; any other times they gave are set.
+            const draftId = await save(unique[0], "draft");
+            for (const at of unique.slice(1)) await save(at, "active");
+            const also = unique.length > 1 ? ` I've also set ${unique.slice(1).map(clock).join(" and ")}.` : "";
+            if (tooSoon) {
+              const takes = slowest === "video"
+                ? "A video takes 2 to 5 minutes to make"
+                : slowest === "picture"
+                ? "A picture takes up to 2 minutes to make"
+                : "I need a couple of minutes to have it ready";
+              speak(`${takes}, so ${clock(tooSoon)} is too soon. The earliest I can send it is ${clock(unique[0])}. Check the time and tap Schedule.${also}`);
+            } else {
+              speak(`Got it. Check the time and tap Schedule, and I'll have it ready and send it right on time.${also}`);
+            }
+            send({ t: "schedule", id: draftId });
+            await remember({ kind: "schedule", schedule_id: draftId });
+            return finish();
           }
 
-          const clock = (at: Date) => new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "numeric", minute: "2-digit" }).format(at);
+          for (const at of unique) await save(at, "active");
           const dayOf = (at: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: zone }).format(at);
           const today = dayOf(new Date());
           const tomorrow = dayOf(new Date(Date.now() + 24 * 60 * 60_000));
@@ -662,12 +709,12 @@ Deno.serve(async (request) => {
               : dayOf(at) === tomorrow
               ? "tomorrow"
               : new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", month: "short", day: "numeric" }).format(at);
-          const clocks = times.map(clock);
+          const clocks = unique.map(clock);
           const atTimes = clocks.length > 1 ? `${clocks.slice(0, -1).join(", ")} and ${clocks[clocks.length - 1]}` : clocks[0];
           const names = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-          const pickedDays = (plan.days.length > 0 ? plan.days : [dow(times[0])]).map((d) => names[d]);
+          const pickedDays = (plan.days.length > 0 ? plan.days : [dow(unique[0])]).map((d) => names[d]);
           const when = plan.repeat === "none"
-            ? `${day(times[0])} at ${atTimes}`
+            ? `${day(unique[0])} at ${atTimes}`
             : plan.repeat === "daily"
             ? `every day at ${atTimes}`
             : plan.repeat === "weekdays"
@@ -2165,6 +2212,9 @@ Deno.serve(async (request) => {
             await remember();
             return finish();
           }
+          // Wanted sooner than it can be made: said first, honestly. A
+          // schedule says it with the earliest time instead (offerSchedule).
+          if (routed.timing && routed.intent === "make" && !routed.schedule) speak(`${routed.timing} `);
           // "Edit the second one" changes a picture that exists, which is making.
           if (routed.intent === "revise" && routed.jobs.length > 0) routed = { ...routed, intent: "make" };
           answerOnly = routed.intent === "chat";

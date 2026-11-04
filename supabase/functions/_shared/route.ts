@@ -124,6 +124,10 @@ export interface Routed {
    *  or on repeat ("send them at 2 am", "every morning"). Abel, 3 Nov 2026:
    *  "it can produce whenever, but it must send it at the exact time." */
   schedule: RoutedSchedule | null;
+  /** One honest sentence when they want it sooner than it can be made ("a
+   *  video in the next 2 minutes"), else null. Abel, 4 Nov 2026: "the AI
+   *  should be honest about everything." */
+  timing: string | null;
 }
 
 /** When a scheduled request arrives, in the person's own local time. */
@@ -141,6 +145,10 @@ export interface RoutedSchedule {
   text: string | null;
   /** A short name for it: "5 outfit pictures + captions". */
   label: string;
+  /** They said exactly what and exactly when, so it is set without asking.
+   *  False opens the Schedule sheet (Abel, 4 Nov 2026: the sheet is for when
+   *  they have not fully explained). */
+  settled: boolean;
 }
 
 /** One thing to make, as the person described it. */
@@ -282,7 +290,7 @@ export async function route(
     '{"intent":"chat|plan|revise|make|research|export|explain|insights","days":number|null,' +
     '"media":"image|video|audio"|null,"format":"docx|pdf|zip"|null,"reading":string,' +
     '"about_credits":boolean,"depth":"short|full","ask":string|null,"show":[string],"voices":boolean,"web":boolean,' +
-    '"schedule":{"at":"YYYY-MM-DDTHH:MM","also":["YYYY-MM-DDTHH:MM"],"repeat":"none|daily|weekdays|weekly|custom","days":[number],"text":string|null,"label":string}|null,' +
+    '"schedule":{"at":"YYYY-MM-DDTHH:MM","also":["YYYY-MM-DDTHH:MM"],"repeat":"none|daily|weekdays|weekly|custom","days":[number],"text":string|null,"label":string,"settled":boolean}|null,"timing":string|null,' +
     '"jobs":[{"media":"image|video|audio"|null,"speech":boolean,"subject":string|null,"model":string|null,"uses":[string],' +
     '"settings":{"resolution":string|null,"aspect_ratio":string|null,"duration":number|null,"quality":string|null}}]}',
     "",
@@ -374,8 +382,14 @@ export async function route(
     "  again at 8:23' -> also ['...T08:23']), else []. repeat: none, daily, weekdays, weekly (days = that weekday) or",
     "  custom (days = the weekdays), days 0=Sunday..6=Saturday. text = the WORDS they asked to get with it ('a",
     "  caption for each', 'a hook and a caption'), else null -- never an instruction, a time or a note to yourself.",
-    "  label = a short name for what arrives ('5 outfit pictures + captions'). null when they want it now. Posting",
-    "  to their social accounts at a time is not this.",
+    "  label = a short name for what arrives ('5 outfit pictures + captions'). settled = true only when they said",
+    "  exactly what and exactly when -- a clock time or 'in N minutes', and the days for a repeat -- so nothing was",
+    "  guessed; false when the time is vague ('tonight', 'later', 'every morning' with no hour, 'tomorrow') or you",
+    "  filled something in. null when they want it now. Posting to their social accounts at a time is not this.",
+    "timing: how long things take here: a picture about 40 seconds (up to 2 minutes), a voice a few seconds, an AI",
+    "  video 2 to 5 minutes, a photo video 3 to 10 minutes. When they want something sooner than that ('a video in",
+    "  the next 2 minutes', 'send it in 30 seconds'), one short honest sentence saying how long it really takes, in",
+    "  their language; else null.",
     "show: handles (P1, P2 ...) of pictures YOU made that they ask to be SENT or SHOWN again -- 'send me the",
     "  photo you generated', 'show me that picture again'. Nothing is made: it is chat. [] otherwise.",
     "voices: true when they ask to hear, see, browse or choose between voices ('show me some voices', 'what",
@@ -472,6 +486,7 @@ export async function route(
       // own, and making something never needs it.
       web: parsed?.web === true && intent === "chat",
       schedule: intent === "make" ? readSchedule(parsed?.schedule) : null,
+      timing: intent === "make" ? text(parsed?.timing)?.slice(0, 240) ?? null : null,
     };
   } catch {
     return fallback(message);
@@ -556,7 +571,7 @@ function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
     subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [], voices: false,
-    web: false, schedule: null,
+    web: false, schedule: null, timing: null,
   };
 }
 
@@ -578,5 +593,5 @@ function readSchedule(raw: unknown): RoutedSchedule | null {
         .map((t) => t.slice(0, 16)),
     )].filter((t) => t !== at).slice(0, 10)
     : [];
-  return { at, also, repeat, days, text, label };
+  return { at, also, repeat, days, text, label, settled: s.settled === true };
 }

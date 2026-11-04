@@ -20,6 +20,10 @@ struct GeneratedLibraryView: View {
     @State private var items: [Artifact]?
     @State private var filter: Shelf = .all
     @State private var viewing: Artifact?
+    /// A sound, played in a small sheet. The full-screen viewer has nothing to
+    /// draw for one and spun forever (Abel, 4 Nov 2026: "it doesn't work in the
+    /// library").
+    @State private var listening: Artifact?
 
     private enum Shelf: String, CaseIterable, Identifiable {
         case all, videos, images, audio
@@ -78,7 +82,9 @@ struct GeneratedLibraryView: View {
                 } else {
                     LazyVGrid(columns: grid, spacing: 3) {
                         ForEach(shown) { artifact in
-                            Button { viewing = artifact } label: {
+                            Button {
+                                if artifact.kind == "audio" { listening = artifact } else { viewing = artifact }
+                            } label: {
                                 MadeTile(artifact: artifact)
                             }
                             .buttonStyle(.plain)
@@ -106,6 +112,14 @@ struct GeneratedLibraryView: View {
                 onAnimate: handoff(for: artifact, animating: true),
                 onReference: handoff(for: artifact, animating: false)
             )
+        }
+        .sheet(item: $listening) { artifact in
+            AudioCard(artifact: artifact)
+                .padding(.horizontal, 16)
+                .padding(.top, 28)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .presentationDetents([.height(190)])
+                .presentationDragIndicator(.visible)
         }
     }
 

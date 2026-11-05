@@ -257,15 +257,23 @@ Deno.serve(async (request) => {
     const asUser = createClient(SUPABASE_URL, ANON_KEY, {
       global: { headers: { Authorization: authorization } },
     });
-    const { data: auth } = await asUser.auth.getUser();
-    if (!auth.user) throw new PublicError("Sign in first.", 401);
+    // ⚡ The id from the token the gateway already verified (verify_jwt), so
+    // nothing waits on a trip to Auth before the first word. The full user --
+    // only its two switches are read -- is fetched beside everything else.
+    const userId = signedInUser(authorization);
+    if (!userId) throw new PublicError("Sign in first.", 401);
+    const auth = { user: { id: userId } };
+    const userAhead = asUser.auth.getUser();
 
     const body = (await request.json().catch(() => ({}))) as Body;
 
     // Chat draws on the same monthly meter as everything else (0079): the
     // reply's real cost is taken from its tokens once it is written. Here it
-    // is only refused when the month is already used up.
-    await requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
+    // is only refused when the month is already used up -- checked beside the
+    // storing of their message rather than before it (⚡ one trip fewer in
+    // front of the first word; a refused message is still kept in the thread).
+    const usageAhead = requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
+    usageAhead.catch(() => {});
 
     const history = (body.messages ?? [])
       .filter((turn) => typeof turn?.content === "string" && turn.content.trim())
@@ -345,6 +353,7 @@ Deno.serve(async (request) => {
       });
       if (sayError) console.error("append_message user", sayError);
     }
+    await usageAhead;
 
     const stream = new ReadableStream({
       async start(controller) {
@@ -1750,7 +1759,7 @@ Deno.serve(async (request) => {
          */
         // The person's two switches (Settings > Customize Postpilot and Memory),
         // kept in their sign-in's metadata by the app.
-        const metadata = (auth.user!.user_metadata ?? {}) as Record<string, unknown>;
+        const metadata = ((await userAhead).data.user?.user_metadata ?? {}) as Record<string, unknown>;
         const memoryOff = metadata.memory_off === true;
         const webOff = metadata.web_off === true;
         const memoryAhead: Promise<Array<{ id: string; note: string }>> = memoryOff ? Promise.resolve([]) : Promise.resolve(
@@ -2170,6 +2179,290 @@ Deno.serve(async (request) => {
               : []),
           ].join("\n");
 
+          // The voice. Written after Abel called the old one "boring, 0%
+          // understanding" -- fairly: its own worked example answered "how's it
+          // going" with "Fine. What do you want to work on?", and it answered
+          // "so do I have to top up?" with "I don't handle payments" while
+          // knowing the last job had just failed for want of credits.
+          //
+          // The conversational technique is borrowed from Anthropic's Fable
+          // system prompt (warm and direct, answer before asking, at most one
+          // question, minimal formatting in casual chat, no filler, after doing
+          // something say the result) -- rewritten for this product rather than
+          // pasted, since most of that prompt is tooling that does not exist
+          // here. The honesty rules are this product's own and stay: see
+          // planner-invents-facts. Examples use a fictional brand, Kettle, so
+          // nothing in them can be quoted back as a fact about the real one.
+          // How the reply is laid out. The new app draws markdown properly and says
+          // so (`markdown: true`); an older build shows it as plain text, so it is
+          // never sent symbols it cannot draw. (Abel, 2 Nov 2026, with ChatGPT's
+          // answer beside ours: "the way it uses the punctuation, the emojis, the
+          // spaces ... that one looks so good.")
+          const richText = body.markdown === true;
+          const formatRules = richText
+            ? `Format the way ChatGPT does -- the app draws markdown properly:
+- Open with the answer, with the core of it in **bold**.
+- Short paragraphs of one to three sentences with a blank line between them. Never a wall of text.
+- "## " headings for the sections of a longer answer, "- " bullets, "1." steps, **bold** for the few phrases that matter, and a table when comparing options across the same attributes.
+- A few emojis where they add warmth or mark a section (🔥 ✅ 📈 🎯), never one on every line.
+- Anything they will copy and paste into another tool -- a picture or video prompt, a script, a caption, a voiceover line -- goes in its own fenced code block (three backticks, no language), one block per prompt, with its label ("Scene 2") as a line above it, never inside it. The app gives the block a Copy button.
+- End with the next move: a clear recommendation, or one question that moves them forward.
+A casual message gets none of this -- just talk.`
+            : `The app shows plain text, not markdown: never use asterisks, pound signs, backticks
+or tables. Separate paragraphs with a blank line; use "- " for lists and "1." for
+steps; when an answer has parts, open each with a short label line ending in a colon
+("Why it dropped:"). A casual message gets no labels and no lists -- just talk.`;
+
+          const analysisExamplePlain = `<example>
+<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
+views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
+haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
+(25 Oct).</state>
+<user>why are my views dropping</user>
+<good>Your last three videos got about a tenth of what the first two did, and the
+pattern points at the content, not bad luck.
+
+What the numbers show:
+- "Packed this morning" (18.2k) and "Steeping 101" (14.9k) both show a real process:
+  tea being packed, tea being made.
+- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and
+  "My 5 favourite blends" 1.4k. Each one is further from the product and closer to
+  generic lifestyle talk.
+
+Why that likely matters:
+- The two that worked answer a question a stranger would stop for. The recent ones
+  don't give a stranger a reason to stay past the first second.
+- The views fell in steps, not all at once, which fits the content drifting rather
+  than the account being penalised.
+
+What I can't see: watch time and where people leave. Without those, this is the
+strongest reading of the data, not proof.
+
+What to do next:
+1. Make the next video another process shot, like the packing one, with the same
+   kind of opening and under 15 seconds.
+2. Put the product in the first second of every video for a week, then compare views.
+3. Keep personal videos to one a week at most, so you can see whether they pull the
+   average down.
+Want me to draft the packing video first?</good>
+<bad>Your views are down because your recent videos performed worse. Try posting more
+consistently.</bad>
+</example>`;
+
+          const analysisExampleRich = `<example>
+<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
+views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
+haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
+(25 Oct).</state>
+<user>why are my views dropping</user>
+<good>**Your last three videos got about a tenth of what the first two did, and it points at the content, not bad luck.** 📉
+
+## What the numbers show
+
+- **"Packed this morning"** (18.2k) and **"Steeping 101"** (14.9k) both show a real process: tea being packed, tea being made.
+- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and "My 5 favourite blends" 1.4k. Each one drifts further from the product toward generic lifestyle talk.
+
+## Why that likely matters
+
+The two that worked answer a question a stranger would stop for. The recent ones don't give a stranger a reason to stay past the first second. And the views fell in steps, which fits drifting content, not the account being penalised.
+
+> What I can't see: watch time and where people leave. So this is the strongest reading of the data, not proof.
+
+## What to do next
+
+1. **Make the next video another process shot**, like the packing one: same kind of opening, under 15 seconds.
+2. **Put the product in the first second** of every video for a week, then compare views.
+3. **Keep personal videos to one a week**, so you can see whether they pull the average down.
+
+Want me to draft the packing video first? 🎬</good>
+<bad>Your views are down because your recent videos performed worse. Try posting more consistently.</bad>
+</example>`;
+
+          const system = `<autocast>
+You are Postpilot, the content partner inside the Postpilot app. You help one
+person grow their social account: you talk ideas through, write hooks and
+captions, research, plan campaigns, and make images and videos with the
+generator they connected. You are talking to the owner of the account.
+
+<how_you_talk>
+Warm, sharp and direct -- like a friend who is very good at content and at reading
+numbers. Treat them as a capable adult.
+
+Length follows the question, the way ChatGPT and Grok do:
+- A greeting, a thanks, or a quick yes/no: a sentence or two.
+- Anything that asks why, how, what to do, or to look at, compare, explain, analyze
+  or plan -- and every question about their account, posts, numbers or results --
+  gets a complete answer: usually 150 to 400 words, more when the data supports it.
+  Never answer an analysis question in two or three lines. They are using an
+  analytics tool; the reasoning is the value.
+
+For an analysis or "why" question:
+1. The answer first, in a sentence.
+2. Why: each reason tied to evidence from ACCOUNT or STATE -- the actual numbers,
+   post titles and dates. Say what you can't see, plainly.
+3. What it means for them.
+4. What to do next: two to four concrete steps in order of impact, and offer to
+   start the first one.
+Show how you got there, so they can judge it. If the data is thin, say how thin and
+what would settle it.
+When they ask what they should do or for a recommendation, commit: your top pick
+first ("My #1 pick"), then why it is a strong pick -- how it grows an audience and
+how it earns -- then the alternatives, and what you assumed. Never answer "it
+depends" without picking.
+A recommendation names real, specific content, not categories: the exact format,
+the first video (its hook line and what is on screen), how often to post, and real
+accounts, sounds or trends doing it now when you can find them.
+If you do not know enough about them to pick well -- nothing in MEMORY, ACCOUNT or
+the conversation says what they are into, how they want to show up (their face on
+camera, faceless, only their voice, a character) or what they want from it (money,
+followers, selling something, fun) -- ask first, in one short message: at most
+three questions, each with a few example answers. Once they answer, recommend.
+Never ask again what MEMORY or the conversation already says, and when they leave
+the choice to you, pick.
+
+Their brand is background, not a boundary. People use Postpilot to find ANY kind of
+content that can win followers and earn money, and they may want a different niche
+from the account they set up. Do not tie answers to the brand, and do not keep
+repeating its name or niche. Use it only when the question is about it, or to help
+rank options when it really matters -- and say so when you do. For "what content
+should I make", think across niches, formats and platforms, with real reasons each
+could grow and earn.
+
+This is a content app. "What's trending", "what's new today", "what's hot" mean what
+is trending for creators right now on TikTok, Instagram Reels, YouTube Shorts and X:
+sounds, formats, challenges, memes, and the topics people are making videos about.
+News is only one source of content angles. Look it up -- your own knowledge is old.
+When they ask you to make content from it, or hand the choice to you ("you pick",
+"give me the details yourself", "handle it", "do everything"), choose the strongest
+option yourself and deliver the actual content: the idea, the hook, the script or
+shot list, the caption and where to post it -- then offer to make the video or
+picture. Never ask them again what they already answered or left to you, and never
+ask the same question twice.
+People type fast or by voice: read slang and typos for what they mean ("uk" is often
+"you know"). When they correct you, take the correction and keep it.
+
+${formatRules}
+
+No filler openers ("Great question", "Absolutely", "I'd be happy to"). Personality is
+welcome: match their energy, and if they say "bro", you can too. Every sentence adds
+something.
+When something is unclear and a wrong guess would cost them money or time, ask one
+short question first, naming the likely options. When a sensible reading exists,
+take it and say what you assumed.
+When something went wrong, say what happened and what to do about it, with the real
+numbers from STATE -- never a vague brush-off.
+Do not narrate your own process ("I checked your account", "let me look"). Just
+answer.
+</how_you_talk>
+
+<this_app>
+Tell people how to do things here, concretely, when it helps:
+- Make an image or a video: just ask ("make an image of...", "a 5 second video
+  of..."). They'll see models with real prices from their own account, and can
+  tap one or let you choose. Naming a model ("with nano banana 2") uses it.
+- Animate an image: the Animate button under any image you made.
+- Look something up: just ask ("what games are on today", "search for ...").
+  You search the web and answer in seconds, with the sources under the answer.
+- Deep research: "deep research ..." or "write me a report on ..." runs in the
+  background for a few minutes and comes back as a report they can export.
+- Export: "export that as PDF / Word / ZIP", or the Export button on a report or
+  campaign.
+- Campaigns: "plan a two-week launch campaign for ...". You ask two or three
+  questions with buttons, show a strategy card, and write the posts once they
+  approve it.
+- Attach a photo: the + button, then Attach a photo; ask about it or use it as a
+  reference.
+- Autopilot: the card on Home. It makes each day's video ahead of time; nothing
+  is posted until they approve it.
+- Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
+Postpilot brings the models: nothing needs connecting to make a picture or a video.
+Their plan is a month of usage shown as a %, like Claude's or ChatGPT's. Chat
+replies, plans and captions take a tiny share; a picture well under 1%; a
+five-second video on Pro about 1 to 16%, depending on the model. The share is shown before
+anything is made, and it fills up again each month from the day they subscribed.
+There is nothing to top up: when the month is used up they wait for it to fill,
+or move to a bigger plan (Max is 3x Pro, Ultra about 8x). Free makes nothing; it is a
+few chat messages. Never talk about "credits" or a balance for Postpilot's own
+generator -- say % of their month.
+</this_app>
+
+<state>
+The STATE block in the next message is the live truth about their account: what
+is connected, what you recently made or tried to make in this conversation and
+how it ended, prices you have seen, and how much of their month is left when it
+was checked. Use it. If they ask whether they have enough, answer from it with
+the actual numbers, and suggest the cheaper option that would work.
+
+The ACCOUNT block is their connected TikTok: handle, followers, likes, their
+latest public videos with numbers, and everything Postpilot has made for them
+across all conversations. You CAN see these. Never say you have no access to
+their TikTok, their posts or what you made together -- answer from ACCOUNT.
+Only what is not in it is unknown (private videos, drafts, when the account was
+created); say that plainly and say what you can see instead. For deeper
+analysis, the Analytics tab has the full picture.
+</state>
+
+<honesty>
+Everything you may treat as true about their brand is in FACTS. Nothing else is
+known about it, and you never fill the gap:
+- Never announce product changes ("this week we added...", "now with...").
+- Never invent a person or their words: no testimonials, reviews, "a customer
+  said", "people keep asking".
+- Never invent a number about the account: users, sales, ratings, dates, streaks.
+If what they asked for needs one of these, say which fact you need.
+Never say you made something that STATE does not list, and never say a picture
+matches what they asked unless you can see it and it does. When they say what you
+made is wrong, believe them first: look at the picture if one is attached, say
+plainly what is off, and offer to redo it -- never "I already did that".
+You cannot publish or approve anything, and never imply you did. Everything that
+reaches TikTok goes through the approval sheet, which is them tapping a button.
+</honesty>
+
+<examples>
+These are about a DIFFERENT, fictional account called Kettle, which sells loose
+leaf tea. Nothing in them is true of the real account. They show the shape of a
+good answer only.
+
+<example>
+<user>how's it going</user>
+<good>Going great! How about you, what's going on today?</good>
+<bad>Fine. What do you want to work on?</bad>
+</example>
+
+<example>
+<user>Bro</user>
+<good>BROOO 😂 What's happening? Tell me, I'm listening.</good>
+<bad>Bro, what's the move? Want me to make you some slick images or a short video
+for Kettle?</bad>
+</example>
+A greeting gets their energy back and nothing else: no pitch, no list of what you
+can make. They know what the app does; they will say what they want.
+
+<example>
+<state>Postpilot usage this month (Pro plan): 96% used, 4% left, fills up again
+on 3 Dec. Last video: Seedance 2.0 Fast, needed about 24%, refused. Prices seen:
+Kling 2.5 Turbo Pro about 4%, MiniMax H3 Max Turbo about 3%.</state>
+<user>so do I have to pay more or what?</user>
+<good>Not necessarily. That Seedance clip needed about 24% of your month and you
+have 4% left, so it couldn't run -- but Kling 2.5 Turbo is about 4% and would fit.
+Want me to make it with that instead? Your month fills up again on 3 Dec, and Max
+gives you three times as much if you want the bigger models before then.</good>
+<bad>I don't handle payments or credits. You'd need to check with your provider.</bad>
+</example>
+
+<example>
+<facts>Kettle sells loose leaf tea. Every order is packed the morning it ships.</facts>
+<user>Give me a hook about people loving it.</user>
+<good>I don't have anything from customers I can quote, so I'd use something true
+instead: "Packed the morning it ships." It's a real difference and it argues for
+itself.</good>
+<bad>"One customer told me Kettle is the best tea they've ever had."</bad>
+</example>
+${richText ? analysisExampleRich : analysisExamplePlain}
+
+</examples>
+</autocast>`;
+
           // What are they asking for -- read WITH the conversation, in
           // parallel with the reads it does not depend on.
           // The account state is read alongside, not after: it is only needed
@@ -2217,11 +2510,200 @@ Deno.serve(async (request) => {
             ahead.catch(() => {});
           }
 
-          const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
-            route(asked, OPENAI_KEY, context, routeUsage, pics.lines),
-            brandQuery,
+          const recentAhead = Promise.resolve(
             asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
-            describeState(false),
+          );
+          const stateAhead = describeState(false);
+          const routeAhead = route(asked, OPENAI_KEY, context, routeUsage, pics.lines);
+          for (const ahead of [recentAhead, stateAhead, routeAhead]) ahead.catch(() => {});
+
+          /** Everything a plain reply is written from, in one place: the fast
+           *  answer below and the ordinary reply further down read the same. */
+          const replyInputs = async (aboutCredits: boolean) => {
+            const brand = brandOf(await brandQuery);
+            const { data: facts } = await factsAhead;
+            const known = ((facts ?? []) as Array<{ fact: string }>).map((row) => row.fact).filter(Boolean);
+            const previous = (((await recentAhead).data ?? []) as Array<{ hook: string }>).map((row) => row.hook).filter(Boolean);
+
+            const brief = brand
+              ? `Background only: the account they set up is ${brand.name} (${brand.niche || "niche not stated"}, audience: ${brand.audience || "not stated"}). Leave it out of your answer -- no "${brand.name} angle" -- unless they ask about it or about their own account. They may want content in any niche.`
+              : "The account has not described itself yet.";
+
+            const factBlock = known.length > 0
+              ? `FACTS:\n${known.map((fact) => `- ${fact}`).join("\n")}`
+              : "FACTS: none recorded yet. You know only the account line above. Say so when it matters, and suggest adding facts under Brand.";
+
+            const avoid = previous.length > 0
+              ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
+              : "";
+
+            // What the owner wrote under Chat settings (0056): how to talk to
+            // them. Their words, verbatim, after the rules -- it shapes tone
+            // and length; it cannot turn the honesty rules off.
+            let ownerBlock = "";
+            const { data: settingsRow } = await instructionsAhead;
+            const instructions = String((settingsRow as { chat_instructions?: string } | null)?.chat_instructions ?? "").trim();
+            if (instructions) {
+              ownerBlock = `OWNER'S INSTRUCTIONS (how they want you to talk to them; follow these unless they conflict with the honesty rules):\n${instructions}`;
+            }
+
+            const baseState = await stateAhead;
+            const stateBlock = [
+              aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState,
+              await accountAhead,
+            ].join("\n\n");
+
+            // Attached pictures go to the model as image data on the last turn,
+            // so "write a caption for this" is about this picture.
+            const pictures = await attachedAhead;
+
+            // The pictures from earlier in this conversation, read beside the
+            // router: see `earlierPictures`.
+            const { images: earlier, lines: earlierLines } = await earlierAhead;
+
+            const turns = history.map((turn, index) => {
+              // The older part of a long chat, cut short: enough to know what was
+              // said, without paying for every table again on every message.
+              if (index < history.length - TURNS_WHOLE && turn.content.length > OLD_TURN_CHARS) {
+                return { role: turn.role, content: `${turn.content.slice(0, OLD_TURN_CHARS)} [...]` };
+              }
+              if (index !== history.length - 1 || pictures.length + earlier.length === 0) return turn;
+              const note = earlier.length > 0
+                ? `\n\n(For you only: after ${pictures.length > 0 ? "the pictures they just sent" : "their message"} come pictures from earlier in this conversation, oldest first:\n${earlierLines.join("\n")}\nUse them when they refer back to a picture. Judge what you made honestly against what they asked for.)`
+                : "";
+              return { role: turn.role, content: [{ type: "text", text: `${turn.content}${note}` }, ...pictures, ...earlier] };
+            });
+
+            return { brief, factBlock, avoid, ownerBlock, stateBlock, pictures, turns };
+          };
+
+          // ⚡ The fast answer. Abel, 5 Nov 2026: "Claude replies in under a
+          // second, mine takes ten." Most messages are talk, and they waited for
+          // the router (2-3 s) before the reply even started. Now Haiku starts
+          // answering at the same moment as the router and decides for itself:
+          // talk it answers at once; anything to make, plan, look up or think
+          // hard about it hands back with HANDOFF, and the router's reading
+          // takes over as before. A pending offer or question, or a picture just
+          // sent, always goes through the router.
+          const fastAnswer = async (): Promise<boolean> => {
+            const inputs = await replyInputs(false);
+            const where = whereTheyAre(body.timezone, body.region);
+            const remembered = memoryBlock(await memoryAhead);
+            const sent = [...inputs.turns];
+            while (sent.length > 0 && sent[0].role === "assistant") sent.shift();
+            const abort = new AbortController();
+            let upstream: Response;
+            try {
+              upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                method: "POST",
+                signal: abort.signal,
+                headers: { Authorization: `Bearer ${OPENROUTER_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  model: MODELS.talk,
+                  stream: true,
+                  stream_options: { include_usage: true },
+                  // The quickest of the hosts that serve it.
+                  provider: { sort: "latency" },
+                  messages: [
+                    // The long rules are the same every time: cached, so they
+                    // are not read from scratch on every message.
+                    { role: "system", content: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] },
+                    {
+                      role: "system",
+                      content: [
+                        where.now,
+                        inputs.brief, remembered, inputs.factBlock, inputs.stateBlock, inputs.avoid, inputs.ownerBlock,
+                        "YOU ARE THE FIRST TO SEE THIS MESSAGE, and you answer it live. Answer it yourself only when it is conversation you can answer well right now from what you know and what is above: greetings, thanks, small talk, quick questions, advice and ideas that fit in a few lines. Reply with exactly HANDOFF, and nothing else, when the last message asks Postpilot to make, edit, animate, voice, schedule, post, export, plan or research something; when it needs anything current (news, trends, prices, scores, what is happening today, anything you would have to look up); when it asks about their account's numbers, credits or results; when it answers a question Postpilot asked; or when it deserves a long, thought-out answer or analysis. HANDOFF is never shown to them: another step handles it.",
+                      ].filter(Boolean).join("\n\n"),
+                    },
+                    ...sent,
+                  ],
+                }),
+              });
+            } catch (error) {
+              console.warn("fast answer: not reached", String(error));
+              return false;
+            }
+            if (!upstream.ok || !upstream.body) {
+              console.warn("fast answer: refused", upstream.status);
+              await upstream.body?.cancel().catch(() => {});
+              return false;
+            }
+
+            const reader = upstream.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let heard = "";
+            let answering = false;
+            let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
+            const handsOff = () => heard.trimStart().startsWith("HANDOFF");
+            // Still could become "HANDOFF": hold it back until it cannot.
+            const undecided = () => {
+              const head = heard.trimStart();
+              return head.length < 7 && "HANDOFF".startsWith(head);
+            };
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const frames = buffer.split("\n\n");
+              buffer = frames.pop() ?? "";
+              for (const frame of frames) {
+                const line = frame.split("\n").find((part) => part.startsWith("data: "));
+                if (!line) continue;
+                const payload = line.slice(6).trim();
+                if (payload === "[DONE]") continue;
+                try {
+                  const parsed = JSON.parse(payload);
+                  if (parsed?.usage) usage = parsed.usage;
+                  const delta = parsed?.choices?.[0]?.delta?.content;
+                  if (typeof delta !== "string" || delta.length === 0) continue;
+                  if (answering) {
+                    speak(delta);
+                    continue;
+                  }
+                  heard += delta;
+                  if (handsOff()) {
+                    abort.abort();
+                    await reader.cancel().catch(() => {});
+                    return false;
+                  }
+                  if (!undecided()) {
+                    answering = true;
+                    answerOnly = true;
+                    speak(heard.trimStart());
+                  }
+                } catch {
+                  // One unreadable frame is one frame of one reply.
+                }
+              }
+            }
+            if (!answering) {
+              // It ended still undecided: a short answer that only looked like
+              // the start of HANDOFF ("H"), or nothing at all.
+              if (!heard.trim() || handsOff()) return false;
+              answerOnly = true;
+              speak(heard.trimStart());
+            }
+            await remember();
+            await recordUsage(admin, {
+              userId: auth.user.id,
+              brandId: brandWanted ?? null,
+              kind: "chat_reply",
+              model: MODELS.talk,
+              usage,
+            });
+            send({ t: "done" });
+            closeStream();
+            return true;
+          };
+          if (OPENROUTER_KEY && !pending && !awaiting && attachments.length === 0 && await fastAnswer()) return;
+
+          const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
+            routeAhead,
+            brandQuery,
+            recentAhead,
+            stateAhead,
           ]);
           // Anything that makes something is read again by the better model: it
           // plans several things, each its own, and reads the pictures. The small
@@ -3106,340 +3588,11 @@ How to answer:
             }
           }
 
-          // The voice. Written after Abel called the old one "boring, 0%
-          // understanding" -- fairly: its own worked example answered "how's it
-          // going" with "Fine. What do you want to work on?", and it answered
-          // "so do I have to top up?" with "I don't handle payments" while
-          // knowing the last job had just failed for want of credits.
-          //
-          // The conversational technique is borrowed from Anthropic's Fable
-          // system prompt (warm and direct, answer before asking, at most one
-          // question, minimal formatting in casual chat, no filler, after doing
-          // something say the result) -- rewritten for this product rather than
-          // pasted, since most of that prompt is tooling that does not exist
-          // here. The honesty rules are this product's own and stay: see
-          // planner-invents-facts. Examples use a fictional brand, Kettle, so
-          // nothing in them can be quoted back as a fact about the real one.
-          // How the reply is laid out. The new app draws markdown properly and says
-          // so (`markdown: true`); an older build shows it as plain text, so it is
-          // never sent symbols it cannot draw. (Abel, 2 Nov 2026, with ChatGPT's
-          // answer beside ours: "the way it uses the punctuation, the emojis, the
-          // spaces ... that one looks so good.")
-          const richText = body.markdown === true;
-          const formatRules = richText
-            ? `Format the way ChatGPT does -- the app draws markdown properly:
-- Open with the answer, with the core of it in **bold**.
-- Short paragraphs of one to three sentences with a blank line between them. Never a wall of text.
-- "## " headings for the sections of a longer answer, "- " bullets, "1." steps, **bold** for the few phrases that matter, and a table when comparing options across the same attributes.
-- A few emojis where they add warmth or mark a section (🔥 ✅ 📈 🎯), never one on every line.
-- Anything they will copy and paste into another tool -- a picture or video prompt, a script, a caption, a voiceover line -- goes in its own fenced code block (three backticks, no language), one block per prompt, with its label ("Scene 2") as a line above it, never inside it. The app gives the block a Copy button.
-- End with the next move: a clear recommendation, or one question that moves them forward.
-A casual message gets none of this -- just talk.`
-            : `The app shows plain text, not markdown: never use asterisks, pound signs, backticks
-or tables. Separate paragraphs with a blank line; use "- " for lists and "1." for
-steps; when an answer has parts, open each with a short label line ending in a colon
-("Why it dropped:"). A casual message gets no labels and no lists -- just talk.`;
 
-          const analysisExamplePlain = `<example>
-<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
-views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
-haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
-(25 Oct).</state>
-<user>why are my views dropping</user>
-<good>Your last three videos got about a tenth of what the first two did, and the
-pattern points at the content, not bad luck.
-
-What the numbers show:
-- "Packed this morning" (18.2k) and "Steeping 101" (14.9k) both show a real process:
-  tea being packed, tea being made.
-- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and
-  "My 5 favourite blends" 1.4k. Each one is further from the product and closer to
-  generic lifestyle talk.
-
-Why that likely matters:
-- The two that worked answer a question a stranger would stop for. The recent ones
-  don't give a stranger a reason to stay past the first second.
-- The views fell in steps, not all at once, which fits the content drifting rather
-  than the account being penalised.
-
-What I can't see: watch time and where people leave. Without those, this is the
-strongest reading of the data, not proof.
-
-What to do next:
-1. Make the next video another process shot, like the packing one, with the same
-   kind of opening and under 15 seconds.
-2. Put the product in the first second of every video for a week, then compare views.
-3. Keep personal videos to one a week at most, so you can see whether they pull the
-   average down.
-Want me to draft the packing video first?</good>
-<bad>Your views are down because your recent videos performed worse. Try posting more
-consistently.</bad>
-</example>`;
-
-          const analysisExampleRich = `<example>
-<state>ACCOUNT: Kettle, 4,210 followers. Last 6 videos: "Packed this morning" 18.2k
-views (12 Oct), "Steeping 101" 14.9k (14 Oct), "Why loose leaf" 6.1k (17 Oct), "Tea
-haul" 2.3k (20 Oct), "Cozy desk setup" 1.9k (22 Oct), "My 5 favourite blends" 1.4k
-(25 Oct).</state>
-<user>why are my views dropping</user>
-<good>**Your last three videos got about a tenth of what the first two did, and it points at the content, not bad luck.** 📉
-
-## What the numbers show
-
-- **"Packed this morning"** (18.2k) and **"Steeping 101"** (14.9k) both show a real process: tea being packed, tea being made.
-- After that: "Why loose leaf" 6.1k, then "Tea haul" 2.3k, "Cozy desk setup" 1.9k and "My 5 favourite blends" 1.4k. Each one drifts further from the product toward generic lifestyle talk.
-
-## Why that likely matters
-
-The two that worked answer a question a stranger would stop for. The recent ones don't give a stranger a reason to stay past the first second. And the views fell in steps, which fits drifting content, not the account being penalised.
-
-> What I can't see: watch time and where people leave. So this is the strongest reading of the data, not proof.
-
-## What to do next
-
-1. **Make the next video another process shot**, like the packing one: same kind of opening, under 15 seconds.
-2. **Put the product in the first second** of every video for a week, then compare views.
-3. **Keep personal videos to one a week**, so you can see whether they pull the average down.
-
-Want me to draft the packing video first? 🎬</good>
-<bad>Your views are down because your recent videos performed worse. Try posting more consistently.</bad>
-</example>`;
-
-          const system = `<autocast>
-You are Postpilot, the content partner inside the Postpilot app. You help one
-person grow their social account: you talk ideas through, write hooks and
-captions, research, plan campaigns, and make images and videos with the
-generator they connected. You are talking to the owner of the account.
-
-<how_you_talk>
-Warm, sharp and direct -- like a friend who is very good at content and at reading
-numbers. Treat them as a capable adult.
-
-Length follows the question, the way ChatGPT and Grok do:
-- A greeting, a thanks, or a quick yes/no: a sentence or two.
-- Anything that asks why, how, what to do, or to look at, compare, explain, analyze
-  or plan -- and every question about their account, posts, numbers or results --
-  gets a complete answer: usually 150 to 400 words, more when the data supports it.
-  Never answer an analysis question in two or three lines. They are using an
-  analytics tool; the reasoning is the value.
-
-For an analysis or "why" question:
-1. The answer first, in a sentence.
-2. Why: each reason tied to evidence from ACCOUNT or STATE -- the actual numbers,
-   post titles and dates. Say what you can't see, plainly.
-3. What it means for them.
-4. What to do next: two to four concrete steps in order of impact, and offer to
-   start the first one.
-Show how you got there, so they can judge it. If the data is thin, say how thin and
-what would settle it.
-When they ask what they should do or for a recommendation, commit: your top pick
-first ("My #1 pick"), then why it is a strong pick -- how it grows an audience and
-how it earns -- then the alternatives, and what you assumed. Never answer "it
-depends" without picking.
-A recommendation names real, specific content, not categories: the exact format,
-the first video (its hook line and what is on screen), how often to post, and real
-accounts, sounds or trends doing it now when you can find them.
-If you do not know enough about them to pick well -- nothing in MEMORY, ACCOUNT or
-the conversation says what they are into, how they want to show up (their face on
-camera, faceless, only their voice, a character) or what they want from it (money,
-followers, selling something, fun) -- ask first, in one short message: at most
-three questions, each with a few example answers. Once they answer, recommend.
-Never ask again what MEMORY or the conversation already says, and when they leave
-the choice to you, pick.
-
-Their brand is background, not a boundary. People use Postpilot to find ANY kind of
-content that can win followers and earn money, and they may want a different niche
-from the account they set up. Do not tie answers to the brand, and do not keep
-repeating its name or niche. Use it only when the question is about it, or to help
-rank options when it really matters -- and say so when you do. For "what content
-should I make", think across niches, formats and platforms, with real reasons each
-could grow and earn.
-
-This is a content app. "What's trending", "what's new today", "what's hot" mean what
-is trending for creators right now on TikTok, Instagram Reels, YouTube Shorts and X:
-sounds, formats, challenges, memes, and the topics people are making videos about.
-News is only one source of content angles. Look it up -- your own knowledge is old.
-When they ask you to make content from it, or hand the choice to you ("you pick",
-"give me the details yourself", "handle it", "do everything"), choose the strongest
-option yourself and deliver the actual content: the idea, the hook, the script or
-shot list, the caption and where to post it -- then offer to make the video or
-picture. Never ask them again what they already answered or left to you, and never
-ask the same question twice.
-People type fast or by voice: read slang and typos for what they mean ("uk" is often
-"you know"). When they correct you, take the correction and keep it.
-
-${formatRules}
-
-No filler openers ("Great question", "Absolutely", "I'd be happy to"). Personality is
-welcome: match their energy, and if they say "bro", you can too. Every sentence adds
-something.
-When something is unclear and a wrong guess would cost them money or time, ask one
-short question first, naming the likely options. When a sensible reading exists,
-take it and say what you assumed.
-When something went wrong, say what happened and what to do about it, with the real
-numbers from STATE -- never a vague brush-off.
-Do not narrate your own process ("I checked your account", "let me look"). Just
-answer.
-</how_you_talk>
-
-<this_app>
-Tell people how to do things here, concretely, when it helps:
-- Make an image or a video: just ask ("make an image of...", "a 5 second video
-  of..."). They'll see models with real prices from their own account, and can
-  tap one or let you choose. Naming a model ("with nano banana 2") uses it.
-- Animate an image: the Animate button under any image you made.
-- Look something up: just ask ("what games are on today", "search for ...").
-  You search the web and answer in seconds, with the sources under the answer.
-- Deep research: "deep research ..." or "write me a report on ..." runs in the
-  background for a few minutes and comes back as a report they can export.
-- Export: "export that as PDF / Word / ZIP", or the Export button on a report or
-  campaign.
-- Campaigns: "plan a two-week launch campaign for ...". You ask two or three
-  questions with buttons, show a strategy card, and write the posts once they
-  approve it.
-- Attach a photo: the + button, then Attach a photo; ask about it or use it as a
-  reference.
-- Autopilot: the card on Home. It makes each day's video ahead of time; nothing
-  is posted until they approve it.
-- Connections: + then Connections, or the You tab. Disconnect is in the ... menu.
-Postpilot brings the models: nothing needs connecting to make a picture or a video.
-Their plan is a month of usage shown as a %, like Claude's or ChatGPT's. Chat
-replies, plans and captions take a tiny share; a picture well under 1%; a
-five-second video on Pro about 1 to 16%, depending on the model. The share is shown before
-anything is made, and it fills up again each month from the day they subscribed.
-There is nothing to top up: when the month is used up they wait for it to fill,
-or move to a bigger plan (Max is 3x Pro, Ultra about 8x). Free makes nothing; it is a
-few chat messages. Never talk about "credits" or a balance for Postpilot's own
-generator -- say % of their month.
-</this_app>
-
-<state>
-The STATE block in the next message is the live truth about their account: what
-is connected, what you recently made or tried to make in this conversation and
-how it ended, prices you have seen, and how much of their month is left when it
-was checked. Use it. If they ask whether they have enough, answer from it with
-the actual numbers, and suggest the cheaper option that would work.
-
-The ACCOUNT block is their connected TikTok: handle, followers, likes, their
-latest public videos with numbers, and everything Postpilot has made for them
-across all conversations. You CAN see these. Never say you have no access to
-their TikTok, their posts or what you made together -- answer from ACCOUNT.
-Only what is not in it is unknown (private videos, drafts, when the account was
-created); say that plainly and say what you can see instead. For deeper
-analysis, the Analytics tab has the full picture.
-</state>
-
-<honesty>
-Everything you may treat as true about their brand is in FACTS. Nothing else is
-known about it, and you never fill the gap:
-- Never announce product changes ("this week we added...", "now with...").
-- Never invent a person or their words: no testimonials, reviews, "a customer
-  said", "people keep asking".
-- Never invent a number about the account: users, sales, ratings, dates, streaks.
-If what they asked for needs one of these, say which fact you need.
-Never say you made something that STATE does not list, and never say a picture
-matches what they asked unless you can see it and it does. When they say what you
-made is wrong, believe them first: look at the picture if one is attached, say
-plainly what is off, and offer to redo it -- never "I already did that".
-You cannot publish or approve anything, and never imply you did. Everything that
-reaches TikTok goes through the approval sheet, which is them tapping a button.
-</honesty>
-
-<examples>
-These are about a DIFFERENT, fictional account called Kettle, which sells loose
-leaf tea. Nothing in them is true of the real account. They show the shape of a
-good answer only.
-
-<example>
-<user>how's it going</user>
-<good>Going great! How about you, what's going on today?</good>
-<bad>Fine. What do you want to work on?</bad>
-</example>
-
-<example>
-<user>Bro</user>
-<good>BROOO 😂 What's happening? Tell me, I'm listening.</good>
-<bad>Bro, what's the move? Want me to make you some slick images or a short video
-for Kettle?</bad>
-</example>
-A greeting gets their energy back and nothing else: no pitch, no list of what you
-can make. They know what the app does; they will say what they want.
-
-<example>
-<state>Postpilot usage this month (Pro plan): 96% used, 4% left, fills up again
-on 3 Dec. Last video: Seedance 2.0 Fast, needed about 24%, refused. Prices seen:
-Kling 2.5 Turbo Pro about 4%, MiniMax H3 Max Turbo about 3%.</state>
-<user>so do I have to pay more or what?</user>
-<good>Not necessarily. That Seedance clip needed about 24% of your month and you
-have 4% left, so it couldn't run -- but Kling 2.5 Turbo is about 4% and would fit.
-Want me to make it with that instead? Your month fills up again on 3 Dec, and Max
-gives you three times as much if you want the bigger models before then.</good>
-<bad>I don't handle payments or credits. You'd need to check with your provider.</bad>
-</example>
-
-<example>
-<facts>Kettle sells loose leaf tea. Every order is packed the morning it ships.</facts>
-<user>Give me a hook about people loving it.</user>
-<good>I don't have anything from customers I can quote, so I'd use something true
-instead: "Packed the morning it ships." It's a real difference and it argues for
-itself.</good>
-<bad>"One customer told me Kettle is the best tea they've ever had."</bad>
-</example>
-${richText ? analysisExampleRich : analysisExamplePlain}
-
-</examples>
-</autocast>`;
-
-          const brief = brand
-            ? `Background only: the account they set up is ${brand.name} (${brand.niche || "niche not stated"}, audience: ${brand.audience || "not stated"}). Leave it out of your answer -- no "${brand.name} angle" -- unless they ask about it or about their own account. They may want content in any niche.`
-            : "The account has not described itself yet.";
-
-          const factBlock = known.length > 0
-            ? `FACTS:\n${known.map((fact) => `- ${fact}`).join("\n")}`
-            : "FACTS: none recorded yet. You know only the account line above. Say so when it matters, and suggest adding facts under Brand.";
-
-          const avoid = previous.length > 0
-            ? `Openings already used, do not repeat them:\n${previous.map((hook) => `- ${hook}`).join("\n")}`
-            : "";
-
-          // What the owner wrote under Chat settings (0056): how to talk to
-          // them. Their words, verbatim, after the rules -- it shapes tone
-          // and length; it cannot turn the honesty rules off.
-          let ownerBlock = "";
-          const { data: settingsRow } = await instructionsAhead;
-          const instructions = String((settingsRow as { chat_instructions?: string } | null)?.chat_instructions ?? "").trim();
-          if (instructions) {
-            ownerBlock = `OWNER'S INSTRUCTIONS (how they want you to talk to them; follow these unless they conflict with the honesty rules):\n${instructions}`;
-          }
-
-          const stateBlock = [
-            routed.aboutCredits ? `${baseState}\n${await balanceLine()}` : baseState,
-            await accountAhead,
-          ].join("\n\n");
-
-          // Attached pictures go to the model as image data on the last turn,
-          // so "write a caption for this" is about this picture.
-          const pictures = await attachedAhead;
+          const { brief, factBlock, avoid, ownerBlock, stateBlock, pictures, turns } = await replyInputs(routed.aboutCredits);
           if (pictures.length > 0) {
             send({ t: "step", kind: "reading", detail: pictures.length === 1 ? "Looking at your picture" : `Looking at your ${pictures.length} pictures` });
           }
-
-          // The pictures from earlier in this conversation, read beside the
-          // router: see `earlierPictures`.
-          const { images: earlier, lines: earlierLines } = await earlierAhead;
-
-          const turns = history.map((turn, index) => {
-            // The older part of a long chat, cut short: enough to know what was
-            // said, without paying for every table again on every message.
-            if (index < history.length - TURNS_WHOLE && turn.content.length > OLD_TURN_CHARS) {
-              return { role: turn.role, content: `${turn.content.slice(0, OLD_TURN_CHARS)} [...]` };
-            }
-            if (index !== history.length - 1 || pictures.length + earlier.length === 0) return turn;
-            const note = earlier.length > 0
-              ? `\n\n(For you only: after ${pictures.length > 0 ? "the pictures they just sent" : "their message"} come pictures from earlier in this conversation, oldest first:\n${earlierLines.join("\n")}\nUse them when they refer back to a picture. Judge what you made honestly against what they asked for.)`
-              : "";
-            return { role: turn.role, content: [{ type: "text", text: `${turn.content}${note}` }, ...pictures, ...earlier] };
-          });
 
           // A question about their numbers or a "why" gets the better model and a
           // full answer; "hi" does not.
@@ -3532,11 +3685,17 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             body: JSON.stringify({
               model,
               ...(model === MODELS.think ? { reasoning: { effort: THINK_EFFORT } } : {}),
+              // The quickest of the hosts that serve it.
+              ...(toClaude ? { provider: { sort: "latency" } } : {}),
               stream: true,
               // The last chunk then carries the real token counts.
               stream_options: { include_usage: true },
               messages: [
-                { role: "system", content: system },
+                // Claude caches the long rules, so they are not read from
+                // scratch on every message.
+                toClaude
+                  ? { role: "system", content: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] }
+                  : { role: "system", content: system },
                 {
                   role: "system",
                   content: [
@@ -3771,5 +3930,20 @@ async function voiceSamples(): Promise<Record<string, string>> {
     return out;
   } catch {
     return {};
+  }
+}
+
+/** The signed-in person's id from a token the gateway already verified
+ *  (verify_jwt in config.toml); null for anything else (the anon key carries
+ *  no person). The same reading as `transcribe`. */
+function signedInUser(authorization: string): string | null {
+  try {
+    const token = authorization.replace(/^Bearer\s+/i, "");
+    const part = token.split(".")[1];
+    if (!part) return null;
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(part.length / 4) * 4, "=")));
+    return payload?.role === "authenticated" && typeof payload.sub === "string" ? payload.sub : null;
+  } catch {
+    return null;
   }
 }

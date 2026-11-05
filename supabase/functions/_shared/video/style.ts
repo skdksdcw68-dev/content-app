@@ -22,6 +22,10 @@ export interface StyleRow {
     shots?: number;
     duration_s?: number;
     structure?: string[];
+    /** The style's own story master prompt: extra rules the planner follows
+     *  on top of its general ones (how the story is told, how each scene is
+     *  shot). Lives in the row, so it changes without an app update. */
+    writer?: string;
   } | null;
 }
 
@@ -48,6 +52,8 @@ export interface Production {
   sceneS: number;
   defaultTransition: "cut" | "fade";
   visualStyle: string;
+  /** The style's story master prompt, or "" for the planner's general rules only. */
+  writerRules: string;
   notes: string[];
 }
 
@@ -129,6 +135,7 @@ export function productionFor(
     // Quick cuts for fast pacing, soft fades when each image has time to breathe.
     defaultTransition: sceneS >= 5 ? "fade" : "cut",
     visualStyle: (style.visual_style ?? "").trim(),
+    writerRules: (w.writer ?? "").trim(),
     notes,
   };
 }

@@ -62,6 +62,7 @@ export function plannerPrompt(
     "- Never invent statistics, quotes, dates or events and present them as real. If the topic needs a fact you were not given, tell it as a story or an open question.",
     `- Visual style: ${p.visualStyle || "cinematic, consistent across all scenes"}.`,
     p.musicBrief ? `- Music mood to put in musicBrief: ${p.musicBrief}.` : "- No music: leave musicBrief empty.",
+    p.writerRules ? `\nThis style's own rules (follow them as closely as the rules above):\n${p.writerRules}` : "",
   ].join("\n");
 
   const user = [

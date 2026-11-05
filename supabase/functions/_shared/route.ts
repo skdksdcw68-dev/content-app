@@ -55,6 +55,8 @@ export const MODELS = {
   /** Anything that needs a mind -- a full answer, the prompts for a picture or
    *  video -- Claude Sonnet 5.5 thinking. Web answers stay on `web` (OpenAI). */
   think: Deno.env.get("THINK_MODEL") ?? "anthropic/claude-sonnet-5.5",
+  /** Only when picked in the chat's model picker, on Max and Ultra. */
+  opus: Deno.env.get("OPUS_MODEL") ?? "anthropic/claude-opus-5.5",
 } as const;
 
 /** Set once Abel's OpenRouter credit is in: `talk` and `think` need it. Without

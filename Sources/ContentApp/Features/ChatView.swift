@@ -194,6 +194,8 @@ struct ChatView: View {
         var generating: Bool
         var mode: GenerateChoices.Mode
         var videos: [PendingVideo]
+        /// The plan, so the model picker knows whether Opus is theirs.
+        var planRank: Int
     }
 
     private var composerInputs: ComposerInputs {
@@ -201,7 +203,8 @@ struct ChatView: View {
             text: draft, showsOptions: showsOptions,
             isWorking: isWorking, reset: composerReset, focus: composerFocus,
             attachments: pending,
-            generating: isGenerating, mode: choices.mode, videos: videos
+            generating: isGenerating, mode: choices.mode, videos: videos,
+            planRank: session.planRank
         )
     }
 
@@ -240,7 +243,8 @@ struct ChatView: View {
             // 2026: "we don't need that thing on the normal page").
             onSettings: nil,
             onSend: { send() },
-            onStop: stop
+            onStop: stop,
+            planRank: session.planRank
         )
     }
 
@@ -746,7 +750,9 @@ struct ChatView: View {
         .photosPicker(
             isPresented: $showsPhotoPicker,
             selection: $photoItems,
-            maxSelectionCount: fillingSlot == .reference ? 4 : 1,
+            // Ten in the chat (Abel, 5 Nov 2026: "allow them up to 10 images at
+            // once"); the generator's reference slot keeps four.
+            maxSelectionCount: fillingSlot == .reference ? photoLimit : 1,
             matching: .images
         )
         .onChange(of: photoItems) { _, items in attach(items) }
@@ -795,6 +801,10 @@ struct ChatView: View {
 
     /// Uploads each picked picture as soon as it is picked, so it is there by
     /// the time somebody has finished typing what to do with it.
+    /// How many pictures one message can carry: ten in the chat (app_limits
+    /// `pictures_per_message`), four for the generator's references.
+    private var photoLimit: Int { isGenerating ? 4 : 10 }
+
     private func attach(_ items: [PhotosPickerItem]) {
         guard !items.isEmpty else { return }
         photoItems = []
@@ -808,7 +818,7 @@ struct ChatView: View {
             return
         }
 
-        for item in items.prefix(max(0, 4 - pending.count)) {
+        for item in items.prefix(max(0, photoLimit - pending.count)) {
             Task {
                 guard let data = try? await item.loadTransferable(type: Data.self),
                       let picked = UIImage(data: data) else { return }

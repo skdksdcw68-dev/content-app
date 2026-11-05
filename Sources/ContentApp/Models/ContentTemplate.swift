@@ -17,6 +17,21 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
     let visualStyle: String
     /// How its videos get made (0058). Nil on a style without one.
     let workflow: Workflow?
+    /// A sample video, from the server (0101) when it has one.
+    let serverPreview: URL?
+
+    /// The sample to watch before picking it: the server's link, or the one
+    /// built into this build for the three proven formats (Abel, 5 Nov 2026:
+    /// "hardcode all the videos ... unless we change them from the server").
+    var previewURL: URL? {
+        serverPreview ?? Self.builtInPreviews[slug].flatMap(URL.init(string:))
+    }
+
+    private static let builtInPreviews: [String: String] = [
+        "facts": "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/facts.mp4",
+        "scary": "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/scary.mp4",
+        "motivation": "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/motivation.mp4",
+    ]
 
     struct Pillar: Decodable, Hashable, Sendable {
         let name: String
@@ -59,5 +74,6 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case slug, name, tagline, category, symbol, art, pillars, workflow
         case visualStyle = "visual_style"
+        case serverPreview = "preview_url"
     }
 }

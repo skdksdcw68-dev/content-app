@@ -43,25 +43,18 @@ struct SeriesFlowView: View {
         // 31 Oct 2026: captions follow the voice. "He will need to choose the
         // caption style, the voiceover, and things like this" -- first, so
         // autopilot never has to guess.
-        case style, destinations, length, look, voice, captions, language, include, logo, avoid, goal, review
+        //
+        // 🔴 5 Nov 2026: four, not twelve (Abel approved the mockup, canvas row
+        // 3). The look comes with the format; voice, captions, length and
+        // language sit on one screen already set to the format's best; what
+        // every video has, never does and is for moved under More options on
+        // the last screen. Nothing is lost -- it is just not a screen each.
+        case style, yours, destinations, review
 
-        var progress: Double { Double(rawValue + 1) / Double(Step.allCases.count + 1) }
-
-        var title: String {
-            switch self {
-            case .style:        "Pick a style"
-            case .destinations: "Where it posts"
-            case .length:       "How long"
-            case .look:         "How it looks"
-            case .voice:        "Voiceover"
-            case .captions:     "Captions"
-            case .language:     "Language"
-            case .include:      "Every video has"
-            case .logo:         "Your logo"
-            case .avoid:        "Never do this"
-            case .goal:         "What it's for"
-            case .review:       "Ready"
-            }
+        /// What is left after this one, for the step bar.
+        var left: String {
+            let after = Step.allCases.count - rawValue - 1
+            return after == 0 ? "Last step" : "\(after) left"
         }
     }
 
@@ -137,6 +130,12 @@ struct SeriesFlowView: View {
     @State private var language = "english"
     /// What this month still has, for the credits line on the accounts step.
     @State private var standing: [QuotaStanding] = []
+    /// The X was tapped with picks made: ask before throwing the sheet away.
+    @State private var confirmingLeave = false
+    /// A format being watched full screen before it is picked.
+    @State private var watching: ContentTemplate?
+    /// More options on the last screen, closed until asked for.
+    @State private var showingMore = false
 
     private static let goals: [(id: String, label: String, symbol: String, sentence: String)] = [
         ("followers", "Grow followers", "person.3", "The goal is followers: hooks that make people want the next one."),
@@ -153,20 +152,9 @@ struct SeriesFlowView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                ProgressView(value: step.progress)
-                    .tint(Theme.accent)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
-                    .animation(.snappy(duration: 0.4), value: step)
-
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(Theme.canvas.ignoresSafeArea())
-            .navigationTitle(step.title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                // The step bar: a check inside each finished step, and how many
+                // are left (Abel, 5 Nov 2026).
+                HStack(spacing: 12) {
                     if step != .style {
                         Button { back() } label: {
                             Image(systemName: "chevron.left").fontWeight(.semibold)
@@ -174,14 +162,41 @@ struct SeriesFlowView: View {
                         .accessibilityLabel("Back")
                         .disabled(starting)
                     }
+                    SeriesStepBar(current: step.rawValue, count: Step.allCases.count)
+                    Text(step.left)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
-                ToolbarItem(placement: .cancellationAction) {
-                    if step == .style {
-                        Button("Cancel") { dismiss() }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 12)
+                .animation(.snappy(duration: 0.35), value: step)
+
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(Theme.canvas.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // The only way out. Swiping down does nothing (below), and once
+                // anything is picked it asks first.
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        if chosen == nil { dismiss() } else { confirmingLeave = true }
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel("Close")
+                    .disabled(starting)
                 }
             }
             .animation(.snappy(duration: 0.25), value: step)
+            .alert("Leave without starting?", isPresented: $confirmingLeave) {
+                Button("Keep going", role: .cancel) {}
+                Button("Leave") { dismiss() }
+            } message: {
+                Text("Your picks are kept. Start a series opens right here next time.")
+            }
             .overlay {
                 if starting {
                     VStack(spacing: 14) {
@@ -196,6 +211,8 @@ struct SeriesFlowView: View {
             }
             .task {
                 if templates == nil { templates = await session.templates() }
+                // Where they left off, if they left with picks made.
+                restoreDraft()
                 // Already answered in onboarding, so it opens on that style
                 // rather than asking the same question twice.
                 if chosen == nil, let slug = session.settings?.styleSlug {
@@ -204,7 +221,14 @@ struct SeriesFlowView: View {
                 }
             }
             .task { standing = await session.quotaStanding() }
-            .interactiveDismissDisabled(starting)
+            // Abel, 5 Nov 2026: "pushing it down shouldn't close the sheet unless
+            // they closed it themselves." Only the X closes it.
+            .interactiveDismissDisabled(true)
+            .onChange(of: chosen) { _, _ in saveDraft() }
+            .onChange(of: voice) { _, _ in saveDraft() }
+            .onChange(of: caption) { _, _ in saveDraft() }
+            .onChange(of: language) { _, _ in saveDraft() }
+            .onChange(of: length) { _, _ in saveDraft() }
             .alert(
                 "That didn't start",
                 isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
@@ -225,73 +249,265 @@ struct SeriesFlowView: View {
     private var content: some View {
         switch step {
         case .style:        styles
+        case .yours:        makeItYours
         case .destinations: whereTo
-        case .length:       howLong
-        case .look:         howItLooks
-        case .voice:        whoSpeaks
-        case .captions:     howWordsShow
-        case .language:     inWhichLanguage
-        case .include:      mustInclude
-        case .logo:         logoStep
-        case .avoid:        mustAvoid
-        case .goal:         whatFor
         case .review:       review
         }
     }
 
-    private var mustInclude: some View {
-        picker(Self.includeQuestion, chosen: $includes, next: afterInclude, skippable: true)
-    }
+    // MARK: - Steps
 
-    /// 🔴 The answer decides the next screen.
-    ///
-    /// Abel, 25 Sep 2026: "every answered question might affect the next
-    /// question, so think twice" -- said about exactly this option. Choosing
-    /// "Your name or logo" used to append a sentence to a brief and move on,
-    /// and the logo was never asked for. Now picking it leads straight to the
-    /// screen that asks.
-    private var afterInclude: Step {
-        includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .avoid
-    }
-
-    private var logoStep: some View {
+    /// The proven formats as video cards, each with Watch (Abel, 5 Nov 2026:
+    /// "make sure the user can directly open the video and see the preview").
+    /// Only what the server has switched on is shown (0098).
+    private var styles: some View {
         FlowStep(
-            title: "Put your logo on them?",
-            subtitle: "You asked for your name or logo on every video. Choose the file and it goes on each one.",
-            button: session.brand?.logoPath == nil ? "Use my name instead" : "Continue",
-            tint: session.brand?.logoPath == nil ? Color.secondary : Theme.accent,
-            action: { step = .avoid }
+            title: "What should we make?",
+            subtitle: "Formats we have tested. Every video is a new idea in the same style."
         ) {
-            BrandLogoPicker {
-                // Stored: move on by itself, the way picking a style does.
-                Task {
-                    try? await Task.sleep(for: .milliseconds(450))
-                    if step == .logo { step = .avoid }
+            if let templates {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(templates) { template in
+                        FormatCard(
+                            template: template,
+                            isChosen: chosen?.slug == template.slug,
+                            cost: costLine(for: template),
+                            choose: { pick(template) },
+                            watch: { watching = template }
+                        )
+                    }
+                }
+                .padding(.horizontal, 20)
+            } else {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(0..<4, id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .fill(Color.track)
+                            .frame(height: 236)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .breathing()
+            }
+        }
+        .fullScreenCover(item: $watching) { template in
+            FormatPreview(template: template) {
+                watching = nil
+                pick(template)
+            }
+        }
+    }
+
+    /// What a video of this format costs, as a share of the month.
+    private func costLine(for template: ContentTemplate) -> String? {
+        let seconds = template.workflow?.durationSeconds
+        guard let share = session.usageShare(usd: SeriesCost.perVideoUSD(seconds: seconds)) else { return nil }
+        return "About \(UsageFormat.percent(share)) of your month"
+    }
+
+    /// Picking a format fills in everything after it with that format's best,
+    /// so the next screen is a check, not a questionnaire.
+    private func pick(_ template: ContentTemplate) {
+        let fresh = chosen?.slug != template.slug
+        chosen = template
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        if fresh {
+            look = CategoryLooks.looks(for: template.slug).first ?? SeriesLook.all.first
+            if voice == nil { voice = SeriesVoice.all.first { $0.id == "decide" } }
+            if caption == nil { caption = SeriesCaption.all.first }
+            if let seconds = template.workflow?.durationSeconds, !decideLength {
+                length = min(seconds, longestVideo)
+            }
+        }
+        if destinations.isEmpty {
+            destinations = Set(session.connections.filter(\.isHealthy).map { $0.platform.rawValue })
+        }
+        Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            if chosen?.slug == template.slug, step == .style { step = .yours }
+        }
+    }
+
+    /// The longest video this plan makes (app_limits `video_seconds`: Pro 30,
+    /// Max 60, Ultra 120).
+    private var longestVideo: Int {
+        switch session.planRank {
+        case 3: 120
+        case 2: 60
+        default: 30
+        }
+    }
+
+    /// Everything about how the videos come out, on one screen, already set to
+    /// the format's best answer.
+    private var makeItYours: some View {
+        FlowStep(
+            title: "Make it yours",
+            subtitle: "Already set to what works best for this format. Change anything, or keep it.",
+            button: "Continue",
+            action: {
+                sampler.stop()
+                step = .destinations
+            }
+        ) {
+            VStack(alignment: .leading, spacing: 22) {
+                if let chosen {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(chosen.name).font(.headline)
+                            Text("The look comes with the format")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Button("Change") { step = .style }
+                            .font(.subheadline.weight(.semibold))
+                            .buttonStyle(.bordered)
+                            .buttonBorderShape(.capsule)
+                    }
+                    .padding(14)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+
+                section("Voice") {
+                    VStack(spacing: 10) {
+                        ForEach(SeriesVoice.all) { item in
+                            VoiceRow(
+                                voice: item,
+                                isChosen: voice?.id == item.id,
+                                isPlaying: sampler.playing == item.id,
+                                choose: {
+                                    withAnimation(.snappy(duration: 0.18)) { voice = item }
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                },
+                                play: { sampler.toggle(item) }
+                            )
+                        }
+                    }
+                }
+
+                section("How long") {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        ForEach([15, 20, 30, 45, 60, 0], id: \.self) { seconds in
+                            lengthChip(seconds)
+                        }
+                    }
+                }
+
+                section("Captions") {
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(SeriesCaption.all) { item in
+                            CaptionTile(caption: item, isChosen: caption?.id == item.id) {
+                                withAnimation(.snappy(duration: 0.18)) { caption = item }
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                            }
+                        }
+                    }
+                }
+
+                section("Language") {
+                    Picker("Language", selection: $language) {
+                        ForEach(SeriesLanguage.all) { item in
+                            Text(item.native).tag(item.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
             .padding(.horizontal, 20)
         }
+        .onDisappear { sampler.stop() }
     }
 
-    private var mustAvoid: some View {
-        picker(Self.avoidQuestion, chosen: $avoids, next: .goal, skippable: true)
+    /// A grey label over a group of choices.
+    private func section<Inner: View>(_ title: String, @ViewBuilder _ inner: () -> Inner) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+            inner()
+        }
     }
 
-    /// A multi-select screen in the questions' own shape, so the series asks
-    /// the way onboarding asks.
-    private func picker(
-        _ question: OnboardingQuestion,
-        chosen: Binding<Set<String>>,
-        next: Step,
-        skippable: Bool
-    ) -> some View {
-        FlowStep(
-            title: question.title,
-            subtitle: question.subtitle,
-            button: chosen.wrappedValue.isEmpty && skippable ? "Skip" : "Continue",
-            tint: chosen.wrappedValue.isEmpty && skippable ? Color.secondary : Theme.accent,
-            action: { step = next }
-        ) {
+    /// One length. Longer than the plan makes: shown, locked, with the plan it
+    /// needs, so the person knows it exists (0 is "Auto").
+    private func lengthChip(_ seconds: Int) -> some View {
+        let isAuto = seconds == 0
+        let locked = !isAuto && seconds > longestVideo
+        let picked = isAuto ? decideLength : (!decideLength && length == seconds)
+        return Button {
+            withAnimation(.snappy(duration: 0.18)) {
+                if isAuto {
+                    decideLength = true
+                    length = nil
+                } else {
+                    decideLength = false
+                    length = seconds
+                }
+            }
+        } label: {
+            VStack(spacing: 2) {
+                Text(isAuto ? "Auto" : "\(seconds) s")
+                    .font(.subheadline.weight(picked ? .bold : .medium))
+                if locked {
+                    Text(seconds > 60 ? "Ultra" : "Max")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+                shape.fill(picked ? AnyShapeStyle(Theme.accent.opacity(0.12)) : AnyShapeStyle(Theme.surface))
+                    .overlay(shape.strokeBorder(picked ? Theme.accent : .clear, lineWidth: 1.5))
+            }
+            .foregroundStyle(locked ? Color.secondary : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .disabled(locked)
+    }
+
+    /// What every video has, never does, and is for -- the old screens of
+    /// their own, now one tap away on the last screen.
+    private var moreOptions: some View {
+        DisclosureGroup(isExpanded: $showingMore) {
+            VStack(alignment: .leading, spacing: 18) {
+                optionGrid(Self.includeQuestion, chosen: $includes)
+                optionGrid(Self.avoidQuestion, chosen: $avoids)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("What it's for").font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                    LazyVGrid(columns: columns, spacing: 10) {
+                        ForEach(Self.goals, id: \.id) { item in
+                            OptionTile(
+                                option: OnboardingQuestion.Option(id: item.id, label: item.label, symbol: item.symbol),
+                                isChosen: goal == item.id
+                            ) {
+                                withAnimation(.snappy(duration: 0.18)) { goal = item.id }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 14)
+        } label: {
+            HStack {
+                Text("More options").font(.body)
+                Spacer(minLength: 0)
+                Text("Optional").font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .tint(.primary)
+        .padding(14)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func optionGrid(_ question: OnboardingQuestion, chosen: Binding<Set<String>>) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(question.title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: 10) {
                 ForEach(question.options) { option in
                     OptionTile(option: option, isChosen: chosen.wrappedValue.contains(option.id)) {
@@ -306,66 +522,38 @@ struct SeriesFlowView: View {
                     }
                 }
             }
-            .padding(.horizontal, 20)
         }
     }
 
-    // MARK: - Steps
+    // MARK: - Picks kept
 
-    private var styles: some View {
-        FlowStep(
-            title: "What kind of videos?",
-            subtitle: "A style is the brief, the themes and the look. Your account is still yours."
-        ) {
-            if let templates {
-                // One field of styles, not a stack of labelled shelves. The
-                // headings broke it into little grids that each ended on a
-                // ragged row, and the eye never got a run at it (Abel, 23 Sep
-                // 2026: "the way you did it is honestly bad, like you
-                // separated it"). What a style is FOR is on the tile itself.
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(templates) { template in
-                        StyleTile(template: template, isChosen: chosen?.slug == template.slug) {
-                            // A look picked for another style is that style's
-                            // ("Dark comic" is not a fitness look), so a
-                            // different style asks again.
-                            if chosen?.slug != template.slug {
-                                let mine = CategoryLooks.looks(for: template.slug)
-                                if let look, !mine.contains(look), !SeriesLook.all.contains(look) { self.look = nil }
-                                showAllLooks = false
-                            }
-                            chosen = template
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            // Only accounts that work. TikTok used to be put
-                            // in for somebody with no account at all, which
-                            // let the next screen say "Continue" over an
-                            // empty row. Nothing is picked for them: the
-                            // next screen asks them to connect one.
-                            if destinations.isEmpty {
-                                destinations = Set(session.connections.filter(\.isHealthy).map { $0.platform.rawValue })
-                            }
-                            if let seconds = template.workflow?.durationSeconds, !decideLength {
-                                length = seconds
-                            }
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(400))
-                                if chosen?.slug == template.slug, step == .style { step = .destinations }
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-            } else {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(0..<6, id: \.self) { _ in
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.track)
-                            .frame(height: 150)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .breathing()
-            }
+    /// What they picked, kept on the phone, so leaving and coming back opens
+    /// where they were (Abel, 5 Nov 2026: save what the user did locally).
+    private static let draftKey = "series.draft"
+
+    private func saveDraft() {
+        let draft: [String: Any] = [
+            "slug": chosen?.slug ?? "",
+            "voice": voice?.id ?? "",
+            "caption": caption?.id ?? "",
+            "language": language,
+            "length": decideLength ? 0 : (length ?? 30),
+        ]
+        UserDefaults.standard.set(draft, forKey: Self.draftKey)
+    }
+
+    private func restoreDraft() {
+        guard let draft = UserDefaults.standard.dictionary(forKey: Self.draftKey) else { return }
+        if chosen == nil, let slug = draft["slug"] as? String, let found = templates?.first(where: { $0.slug == slug }) {
+            chosen = found
+            look = CategoryLooks.looks(for: slug).first ?? SeriesLook.all.first
+        }
+        if voice == nil, let id = draft["voice"] as? String { voice = SeriesVoice.all.first { $0.id == id } }
+        if caption == nil, let id = draft["caption"] as? String { caption = SeriesCaption.all.first { $0.id == id } }
+        if let saved = draft["language"] as? String, SeriesLanguage.all.contains(where: { $0.id == saved }) { language = saved }
+        if let seconds = draft["length"] as? Int {
+            decideLength = seconds == 0
+            length = seconds == 0 ? nil : min(seconds, longestVideo)
         }
     }
 
@@ -405,20 +593,18 @@ struct SeriesFlowView: View {
     private var whereTo: some View {
         let signedIn = connectedPlatforms
         let ready = readyDestinations
+        // 🔴 5 Nov 2026: no longer a gate. Abel: "without hard pushing on the
+        // user ... if they say I'll connect later, just generate the video and
+        // send them directly via notification." The video is still made; it
+        // waits in the Library and a push says it is ready (generate.ts).
         return FlowStep(
-            title: signedIn.isEmpty ? "Connect an account" : "Where should it post?",
+            title: "Where should it post?",
             subtitle: signedIn.isEmpty
-                ? "A series posts for you, so it needs at least one account. Connect one and carry straight on."
+                ? "Connect now or later. Nothing is posted until you approve it."
                 : "Tap an account to pick it or drop it. Tap another network to connect it too.",
-            button: signedIn.isEmpty ? "Connect an account to continue" : (ready.isEmpty ? "Pick at least one" : "Continue"),
+            button: ready.isEmpty ? "I'll connect later" : "Continue",
             tint: ready.isEmpty ? Color.secondary : Theme.accent,
-            isDisabled: ready.isEmpty,
-            // 🔴 `.length`, not `.include`. This skipped "How long" entirely
-            // going forward, while `back()` from "Every video has" returned TO
-            // it -- so the only way to reach that screen was to press Back into
-            // a page the flow had never shown (Abel, 25 Sep 2026: "when I hit
-            // continue it jumps two pages at one... this really looks funny").
-            action: { if !readyDestinations.isEmpty { step = .length } }
+            action: { step = .review }
         ) {
             // The same tiles as the connect sheet, rather than a row with a
             // Connect pill bolted to its side (Abel, 24 Sep 2026: "on the
@@ -511,262 +697,6 @@ struct SeriesFlowView: View {
             } else {
                 destinations.insert(platform.rawValue)
             }
-        }
-    }
-
-    // MARK: - How it comes out
-
-    /// 🔴 Pictures, and no default.
-    ///
-    /// Abel, 29 Sep 2026: "it should ask me for the video style it wants with
-    /// pictures. I must put that." Twelve looks, the same barista poured in
-    /// each, so they can be compared instead of imagined. Nothing is picked
-    /// when the screen opens -- a preselected answer is a question nobody was
-    /// asked -- and Continue stays dead until one is.
-    private var howItLooks: some View {
-        // The style's own six first, drawn from its own subject; the twelve
-        // general looks only when asked for, or when a style has none.
-        let own = CategoryLooks.looks(for: chosen?.slug)
-        let shown = own.isEmpty || showAllLooks ? own + SeriesLook.all : own
-        return FlowStep(
-            title: "How should it look?",
-            subtitle: own.isEmpty
-                ? "Every video in the series is drawn this way. Pick one."
-                : "Looks made for \(chosen?.name.lowercased() ?? "this style"). Every video in the series is drawn this way.",
-            button: look == nil ? "Pick a look" : "Continue",
-            tint: look == nil ? Color.secondary : Theme.accent,
-            isDisabled: look == nil,
-            action: { if look != nil { step = .voice } }
-        ) {
-            VStack(spacing: 12) {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(shown) { item in
-                        LookTile(
-                            look: item,
-                            isChosen: look?.id == item.id,
-                            badge: item.id == own.first?.id ? "Best match" : nil
-                        ) {
-                            withAnimation(.snappy(duration: 0.18)) { look = item }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            // On to the next screen by itself, the way picking a
-                            // style does -- unless they changed their mind.
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(450))
-                                if look?.id == item.id, step == .look { step = .voice }
-                            }
-                        }
-                    }
-                }
-
-                if !own.isEmpty, !showAllLooks {
-                    Button {
-                        withAnimation(.snappy(duration: 0.25)) { showAllLooks = true }
-                    } label: {
-                        Label("See every look", systemImage: "square.grid.2x2")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 48)
-                            .background {
-                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                            }
-                            .foregroundStyle(Theme.accent)
-                    }
-                    .buttonStyle(PressButtonStyle())
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    /// 🔴 Required. "No voiceover" is an answer; not answering is not.
-    ///
-    /// Abel, 29 Sep 2026: "something that should ask me for a voiceover. It
-    /// must be a requirement." It was a checkbox in a list that could be left
-    /// alone, and left alone it meant nothing was decided. The voice changes
-    /// what is WRITTEN -- a voiced video needs a script, a silent one needs its
-    /// words on the screen -- so it is asked before the writer runs.
-    private var whoSpeaks: some View {
-        FlowStep(
-            title: "Who speaks over it?",
-            subtitle: "Pick a voice, or none. Every script is written for it.",
-            button: voice == nil ? "Pick a voice" : "Continue",
-            tint: voice == nil ? Color.secondary : Theme.accent,
-            isDisabled: voice == nil,
-            action: {
-                guard voice != nil else { return }
-                sampler.stop()
-                step = .captions
-            }
-        ) {
-            VStack(spacing: 10) {
-                // Heard, not imagined: "warm" and "deep" mean different things
-                // to everyone until they hear the same voice.
-                ForEach(SeriesVoice.all) { item in
-                    VoiceRow(
-                        voice: item,
-                        isChosen: voice?.id == item.id,
-                        isPlaying: sampler.playing == item.id,
-                        choose: {
-                            withAnimation(.snappy(duration: 0.18)) { voice = item }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        },
-                        play: { sampler.toggle(item) }
-                    )
-                }
-
-                // Said before anybody counts on it. The script is always
-                // written; whether it is SPOKEN depends on the model that
-                // makes the video, and not all of them make sound.
-                Text("Postpilot writes the script either way. It is spoken by video models that make sound; on the others the words stay in the caption.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
-            }
-            .padding(.horizontal, 20)
-        }
-        .onDisappear { sampler.stop() }
-    }
-
-    /// 🔴 Required, like the look and the voice: "No captions" is an answer.
-    ///
-    /// Each tile plays its style, because a caption style is timing as much
-    /// as type. The id is stored on the plan and the renderer draws it.
-    private var howWordsShow: some View {
-        FlowStep(
-            title: "How do the words show?",
-            subtitle: "How the spoken words appear on every video. Pick a style, or none.",
-            button: caption == nil ? "Pick a style" : "Continue",
-            tint: caption == nil ? Color.secondary : Theme.accent,
-            isDisabled: caption == nil,
-            action: { if caption != nil { step = .language } }
-        ) {
-            VStack(spacing: 10) {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(SeriesCaption.all) { item in
-                        CaptionTile(caption: item, isChosen: caption?.id == item.id) {
-                            withAnimation(.snappy(duration: 0.18)) { caption = item }
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            Task {
-                                try? await Task.sleep(for: .milliseconds(450))
-                                if caption?.id == item.id, step == .captions { step = .language }
-                            }
-                        }
-                    }
-                }
-
-                // Said before anybody counts on it: the choice is kept now,
-                // and the renderer that burns it in is the next thing built.
-                Text("Saved with your series. Captions are burned into the videos from the next update.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 4)
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private var inWhichLanguage: some View {
-        FlowStep(
-            title: "What language?",
-            subtitle: "The hook, the caption and every spoken word are written in it.",
-            button: "Continue",
-            action: { step = .include }
-        ) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(SeriesLanguage.all) { item in
-                    OptionTile(
-                        option: OnboardingQuestion.Option(id: item.id, label: item.native, symbol: "globe"),
-                        isChosen: language == item.id
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) { language = item.id }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private var howLong: some View {
-        FlowStep(
-            title: "How long should each video be?",
-            subtitle: "In seconds. Or let Postpilot pick per post.",
-            button: "Continue",
-            action: { step = .look }
-        ) {
-            VStack(spacing: 10) {
-                if let suggested = chosen?.workflow?.durationSeconds, ![15, 30, 60].contains(suggested) {
-                    DetailedOption(
-                        option: OnboardingQuestion.Option(
-                            id: "\(suggested)",
-                            label: "\(suggested) seconds",
-                            symbol: "timer",
-                            detail: "What this style is written for"
-                        ),
-                        isChosen: !decideLength && length == suggested
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            decideLength = false
-                            length = suggested
-                        }
-                    }
-                }
-                ForEach([15, 30, 60], id: \.self) { seconds in
-                    DetailedOption(
-                        option: OnboardingQuestion.Option(
-                            id: "\(seconds)",
-                            label: "\(seconds) seconds",
-                            symbol: "timer",
-                            detail: seconds == 15 ? "Quick, one idea" : (seconds == 30 ? "The usual" : "Room for a story")
-                        ),
-                        isChosen: !decideLength && length == seconds
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) {
-                            decideLength = false
-                            length = seconds
-                        }
-                    }
-                }
-                DetailedOption(
-                    option: OnboardingQuestion.Option(
-                        id: "decide",
-                        label: "Decide for me",
-                        symbol: "sparkles",
-                        detail: "Each post gets the length its idea needs"
-                    ),
-                    isChosen: decideLength
-                ) {
-                    withAnimation(.snappy(duration: 0.18)) {
-                        decideLength = true
-                        length = nil
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private var whatFor: some View {
-        FlowStep(
-            title: "What is it for?",
-            subtitle: "It steers the hooks and the calls to action.",
-            button: "Continue",
-            action: { step = .review }
-        ) {
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(Self.goals, id: \.id) { item in
-                    OptionTile(
-                        option: OnboardingQuestion.Option(id: item.id, label: item.label, symbol: item.symbol),
-                        isChosen: goal == item.id
-                    ) {
-                        withAnimation(.snappy(duration: 0.18)) { goal = item.id }
-                    }
-                }
-            }
-            .padding(.horizontal, 20)
         }
     }
 
@@ -884,6 +814,25 @@ struct SeriesFlowView: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                if readyDestinations.isEmpty {
+                    Label(
+                        "No account yet: each video is still made, waits in your Library, and a notification tells you it's ready.",
+                        systemImage: "bell.badge"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
+                moreOptions
+
+                Text("You see every video before it posts. Pause or stop any time on Home.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 20)
         }
@@ -920,17 +869,9 @@ struct SeriesFlowView: View {
         withAnimation(.snappy(duration: 0.25)) {
             switch step {
             case .style:        break
-            case .destinations: step = .style
-            case .length:       step = .destinations
-            case .look:         step = .length
-            case .voice:        step = .look
-            case .captions:     step = .voice
-            case .language:     step = .captions
-            case .include:      step = .language
-            case .logo:         step = .include
-            case .avoid:        step = includes.contains("logo") && session.brand?.logoPath == nil ? .logo : .include
-            case .goal:         step = .avoid
-            case .review:       step = .goal
+            case .yours:        step = .style
+            case .destinations: step = .yours
+            case .review:       step = .destinations
             }
         }
     }
@@ -942,12 +883,8 @@ struct SeriesFlowView: View {
             failure = "Pick a style, a look, a voice and captions first."
             return
         }
-        // An account that signed out while the flow was open is not one to
-        // post to.
-        guard !readyDestinations.isEmpty else {
-            failure = "Connect an account first. A series needs somewhere to post."
-            return
-        }
+        // No account is fine (5 Nov 2026): the videos are made and wait in the
+        // Library, and a notification says each is ready.
         starting = true
         defer { starting = false }
 

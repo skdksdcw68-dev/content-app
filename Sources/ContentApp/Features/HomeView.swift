@@ -93,8 +93,10 @@ struct HomeView: View {
                         }
                         .buttonStyle(SoftPressStyle())
                     } else {
+                        // Abel, 5 Nov 2026: not "autopilot" or "turn on" --
+                        // "Posting: let Postpilot post for you every day".
                         Button { startingSeries = true } label: {
-                            SeriesCard(title: "Start a series", line: "Pick a style. It writes the next post, makes its video, and keeps going.", action: "Pick a style")
+                            PostingCard()
                         }
                         .buttonStyle(SoftPressStyle())
                     }
@@ -626,6 +628,79 @@ private struct ToolTile: View {
 /// A series, as the black card at the top: the words on the left, the
 /// picture (asset `home-series`) bleeding off the right, the one line of
 /// action with an arrow. Fresha's "Send a special gift card", in ink.
+/// The card that starts a series, in the canvas's look (row 2, "POSTING"): a
+/// label, the promise, two sample videos fanned at the side, and Start posting.
+/// The whole card opens Start a series.
+private struct PostingCard: View {
+    private static let samples = ["facts", "scary"].compactMap {
+        URL(string: "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/\($0).mp4")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("POSTING")
+                        .font(.caption.weight(.bold))
+                        .kerning(0.8)
+                        .foregroundStyle(Theme.accent)
+                    Text("Let Postpilot post for you every day")
+                        .font(.title3.weight(.heavy))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("A new video in your format each day. You see it before it goes out.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                ZStack {
+                    if Self.samples.count > 1 {
+                        LoopingVideo(url: Self.samples[1])
+                            .frame(width: 66, height: 118)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .rotationEffect(.degrees(-8))
+                            .offset(x: -16, y: 6)
+                            .opacity(0.85)
+                    }
+                    if let first = Self.samples.first {
+                        LoopingVideo(url: first)
+                            .frame(width: 72, height: 128)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .rotationEffect(.degrees(5))
+                            .offset(x: 12)
+                    }
+                }
+                .frame(width: 96, height: 136)
+                .allowsHitTesting(false)
+            }
+
+            Text("Start posting")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Theme.onAccent)
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .background(Capsule().fill(Theme.accent))
+        }
+        .padding(16)
+        .background {
+            RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous)
+                .fill(Theme.surface)
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(Theme.accent.opacity(0.22))
+                        .frame(width: 220, height: 220)
+                        .blur(radius: 46)
+                        .offset(x: 60, y: -70)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Posting. Let Postpilot post for you every day. Start posting.")
+    }
+}
+
 private struct SeriesCard: View {
     let title: String
     let line: String

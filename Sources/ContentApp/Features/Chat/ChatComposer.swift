@@ -65,18 +65,20 @@ struct ChatComposer: View {
     var onSettings: (() -> Void)?
     let onSend: () -> Void
     let onStop: () -> Void
+    /// The plan, for the model picker: Opus is Max and Ultra (0 free, 1 Pro,
+    /// 2 Max, 3 Ultra). Passed in because this bar lives outside the environment.
+    var planRank: Int = 0
 
     @FocusState private var isFocused: Bool
+    /// Who answers, from the chip (Claude's model picker). Kept on the phone and
+    /// read by the request that sends the message.
+    @State private var models = ChatModelPrefs.current
+    @State private var showingModels = false
     /// Lives on this side of the hosting boundary, like focus: a recording is
     /// the bar's own business until it has words to hand over.
     @State private var recorder = VoiceRecorder()
     @State private var transcribing = false
     @State private var micRefused = false
-    /// The words have outgrown one line: the field takes the whole width and the
-    /// buttons drop under it, the way Claude's and ChatGPT's bars do. Stays set
-    /// until the field is empty again, so the layout cannot flip back and forth
-    /// as the wider field fits the same words on fewer lines.
-    @State private var tall = false
 
     private var hasRequest: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -416,33 +418,28 @@ struct ChatComposer: View {
         footer == nil && onSettings == nil && onCreateVideo == nil
     }
 
-    /// One bar that is a row at rest and a card once the words need a second
-    /// line (Abel, 5 Nov 2026: "the more you add a new line, the wider it gets").
-    /// The field never leaves its place in the tree, so focus and the cursor
-    /// survive the change: the buttons sit on the bottom edge either way, and the
-    /// field only gives up the room beside them -- or, when tall, takes it back
-    /// and lifts itself above them.
+    /// Claude's bar (Abel, 5 Nov 2026, approving the mockup): the words on top,
+    /// growing a line at a time as they need room, and under them the plus, the
+    /// model chip, the microphone and Send. The field never moves in the tree,
+    /// so focus and the cursor stay put while it grows.
     private var plainRow: some View {
-        ZStack(alignment: .bottom) {
+        VStack(alignment: .leading, spacing: 6) {
             field
-                .padding(.leading, tall ? 0 : 38)
-                .padding(.trailing, tall ? 0 : 38)
-                .padding(.bottom, tall ? 40 : 0)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                    if height > 52 { tall = true }
-                }
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 plusButton
+                ModelChip(prefs: models) {
+                    isFocused = false
+                    showingModels = true
+                }
                 Spacer(minLength: 0)
-                if canDictate, tall || showsMic { micButton }
-                if !showsMic { actionButton }
+                if canDictate { micButton }
+                actionButton
             }
         }
-        .onChange(of: text) { _, now in
-            if now.isEmpty { tall = false }
+        .sheet(isPresented: $showingModels) {
+            ModelPickerSheet(prefs: $models, planRank: planRank)
         }
-        .onChange(of: resetToken) { _, _ in tall = false }
-        .animation(.easeOut(duration: 0.18), value: tall)
+        .onChange(of: models) { _, now in ChatModelPrefs.current = now }
     }
 
     /// The microphone is offered whenever there is a place to put the words.

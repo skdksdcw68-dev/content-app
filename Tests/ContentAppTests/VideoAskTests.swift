@@ -53,6 +53,6 @@ final class VideoAskTests: XCTestCase {
 private extension ContentTemplate {
     static func preview(slug: String, name: String) -> ContentTemplate {
         ContentTemplate(slug: slug, name: name, tagline: "", category: "", symbol: "sparkles",
-                        art: nil, pillars: [], visualStyle: "", workflow: nil)
+                        art: nil, pillars: [], visualStyle: "", workflow: nil, serverPreview: nil)
     }
 }

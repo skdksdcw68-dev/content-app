@@ -29,7 +29,8 @@ import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
 import { rediscover } from "../_shared/connectors/discovery.ts";
-import { type Charge, chargeForGeneration, refundCredits, requireUsage, usageLine } from "../_shared/credits.ts";
+import { type Charge, chargeForGeneration, refundCredits, requireUsage, standingOf, usageLine } from "../_shared/credits.ts";
+import { loadLimits } from "../_shared/limits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { push } from "../_shared/push.ts";
 import { answerFromTheWeb, asResponsesTurn, webRules, whereTheyAre } from "../_shared/web.ts";
@@ -142,6 +143,12 @@ interface Body {
    *  and "tonight" in a web answer are theirs. Older builds send neither. */
   timezone?: string;
   region?: string;
+  /** Who answers, from the chip in the chat bar (Abel, 5 Nov 2026, Claude's
+   *  model picker): "auto", "sonnet", "haiku", "opus", "terra" or "luna".
+   *  Missing on older builds, which means Auto. */
+  chatModel?: string;
+  /** How long Sonnet or Opus thinks: "low", "medium" or "high". */
+  effort?: string;
 }
 
 interface GeneratorPref {
@@ -272,8 +279,16 @@ Deno.serve(async (request) => {
     // is only refused when the month is already used up -- checked beside the
     // storing of their message rather than before it (⚡ one trip fewer in
     // front of the first word; a refused message is still kept in the thread).
-    const usageAhead = requireUsage(createClient(SUPABASE_URL, SERVICE_KEY), auth.user.id);
+    const service = createClient(SUPABASE_URL, SERVICE_KEY);
+    const usageAhead = requireUsage(service, auth.user.id);
     usageAhead.catch(() => {});
+    // The plan, for the model pick (Opus is Max and Ultra) and the plan limits.
+    const standingAhead = standingOf(service, auth.user.id);
+    standingAhead.catch(() => {});
+    // The walls (0100): read once per warm function, so usually instant.
+    const limit = await loadLimits(service);
+    const lastMinuteAhead = Promise.resolve(service.rpc("recent_user_messages", { p_user: auth.user.id, p_seconds: 60 }));
+    lastMinuteAhead.catch(() => {});
 
     const history = (body.messages ?? [])
       .filter((turn) => typeof turn?.content === "string" && turn.content.trim())
@@ -288,7 +303,8 @@ Deno.serve(async (request) => {
         path.startsWith(`${auth.user.id}/uploads/`) &&
         !path.includes("..")
       )
-      .slice(0, 4);
+      // Abel, 5 Nov 2026: "allow them up to 10 images at once" (it was 4).
+      .slice(0, limit("pictures_per_message", 0));
 
     // A photo on its own is a message -- "here, do something with this" -- so
     // an empty turn carrying one is allowed, and only an empty turn carrying
@@ -297,6 +313,17 @@ Deno.serve(async (request) => {
       ? history[history.length - 1].content
       : "";
     if (!mine && attachments.length === 0) throw new PublicError("Say something first.");
+    const longest = limit("message_chars", 0);
+    if (mine.length > longest) {
+      throw new PublicError(
+        `That's longer than I can read in one message (${longest.toLocaleString("en-US")} characters). Split it, or send the long part as a file.`,
+        413,
+      );
+    }
+    const { data: lastMinute } = await lastMinuteAhead;
+    if (typeof lastMinute === "number" && lastMinute >= limit("messages_per_minute", 0)) {
+      throw new PublicError("You've sent a lot in a short time. Give it a minute, then carry on.", 429);
+    }
 
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
     const asked = mine;
@@ -2510,6 +2537,22 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             ahead.catch(() => {});
           }
 
+          // Who answers, when they picked one in the chat bar (Abel, 5 Nov 2026,
+          // Claude's model picker). Null is Auto: Haiku for talk, Sonnet when it
+          // needs to think. Opus is Max and Ultra only; a Claude pick without
+          // OpenRouter set up is Auto. Looking things up stays on OpenAI.
+          const tierNow = (await standingAhead.catch(() => ({ tier: 0 }))).tier;
+          const claudeReady = OPENROUTER_KEY !== "";
+          const chosen: string | null = body.chatModel === "sonnet" && claudeReady ? MODELS.think
+            : body.chatModel === "haiku" && claudeReady ? MODELS.talk
+            : body.chatModel === "opus" && claudeReady && tierNow >= 2 ? MODELS.opus
+            : body.chatModel === "terra" ? MODELS.smart
+            : body.chatModel === "luna" ? MODELS.quick
+            : null;
+          const chosenEffort = body.effort === "low" || body.effort === "medium" || body.effort === "high"
+            ? body.effort
+            : THINK_EFFORT;
+
           const recentAhead = Promise.resolve(
             asUser.from("posts").select("hook").order("created_at", { ascending: false }).limit(15),
           );
@@ -2697,7 +2740,8 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             closeStream();
             return true;
           };
-          if (OPENROUTER_KEY && !pending && !awaiting && attachments.length === 0 && await fastAnswer()) return;
+          if (OPENROUTER_KEY && (chosen === null || chosen === MODELS.talk) && !pending && !awaiting &&
+            attachments.length === 0 && await fastAnswer()) return;
 
           const [firstRead, brandRead, recentRead, baseState] = await Promise.all([
             routeAhead,
@@ -3600,9 +3644,9 @@ How to answer:
           // a mind, OpenAI for anything that looks things up. Without OpenRouter
           // credit set up, the OpenAI models answer as before.
           const claudeOn = OPENROUTER_KEY !== "";
-          const replyModel = routed.depth === "full"
+          const replyModel = chosen ?? (routed.depth === "full"
             ? (claudeOn ? MODELS.think : MODELS.smart)
-            : (claudeOn ? MODELS.talk : MODEL);
+            : (claudeOn ? MODELS.talk : MODEL));
           const depthNote = routed.depth === "full"
             ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
             : "";
@@ -3684,7 +3728,11 @@ How to answer:
             },
             body: JSON.stringify({
               model,
-              ...(model === MODELS.think ? { reasoning: { effort: THINK_EFFORT } } : {}),
+              ...(model === MODELS.think || model === MODELS.opus
+                ? { reasoning: { effort: chosen ? chosenEffort : THINK_EFFORT } }
+                : {}),
+              // An OpenAI model picked by name thinks as hard as they asked.
+              ...(!toClaude && chosen === model ? { reasoning_effort: chosenEffort } : {}),
               // The quickest of the hosts that serve it.
               ...(toClaude ? { provider: { sort: "latency" } } : {}),
               stream: true,

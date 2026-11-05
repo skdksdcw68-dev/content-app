@@ -15,6 +15,7 @@ import { inspect } from "./media.ts";
 import { type Credential, parseCredential, poll, Refused } from "./higgsfield.ts";
 import { canAffordVideo, NothingCanDoThis, routePoll, routeSubmit } from "./connectors/route.ts";
 import { chargeForGeneration, refundCredits } from "./credits.ts";
+import { push } from "./push.ts";
 
 /**
  * The model that worked last time for this person, whatever provider it was on.
@@ -526,6 +527,7 @@ async function attachToPost(
       .from("posts")
       .update({ status: "needs_approval" })
       .eq("id", args.postId);
+    await pingReady(admin, args.userId, false);
     return;
   }
 
@@ -564,6 +566,22 @@ async function attachToPost(
   if (linkError) throw linkError;
 
   await admin.from("posts").update({ status: "needs_approval" }).eq("id", args.postId);
+  await pingReady(admin, args.userId, true);
+}
+
+/**
+ * Tells them the video is made. Abel, 5 Nov 2026: "If they say 'I will connect
+ * later', just generate the video and send them directly via notification."
+ * Without an account it waits in the Library, so the note says where it is.
+ * A failed ping never fails the video.
+ */
+async function pingReady(admin: SupabaseClient, userId: string, connected: boolean): Promise<void> {
+  await push(admin, userId, "video", {
+    title: "Your video is ready",
+    body: connected
+      ? "Tap to watch it, then post it with one tap."
+      : "Tap to watch it. It waits in your Library until you connect an account.",
+  }).catch((error) => console.log("push: video ready", String(error)));
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {

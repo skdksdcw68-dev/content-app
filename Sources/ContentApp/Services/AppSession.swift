@@ -1031,7 +1031,7 @@ extension AppSession {
         do {
             return try await client
                 .from("content_templates")
-                .select("slug,name,tagline,category,symbol,art,pillars,visual_style,workflow")
+                .select("slug,name,tagline,category,symbol,art,pillars,visual_style,workflow,preview_url")
                 .eq("enabled", value: true)
                 .order("sort")
                 .execute()

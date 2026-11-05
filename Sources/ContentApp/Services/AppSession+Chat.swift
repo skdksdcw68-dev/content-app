@@ -327,6 +327,11 @@ extension AppSession {
         // This build draws markdown, so the reply may use it. An older one shows
         // it as plain text and says nothing, and is never sent it.
         body["markdown"] = true
+        // Who answers, from the chip in the bar (Claude's model picker). Auto
+        // unless they picked one.
+        let models = ChatModelPrefs.current
+        body["chatModel"] = models.model
+        body["effort"] = models.effort
         // Where they are, so "what's on tonight" comes back in their time and
         // their country -- ChatGPT gave Abel kick-offs in Ethiopian time.
         body["timezone"] = TimeZone.current.identifier
@@ -344,6 +349,20 @@ extension AppSession {
                 // This month's chat allowance is used: say so, and offer Pro.
                 showingPaywall = true
                 onEvent(.failed("You’ve used this month’s chat messages. Postpilot Pro gives you 1,000 a month."))
+                return
+            }
+            // A wall (0100): too long, or too many too fast. The server says it
+            // in words meant for them, so those words are shown.
+            if http.statusCode == 413 || http.statusCode == 429 {
+                var data = Data()
+                for try await byte in bytes {
+                    data.append(byte)
+                    if data.count > 4096 { break }
+                }
+                let said = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"] as? String
+                onEvent(.failed(said ?? (http.statusCode == 413
+                    ? "That message is too long to read in one go. Split it into parts."
+                    : "You've sent a lot in a short time. Give it a minute, then carry on.")))
                 return
             }
             onEvent(.failed(

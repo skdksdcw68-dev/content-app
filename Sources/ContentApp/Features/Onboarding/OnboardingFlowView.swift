@@ -438,7 +438,7 @@ private struct OnboardingIncluded: View {
                 .font(.system(size: 76))
                 .foregroundStyle(Theme.accent)
 
-            Text("Your autopilot is ready")
+            Text("Postpilot is ready to post for you")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
                 .padding(.top, 22)

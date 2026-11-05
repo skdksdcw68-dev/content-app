@@ -60,17 +60,56 @@ extension OnboardingQuestion {
     ///
     /// `later` is the remainder, kept beside this so it is obvious they are
     /// two halves of one list rather than a list and some orphans.
+    ///
+    /// 🔴 Three, and not about the product at all (Abel, 5 Nov 2026, over the
+    /// mockup he loved): what kind of video, whose voice reads it, and where it
+    /// goes. Every one has "Decide for me", so nobody has to know the answer.
+    /// What they promote moved to the Brand page with the rest.
     static var all: [OnboardingQuestion] {
-        [BrandQuestions.category, BrandQuestions.styles,
-         BrandQuestions.platforms, BrandQuestions.camera]
+        [format, narrator, BrandQuestions.platforms]
     }
 
-    /// Asked on the Brand page instead of in the doorway.
+    /// The first three of the old four, asked on the Brand page instead.
     static var later: [OnboardingQuestion] {
-        [BrandQuestions.goal, BrandQuestions.audience, BrandQuestions.formats,
+        [BrandQuestions.category, BrandQuestions.styles, BrandQuestions.camera,
+         BrandQuestions.goal, BrandQuestions.audience, BrandQuestions.formats,
          BrandQuestions.length, BrandQuestions.cadence, BrandQuestions.voice,
          BrandQuestions.cta, BrandQuestions.avoid]
     }
+
+    /// The kind of video. Each is a format: the same look and structure every
+    /// time, with a new idea, new scenes and new facts in each video. The first
+    /// four draw as picture cards; the last two as plain tiles.
+    static let format = OnboardingQuestion(
+        id: "format",
+        title: "Format",
+        subtitle: "Same style, a new idea and new scenes in every video.",
+        selection: .single,
+        options: [
+            .init(id: "didyouknow", label: "Did you know?", symbol: "lightbulb.max.fill", detail: "Facts that stop the scroll"),
+            .init(id: "scary", label: "Scary story", symbol: "moon.stars.fill", detail: "Night legends, 30 s"),
+            .init(id: "motivation", label: "Motivation", symbol: "figure.run", detail: "Voice and b-roll, 20 s"),
+            .init(id: "photo", label: "Photo to video", symbol: "photo.on.rectangle.angled", detail: "Your photos move"),
+            .init(id: "decide", label: "Decide for me", symbol: "wand.and.stars"),
+            .init(id: "starting", label: "I’m just starting", symbol: "leaf"),
+        ]
+    )
+
+    /// Who reads the video out loud.
+    static let narrator = OnboardingQuestion(
+        id: "narrator",
+        title: "Narrator voice",
+        subtitle: "The one that reads every video.",
+        selection: .single,
+        options: [
+            .init(id: "deep", label: "Deep narrator", symbol: "waveform", detail: "Facts and explainers"),
+            .init(id: "story", label: "Storyteller", symbol: "book", detail: "Calm, slow, a little dark"),
+            .init(id: "energetic", label: "Energetic", symbol: "bolt", detail: "Fast and punchy"),
+            .init(id: "warm", label: "Warm", symbol: "sun.max", detail: "Friendly and clear"),
+            .init(id: "playful", label: "Playful", symbol: "face.smiling", detail: "Light, quick, a bit of a joke"),
+            .init(id: "decide", label: "Decide for me", symbol: "wand.and.stars", detail: "Picks the best fit for your format"),
+        ]
+    )
 
     /// Writes `brands.niche`. The reference calls this "What did you build?"
     /// and offers thirty-five categories; the planner needs a sentence, not a

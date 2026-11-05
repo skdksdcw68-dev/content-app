@@ -44,7 +44,10 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
         let ids = OnboardingQuestion.all.map(\.id)
         guard !ids.isEmpty else { return true }
         let answered = ids.filter { profile?[$0] != nil }.count
-        return answered >= max(1, ids.count / 2)
+        if answered >= max(1, ids.count / 2) { return true }
+        // An account that answered the old four questions has been through it.
+        let old = ["category", "styles", "platforms", "camera"].filter { profile?[$0] != nil }.count
+        return old >= 2
     }
 }
 

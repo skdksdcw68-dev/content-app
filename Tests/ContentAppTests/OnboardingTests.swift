@@ -74,7 +74,7 @@ final class OnboardingTests: XCTestCase {
     /// and `later` is checked to still hold the rest.
     func testOnboardingIsShortAndNothingIsLost() {
         XCTAssertLessThanOrEqual(OnboardingQuestion.all.count, 5, "the doorway is getting long again")
-        XCTAssertTrue(OnboardingQuestion.all.map(\.id).contains("category"), "what they sell cannot be defaulted")
+        XCTAssertTrue(OnboardingQuestion.all.map(\.id).contains("format"), "the format is the one thing a video needs")
 
         // Every question ever asked is still asked somewhere.
         let everywhere = Set(OnboardingQuestion.all.map(\.id)).union(OnboardingQuestion.later.map(\.id))

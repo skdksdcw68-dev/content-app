@@ -119,23 +119,34 @@ struct OnboardingFlowView: View {
 private struct OnboardingWelcome: View {
     @Environment(AppSession.self) private var session
 
+    private static let showcase: [(String, String)] = [
+        ("didyouknow", "Did you know?"),
+        ("scary", "Scary story"),
+        ("motivation", "Motivation"),
+        ("photo", "Photo to video"),
+    ]
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            OnboardingArt(name: "welcome-hero", fallback: "hero-plan")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 30)
-                .layoutPriority(1)
+            // The four formats, as the cards they are on the next screen.
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                ForEach(Self.showcase, id: \.0) { card in
+                    FormatCardFace(id: card.0, label: card.1, height: 118)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 30)
+            .layoutPriority(1)
 
-            Text("Your content, posted for you")
+            Text("Viral videos, made and posted for you")
                 .font(.system(size: 30, weight: .bold))
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.8)
                 .padding(.horizontal, 24)
 
-            Text("Plan a month, write the captions, and post to TikTok, YouTube and Instagram. You approve everything first.")
+            Text("Pick a format. Postpilot writes it, voices it, edits it and posts it. You approve everything first.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -222,7 +233,9 @@ private struct OnboardingQuestionView: View {
             .padding(.bottom, 14)
 
             ScrollView {
-                if question.isDetailed {
+                if question.id == "format" {
+                    formatGrid
+                } else if question.isDetailed {
                     VStack(spacing: 10) {
                         ForEach(question.options) { option in
                             DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
@@ -259,6 +272,21 @@ private struct OnboardingQuestionView: View {
         }
     }
 
+    /// The formats are cards with colour; "Decide for me" and "I'm just starting"
+    /// are plain tiles under them.
+    private var formatGrid: some View {
+        LazyVGrid(columns: columns, spacing: 10) {
+            ForEach(question.options) { option in
+                if option.detail != nil {
+                    FormatTile(option: option, isChosen: chosen.contains(option.id)) { tap(option) }
+                } else {
+                    OptionTile(option: option, isChosen: chosen.contains(option.id)) { tap(option) }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
     private func tap(_ option: OnboardingQuestion.Option) {
         withAnimation(.snappy(duration: 0.18)) {
             session.onboardingToggle(option, in: question)
@@ -280,6 +308,8 @@ private struct OnboardingQuestionView: View {
 enum OnboardingPrompt {
     static func title(for question: OnboardingQuestion) -> String {
         switch question.id {
+        case "format": return "Pick your format"
+        case "narrator": return "Pick the voice"
         case "category": return "What are you promoting?"
         case "goal": return "What’s your main goal?"
         case "audience": return "Who is it for?"
@@ -308,10 +338,10 @@ private struct OnboardingBuilding: View {
     /// What is being written, in the order it happens. Each line lands, ticks,
     /// and the next begins.
     private static let steps: [(String, String)] = [
-        ("Your answers", "checklist"),
-        ("What you're promoting", "sparkles"),
-        ("Who it's for", "person.2"),
-        ("How it should sound", "quote.bubble"),
+        ("Your format", "sparkles"),
+        ("Your voice", "waveform"),
+        ("Where it posts", "paperplane"),
+        ("Your first idea", "lightbulb"),
         ("When it posts", "clock"),
     ]
 
@@ -394,11 +424,10 @@ private struct OnboardingIncluded: View {
     @Environment(AppSession.self) private var session
 
     private static let items: [(String, String)] = [
-        ("calendar", "A month of posts, planned"),
-        ("sparkles", "Captions and hashtags written with you"),
-        ("paperplane", "Posting to TikTok, YouTube and Instagram"),
+        ("film", "A new video written, voiced and edited for you"),
+        ("paperplane", "Posted where you chose, at the best time"),
         ("hand.thumbsup", "Nothing goes out until you approve it"),
-        ("chart.bar", "What worked, and what to post next"),
+        ("flame", "Fresh trending ideas every week"),
     ]
 
     var body: some View {
@@ -409,13 +438,13 @@ private struct OnboardingIncluded: View {
                 .font(.system(size: 76))
                 .foregroundStyle(Theme.accent)
 
-            Text("Here’s what Postpilot does")
+            Text("Your autopilot is ready")
                 .font(.largeTitle.bold())
                 .multilineTextAlignment(.center)
                 .padding(.top, 22)
                 .padding(.horizontal, 24)
 
-            Text("Everything below is yours from today.")
+            Text("This is what happens from today.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .padding(.top, 10)
@@ -442,6 +471,11 @@ private struct OnboardingIncluded: View {
             Spacer()
 
             OnboardingButton(title: "Start posting") { session.onboardingNext() }
+
+            Text("Next: sign in with Apple, Google or email.")
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, 10)
         }
     }
 }

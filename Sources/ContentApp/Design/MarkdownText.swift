@@ -29,6 +29,9 @@ enum MarkdownBlock: Equatable {
 enum MarkdownSegment: Equatable {
     case text([MarkdownBlock])
     case table(header: [String], rows: [[String]])
+    /// A fenced block: its own box with a Copy button, lines that scroll
+    /// sideways (Abel, 5 Nov 2026: "swipe to the right to see the full prompt").
+    case code(String)
     case rule
 }
 
@@ -209,6 +212,9 @@ enum ChatMarkdown {
             case .rule:
                 flush()
                 segments.append(.rule)
+            case .code(let text):
+                flush()
+                segments.append(.code(text))
             default:
                 run.append(block)
             }
@@ -553,25 +559,87 @@ struct MarkdownText: View {
         let segments = ChatMarkdown.segments(ChatMarkdown.blocks(text))
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
-                switch segment {
-                case .text(let blocks):
-                    SelectableText(
-                        attributed: ChatMarkdown.attributed(
-                            blocks,
-                            base: UIFont.preferredFont(forTextStyle: .body),
-                            color: UIColor.label,
-                            dark: colorScheme == .dark
-                        )
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                case .table(let header, let rows):
-                    MarkdownTable(header: header, rows: rows)
-                case .rule:
-                    Divider()
-                }
+                // Equatable, so while an answer streams only the segment that is
+                // still growing is drawn again. A long one used to rebuild every
+                // paragraph and table on each of its ~20 updates a second, which
+                // heated the phone (Abel, 5 Nov 2026).
+                MarkdownSegmentView(segment: segment, dark: colorScheme == .dark)
+                    .equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MarkdownSegmentView: View, Equatable {
+    let segment: MarkdownSegment
+    let dark: Bool
+
+    var body: some View {
+        switch segment {
+        case .text(let blocks):
+            SelectableText(
+                attributed: ChatMarkdown.attributed(
+                    blocks,
+                    base: UIFont.preferredFont(forTextStyle: .body),
+                    color: UIColor.label,
+                    dark: dark
+                )
+            )
+            .frame(maxWidth: .infinity, alignment: .leading)
+        case .table(let header, let rows):
+            MarkdownTable(header: header, rows: rows)
+        case .code(let text):
+            MarkdownCode(text: text)
+        case .rule:
+            Divider()
+        }
+    }
+}
+
+/// A prompt or any fenced block, the way ChatGPT draws one: a grey box, a Copy
+/// button at the top right, and lines that stay whole -- swipe sideways to read
+/// them to the end.
+private struct MarkdownCode: View {
+    let text: String
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Spacer(minLength: 0)
+                Button {
+                    UIPasteboard.general.string = text
+                    withAnimation(.easeOut(duration: 0.15)) { copied = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.6))
+                        withAnimation(.easeOut(duration: 0.15)) { copied = false }
+                    }
+                } label: {
+                    Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 9)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .sensoryFeedback(.success, trigger: copied) { _, now in now }
+                .accessibilityLabel("Copy")
+            }
+            ScrollView(.horizontal) {
+                Text(text)
+                    .font(.system(.footnote, design: .monospaced))
+                    .textSelection(.enabled)
+                    // Each line stays on one line; the box scrolls instead.
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
+            .scrollIndicators(.visible)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color(.secondarySystemFill)))
     }
 }
 
@@ -583,7 +651,20 @@ private struct MarkdownTable: View {
 
     private var columns: Int { max(header.count, rows.map(\.count).max() ?? 0) }
 
+    /// A wide table keeps readable columns and scrolls sideways; squeezed to the
+    /// phone's width, six columns became a column of single words.
+    private var scrolls: Bool { columns > 3 }
+
     var body: some View {
+        if scrolls {
+            ScrollView(.horizontal) { grid }
+                .scrollIndicators(.visible)
+        } else {
+            grid
+        }
+    }
+
+    private var grid: some View {
         Grid(alignment: .topLeading, horizontalSpacing: 18, verticalSpacing: 0) {
             line(header, bold: true)
             ForEach(Array(rows.enumerated()), id: \.offset) { _, cells in
@@ -591,7 +672,7 @@ private struct MarkdownTable: View {
             }
             Divider().gridCellUnsizedAxes(.horizontal)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: scrolls ? nil : .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -602,7 +683,7 @@ private struct MarkdownTable: View {
                 Text(ChatMarkdown.attributedString(column < cells.count ? cells[column] : ""))
                     .font(bold ? .subheadline.weight(.semibold) : .subheadline)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(minWidth: scrolls ? 130 : nil, maxWidth: scrolls ? 220 : .infinity, alignment: .leading)
                     .padding(.vertical, 9)
             }
         }

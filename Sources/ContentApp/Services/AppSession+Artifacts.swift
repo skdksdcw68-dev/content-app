@@ -422,12 +422,17 @@ extension AppSession {
         // Small enough to go in the request itself: one trip instead of an
         // upload, a download and the call (Abel, 4 Nov 2026: ChatGPT and Claude
         // "are so fast"). The old way stays as the fallback.
-        if data.count < 6 * 1024 * 1024, let text = await transcribeDirectly(data) { return text }
-        let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).m4a"
+        // A voice note that could not be heard live is a .wav; a video's sound is
+        // an .m4a.
+        let isWave = file.pathExtension.lowercased() == "wav"
+        if data.count < 6 * 1024 * 1024, let text = await transcribeDirectly(data, type: isWave ? "audio/wav" : "audio/mp4") {
+            return text
+        }
+        let path = "\(userID.uuidString.lowercased())/uploads/\(UUID().uuidString.lowercased()).\(isWave ? "wav" : "m4a")"
         do {
             _ = try await client.storage
                 .from("artifacts")
-                .upload(path, data: data, options: FileOptions(contentType: "audio/mp4"))
+                .upload(path, data: data, options: FileOptions(contentType: isWave ? "audio/wav" : "audio/mp4"))
             let heard: Transcribed = try await client.functions.invoke(
                 "transcribe",
                 options: FunctionInvokeOptions(body: ["path": path])
@@ -447,7 +452,7 @@ private struct Transcribed: Decodable {
 extension AppSession {
     /// The recording in the body of one request to `transcribe`. Nil on any
     /// trouble, so the caller can fall back to uploading it first.
-    fileprivate func transcribeDirectly(_ data: Data) async -> String? {
+    fileprivate func transcribeDirectly(_ data: Data, type: String) async -> String? {
         do {
             let token = try await client.auth.session.accessToken
             var request = URLRequest(url: Config.supabaseURL.appendingPathComponent("functions/v1/transcribe"))
@@ -455,7 +460,7 @@ extension AppSession {
             request.timeoutInterval = 30
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             request.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")
-            request.setValue("audio/mp4", forHTTPHeaderField: "Content-Type")
+            request.setValue(type, forHTTPHeaderField: "Content-Type")
             let (body, response) = try await URLSession.shared.upload(for: request, from: data)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
             return try JSONDecoder().decode(Transcribed.self, from: body).text

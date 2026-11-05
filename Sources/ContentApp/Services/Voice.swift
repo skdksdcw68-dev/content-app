@@ -1,14 +1,17 @@
 import AVFoundation
 import CoreTransferable
+import Speech
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Recording a voice note in the chat bar.
+/// Talking into the chat bar.
 ///
-/// Abel, 2 Nov 2026: "make sure it can also send voices ... like when I send it
-/// a video, it extracts and transcribes it." A voice note is recorded here as
-/// AAC in an .m4a file -- small enough to upload on a phone connection -- and
-/// the words come back from the `transcribe` function and land in the field.
+/// Abel, 5 Nov 2026: the old bar recorded a file, sent it to a server and sat on
+/// "Listening..." until the words came back. Now the phone writes the words down
+/// while you talk (Apple's speech recognition, on the phone when it can), shows
+/// them above the waveform, and the check puts them in the field the moment you
+/// tap it. The sound is also kept in a small file: if speech recognition is
+/// refused or unavailable, that file goes to the server the old way.
 @MainActor
 @Observable
 final class VoiceRecorder {
@@ -17,52 +20,73 @@ final class VoiceRecorder {
     /// How loud the last moments were, 0 to 1, newest last: the waveform the
     /// bar draws while you talk, the way ChatGPT shows it.
     private(set) var levels: [Float] = Array(repeating: 0, count: VoiceRecorder.bars)
+    /// The words heard so far. Empty while nothing has been heard, or for good
+    /// when speech recognition is not available.
+    private(set) var liveText = ""
     static let bars = 40
 
-    private var recorder: AVAudioRecorder?
+    private var engine: AVAudioEngine?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
     private var ticker: Task<Void, Never>?
-    private var meter: Task<Void, Never>?
+    private var finalHeard = false
     private(set) var fileURL: URL?
 
-    /// Starts recording. False when the microphone was refused, so the caller
-    /// can say so rather than sit silent.
+    /// Starts listening. False when the microphone was refused, so the caller
+    /// can say so rather than sit silent. Speech recognition being refused is
+    /// not a failure: the sound is still recorded.
     func start() async -> Bool {
         guard !isRecording else { return true }
-        let allowed = await AVAudioApplication.requestRecordPermission()
-        guard allowed else { return false }
+        guard await AVAudioApplication.requestRecordPermission() else { return false }
+        let speech = await Self.speechAllowed()
 
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
             try session.setActive(true)
 
+            let engine = AVAudioEngine()
+            let input = engine.inputNode
+            let format = input.outputFormat(forBus: 0)
             let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("voice-\(UUID().uuidString).m4a")
-            let settings: [String: Any] = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 16_000,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderBitRateKey: 32_000,
-            ]
-            let recorder = try AVAudioRecorder(url: url, settings: settings)
-            recorder.isMeteringEnabled = true
-            guard recorder.record() else { return false }
+                .appendingPathComponent("voice-\(UUID().uuidString).wav")
+            let file = try AVAudioFile(forWriting: url, settings: format.settings)
 
-            self.recorder = recorder
-            fileURL = url
-            seconds = 0
-            levels = Array(repeating: 0, count: Self.bars)
-            isRecording = true
-            meter = Task { [weak self] in
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .milliseconds(60))
-                    guard let self, self.isRecording, let recorder = self.recorder else { return }
-                    recorder.updateMeters()
-                    // -50 dB is silence enough; 0 dB is as loud as it gets.
-                    let level = max(0, min(1, (recorder.averagePower(forChannel: 0) + 50) / 50))
-                    self.levels = Array(self.levels.dropFirst()) + [level]
+            var listening: SFSpeechAudioBufferRecognitionRequest?
+            if speech, let recognizer = SFSpeechRecognizer(locale: .current) ?? SFSpeechRecognizer(), recognizer.isAvailable {
+                let made = SFSpeechAudioBufferRecognitionRequest()
+                made.shouldReportPartialResults = true
+                if recognizer.supportsOnDeviceRecognition { made.requiresOnDeviceRecognition = true }
+                listening = made
+                finalHeard = false
+                task = recognizer.recognitionTask(with: made) { [weak self] result, _ in
+                    let words = result?.bestTranscription.formattedString
+                    let done = result?.isFinal ?? false
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if let words { self.liveText = words }
+                        if done { self.finalHeard = true }
+                    }
                 }
             }
+            request = listening
+            let sink = listening
+
+            input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+                try? file.write(from: buffer)
+                sink?.append(buffer)
+                let level = Self.level(of: buffer)
+                Task { @MainActor in self?.push(level) }
+            }
+            engine.prepare()
+            try engine.start()
+
+            self.engine = engine
+            fileURL = url
+            seconds = 0
+            liveText = ""
+            levels = Array(repeating: 0, count: Self.bars)
+            isRecording = true
             ticker = Task { [weak self] in
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(1))
@@ -72,34 +96,86 @@ final class VoiceRecorder {
             }
             return true
         } catch {
+            teardown()
             return false
         }
     }
 
-    /// Stops, and hands back the file -- nil when nothing worth sending was
-    /// said (under a second).
-    func stop() -> URL? {
-        guard isRecording else { return nil }
-        recorder?.stop()
-        recorder = nil
-        ticker?.cancel()
-        ticker = nil
-        meter?.cancel()
-        meter = nil
-        isRecording = false
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    /// Stops, and hands back what was said: the words when they were heard, else
+    /// the sound file for the server -- nil when nothing worth keeping (under a
+    /// second) was said.
+    func finish() async -> (words: String, file: URL?) {
+        guard isRecording else { return ("", nil) }
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        request?.endAudio()
+        // The last few words arrive just after the audio ends.
+        if request != nil {
+            for _ in 0..<14 where !finalHeard {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        let words = liveText.trimmingCharacters(in: .whitespacesAndNewlines)
         let kept = seconds >= 1 ? fileURL : nil
-        if kept == nil, let fileURL { try? FileManager.default.removeItem(at: fileURL) }
-        return kept
+        let url = fileURL
+        teardown()
+        if let url, !words.isEmpty || kept == nil { try? FileManager.default.removeItem(at: url) }
+        return (words, words.isEmpty ? kept : nil)
     }
 
     /// Stops and throws the recording away.
     func cancel() {
-        if let url = stop() { try? FileManager.default.removeItem(at: url) }
+        let url = fileURL
+        engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        teardown()
+        if let url { try? FileManager.default.removeItem(at: url) }
     }
 
     var clock: String {
         String(format: "%d:%02d", seconds / 60, seconds % 60)
+    }
+
+    private func push(_ level: Float) {
+        guard isRecording else { return }
+        levels = Array(levels.dropFirst()) + [level]
+    }
+
+    private func teardown() {
+        task?.cancel()
+        task = nil
+        request = nil
+        engine = nil
+        ticker?.cancel()
+        ticker = nil
+        isRecording = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private static func speechAllowed() async -> Bool {
+        switch SFSpeechRecognizer.authorizationStatus() {
+        case .authorized:
+            return true
+        case .notDetermined:
+            return await withCheckedContinuation { continuation in
+                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+            }
+        default:
+            return false
+        }
+    }
+
+    /// Loudness of one buffer, 0 to 1: -50 dB is silence enough, 0 dB is as loud
+    /// as it gets.
+    nonisolated private static func level(of buffer: AVAudioPCMBuffer) -> Float {
+        guard let samples = buffer.floatChannelData?[0] else { return 0 }
+        let count = Int(buffer.frameLength)
+        guard count > 0 else { return 0 }
+        var sum: Float = 0
+        for index in 0..<count { sum += samples[index] * samples[index] }
+        let rms = (sum / Float(count)).squareRoot()
+        let decibels = 20 * log10(max(rms, 0.000_01))
+        return max(0, min(1, (decibels + 50) / 50))
     }
 }
 

@@ -72,6 +72,11 @@ struct ChatComposer: View {
     @State private var recorder = VoiceRecorder()
     @State private var transcribing = false
     @State private var micRefused = false
+    /// The words have outgrown one line: the field takes the whole width and the
+    /// buttons drop under it, the way Claude's and ChatGPT's bars do. Stays set
+    /// until the field is empty again, so the layout cannot flip back and forth
+    /// as the wider field fits the same words on fewer lines.
+    @State private var tall = false
 
     private var hasRequest: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -124,31 +129,15 @@ struct ChatComposer: View {
                 pendingStrip
             }
 
-            HStack(alignment: .bottom, spacing: onCreateVideo != nil && footer == nil ? 4 : 6) {
-                if recorder.isRecording {
-                    recordingRow
-                } else {
+            if recorder.isRecording {
+                recordingCard
+            } else if isPlainBar {
+                plainRow
+            } else {
+                HStack(alignment: .bottom, spacing: onCreateVideo != nil && footer == nil ? 4 : 6) {
                     if footer == nil { plusButton }
                     if footer == nil, onCreateVideo != nil { createVideoButton }
-
-                    TextField(
-                        transcribing ? "Listening…" : (attachments.isEmpty && videos.isEmpty ? placeholder : "Say what to do with it"),
-                        text: $text,
-                        axis: .vertical
-                    )
-                        .font(.system(size: 16))
-                        .lineSpacing(3)
-                        // One line at rest, growing to six, then scrolling inside
-                        // itself. The buttons stay on the bottom edge while it grows.
-                        .lineLimit(1...6)
-                        // The placeholder stays on one line; it used to wrap to
-                        // two when the row was tight.
-                        .minimumScaleFactor(0.85)
-                        .focused($isFocused)
-                        .padding(.horizontal, footer == nil ? 4 : 8)
-                        .padding(.vertical, 7)
-                        .id(resetToken)
-
+                    field
                     if footer == nil, onSettings != nil { settingsButton }
                     if showsMic { micButton } else if footer == nil { actionButton }
                 }
@@ -330,44 +319,135 @@ struct ChatComposer: View {
         }
     }
 
-    /// While recording: the bar is a red dot, the time, and the two ways out.
-    private var recordingRow: some View {
-        HStack(spacing: 10) {
-            Button { recorder.cancel() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(PressButtonStyle())
-            .accessibilityLabel("Discard recording")
+    /// What has been said so far, after anything already typed.
+    private var dictated: String {
+        [text, recorder.liveText].filter { !$0.isEmpty }.joined(separator: " ")
+    }
 
-            Circle().fill(.red).frame(width: 9, height: 9)
-            Text(recorder.clock)
-                .font(.system(size: 16, weight: .medium).monospacedDigit())
-            // Your voice as you speak, scrolling in from the right.
-            RecordingWave(levels: recorder.levels)
-                .frame(maxWidth: .infinity)
+    /// While talking (Claude's way): your words above, and under them an X to
+    /// throw it away, the waveform, the time, and a check to keep it. The check
+    /// is not Send: it only puts the words in the field.
+    private var recordingCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(dictated.isEmpty ? "Listening…" : dictated)
+                .font(.system(size: 16))
+                .lineSpacing(3)
+                .foregroundStyle(dictated.isEmpty ? .secondary : .primary)
+                .lineLimit(6)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 6)
+                .padding(.top, 4)
 
-            Button {
-                guard let file = recorder.stop() else { return }
-                transcribing = true
-                Task {
-                    await onVoice?(file)
-                    try? FileManager.default.removeItem(at: file)
-                    transcribing = false
+            HStack(spacing: 10) {
+                Button { recorder.cancel() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.primary.opacity(0.08)))
                 }
-            } label: {
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(Theme.accent))
+                .buttonStyle(PressButtonStyle())
+                .accessibilityLabel("Discard recording")
+
+                // Your voice as you speak, scrolling in from the right.
+                RecordingWave(levels: recorder.levels)
+                    .frame(maxWidth: .infinity)
+
+                Text(recorder.clock)
+                    .font(.system(size: 13).monospacedDigit())
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    Task { await finishTalking() }
+                } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 34)
+                        .background(Circle().fill(Color.blue))
+                }
+                .buttonStyle(PressButtonStyle())
+                .accessibilityLabel("Finish talking")
             }
-            .buttonStyle(PressButtonStyle())
-            .accessibilityLabel("Finish recording")
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    /// The check: the words go into the field at once and the cursor lands after
+    /// them. Only when the phone could not listen does the sound go to the
+    /// server, as it always used to.
+    private func finishTalking() async {
+        let heard = await recorder.finish()
+        if !heard.words.isEmpty {
+            text = text.isEmpty ? heard.words : text + " " + heard.words
+            isFocused = true
+        } else if let file = heard.file {
+            transcribing = true
+            await onVoice?(file)
+            try? FileManager.default.removeItem(at: file)
+            transcribing = false
+        }
+    }
+
+    /// The message field. Its own property so the bar's body stays small enough
+    /// for the compiler.
+    private var field: some View {
+        TextField(
+            transcribing ? "Writing it down…" : (attachments.isEmpty && videos.isEmpty ? placeholder : "Say what to do with it"),
+            text: $text,
+            axis: .vertical
+        )
+            .font(.system(size: 16))
+            .lineSpacing(3)
+            // One line at rest, growing to six, then scrolling inside
+            // itself. The buttons stay on the bottom edge while it grows.
+            .lineLimit(1...6)
+            // The placeholder stays on one line; it used to wrap to
+            // two when the row was tight.
+            .minimumScaleFactor(0.85)
+            .focused($isFocused)
+            .padding(.horizontal, footer == nil ? 4 : 8)
+            .padding(.vertical, 7)
+            .id(resetToken)
+    }
+
+    /// The ordinary chat bar: no generator strip, no sliders, no video pill.
+    private var isPlainBar: Bool {
+        footer == nil && onSettings == nil && onCreateVideo == nil
+    }
+
+    /// One bar that is a row at rest and a card once the words need a second
+    /// line (Abel, 5 Nov 2026: "the more you add a new line, the wider it gets").
+    /// The field never leaves its place in the tree, so focus and the cursor
+    /// survive the change: the buttons sit on the bottom edge either way, and the
+    /// field only gives up the room beside them -- or, when tall, takes it back
+    /// and lifts itself above them.
+    private var plainRow: some View {
+        ZStack(alignment: .bottom) {
+            field
+                .padding(.leading, tall ? 0 : 38)
+                .padding(.trailing, tall ? 0 : 38)
+                .padding(.bottom, tall ? 40 : 0)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    if height > 52 { tall = true }
+                }
+            HStack(spacing: 6) {
+                plusButton
+                Spacer(minLength: 0)
+                if canDictate, tall || showsMic { micButton }
+                if !showsMic { actionButton }
+            }
+        }
+        .onChange(of: text) { _, now in
+            if now.isEmpty { tall = false }
+        }
+        .onChange(of: resetToken) { _, _ in tall = false }
+        .animation(.easeOut(duration: 0.18), value: tall)
+    }
+
+    /// The microphone is offered whenever there is a place to put the words.
+    private var canDictate: Bool {
+        onVoice != nil && !isWorking
     }
 
     /// Send, or -- while an answer is being written -- stop.

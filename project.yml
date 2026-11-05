@@ -131,7 +131,9 @@ targets:
         # numbered order) needs to read the library, not just add to it.
         NSPhotoLibraryUsageDescription: Postpilot shows your photos and videos so you can pick what to edit and post.
         # A voice note in the chat bar is recorded and turned into words.
-        NSMicrophoneUsageDescription: Postpilot listens when you record a voice note, and turns it into words for your message.
+        NSMicrophoneUsageDescription: Postpilot listens when you talk into the message bar, and turns it into words for your message.
+        # Live words while you talk into the message bar.
+        NSSpeechRecognitionUsageDescription: Postpilot turns what you say into words as you speak, so you can read and fix them before sending.
         # "Add to my Calendar" on a scheduled drop. Write-only: it never reads the calendar.
         NSCalendarsWriteOnlyAccessUsageDescription: Postpilot adds your scheduled drops to your calendar so you know when they arrive.
         # Declares no non-exempt encryption. Without this TestFlight blocks

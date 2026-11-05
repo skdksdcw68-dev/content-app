@@ -50,7 +50,28 @@ export const MODELS = {
   /** The chat's big questions (depth full), the router's second read for
    *  anything that makes something, and campaign strategy. */
   smart: Deno.env.get("SMART_MODEL") ?? "gpt-5.6-terra",
+  /** Normal talk, 5 Nov 2026 (Abel): Claude Haiku 5.5, through OpenRouter. */
+  talk: Deno.env.get("TALK_MODEL") ?? "anthropic/claude-haiku-5.5",
+  /** Anything that needs a mind -- a full answer, the prompts for a picture or
+   *  video -- Claude Sonnet 5.5 thinking. Web answers stay on `web` (OpenAI). */
+  think: Deno.env.get("THINK_MODEL") ?? "anthropic/claude-sonnet-5.5",
 } as const;
+
+/** Set once Abel's OpenRouter credit is in: `talk` and `think` need it. Without
+ *  it every call keeps going to OpenAI, as before. */
+export const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+
+/** Where a chat-completions call for `model` goes. OpenRouter names its models
+ *  "vendor/name"; OpenAI's have no slash. */
+export function completionsFor(model: string, openaiKey: string): { url: string; key: string } {
+  return model.includes("/")
+    ? { url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_KEY }
+    : { url: "https://api.openai.com/v1/chat/completions", key: openaiKey };
+}
+
+/** How hard `think` reasons: low for the JSON prompts the router writes (speed),
+ *  medium for a full answer. */
+export const THINK_EFFORT = (Deno.env.get("THINK_EFFORT") ?? "medium") as "low" | "medium" | "high";
 
 /** How hard the web model thinks before it writes; see `MODELS.web`. */
 export const WEB_EFFORT = (Deno.env.get("WEB_EFFORT") ?? "low") as "none" | "low" | "medium";
@@ -419,11 +440,13 @@ export async function route(
   ].join("\n");
 
   try {
-    const read = (model: string) =>
-      fetch("https://api.openai.com/v1/chat/completions", {
+    const read = (model: string) => {
+      const to = completionsFor(model, apiKey);
+      return fetch(to.url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${to.key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(model.includes("/") ? { reasoning: { effort: "low" } } : {}),
           // The chat tier, not the fast one, since the router started reading
           // the conversation. "Try again please" was classified as a planning
           // request by the cheap model reading one line in isolation -- and a
@@ -438,22 +461,31 @@ export async function route(
           ],
         }),
       });
+    };
 
-    let model: string = tier === "deep" ? MODELS.smart : MODELS.quick;
+    // The second read of a make or revise writes the prompts: Sonnet thinking
+    // when OpenRouter is set up, the old model otherwise.
+    let model: string = tier === "deep" ? (OPENROUTER_KEY ? MODELS.think : MODELS.smart) : MODELS.quick;
     let response = await read(model);
     // Refused -- no credit for the newer models, as on 3 Nov 2026, when only
     // gpt-4.1-mini still answered: the old model rather than no reading at all.
     if (!response.ok && model !== MODELS.chat) {
       console.warn("route: falling back", model, response.status);
-      model = MODELS.chat;
+      model = model.includes("/") ? MODELS.smart : MODELS.chat;
       response = await read(model);
+      if (!response.ok && model !== MODELS.chat) {
+        model = MODELS.chat;
+        response = await read(model);
+      }
     }
 
     if (!response.ok) return fallback(message);
 
     const body = await response.json();
     await onUsage?.(body.model ?? model, body.usage ?? null).catch(() => {});
-    const parsed = JSON.parse(body.choices?.[0]?.message?.content ?? "{}");
+    // Claude sometimes wraps the object in a code fence.
+    const said: string = body.choices?.[0]?.message?.content ?? "{}";
+    const parsed = JSON.parse(said.slice(said.indexOf("{"), said.lastIndexOf("}") + 1) || "{}");
     const intent = parsed?.intent;
     const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
     const jobs = readJobs(parsed);

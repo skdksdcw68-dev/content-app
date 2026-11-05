@@ -52,6 +52,9 @@ export interface TokenUsage {
 }
 
 export function costUSD(model: string, usage: TokenUsage | null | undefined): number | null {
+  // OpenRouter's name for a Claude ("anthropic/claude-haiku-5.5") is the same
+  // model at the same price as "claude-haiku-5-5".
+  if (model.startsWith("anthropic/")) model = model.slice(10).replace(/(\d)\.(\d)/g, "$1-$2");
   // Dated snapshots ("gpt-4.1-mini-2025-04-14") price as their family.
   const key = Object.keys(PRICES)
     .filter((name) => model === name || model.startsWith(`${name}-2`))

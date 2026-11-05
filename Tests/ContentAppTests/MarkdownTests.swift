@@ -61,6 +61,15 @@ final class MarkdownTests: XCTestCase {
         XCTAssertEqual(segments[2], .text([.paragraph("After")]))
     }
 
+    func testAFencedPromptIsItsOwnSegment() {
+        let segments = ChatMarkdown.segments(ChatMarkdown.blocks("Scene 1\n\n```\nLena, 34, mustard shirt\n```\n\nScene 2"))
+        XCTAssertEqual(segments, [
+            .text([.paragraph("Scene 1")]),
+            .code("Lena, 34, mustard shirt"),
+            .text([.paragraph("Scene 2")]),
+        ])
+    }
+
     // MARK: - Inline
 
     func testBoldItalicAndCodeLoseTheirMarkers() {

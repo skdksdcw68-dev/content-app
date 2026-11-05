@@ -23,6 +23,10 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
 /** The model for writing about posts. One place to change it. */
 export const CLAUDE_WRITER = Deno.env.get("CLAUDE_MODEL") ?? "claude-sonnet-5-5";
 
+/** Claude through OpenRouter, tried first when its key is set. */
+const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
+const OPENROUTER_WRITER = Deno.env.get("THINK_MODEL") ?? "anthropic/claude-sonnet-5.5";
+
 const ANTHROPIC_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
 
@@ -141,6 +145,14 @@ function textOf(message: Anthropic.Message): string {
 
 /** One answer, from Claude, or from OpenAI when Claude cannot. */
 export async function write(request: WriterRequest): Promise<Completion> {
+  const viaOpenRouter = openRouter(request);
+  if (viaOpenRouter) {
+    try {
+      return await openai(request, viaOpenRouter);
+    } catch (thrown) {
+      console.warn("writer: openrouter failed", thrown instanceof Error ? thrown.message : thrown);
+    }
+  }
   const anthropic = request.prefer === "openai" ? null : claude();
   if (anthropic) {
     try {
@@ -172,6 +184,19 @@ export async function write(request: WriterRequest): Promise<Completion> {
  * analytics answer, which the person watches arrive.
  */
 export async function writeStreaming(request: WriterRequest, onText: (piece: string) => void): Promise<Completion> {
+  const viaOpenRouter = openRouter(request);
+  if (viaOpenRouter) {
+    let started = false;
+    try {
+      return await openaiStreaming(request, (piece) => {
+        started = true;
+        onText(piece);
+      }, viaOpenRouter);
+    } catch (thrown) {
+      console.warn("writer: openrouter stream failed", thrown instanceof Error ? thrown.message : thrown);
+      if (started) throw thrown;
+    }
+  }
   const anthropic = request.prefer === "openai" ? null : claude();
   if (anthropic) {
     let wrote = false;
@@ -209,20 +234,47 @@ export async function writeStreaming(request: WriterRequest, onText: (piece: str
  *  out of credit and only gpt-4.1-mini still answered. */
 const OPENAI_FALLBACK = Deno.env.get("CHAT_MODEL") ?? "gpt-4.1-mini";
 
-async function openai(request: WriterRequest): Promise<Completion> {
+/** The same call to OpenRouter, for Claude Sonnet 5.5 (5 Nov 2026: Abel's credit
+ *  is there, not at Anthropic). OpenAI's request shape, so no conversion. */
+interface Target {
+  url: string;
+  key: string;
+  model: string;
+  extra: Record<string, unknown>;
+}
+
+function openRouter(request: WriterRequest): Target | null {
+  if (!OPENROUTER_KEY || request.prefer === "openai") return null;
+  return {
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    key: OPENROUTER_KEY,
+    model: OPENROUTER_WRITER,
+    extra: { reasoning: { effort: request.effort ?? "low" }, max_tokens: request.maxTokens ?? 16000 },
+  };
+}
+
+/** Claude refuses an empty turn and a chat that opens with the assistant. */
+function forClaude(messages: WriterMessage[]): WriterMessage[] {
+  const kept = messages.filter((m) => m.role === "system" || typeof m.content !== "string" || m.content.trim().length > 0);
+  while (kept.length > 0 && kept[0].role === "assistant") kept.shift();
+  return kept;
+}
+
+async function openai(request: WriterRequest, target: Target | null = null): Promise<Completion> {
   const ask = (model: string) =>
-    fetch("https://api.openai.com/v1/chat/completions", {
+    fetch(target?.url ?? "https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${target?.key ?? OPENAI_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
+        ...(target?.extra ?? {}),
         ...(request.json ? { response_format: { type: "json_object" } } : {}),
-        messages: request.messages,
+        messages: target ? forClaude(request.messages) : request.messages,
       }),
     });
-  let model = request.openaiModel;
+  let model = target?.model ?? request.openaiModel;
   let response = await ask(model);
-  if (!response.ok && model !== OPENAI_FALLBACK) {
+  if (!response.ok && !target && model !== OPENAI_FALLBACK) {
     console.warn("writer: falling back", model, response.status);
     await response.body?.cancel().catch(() => {});
     model = OPENAI_FALLBACK;
@@ -238,25 +290,32 @@ async function openai(request: WriterRequest): Promise<Completion> {
       total_tokens: body.usage?.total_tokens ?? 0,
       prompt_tokens_details: { cached_tokens: body.usage?.prompt_tokens_details?.cached_tokens ?? 0 },
     },
-    choices: [{ message: { content: body.choices?.[0]?.message?.content ?? "" } }],
+    choices: [{
+      message: {
+        content: target && request.json
+          ? jsonOnly(body.choices?.[0]?.message?.content ?? "")
+          : body.choices?.[0]?.message?.content ?? "",
+      },
+    }],
   };
 }
 
-async function openaiStreaming(request: WriterRequest, onText: (piece: string) => void): Promise<Completion> {
+async function openaiStreaming(request: WriterRequest, onText: (piece: string) => void, target: Target | null = null): Promise<Completion> {
   const ask = (model: string) =>
-    fetch("https://api.openai.com/v1/chat/completions", {
+    fetch(target?.url ?? "https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${target?.key ?? OPENAI_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
+        ...(target?.extra ?? {}),
         stream: true,
         stream_options: { include_usage: true },
-        messages: request.messages,
+        messages: target ? forClaude(request.messages) : request.messages,
       }),
     });
-  let model = request.openaiModel;
+  let model = target?.model ?? request.openaiModel;
   let upstream = await ask(model);
-  if (!upstream.ok && model !== OPENAI_FALLBACK) {
+  if (!upstream.ok && !target && model !== OPENAI_FALLBACK) {
     console.warn("writer: falling back", model, upstream.status);
     await upstream.body?.cancel().catch(() => {});
     model = OPENAI_FALLBACK;

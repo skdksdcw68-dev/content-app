@@ -24,7 +24,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
-import { leftToUs, missingForPlan, MODELS, REPLY_EFFORT, route, type RoutedJob, type RoutedSchedule, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
+import { completionsFor, leftToUs, missingForPlan, MODELS, OPENROUTER_KEY, REPLY_EFFORT, route, THINK_EFFORT, type RoutedJob, type RoutedSchedule, vagueSubject, WEB_EFFORT } from "../_shared/route.ts";
 import { choicesFor, matchModels, settlesOn } from "../_shared/connectors/choose.ts";
 import { balanceFor, candidatesFor, oneEach } from "../_shared/connectors/route.ts";
 import type { Capability } from "../_shared/connectors/contract.ts";
@@ -3132,6 +3132,7 @@ How to answer:
 - Short paragraphs of one to three sentences with a blank line between them. Never a wall of text.
 - "## " headings for the sections of a longer answer, "- " bullets, "1." steps, **bold** for the few phrases that matter, and a table when comparing options across the same attributes.
 - A few emojis where they add warmth or mark a section (🔥 ✅ 📈 🎯), never one on every line.
+- Anything they will copy and paste into another tool -- a picture or video prompt, a script, a caption, a voiceover line -- goes in its own fenced code block (three backticks, no language), one block per prompt, with its label ("Scene 2") as a line above it, never inside it. The app gives the block a Copy button.
 - End with the next move: a clear recommendation, or one question that moves them forward.
 A casual message gets none of this -- just talk.`
             : `The app shows plain text, not markdown: never use asterisks, pound signs, backticks
@@ -3442,7 +3443,13 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
 
           // A question about their numbers or a "why" gets the better model and a
           // full answer; "hi" does not.
-          const replyModel = routed.depth === "full" ? MODELS.smart : MODEL;
+          // Abel, 5 Nov 2026: Haiku for normal talk, Sonnet thinking for what needs
+          // a mind, OpenAI for anything that looks things up. Without OpenRouter
+          // credit set up, the OpenAI models answer as before.
+          const claudeOn = OPENROUTER_KEY !== "";
+          const replyModel = routed.depth === "full"
+            ? (claudeOn ? MODELS.think : MODELS.smart)
+            : (claudeOn ? MODELS.talk : MODEL);
           const depthNote = routed.depth === "full"
             ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
             : "";
@@ -3464,7 +3471,9 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // trending" was answered from memory because the router said no search.
           // "Search the web by itself" off: it still searches when the message
           // plainly needs it (the router's `web`), never on its own.
-          if (OPENAI_KEY && (routed.web || !webOff)) {
+          // With Claude answering, the router's `web` is what sends a message to
+          // the OpenAI search; Claude does not search on its own.
+          if (OPENAI_KEY && (routed.web || (!webOff && !claudeOn))) {
             const forced = routed.web;
             const answer = await answerFromTheWeb({
               apiKey: OPENAI_KEY,
@@ -3508,14 +3517,21 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             console.error("reply with search: nothing written, answering without it");
           }
 
-          const writeWith = (model: string) => fetch("https://api.openai.com/v1/chat/completions", {
+          const writeWith = (model: string) => {
+            const to = completionsFor(model, OPENAI_KEY ?? "");
+            const toClaude = model.includes("/");
+            // Claude refuses a chat that opens with the assistant.
+            const sent = toClaude ? [...turns] : turns;
+            while (sent.length > 0 && sent[0].role === "assistant") sent.shift();
+            return fetch(to.url, {
             method: "POST",
             headers: {
-              Authorization: `Bearer ${OPENAI_KEY}`,
+              Authorization: `Bearer ${to.key}`,
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
               model,
+              ...(model === MODELS.think ? { reasoning: { effort: THINK_EFFORT } } : {}),
               stream: true,
               // The last chunk then carries the real token counts.
               stream_options: { include_usage: true },
@@ -3529,19 +3545,26 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
                     brief, remembered, factBlock, stateBlock, avoid, ownerBlock, depthNote,
                   ].filter(Boolean).join("\n\n"),
                 },
-                ...turns,
+                ...sent,
               ],
             }),
-          });
+            });
+          };
 
           let writer: string = replyModel;
           let upstream = await writeWith(writer);
-          // Refused (no credit for the newer models): the older one still answers.
+          // Refused (no credit for the newer models): Claude's turn goes to the
+          // OpenAI model of the same weight, then to the older one.
           if (!upstream.ok && writer !== MODELS.chat) {
             console.warn("reply: falling back", writer, upstream.status);
             await upstream.body?.cancel().catch(() => {});
-            writer = MODELS.chat;
+            writer = writer.includes("/") ? (routed.depth === "full" ? MODELS.smart : MODEL) : MODELS.chat;
             upstream = await writeWith(writer);
+            if (!upstream.ok && writer !== MODELS.chat) {
+              await upstream.body?.cancel().catch(() => {});
+              writer = MODELS.chat;
+              upstream = await writeWith(writer);
+            }
           }
 
           if (!upstream.ok || !upstream.body) {

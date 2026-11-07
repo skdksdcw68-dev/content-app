@@ -44,7 +44,44 @@ struct ChatModelPrefs: Equatable {
 
     /// The effort beside the name, for the models that think.
     var chipEffort: String? {
-        ["auto", "sonnet", "opus", "terra"].contains(model) ? effort.capitalized : nil
+        ["auto", "sonnet", "opus", "terra"].contains(model) ? Self.effortName(effort) : nil
+    }
+
+    /// What the person sees for the three levels the server knows.
+    static func effortName(_ effort: String) -> String {
+        switch effort {
+        case "low": "Fast"
+        case "high": "Deep"
+        default: "Normal"
+        }
+    }
+}
+
+/// Fast, Normal or Deep, picked right in the chat bar.
+struct EffortMenu: View {
+    @Binding var prefs: ChatModelPrefs
+
+    var body: some View {
+        Menu {
+            Picker("Analysis", selection: $prefs.effort) {
+                Text("Fast").tag("low")
+                Text("Normal").tag("medium")
+                Text("Deep").tag("high")
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(ChatModelPrefs.effortName(prefs.effort))
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(Capsule().fill(Color.primary.opacity(0.08)))
+        }
+        .accessibilityLabel("Analysis: \(ChatModelPrefs.effortName(prefs.effort))")
     }
 }
 
@@ -59,11 +96,6 @@ struct ModelChip: View {
                 Text(prefs.chipTitle)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
-                if let effort = prefs.chipEffort {
-                    Text(effort)
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                }
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -106,7 +138,7 @@ struct ModelPickerSheet: View {
                     NavigationLink {
                         EffortPage(prefs: $prefs)
                     } label: {
-                        LabeledContent("Effort", value: prefs.effort.capitalized)
+                        LabeledContent("Analysis", value: ChatModelPrefs.effortName(prefs.effort))
                     }
                 }
                 .listRowBackground(GrokLook.card(scheme))
@@ -205,9 +237,9 @@ private struct EffortPage: View {
     var body: some View {
         List {
             Section {
-                ModelRow(title: "Low", detail: "Quickest, thinks a little", isChosen: prefs.effort == "low") { set("low") }
-                ModelRow(title: "Medium", detail: "Balanced, the default", isChosen: prefs.effort == "medium") { set("medium") }
-                ModelRow(title: "High", detail: "Slowest, thinks the most", isChosen: prefs.effort == "high") { set("high") }
+                ModelRow(title: "Fast", detail: "Quickest, thinks a little", isChosen: prefs.effort == "low") { set("low") }
+                ModelRow(title: "Normal", detail: "Balanced, the default", isChosen: prefs.effort == "medium") { set("medium") }
+                ModelRow(title: "Deep", detail: "Slowest, thinks the most", isChosen: prefs.effort == "high") { set("high") }
             } footer: {
                 Text("Effort is how long Sonnet thinks before it writes. More thinking gives better scripts and prompts, and takes a few seconds longer. Haiku always answers straight away.")
             }

@@ -431,6 +431,9 @@ struct ChatComposer: View {
                     isFocused = false
                     showingModels = true
                 }
+                if models.chipEffort != nil {
+                    EffortMenu(prefs: $models)
+                }
                 Spacer(minLength: 0)
                 if canDictate { micButton }
                 actionButton

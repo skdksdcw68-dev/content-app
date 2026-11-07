@@ -657,7 +657,7 @@ private struct PostingCard: View {
 
                 ZStack {
                     if Self.samples.count > 1 {
-                        LoopingVideo(url: Self.samples[1])
+                        SampleLoopVideo(url: Self.samples[1])
                             .frame(width: 66, height: 118)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .rotationEffect(.degrees(-8))
@@ -665,7 +665,7 @@ private struct PostingCard: View {
                             .opacity(0.85)
                     }
                     if let first = Self.samples.first {
-                        LoopingVideo(url: first)
+                        SampleLoopVideo(url: first)
                             .frame(width: 72, height: 128)
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .rotationEffect(.degrees(5))

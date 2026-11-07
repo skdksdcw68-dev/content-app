@@ -43,7 +43,7 @@ struct SeriesStepBar: View {
 }
 
 /// A sample video playing on a loop, muted: what a format looks like.
-struct LoopingVideo: UIViewRepresentable {
+struct SampleLoopVideo: UIViewRepresentable {
     let url: URL
 
     func makeUIView(context: Context) -> PlayerView {
@@ -91,7 +91,7 @@ struct FormatCard: View {
             ZStack(alignment: .bottomLeading) {
                 Group {
                     if let url = template.previewURL {
-                        LoopingVideo(url: url)
+                        SampleLoopVideo(url: url)
                     } else {
                         StyleCover(slug: template.slug, symbol: template.symbol)
                     }

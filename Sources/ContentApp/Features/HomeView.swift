@@ -48,6 +48,10 @@ struct HomeView: View {
             .min { ($0.scheduledFor ?? .distantFuture) < ($1.scheduledFor ?? .distantFuture) }
     }
 
+    /// The next video to go out, shown first -- only once there is a generator,
+    /// which is what the old bottom card also needed.
+    private var heroNext: PlannedPost? { hasGenerator ? nextUp : nil }
+
     private var brandTimeZone: TimeZone {
         session.brand.flatMap { TimeZone(identifier: $0.timezone) } ?? .current
     }
@@ -81,9 +85,28 @@ struct HomeView: View {
                 // (Abel, 24 Sep 2026: "there is no gap b/n describe video and
                 // the home and profile thing"), and the title still shares
                 // the bar's line, which is the part he wanted kept.
-                askField
-                    .padding(.top, 20)
+                // The next video, first, when one is on its way out (Abel,
+                // 7 Nov 2026: the Studio design). Without a generator or
+                // anything scheduled, the old card stays at the bottom.
+                if let next = heroNext {
+                    NavigationLink { PlanView() } label: {
+                        UpNextCard(post: next, timezone: brandTimeZone)
+                    }
+                    .buttonStyle(SoftPressStyle())
+                    .padding(.top, 8)
                     .entrance(1)
+                }
+
+                askField
+                    .padding(.top, heroNext == nil ? 20 : 16)
+                    .entrance(1)
+
+                SectionHeader(title: "Make something", chevron: false) {}
+                    .padding(.top, 26)
+
+                HomeTemplateStrip()
+                    .padding(.top, 12)
+                    .entrance(2)
 
                 // The thing worth pushing, Fresha's gift-card card: a series.
                 Group {
@@ -129,7 +152,7 @@ struct HomeView: View {
                 .padding(.top, 26)
                 .entrance(2)
 
-                SectionHeader(title: "Start with a tool", chevron: false) {}
+                SectionHeader(title: "More tools", chevron: false) {}
                     .padding(.top, 26)
 
                 LazyVGrid(columns: pair, spacing: 12) {
@@ -200,12 +223,8 @@ struct HomeView: View {
                             GeneratorPromo(offer: session.connectable.first(where: \.isFeatured) ?? session.connectable.first)
                         }
                         .buttonStyle(SoftPressStyle())
-                    } else if let next = nextUp {
-                        NavigationLink { PlanView() } label: {
-                            UpNextCard(post: next, timezone: brandTimeZone)
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
+                    } else if heroNext == nil {
+                        // With something scheduled, its card is already at the top.
                         PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
                     }
                 }

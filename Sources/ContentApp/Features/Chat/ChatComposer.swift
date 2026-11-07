@@ -70,9 +70,11 @@ struct ChatComposer: View {
     var planRank: Int = 0
 
     @FocusState private var isFocused: Bool
-    /// Fast, Normal or Deep. Kept on the phone and read by the request that
-    /// sends the message.
+    /// Who answers, from the chip (Claude's model picker), with its effort
+    /// inside the sheet. Kept on the phone and read by the request that sends
+    /// the message.
     @State private var models = ChatModelPrefs.current
+    @State private var showingModels = false
     /// The bar grown to full screen for a long message (Abel, 7 Nov 2026). The
     /// same bar, not a new page, so the words, the cursor and the keyboard stay.
     @State private var isFull = false
@@ -416,12 +418,19 @@ struct ChatComposer: View {
             // The placeholder stays on one line; it used to wrap to
             // two when the row was tight.
             .minimumScaleFactor(0.85)
+            // Always its full height. Squeezed by the row, the words were cut
+            // off at the top and bottom (Abel, 7 Nov 2026).
+            .fixedSize(horizontal: false, vertical: true)
             .focused($isFocused)
             .padding(.horizontal, footer == nil ? 4 : 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, fieldPadding)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
             .id(resetToken)
     }
+
+    /// Room above and below the words: more on the chat bar, where the field
+    /// has a row of its own.
+    private var fieldPadding: CGFloat { isPlainBar ? 10 : 7 }
 
     /// One line of the field: 16 pt text plus its 3 pt line spacing.
     private static let lineHeight = UIFont.systemFont(ofSize: 16).lineHeight + 3
@@ -429,14 +438,14 @@ struct ChatComposer: View {
     /// The expand button shows once the words reach ten lines, and stays while
     /// the bar is full screen so it can shrink it back.
     private var showsExpand: Bool {
-        isPlainBar && room != nil && (isFull || fieldHeight - 14 >= Self.lineHeight * 9.5)
+        isPlainBar && room != nil && (isFull || fieldHeight - 2 * fieldPadding >= Self.lineHeight * 9.5)
     }
 
     /// How many lines fill the screen: the room above the keyboard, less the
     /// rest of the bar (buttons, padding).
     private var fullLines: Int {
         let chrome = max(0, barHeight - fieldHeight)
-        let lines = Int(((room?.available ?? 0) - chrome - 14) / Self.lineHeight)
+        let lines = Int(((room?.available ?? 0) - chrome - 2 * fieldPadding) / Self.lineHeight)
         return max(10, lines)
     }
 
@@ -475,11 +484,17 @@ struct ChatComposer: View {
                 .animation(.easeOut(duration: 0.18), value: showsExpand)
             HStack(spacing: 8) {
                 plusButton
-                EffortMenu(prefs: $models)
+                ModelChip(prefs: models) {
+                    isFocused = false
+                    showingModels = true
+                }
                 Spacer(minLength: 0)
                 if canDictate { micButton }
                 actionButton
             }
+        }
+        .sheet(isPresented: $showingModels) {
+            ModelPickerSheet(prefs: $models, planRank: planRank)
         }
         .onChange(of: models) { _, now in ChatModelPrefs.current = now }
     }

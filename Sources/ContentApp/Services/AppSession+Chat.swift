@@ -330,10 +330,11 @@ extension AppSession {
         // This build draws markdown, so the reply may use it. An older one shows
         // it as plain text and says nothing, and is never sent it.
         body["markdown"] = true
-        // Who answers, from Fast / Normal / Deep in the bar.
+        // Who answers, from the model chip; the effort only for a model that
+        // thinks, so Auto decides for itself.
         let models = ChatModelPrefs.current
         body["chatModel"] = models.model
-        body["effort"] = models.effort
+        body["effort"] = models.sentEffort
         // Where they are, so "what's on tonight" comes back in their time and
         // their country -- ChatGPT gave Abel kick-offs in Ethiopian time.
         body["timezone"] = TimeZone.current.identifier

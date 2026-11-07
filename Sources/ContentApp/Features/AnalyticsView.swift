@@ -183,14 +183,15 @@ struct AnalyticsView: View {
         .tabChrome(
             title: "Analytics",
             leading: hasAccount ? AnyView(
-                NavigationLink { PostsLibraryView() } label: {
-                    Image(systemName: "square.grid.3x3")
-                }
-                .accessibilityLabel("Your posts")
-                .popoverTip(tips.currentTip as? PostsLibraryTip, arrowEdge: .top)
-            ) : nil,
-            trailing: hasAccount ? AnyView(
                 HStack(spacing: 16) {
+                    NavigationLink { PostsLibraryView() } label: {
+                        Image(systemName: "square.grid.3x3")
+                    }
+                    .accessibilityLabel("Your posts")
+                    .popoverTip(tips.currentTip as? PostsLibraryTip, arrowEdge: .top)
+
+                    // Platform and filters sit on the left, so the right side
+                    // is only share and the profile (Abel, 7 Nov 2026).
                     AnalyticsFilterMenu(
                         platforms: connectedPlatforms,
                         filters: report?.filters,
@@ -200,7 +201,10 @@ struct AnalyticsView: View {
                         planId: $planId
                     )
                     .popoverTip(tips.currentTip as? FilterTip, arrowEdge: .top)
-
+                }
+            ) : nil,
+            trailing: hasAccount ? AnyView(
+                HStack(spacing: 16) {
                     exportMenu
                         .popoverTip(tips.currentTip as? ExportTip, arrowEdge: .top)
 

@@ -713,12 +713,14 @@ struct ThinkingIndicator: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // Abel, 7 Nov 2026 (the Telegram way): a "Sending" pill from the tap
-        // until the server has the message -- it stays as long as the
-        // connection takes -- and then the word "Thinking". Nothing is faked:
-        // offline, the pill just stays, and a timeout says so as before.
+        // Abel, 7 Nov 2026 (the Telegram way): the dot from the tap until the
+        // server has the message -- it stays as long as the connection takes
+        // -- and then the word "Thinking". Nothing is faked: offline, the dot
+        // just stays, and a timeout says so as before.
         if sending {
-            SendingPill()
+            // The pill we already had: the breathing dot.
+            BreathingDot(size: 10)
+                .padding(.vertical, 4)
                 .transition(reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity))
         } else {
             thinking
@@ -762,26 +764,6 @@ struct ThinkingIndicator: View {
         }
         .accessibilityLabel("Thinking")
         .accessibilityHint("Shows what I'm working out")
-    }
-}
-
-/// The small pill under a message the server has not acknowledged yet: a tiny
-/// spinner and "Sending". It is the Telegram clock, in words.
-private struct SendingPill: View {
-    var body: some View {
-        HStack(spacing: 7) {
-            ProgressView()
-                .controlSize(.mini)
-            Text("Sending")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
-        .background(Capsule().fill(Color.primary.opacity(0.08)))
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Sending")
     }
 }
 

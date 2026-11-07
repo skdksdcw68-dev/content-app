@@ -509,8 +509,15 @@ async function renderPhase(deps: StoryDeps, state: StoryState): Promise<StepResu
   }
   const status = await deps.renderStatus(state.renderJobId);
   if (status.status === "failed") {
-    const why = (status.qc ?? []).filter((i) => i.level === "error").map((i) => i.message).slice(0, 2).join("; ") || status.error || "the render failed";
-    return fail(deps, state, `The final video didn't pass its checks (${why}). Nothing was published.`);
+    const checks = (status.qc ?? []).filter((i) => i.level === "error").map((i) => i.message).slice(0, 2).join("; ");
+    // A render that never finished has no checks to quote: say what happened.
+    return fail(
+      deps,
+      state,
+      checks
+        ? `The final video didn't pass its checks (${checks}). Nothing was published.`
+        : (status.error || "The video could not be finished. Nothing was published."),
+    );
   }
   if (status.status === "done" && status.outputPath) {
     state.finalPath = status.outputPath;

@@ -289,13 +289,28 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
     },
 
     async renderStatus(id) {
-      const { data } = await admin.from("render_jobs").select("status, output_path, error, qc, attempts").eq("id", id).maybeSingle();
-      const row = data as { status: string; output_path: string | null; error: string | null; qc: never; attempts: number } | null;
+      const { data } = await admin.from("render_jobs").select("status, output_path, error, qc, attempts, lease_until, created_at").eq("id", id).maybeSingle();
+      const row = data as { status: string; output_path: string | null; error: string | null; qc: never; attempts: number; lease_until: string | null; created_at: string } | null;
       if (!row) return { status: "failed", error: "the render job disappeared" };
+      // A render that stopped for good must say so. One stuck "rendering" for
+      // hours (7 Nov 2026) had its lease expire and nothing ever woke the
+      // renderer, because only "queued" jobs were nudged; and a job out of its
+      // three tries (claim_render_job) was never marked failed. The lease is
+      // the renderer's own deadline (15 minutes), so past it the job is dead.
+      const leaseRanOut = row.status === "rendering" && row.lease_until !== null && new Date(row.lease_until).getTime() < Date.now();
+      const waitedTooLong = row.status === "queued" && Date.now() - new Date(row.created_at).getTime() > 45 * 60_000;
+      if ((leaseRanOut && row.attempts >= 3) || waitedTooLong) {
+        const error = waitedTooLong
+          ? "The video renderer did not start. Nothing was published."
+          : "The video renderer did not finish after three tries. Nothing was published.";
+        await admin.rpc("finish_render_job", { p_job: id, p_ok: false, p_path: null, p_qc: null, p_error: error });
+        return { status: "failed", error };
+      }
       // Still waiting: the renderer may have stopped in the moment between its
       // last empty look at the queue and this job arriving. Starting it again
-      // is a no-op when it is already running.
-      if (row.status === "queued") await wakeRenderer();
+      // is a no-op when it is already running. A render whose time ran out
+      // (and has tries left) is claimed again by the renderer once it is awake.
+      if (row.status === "queued" || leaseRanOut) await wakeRenderer();
       return {
         status: row.status === "cancelled" ? "failed" : (row.status as "queued" | "rendering" | "done" | "failed"),
         ...(row.output_path ? { outputPath: row.output_path } : {}),

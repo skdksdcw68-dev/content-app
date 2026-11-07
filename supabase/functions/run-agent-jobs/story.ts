@@ -299,10 +299,13 @@ function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
       // the renderer's own deadline (15 minutes), so past it the job is dead.
       const leaseRanOut = row.status === "rendering" && row.lease_until !== null && new Date(row.lease_until).getTime() < Date.now();
       const waitedTooLong = row.status === "queued" && Date.now() - new Date(row.created_at).getTime() > 45 * 60_000;
-      if ((leaseRanOut && row.attempts >= 3) || waitedTooLong) {
+      // Woken and still nobody took it back in half an hour: the wake-up does
+      // not work, and waiting longer will not change that.
+      const leaseLongGone = leaseRanOut && Date.now() - new Date(row.lease_until as string).getTime() > 30 * 60_000;
+      if ((leaseRanOut && row.attempts >= 3) || leaseLongGone || waitedTooLong) {
         const error = waitedTooLong
           ? "The video renderer did not start. Nothing was published."
-          : "The video renderer did not finish after three tries. Nothing was published.";
+          : "The video renderer did not finish. Nothing was published.";
         await admin.rpc("finish_render_job", { p_job: id, p_ok: false, p_path: null, p_qc: null, p_error: error });
         return { status: "failed", error };
       }

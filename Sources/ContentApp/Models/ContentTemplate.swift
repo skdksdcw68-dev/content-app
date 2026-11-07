@@ -27,6 +27,12 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
         serverPreview ?? Self.builtInPreviews[slug].flatMap(URL.init(string:))
     }
 
+    /// The sample built into this build for a proven format, by its slug: for
+    /// places that show a format without having loaded the templates.
+    static func builtInPreview(for slug: String) -> URL? {
+        builtInPreviews[slug].flatMap(URL.init(string:))
+    }
+
     private static let builtInPreviews: [String: String] = [
         "facts": "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/facts.mp4",
         "scary": "https://dosszkllkassvyprkhrg.supabase.co/storage/v1/object/public/samples/formats/scary.mp4",

@@ -257,6 +257,8 @@ Deno.serve(async (request) => {
 
   try {
     if (!OPENAI_KEY) throw new PublicError("The writer is not configured yet.", 503);
+    // For the "fast:" timing line in the logs: where the first words' time goes.
+    const handlerStarted = Date.now();
 
     const authorization = request.headers.get("Authorization");
     if (!authorization) throw new PublicError("Sign in first.", 401);
@@ -2629,7 +2631,9 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // takes over as before. A pending offer or question, or a picture just
           // sent, always goes through the router.
           const fastAnswer = async (): Promise<boolean> => {
+            const marks: Record<string, number> = { began: Date.now() - handlerStarted };
             const inputs = await replyInputs(false);
+            marks.inputs = Date.now() - handlerStarted;
             const where = whereTheyAre(body.timezone, body.region);
             const remembered = memoryBlock(await memoryAhead);
             const sent = [...inputs.turns];
@@ -2637,7 +2641,10 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
             const abort = new AbortController();
             let upstream: Response;
             try {
-              upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+              // The long rules are kept warm for an hour rather than five
+              // minutes (messages are minutes apart). If the host refuses that,
+              // it is asked again the old way, once.
+              const call = (long: boolean) => fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 signal: abort.signal,
                 headers: { Authorization: `Bearer ${OPENROUTER_KEY}`, "Content-Type": "application/json" },
@@ -2650,7 +2657,7 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
                   messages: [
                     // The long rules are the same every time: cached, so they
                     // are not read from scratch on every message.
-                    { role: "system", content: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }] },
+                    { role: "system", content: [{ type: "text", text: system, cache_control: long ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" } }] },
                     {
                       role: "system",
                       content: [
@@ -2663,12 +2670,18 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
                   ],
                 }),
               });
+              upstream = await call(true);
+              if (upstream.status === 400) {
+                console.warn("fast answer: 1h cache refused", (await upstream.text().catch(() => "")).slice(0, 200));
+                upstream = await call(false);
+              }
             } catch (error) {
               console.warn("fast answer: not reached", String(error));
               return false;
             }
+            marks.upstream = Date.now() - handlerStarted;
             if (!upstream.ok || !upstream.body) {
-              console.warn("fast answer: refused", upstream.status);
+              console.warn("fast answer: refused", upstream.status, (await upstream.clone().text().catch(() => "")).slice(0, 300));
               await upstream.body?.cancel().catch(() => {});
               return false;
             }
@@ -2714,6 +2727,8 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
                   if (!undecided()) {
                     answering = true;
                     answerOnly = true;
+                    marks.firstWords = Date.now() - handlerStarted;
+                    console.log("fast:", JSON.stringify(marks));
                     speak(heard.trimStart());
                   }
                 } catch {

@@ -204,6 +204,9 @@ extension AppSession {
         /// The pages that web answer was built from.
         case sources([WebSource])
         case thread(UUID)
+        /// The server has the message: its answer to the request came back.
+        /// The "Sending" pill gives way to "Thinking".
+        case received
         /// Questions to answer, with the request and length they were asked
         /// for, so the answers can go straight on to a strategy.
         case questions([ChatQuestion], request: String?, days: Int?)
@@ -372,6 +375,9 @@ extension AppSession {
             ))
             return
         }
+
+        // Headers back and no error: the server has the message.
+        onEvent(.received)
 
         for try await line in bytes.lines {
             if Task.isCancelled { return }

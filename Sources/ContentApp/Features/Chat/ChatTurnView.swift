@@ -161,7 +161,7 @@ struct ChatTurnView: View {
                     if let searching = turn.searching {
                         SearchingLine(text: searching, sites: turn.searchSites)
                     } else if turn.steps.isEmpty {
-                        ThinkingIndicator(thought: turn.thought)
+                        ThinkingIndicator(thought: turn.thought, sending: turn.delivery == .sent)
                     } else {
                         LiveThinking(read: turn.thought, steps: turn.steps)
                     }
@@ -705,17 +705,21 @@ private struct PulsingDot: View {
 struct ThinkingIndicator: View {
     /// What the server read the request as, once it has said.
     var thought: String?
+    /// The message has left the phone but the server has not answered yet.
+    var sending = false
 
     @State private var sweep: CGFloat = -0.4
     @State private var opened = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // The breathing dot from the moment it is sent. It becomes the word
-        // "Thinking" only when the server says this one needs thinking -- an
-        // analysis, research, a plan -- never for a "hi" (Abel, 2 Nov 2026).
-        if thought == nil {
-            BreathingDot(size: 10)
-                .padding(.vertical, 4)
+        // Abel, 7 Nov 2026 (the Telegram way): a "Sending" pill from the tap
+        // until the server has the message -- it stays as long as the
+        // connection takes -- and then the word "Thinking". Nothing is faked:
+        // offline, the pill just stays, and a timeout says so as before.
+        if sending {
+            SendingPill()
+                .transition(reduceMotion ? .opacity : .scale(scale: 0.85).combined(with: .opacity))
         } else {
             thinking
         }
@@ -745,7 +749,10 @@ struct ThinkingIndicator: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // Nothing to open until the server has said what it is working out.
+        .disabled(thought == nil)
         .onAppear {
+            guard !reduceMotion else { sweep = 0.3; return }
             withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { sweep = 1.0 }
         }
         .sheet(isPresented: $opened) {
@@ -755,6 +762,26 @@ struct ThinkingIndicator: View {
         }
         .accessibilityLabel("Thinking")
         .accessibilityHint("Shows what I'm working out")
+    }
+}
+
+/// The small pill under a message the server has not acknowledged yet: a tiny
+/// spinner and "Sending". It is the Telegram clock, in words.
+private struct SendingPill: View {
+    var body: some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .controlSize(.mini)
+            Text("Sending")
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Capsule().fill(Color.primary.opacity(0.08)))
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Sending")
     }
 }
 

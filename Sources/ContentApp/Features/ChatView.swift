@@ -1337,6 +1337,10 @@ struct ChatView: View {
                         withAnimation(.easeOut(duration: 0.18)) {
                             turns[replyIndex].steps.append(step)
                         }
+                    case .received:
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            turns[replyIndex].delivery = .received
+                        }
                     case .thought(let words):
                         turns[replyIndex].thought = words
                     case .searching(let words, let sites):

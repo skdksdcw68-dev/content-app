@@ -639,6 +639,8 @@ struct ChatMessage: Identifiable, Equatable {
     static var thinking: ChatMessage {
         var turn = ChatMessage(role: .assistant, text: "", isPending: true)
         turn.thinkingStarted = Date()
+        // Left the phone, not yet known to the server: the "Sending" pill.
+        turn.delivery = .sent
         return turn
     }
 }

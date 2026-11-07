@@ -80,6 +80,9 @@ struct ChatComposer: View {
     @State private var isFull = false
     @State private var fieldHeight: CGFloat = 0
     @State private var barHeight: CGFloat = 0
+    /// The field's words one and three lines tall, measured, not guessed.
+    @State private var oneLineHeight: CGFloat = 0
+    @State private var threeLineHeight: CGFloat = 0
     @Environment(BarRoom.self) private var room: BarRoom?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Lives on this side of the hosting boundary, like focus: a recording is
@@ -432,26 +435,55 @@ struct ChatComposer: View {
     /// has a row of its own.
     private var fieldPadding: CGFloat { isPlainBar ? 10 : 7 }
 
-    /// One line of the field: 16 pt text plus its 3 pt line spacing.
-    private static let lineHeight = UIFont.systemFont(ofSize: 16).lineHeight + 3
+    /// What each extra line adds to the field, from the ruler. The guess it
+    /// replaces (16 pt text plus 3 pt spacing) was too tall, so ten lines never
+    /// reached it and the expand button never showed (Abel, 7 Nov 2026).
+    private var lineStep: CGFloat {
+        threeLineHeight > oneLineHeight ? (threeLineHeight - oneLineHeight) / 2 : UIFont.systemFont(ofSize: 16).lineHeight + 3
+    }
 
-    /// The expand button shows once the words reach ten lines, and stays while
+    /// The expand button shows once the words take five lines, and stays while
     /// the bar is full screen so it can shrink it back.
     private var showsExpand: Bool {
-        isPlainBar && room != nil && (isFull || fieldHeight - 2 * fieldPadding >= Self.lineHeight * 9.5)
+        guard isPlainBar, room != nil else { return false }
+        return isFull || (oneLineHeight > 0 && fieldHeight - 2 * fieldPadding - oneLineHeight >= lineStep * 3.5)
     }
 
     /// How many lines fill the screen: the room above the keyboard, less the
     /// rest of the bar (buttons, padding).
     private var fullLines: Int {
         let chrome = max(0, barHeight - fieldHeight)
-        let lines = Int(((room?.available ?? 0) - chrome - 2 * fieldPadding) / Self.lineHeight)
-        return max(10, lines)
+        let space = (room?.available ?? 0) - chrome - 2 * fieldPadding - oneLineHeight
+        return max(10, 1 + Int(space / lineStep))
+    }
+
+    /// Two hidden copies of the field, one and three lines tall, so the button
+    /// and the full-screen editor work from its real line height.
+    private var ruler: some View {
+        ZStack {
+            rulerField(lines: 1)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { oneLineHeight = $0 }
+            rulerField(lines: 3)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { threeLineHeight = $0 }
+        }
+        .hidden()
+        .disabled(true)
+        .accessibilityHidden(true)
+    }
+
+    private func rulerField(lines: Int) -> some View {
+        TextField("", text: .constant(""), axis: .vertical)
+            .font(.system(size: 16))
+            .lineSpacing(3)
+            .lineLimit(lines...lines)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var expandButton: some View {
         Button {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { isFull.toggle() }
+            // Full screen is for writing: the keyboard comes up with it.
+            if isFull { isFocused = true }
         } label: {
             Image(systemName: isFull ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 12, weight: .semibold))
@@ -478,6 +510,7 @@ struct ChatComposer: View {
         VStack(alignment: .leading, spacing: 6) {
             field
                 .padding(.trailing, showsExpand ? 30 : 0)
+                .background { ruler }
                 .overlay(alignment: .topTrailing) {
                     if showsExpand { expandButton }
                 }

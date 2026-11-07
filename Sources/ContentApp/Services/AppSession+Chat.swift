@@ -330,8 +330,7 @@ extension AppSession {
         // This build draws markdown, so the reply may use it. An older one shows
         // it as plain text and says nothing, and is never sent it.
         body["markdown"] = true
-        // Who answers, from the chip in the bar (Claude's model picker). Auto
-        // unless they picked one.
+        // Who answers, from Fast / Normal / Deep in the bar.
         let models = ChatModelPrefs.current
         body["chatModel"] = models.model
         body["effort"] = models.effort

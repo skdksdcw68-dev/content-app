@@ -67,14 +67,23 @@ struct KeyboardAttachedBar<Bar: View, Inputs: Equatable>: UIViewControllerRepres
             BarHost(bar: bar) { [weak controller] measured in
                 controller?.report(height: measured)
             }
+            .environment(controller.room)
         )
     }
+}
+
+/// How tall the bar may get: from its bottom edge up to just under the
+/// navigation bar. The full-screen editor grows the bar to this.
+@Observable
+final class BarRoom {
+    var available: CGFloat = 0
 }
 
 /// Owns the hosted bar and the two constraints that matter: where its
 /// bottom is, and how tall it is.
 final class KeyboardBarController: UIViewController {
     let hosting = UIHostingController(rootView: AnyView(EmptyView()))
+    let room = BarRoom()
     var onHeightChange: ((CGFloat) -> Void)?
     var lastInputs: Any?
 
@@ -183,6 +192,9 @@ final class KeyboardBarController: UIViewController {
     private func updateOffset() -> Bool {
         guard let bottomOffset else { return false }
         let target = targetOffset()
+        // Room from the bar's bottom to just under the navigation bar.
+        let available = max(0, view.bounds.height + target - view.safeAreaInsets.top - 8)
+        if abs(room.available - available) > 0.5 { room.available = available }
         guard abs(bottomOffset.constant - target) > 0.5 else { return false }
         bottomOffset.constant = target
         return true

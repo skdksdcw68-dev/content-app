@@ -70,10 +70,16 @@ struct ChatComposer: View {
     var planRank: Int = 0
 
     @FocusState private var isFocused: Bool
-    /// Who answers, from the chip (Claude's model picker). Kept on the phone and
-    /// read by the request that sends the message.
+    /// Fast, Normal or Deep. Kept on the phone and read by the request that
+    /// sends the message.
     @State private var models = ChatModelPrefs.current
-    @State private var showingModels = false
+    /// The bar grown to full screen for a long message (Abel, 7 Nov 2026). The
+    /// same bar, not a new page, so the words, the cursor and the keyboard stay.
+    @State private var isFull = false
+    @State private var fieldHeight: CGFloat = 0
+    @State private var barHeight: CGFloat = 0
+    @Environment(BarRoom.self) private var room: BarRoom?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Lives on this side of the hosting boundary, like focus: a recording is
     /// the bar's own business until it has words to hand over.
     @State private var recorder = VoiceRecorder()
@@ -122,6 +128,8 @@ struct ChatComposer: View {
             .sensoryFeedback(.impact(weight: .light), trigger: showsOptions)
             .sensoryFeedback(.impact(weight: .medium), trigger: isWorking)
             .onChange(of: focusToken) { _, _ in isFocused = true }
+            .onChange(of: resetToken) { _, _ in isFull = false }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
     }
 
     private var capsule: some View {
@@ -401,16 +409,51 @@ struct ChatComposer: View {
         )
             .font(.system(size: 16))
             .lineSpacing(3)
-            // One line at rest, growing to six, then scrolling inside
-            // itself. The buttons stay on the bottom edge while it grows.
-            .lineLimit(1...6)
+            // One line at rest, growing to ten (six on the generator's bar),
+            // then scrolling inside itself. Full screen holds it at the lines
+            // that fit. The buttons stay on the bottom edge while it grows.
+            .lineLimit(isFull ? fullLines...fullLines : 1...(isPlainBar ? 10 : 6))
             // The placeholder stays on one line; it used to wrap to
             // two when the row was tight.
             .minimumScaleFactor(0.85)
             .focused($isFocused)
             .padding(.horizontal, footer == nil ? 4 : 8)
             .padding(.vertical, 7)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
             .id(resetToken)
+    }
+
+    /// One line of the field: 16 pt text plus its 3 pt line spacing.
+    private static let lineHeight = UIFont.systemFont(ofSize: 16).lineHeight + 3
+
+    /// The expand button shows once the words reach ten lines, and stays while
+    /// the bar is full screen so it can shrink it back.
+    private var showsExpand: Bool {
+        isPlainBar && room != nil && (isFull || fieldHeight - 14 >= Self.lineHeight * 9.5)
+    }
+
+    /// How many lines fill the screen: the room above the keyboard, less the
+    /// rest of the bar (buttons, padding).
+    private var fullLines: Int {
+        let chrome = max(0, barHeight - fieldHeight)
+        let lines = Int(((room?.available ?? 0) - chrome - 14) / Self.lineHeight)
+        return max(10, lines)
+    }
+
+    private var expandButton: some View {
+        Button {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { isFull.toggle() }
+        } label: {
+            Image(systemName: isFull ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.primary.opacity(0.08)))
+                .contentShape(Circle())
+        }
+        .buttonStyle(PressButtonStyle())
+        .transition(.opacity)
+        .accessibilityLabel(isFull ? "Shrink" : "Full screen")
     }
 
     /// The ordinary chat bar: no generator strip, no sliders, no video pill.
@@ -425,22 +468,18 @@ struct ChatComposer: View {
     private var plainRow: some View {
         VStack(alignment: .leading, spacing: 6) {
             field
+                .padding(.trailing, showsExpand ? 30 : 0)
+                .overlay(alignment: .topTrailing) {
+                    if showsExpand { expandButton }
+                }
+                .animation(.easeOut(duration: 0.18), value: showsExpand)
             HStack(spacing: 8) {
                 plusButton
-                ModelChip(prefs: models) {
-                    isFocused = false
-                    showingModels = true
-                }
-                if models.chipEffort != nil {
-                    EffortMenu(prefs: $models)
-                }
+                EffortMenu(prefs: $models)
                 Spacer(minLength: 0)
                 if canDictate { micButton }
                 actionButton
             }
-        }
-        .sheet(isPresented: $showingModels) {
-            ModelPickerSheet(prefs: $models, planRank: planRank)
         }
         .onChange(of: models) { _, now in ChatModelPrefs.current = now }
     }

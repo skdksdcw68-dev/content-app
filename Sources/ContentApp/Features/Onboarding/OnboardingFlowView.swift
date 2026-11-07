@@ -202,6 +202,8 @@ private struct OnboardingQuestionView: View {
     let question: OnboardingQuestion
 
     @Environment(AppSession.self) private var session
+    /// Plays the voice samples on the voice question.
+    @State private var sampler = VoiceSampler()
 
     private var chosen: Set<String> { session.onboardingAnswers[question.id] ?? [] }
 
@@ -235,6 +237,8 @@ private struct OnboardingQuestionView: View {
             ScrollView {
                 if question.id == "format" {
                     formatGrid
+                } else if question.id == "narrator" {
+                    voiceList
                 } else if question.isDetailed {
                     VStack(spacing: 10) {
                         ForEach(question.options) { option in
@@ -270,6 +274,30 @@ private struct OnboardingQuestionView: View {
                 .animation(.snappy(duration: 0.2), value: chosen.isEmpty)
             }
         }
+    }
+
+    /// The voices, each with its sample's play button inside the row. The
+    /// sample streams from ElevenLabs' public link: nothing is asked of the
+    /// server and nothing is generated while somebody listens.
+    private var voiceList: some View {
+        VStack(spacing: 10) {
+            ForEach(question.options) { option in
+                if let voice = SeriesVoice.all.first(where: { $0.id == option.id }) {
+                    VoiceRow(
+                        voice: voice,
+                        isChosen: chosen.contains(option.id),
+                        isPlaying: sampler.playing == voice.id,
+                        choose: {
+                            sampler.stop()
+                            tap(option)
+                        },
+                        play: { sampler.toggle(voice) }
+                    )
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .onDisappear { sampler.stop() }
     }
 
     /// The formats are cards with colour; "Decide for me" and "I'm just starting"

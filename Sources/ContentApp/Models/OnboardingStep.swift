@@ -101,14 +101,13 @@ extension OnboardingQuestion {
         title: "Narrator voice",
         subtitle: "The one that reads every video.",
         selection: .single,
-        options: [
-            .init(id: "deep", label: "Deep narrator", symbol: "waveform", detail: "Facts and explainers"),
-            .init(id: "story", label: "Storyteller", symbol: "book", detail: "Calm, slow, a little dark"),
-            .init(id: "energetic", label: "Energetic", symbol: "bolt", detail: "Fast and punchy"),
-            .init(id: "warm", label: "Warm", symbol: "sun.max", detail: "Friendly and clear"),
-            .init(id: "playful", label: "Playful", symbol: "face.smiling", detail: "Light, quick, a bit of a joke"),
-            .init(id: "decide", label: "Decide for me", symbol: "wand.and.stars", detail: "Picks the best fit for your format"),
-        ]
+        // The real ElevenLabs voices, the same hard-coded list the Start a
+        // series flow plays samples from (Abel, 7 Nov 2026: "hardcode it").
+        // Their ids are `SeriesVoice` ids, so what is picked here is what the
+        // series and the chat already understand.
+        options: SeriesVoice.all.filter { !$0.isNone }.map {
+            .init(id: $0.id, label: $0.name, symbol: $0.symbol, detail: $0.detail)
+        }
     )
 
     /// Writes `brands.niche`. The reference calls this "What did you build?"

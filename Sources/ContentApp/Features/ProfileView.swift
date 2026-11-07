@@ -27,6 +27,10 @@ struct ProfileView: View {
     @State private var exporting = false
     @State private var exported: ExportShare?
     @State private var confirmingSignOut = false
+    /// From the tap on Sign Out until the welcome screen is up: the sheet says so
+    /// instead of sitting there as if nothing happened (Abel, 7 Nov 2026).
+    @State private var signingOut = false
+    @Environment(\.dismiss) private var dismiss
     @State private var confirmingDelete = false
     @State private var typingDelete = false
     @State private var deleteWord = ""
@@ -103,6 +107,8 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .overlay { if signingOut { signingOutCover } }
+        .disabled(signingOut)
         // On the list, not on its section: a sheet hung on a row of a List
         // closed by itself whenever the list redrew -- tapping Picture model
         // inside it shut the whole thing (Abel, 4 Nov 2026).
@@ -139,7 +145,7 @@ struct ProfileView: View {
         }
         .alert("Sign out?", isPresented: $confirmingSignOut) {
             Button("Cancel", role: .cancel) {}
-            Button("Sign Out", role: .destructive) { Task { await session.signOut() } }
+            Button("Sign Out", role: .destructive) { startSigningOut() }
         } message: {
             Text("Everything stays in your Apple account. Sign in with Apple again to get it back.")
         }
@@ -418,6 +424,35 @@ struct ProfileView: View {
     }
 
     // MARK: - Sign out, delete
+
+    /// Covers the whole sheet while the account is let go.
+    private var signingOutCover: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+            Text("Logging you out…")
+                .font(.headline)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.regularMaterial)
+        .transition(.opacity)
+    }
+
+    /// Says so, closes the sheet, then signs out of the phone and the server
+    /// (`AppSession.signOut` revokes the session there) and lands on the
+    /// welcome screen. `session` is held in a local first: this view is gone by
+    /// the time the sign-out finishes, and an environment value read after
+    /// that is not safe.
+    private func startSigningOut() {
+        let account = session
+        let closes = asSheet
+        withAnimation(.easeOut(duration: 0.2)) { signingOut = true }
+        Task {
+            try? await Task.sleep(for: .milliseconds(700))
+            if closes { dismiss() }
+            try? await Task.sleep(for: .milliseconds(300))
+            await account.signOut()
+        }
+    }
 
     /// Grok's ending: Sign Out as a red row with its icon, then the version,
     /// and Delete account under it -- still one tap away and asked twice, as

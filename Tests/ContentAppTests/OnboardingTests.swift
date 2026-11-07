@@ -113,10 +113,14 @@ final class OnboardingTests: XCTestCase {
         let everyQuestion = OnboardingQuestion.all
             + BrandQuestions.audienceGroup + BrandQuestions.contentGroup + BrandQuestions.writingGroup
         for question in everyQuestion {
-            XCTAssertEqual(
-                question.options.count % 2, 0,
-                "\(question.id) offers \(question.options.count) choices, which leaves a gap in the grid"
-            )
+            // The voices are a vertical list of rows with a play button each,
+            // not a grid, so a gap cannot happen there (7 Nov 2026).
+            if question.id != "narrator" {
+                XCTAssertEqual(
+                    question.options.count % 2, 0,
+                    "\(question.id) offers \(question.options.count) choices, which leaves a gap in the grid"
+                )
+            }
             // And no duplicate ids inside one question, which would make two
             // tiles toggle as one.
             XCTAssertEqual(Set(question.options.map(\.id)).count, question.options.count, "\(question.id) repeats an option id")

@@ -51,7 +51,8 @@ final class OnboardingTests: XCTestCase {
         XCTAssertLessThan(last ?? 1, OnboardingStep.privacy.progress ?? 0)
         XCTAssertLessThan(OnboardingStep.pings.progress ?? 1, 1)
         XCTAssertNotNil(first)
-        XCTAssertLessThan(first ?? 1, last ?? 0)
+        // One question now, so the first is also the last.
+        XCTAssertLessThanOrEqual(first ?? 1, last ?? 0)
         XCTAssertLessThan(last ?? 1, 1)
         XCTAssertEqual(OnboardingStep.done.progress, 1)
     }

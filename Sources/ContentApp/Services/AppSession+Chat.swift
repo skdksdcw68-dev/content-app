@@ -92,11 +92,103 @@ extension AppSession {
         }
     }
 
-    /// One conversation, gone.
+    /// One conversation, moved to Recently Deleted (0102), where it can be
+    /// restored for 30 days.
     func deleteThread(_ thread: UUID) async {
         do {
             try await client.rpc("delete_thread", params: ["p_thread": thread.uuidString]).execute()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Words found anywhere in a conversation, its messages included.
+    func searchThreads(_ query: String) async -> [ChatThread]? {
+        struct Params: Encodable { let p_query: String; let p_brand: String?; let p_limit: Int }
+        return try? await client
+            .rpc("search_threads", params: Params(p_query: query, p_brand: brand?.id.uuidString, p_limit: 50))
+            .execute()
+            .value
+    }
+
+    /// Recently Deleted: the last 30 days.
+    func deletedThreads() async -> [DeletedThread] {
+        struct Params: Encodable { let p_brand: String? }
+        do {
+            return try await client
+                .rpc("my_deleted_threads", params: Params(p_brand: brand?.id.uuidString))
+                .execute()
+                .value
+        } catch {
+            return []
+        }
+    }
+
+    func restoreThread(_ thread: UUID) async {
+        do {
+            try await client.rpc("restore_thread", params: ["p_thread": thread.uuidString]).execute()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// Gone for good, now.
+    func purgeThread(_ thread: UUID) async {
+        do {
+            try await client.rpc("purge_thread", params: ["p_thread": thread.uuidString]).execute()
             ChatCache.shared.remove(thread)
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    @discardableResult
+    func emptyDeletedThreads() async -> Bool {
+        do {
+            try await client.rpc("empty_deleted_threads").execute()
+            return true
+        } catch {
+            lastError = readableMessage(error)
+            return false
+        }
+    }
+
+    func pinThread(_ thread: UUID, pinned: Bool) async {
+        struct Params: Encodable { let p_thread: String; let p_pinned: Bool }
+        do {
+            try await client.rpc("pin_thread", params: Params(p_thread: thread.uuidString, p_pinned: pinned)).execute()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    func renameThread(_ thread: UUID, to title: String) async {
+        struct Params: Encodable { let p_thread: String; let p_title: String }
+        do {
+            try await client.rpc("rename_thread", params: Params(p_thread: thread.uuidString, p_title: title)).execute()
+        } catch {
+            lastError = readableMessage(error)
+        }
+    }
+
+    /// A link anyone can open to read the conversation on the web
+    /// (netrocast.com/s), until sharing is stopped or the chat is deleted.
+    func shareLink(for thread: UUID) async -> URL? {
+        do {
+            let token: String = try await client
+                .rpc("share_thread", params: ["p_thread": thread.uuidString])
+                .execute()
+                .value
+            return URL(string: "https://netrocast.com/s/?c=\(token)")
+        } catch {
+            lastError = readableMessage(error)
+            return nil
+        }
+    }
+
+    func stopSharing(_ thread: UUID) async {
+        do {
+            try await client.rpc("unshare_thread", params: ["p_thread": thread.uuidString]).execute()
         } catch {
             lastError = readableMessage(error)
         }

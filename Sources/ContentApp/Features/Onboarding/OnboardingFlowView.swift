@@ -61,7 +61,10 @@ struct OnboardingFlowView: View {
     private var content: some View {
         switch session.onboarding {
         case .welcome:
-            OnboardingWelcome()
+            OnboardingVideoWelcome()
+
+        case .tour(let page):
+            OnboardingTourView(page: page)
 
         case .question(let index):
             // Guarded: a stored step can outlive a question being removed from
@@ -108,65 +111,6 @@ struct OnboardingFlowView: View {
             // RootView swaps this view out on .done.
             Color.clear
         }
-    }
-}
-
-// MARK: - Welcome
-
-/// Deliberately still. It is the first thing anybody sees, and making them wait
-/// for a staggered entrance is charging them for a flourish before they have
-/// agreed to anything.
-private struct OnboardingWelcome: View {
-    @Environment(AppSession.self) private var session
-
-    private static let showcase: [(String, String)] = [
-        ("didyouknow", "Did you know?"),
-        ("scary", "Scary story"),
-        ("motivation", "Motivation"),
-        ("photo", "Photo to video"),
-    ]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            // The four formats, as the cards they are on the next screen.
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                ForEach(Self.showcase, id: \.0) { card in
-                    FormatCardFace(id: card.0, label: card.1, height: 118)
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 30)
-            .layoutPriority(1)
-
-            Text("Viral videos, made and posted for you")
-                .font(.system(size: 30, weight: .bold))
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.8)
-                .padding(.horizontal, 24)
-
-            Text("Pick a format. Postpilot writes it, voices it, edits it and posts it. You approve everything first.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 28)
-                .padding(.top, 10)
-
-            OnboardingButton(title: "Get Started") { session.onboardingNext() }
-                .padding(.top, 24)
-
-            Button {
-                session.goToEmail(.login)
-            } label: {
-                Text("Already have an account? **Sign In**")
-                    .font(.subheadline)
-            }
-            .tint(.primary)
-            .padding(.top, 16)
-            .padding(.bottom, 8)
-        }
-        .toolbar(.hidden, for: .navigationBar)
     }
 }
 

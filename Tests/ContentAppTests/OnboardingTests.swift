@@ -7,7 +7,7 @@ import XCTest
 /// screen to answer.
 final class OnboardingTests: XCTestCase {
     private var everyStep: [OnboardingStep] {
-        [.welcome, .question(0), .question(OnboardingQuestion.all.count - 1),
+        [.welcome, .tour(0), .tour(OnboardingTour.pages.count - 1), .question(0), .question(OnboardingQuestion.all.count - 1),
          .building, .included, .account,
          .email(.signup), .email(.login), .code(.signup), .code(.login),
          .verified(.created), .verified(.alreadyRegistered), .verified(.returning), .done]
@@ -35,6 +35,7 @@ final class OnboardingTests: XCTestCase {
     /// the denominator is one more than the count, and only `done` is 1.
     func testProgressCoversTheQuestionsAndNeverReadsFullEarly() {
         XCTAssertNil(OnboardingStep.welcome.progress)
+        XCTAssertNil(OnboardingStep.tour(1).progress)
         XCTAssertNil(OnboardingStep.building.progress)
         XCTAssertNil(OnboardingStep.included.progress)
         XCTAssertNil(OnboardingStep.account.progress)
@@ -56,6 +57,7 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(OnboardingStep.building.canGoBack)
         XCTAssertFalse(OnboardingStep.verified(.created).canGoBack)
         XCTAssertTrue(OnboardingStep.question(2).canGoBack)
+        XCTAssertTrue(OnboardingStep.tour(0).canGoBack)
         XCTAssertTrue(OnboardingStep.account.canGoBack)
         XCTAssertTrue(OnboardingStep.code(.signup).canGoBack)
     }

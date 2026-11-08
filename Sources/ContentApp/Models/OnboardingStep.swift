@@ -214,6 +214,8 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     }
 
     case welcome
+    /// The three "how it works" pages, between the video and the questions.
+    case tour(Int)
     case question(Int)
     /// The ring, while the answers are written to the brand.
     case building
@@ -229,6 +231,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     var storedValue: String {
         switch self {
         case .welcome:            return "welcome"
+        case .tour(let i):        return "tour:\(i)"
         case .question(let i):    return "question:\(i)"
         case .building:           return "building"
         case .included:           return "included"
@@ -253,7 +256,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         case "name":      self = .welcome
         case "generator": self = .done
         default:
-            if stored.hasPrefix("question:"), let index = Int(stored.dropFirst("question:".count)) {
+            if stored.hasPrefix("tour:"), let page = Int(stored.dropFirst("tour:".count)) {
+                self = .tour(page)
+            } else if stored.hasPrefix("question:"), let index = Int(stored.dropFirst("question:".count)) {
                 self = .question(index)
             } else if stored.hasPrefix("email:"), let mode = Mode(rawValue: String(stored.dropFirst(6))) {
                 self = .email(mode)
@@ -271,7 +276,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// and nowhere they were sent (Remi's `canGoBack`).
     var canGoBack: Bool {
         switch self {
-        case .question, .included, .account, .email, .code: return true
+        case .tour, .question, .included, .account, .email, .code: return true
         case .welcome, .building, .verified, .done: return false
         }
     }
@@ -300,7 +305,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         case .done:             return 1
         // The ring and everything after it are not a queue being got through,
         // so they carry no bar at all.
-        case .welcome, .building, .included, .account, .email, .code, .verified: return nil
+        case .welcome, .tour, .building, .included, .account, .email, .code, .verified: return nil
         }
     }
 }

@@ -1611,7 +1611,9 @@ extension AppSession {
     func onboardingNext() {
         switch onboarding {
         case .welcome:
-            setOnboarding(.question(0))
+            setOnboarding(.tour(0))
+        case .tour(let page):
+            setOnboarding(page + 1 < OnboardingTour.pages.count ? .tour(page + 1) : .question(0))
         case .question(let index):
             let next = index + 1
             if next < OnboardingQuestion.all.count {
@@ -1622,7 +1624,8 @@ extension AppSession {
                 Task { await saveAnswers() }
             }
         case .building:
-            setOnboarding(.included)
+            // The "what it does" checklist is gone: the tour says it first.
+            setOnboarding(.account)
         case .included:
             setOnboarding(.account)
         case .verified:
@@ -1665,11 +1668,13 @@ extension AppSession {
     func onboardingBack() {
         switch onboarding {
         case .question(let index):
-            setOnboarding(index == 0 ? .welcome : .question(index - 1))
+            setOnboarding(index == 0 ? .tour(OnboardingTour.pages.count - 1) : .question(index - 1))
+        case .tour(let page):
+            setOnboarding(page == 0 ? .welcome : .tour(page - 1))
         case .included:
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .account:
-            setOnboarding(.included)
+            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .email:
             // Back from the email door returns to wherever it was opened from:
             // the account screen for a sign-up, the welcome screen for a log in.

@@ -24,9 +24,11 @@ struct DropSchedule: Decodable, Identifiable, Equatable, Sendable {
     let delivered: Int
     var nextAt: Date?
     var options: Options
+    let createdAt: Date?
 
     private enum CodingKeys: String, CodingKey {
         case id, status, summary, timezone, days, delivered, options
+        case createdAt = "created_at"
         case withText = "with_text"
         case startsAt = "starts_at"
         case repeatRule = "repeat"
@@ -35,7 +37,7 @@ struct DropSchedule: Decodable, Identifiable, Equatable, Sendable {
         case nextAt = "next_at"
     }
 
-    static let columns = "id, status, summary, with_text, timezone, starts_at, repeat, days, ends_at, ends_after, delivered, next_at, options"
+    static let columns = "id, status, summary, with_text, timezone, starts_at, repeat, days, ends_at, ends_after, delivered, next_at, options, created_at"
 
     var zone: TimeZone { TimeZone(identifier: timezone) ?? .current }
 
@@ -153,5 +155,24 @@ extension AppSession {
             daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil, daysOfTheYear: nil, setPositions: nil,
             end: end
         )
+    }
+}
+
+extension AppSession {
+    /// The drops made by the same request as this one ("3 pictures a day" is
+    /// three schedules saved in the same moment), this one included, soonest
+    /// time of day first.
+    func dropSiblings(of drop: DropSchedule) async -> [DropSchedule] {
+        guard let made = drop.createdAt else { return [drop] }
+        let all: [DropSchedule] = (try? await client
+            .from("schedules")
+            .select(DropSchedule.columns)
+            .in("status", values: ["draft", "active", "paused"])
+            .gte("created_at", value: ISO8601DateFormatter().string(from: made.addingTimeInterval(-15)))
+            .lte("created_at", value: ISO8601DateFormatter().string(from: made.addingTimeInterval(15)))
+            .execute()
+            .value) ?? [drop]
+        let same = all.filter { $0.summary == drop.summary }
+        return (same.isEmpty ? [drop] : same).sorted { $0.startsAt < $1.startsAt }
     }
 }

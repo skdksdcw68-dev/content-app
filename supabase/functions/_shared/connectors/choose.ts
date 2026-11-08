@@ -209,7 +209,7 @@ const PREFERRED: Record<string, string[]> = {
   // (medium quality, $0.07 -- about 1% of a Pro month), for the better result.
   // Nano Banana stays next, for when GPT Image is not on offer.
   image_generation: ["gpt image", "nano banana", "seedream", "nano banana pro"],
-  video_generation: ["kling 2.5", "wan", "veo 3.1 fast", "kling", "veo", "seedance"],
+  video_generation: ["kling 2.5", "wan", "kling", "seedance"],
 };
 
 /** The model a preference names, if they have it and it can do the job. */

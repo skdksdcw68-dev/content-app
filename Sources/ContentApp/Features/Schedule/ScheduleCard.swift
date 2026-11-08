@@ -11,10 +11,13 @@ struct ScheduleCard: View {
 
     @State private var schedule: DropSchedule?
     @State private var editing: DropSchedule?
+    /// The other drops made by the same request ("3 pictures a day").
+    @State private var siblings: [DropSchedule] = []
+    @State private var listing = false
 
     var body: some View {
         Button {
-            editing = schedule
+            if siblings.count > 1 { listing = true } else { editing = schedule }
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: icon)
@@ -44,7 +47,15 @@ struct ScheduleCard: View {
         .disabled(schedule == nil)
         .task {
             schedule = await session.dropSchedule(scheduleId)
+            if let schedule { siblings = await session.dropSiblings(of: schedule) }
             if opensAtOnce, schedule?.status == "draft" { editing = schedule }
+        }
+        .sheet(isPresented: $listing) {
+            SiblingDropsSheet(drops: siblings) {
+                if let schedule {
+                    Task { siblings = await session.dropSiblings(of: schedule) }
+                }
+            }
         }
         .sheet(item: $editing) { draft in
             ScheduleSheet(schedule: draft) { saved in
@@ -68,6 +79,9 @@ struct ScheduleCard: View {
 
     private var title: String {
         guard let schedule else { return "Scheduled drop" }
+        if siblings.count > 1, schedule.status != "cancelled" {
+            return "\(siblings.count) drops scheduled"
+        }
         switch schedule.status {
         case "draft": return "Tap to schedule"
         case "cancelled": return "Cancelled"
@@ -78,6 +92,12 @@ struct ScheduleCard: View {
 
     private var detail: String {
         guard let schedule else { return " " }
+        if siblings.count > 1, schedule.status != "cancelled" {
+            let times = siblings.map {
+                $0.startsAt.formatted(Date.FormatStyle(date: .omitted, time: .shortened, timeZone: $0.zone))
+            }
+            return "\(schedule.summary) · \(times.joined(separator: ", "))"
+        }
         if schedule.status == "active", let next = schedule.nextAt {
             let when = next.formatted(Date.FormatStyle(timeZone: schedule.zone).weekday(.abbreviated).hour().minute())
             // Close by, it says how close (mockup screen 6: "arrives 9:51 AM, in 12 min").
@@ -161,5 +181,55 @@ struct ScheduledDropsView: View {
             await session.pauseSchedules(on)
             await reload()
         }
+    }
+}
+
+/// Every drop a single request made, each one tappable to change or cancel
+/// (Abel, 8 Nov 2026: "I scheduled three pictures a day and it showed only one").
+private struct SiblingDropsSheet: View {
+    let drops: [DropSchedule]
+    let changed: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.dismiss) private var dismiss
+    @State private var editing: DropSchedule?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(drops) { drop in
+                        Button { editing = drop } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(drop.whenText).foregroundStyle(Color.primary)
+                                    Text(drop.status == "draft" ? "Not confirmed yet" : drop.summary)
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                } header: {
+                    Text("\(drops.count) times")
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(GrokLook.sheet(scheme).ignoresSafeArea())
+            .navigationTitle("Scheduled")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .sheet(item: $editing) { drop in
+                ScheduleSheet(schedule: drop) { _ in changed() }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }

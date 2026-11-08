@@ -107,7 +107,6 @@ struct ProfileView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .overlay { if signingOut { signingOutCover } }
         .disabled(signingOut)
         // On the list, not on its section: a sheet hung on a row of a List
         // closed by itself whenever the list redrew -- tapping Picture model
@@ -425,27 +424,27 @@ struct ProfileView: View {
 
     // MARK: - Sign out, delete
 
-    /// Covers the whole sheet while the account is let go.
-    private var signingOutCover: some View {
-        // The splash animation, looping, in place of a spinner (Abel, 8 Nov
-        // 2026). Never opens: the sheet closes and the sign-out takes over.
-        LaunchSplash(ready: false) {}
-            .transition(.opacity)
-    }
-
-    /// Says so, closes the sheet, then signs out of the phone and the server
-    /// (`AppSession.signOut` revokes the session there) and lands on the
-    /// welcome screen. `session` is held in a local first: this view is gone by
-    /// the time the sign-out finishes, and an environment value read after
-    /// that is not safe.
+    /// The splash covers the WHOLE screen at once -- this sheet and the app
+    /// under it (`SignOutCover`) -- and the sheet closes out of sight beneath
+    /// it. Then it signs out of the phone and the server (`AppSession.signOut`
+    /// revokes the session there), and the splash opens straight into the
+    /// welcome: Home is never seen again on the way out (Abel, 8 Nov 2026).
+    /// `session` is held in a local first: this view is gone by the time the
+    /// sign-out finishes, and an environment value read after that is not safe.
     private func startSigningOut() {
         let account = session
         let closes = asSheet
-        withAnimation(.easeOut(duration: 0.2)) { signingOut = true }
+        signingOut = true
+        SignOutCover.show(over: account)
         Task {
-            try? await Task.sleep(for: .milliseconds(700))
-            if closes { dismiss() }
-            try? await Task.sleep(for: .milliseconds(300))
+            // Covered before anything moves underneath.
+            try? await Task.sleep(for: .milliseconds(380))
+            var quiet = Transaction()
+            quiet.disablesAnimations = true
+            withTransaction(quiet) {
+                account.showingSettings = false
+                if closes { dismiss() }
+            }
             await account.signOut()
         }
     }
@@ -468,6 +467,14 @@ struct ProfileView: View {
             }
         } footer: {
             VStack(spacing: 10) {
+                // The app's mark right under Sign Out, as Grok ends its
+                // settings with its own (Abel, 8 Nov 2026).
+                Image("app-mark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 44, height: 44)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .accessibilityLabel("Postpilot")
                 Text(AutocastLinks.versionLine)
                 Button(role: .destructive) { confirmingDelete = true } label: {
                     if deleting {

@@ -84,8 +84,9 @@ struct SocialSignInButtons: View {
             }
         }
         .signInWithAppleButtonStyle(onGlow || colorScheme == .dark ? .white : .black)
-        .frame(height: 54)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(height: onGlow ? 52 : 54)
+        // On the account page's glow it is the mockup's white pill.
+        .clipShape(RoundedRectangle(cornerRadius: onGlow ? 26 : 14, style: .continuous))
         .disabled(pending != nil)
         // Rebuilt when the appearance flips, so the button's style follows.
         .id(colorScheme)
@@ -121,21 +122,22 @@ struct OutlinedAuthButton<Glyph: View>: View {
                 if isBusy {
                     ProgressView()
                 } else {
-                    HStack(spacing: 11) {
+                    HStack(spacing: onGlow ? 8 : 11) {
                         glyph()
                         Text(title)
-                            .font(.body.weight(.medium))
+                            .font(onGlow ? .system(size: 17, weight: .semibold) : .body.weight(.medium))
                             .foregroundStyle(onGlow ? Color.white : Color.primary)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 54)
+            .frame(maxWidth: .infinity, minHeight: onGlow ? 52 : 54)
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(onGlow ? Color.white.opacity(0.18) : Color(uiColor: .secondarySystemBackground))
+                // On the glow: the mockup's frosted pill.
+                RoundedRectangle(cornerRadius: onGlow ? 26 : 14, style: .continuous)
+                    .fill(onGlow ? Color.white.opacity(0.16) : Color(uiColor: .secondarySystemBackground))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(onGlow ? Color.white.opacity(0.28) : Color(uiColor: .separator), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: onGlow ? 26 : 14, style: .continuous)
+                            .strokeBorder(onGlow ? Color.white.opacity(0.3) : Color(uiColor: .separator), lineWidth: 1)
                     }
             }
         }

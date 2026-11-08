@@ -118,6 +118,14 @@ struct OnboardingTourView: View {
             OnboardingButton(title: "Continue") { session.onboardingNext() }
                 .padding(.bottom, 12)
         }
+        // Soft glass: a faint purple haze top right, grey bottom left.
+        .background {
+            ZStack {
+                RadialGradient(colors: [Theme.accent.opacity(0.16), .clear], center: UnitPoint(x: 0.9, y: 0.15), startRadius: 0, endRadius: 320)
+                RadialGradient(colors: [Color.secondary.opacity(0.18), .clear], center: UnitPoint(x: 0.05, y: 0.9), startRadius: 0, endRadius: 320)
+            }
+            .ignoresSafeArea()
+        }
     }
 }
 

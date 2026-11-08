@@ -20,6 +20,8 @@ struct RootView: View {
     /// Light unless the person chose otherwise (Remi's default). Read here, at
     /// the root, so the choice reaches every screen -- sheets included -- at once.
     @State private var appearance = AppAppearance.current
+    /// The launch splash, gone for the rest of the run once it has lifted.
+    @State private var splashDone = false
 
     var body: some View {
         @Bindable var session = session
@@ -27,7 +29,8 @@ struct RootView: View {
         Group {
             switch session.state {
             case .starting:
-                StartingView()
+                // The splash on top draws the logo; underneath is just the page.
+                Color(uiColor: .systemBackground).ignoresSafeArea()
             case .failed(let reason):
                 StartupFailedView(reason: reason) {
                     Task { await session.start() }
@@ -116,6 +119,13 @@ struct RootView: View {
         }
         .sheet(isPresented: $session.showingSettings) {
             SettingsSheet()
+        }
+        // The splash lifts as soon as the session is ready, once per launch.
+        .overlay {
+            if !splashDone {
+                LaunchSplash(ready: session.state != .starting) { splashDone = true }
+                    .transition(.identity)
+            }
         }
         .task { await session.listenForTransactions() }
         // Back from the background: read the accounts again, so a change made
@@ -233,29 +243,6 @@ private struct TabShellChrome: View {
                     ToolbarItem(placement: .topBarTrailing) { trailing }
                 }
             }
-    }
-}
-
-/// The mark, alone, fading in -- Remi's splash (`Onboarding/SplashView.swift`):
-/// scale from 0.92 as it appears over 0.55s. No spinner, no words.
-private struct StartingView: View {
-    @State private var shown = false
-
-    var body: some View {
-        ZStack {
-            Color(uiColor: .systemBackground)
-                .ignoresSafeArea()
-
-            TowerMark()
-                .frame(width: 96, height: 96)
-                .opacity(shown ? 1 : 0)
-                .scaleEffect(shown ? 1 : 0.92)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.55)) { shown = true }
-        }
-        .accessibilityElement()
-        .accessibilityLabel("Getting things ready")
     }
 }
 

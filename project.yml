@@ -97,7 +97,11 @@ targets:
           - fetch
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        UILaunchScreen: {}
+        # The same purple and the same white P that StartingView draws first,
+        # so the handover is invisible (Abel, 7 Nov 2026).
+        UILaunchScreen:
+          UIColorName: LaunchPurple
+          UIImageName: launch-logo
         # How an OAuth round trip gets back into the app.
         #
         # ASWebAuthenticationSession is opened with callbackURLScheme "autocast",

@@ -16,6 +16,9 @@ enum SignInProvider: Equatable { case apple, google, email }
 /// has been used, is what App Review rejects (5.1.1(v)).
 struct SocialSignInButtons: View {
     let mode: OnboardingStep.Mode
+    /// On the purple glow of the account page: a white Apple button and a
+    /// frosted Google one.
+    var onGlow = false
     @Binding var pending: SignInProvider?
     @Binding var error: String?
     /// Called with how they arrived, so Verified can say the right thing.
@@ -33,7 +36,8 @@ struct SocialSignInButtons: View {
             OutlinedAuthButton(
                 title: mode == .signup ? "Continue with Google" : "Log in with Google",
                 isBusy: pending == .google,
-                isDisabled: pending != nil
+                isDisabled: pending != nil,
+                onGlow: onGlow
             ) {
                 error = nil
                 pending = .google
@@ -79,7 +83,7 @@ struct SocialSignInButtons: View {
                 error = failure.localizedDescription
             }
         }
-        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .signInWithAppleButtonStyle(onGlow || colorScheme == .dark ? .white : .black)
         .frame(height: 54)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .disabled(pending != nil)
@@ -107,6 +111,7 @@ struct OutlinedAuthButton<Glyph: View>: View {
     let title: String
     var isBusy = false
     var isDisabled = false
+    var onGlow = false
     let action: () -> Void
     @ViewBuilder let glyph: () -> Glyph
 
@@ -120,17 +125,17 @@ struct OutlinedAuthButton<Glyph: View>: View {
                         glyph()
                         Text(title)
                             .font(.body.weight(.medium))
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(onGlow ? Color.white : Color.primary)
                     }
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 54)
             .background {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(uiColor: .secondarySystemBackground))
+                    .fill(onGlow ? Color.white.opacity(0.18) : Color(uiColor: .secondarySystemBackground))
                     .overlay {
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color(uiColor: .separator), lineWidth: 1)
+                            .strokeBorder(onGlow ? Color.white.opacity(0.28) : Color(uiColor: .separator), lineWidth: 1)
                     }
             }
         }
@@ -169,6 +174,32 @@ struct AuthTextField<Field: Hashable>: View {
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(isFocused ? Theme.accent : .clear, lineWidth: 1.5)
+        }
+        .animation(.snappy(duration: 0.18), value: isFocused)
+        .contentShape(Rectangle())
+        .onTapGesture { focus.wrappedValue = field }
+    }
+}
+
+/// One big centred answer on a line, Bevel's way: no card, just the words
+/// and an underline that takes the accent while it is typed in.
+struct CenteredAuthField<Field: Hashable>: View {
+    let placeholder: String
+    @Binding var text: String
+    let focus: FocusState<Field?>.Binding
+    let field: Field
+
+    private var isFocused: Bool { focus.wrappedValue == field }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            TextField(placeholder, text: $text)
+                .font(.system(size: 22, weight: .medium))
+                .multilineTextAlignment(.center)
+                .focused(focus, equals: field)
+            Rectangle()
+                .fill(isFocused ? Theme.accent : Color.secondary.opacity(0.3))
+                .frame(height: isFocused ? 2 : 1)
         }
         .animation(.snappy(duration: 0.18), value: isFocused)
         .contentShape(Rectangle())

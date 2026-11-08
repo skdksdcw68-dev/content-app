@@ -10,8 +10,9 @@ import UIKit
 
 // MARK: - Account
 
-/// "Save your progress": Apple and Google first, email third, then the guest
-/// door and the way back for somebody who already has an account.
+/// The account page, Fuse's way in Postpilot purple (Abel, 7 Nov 2026): words
+/// rolling at the top, a purple glow rising from the bottom, Apple as the big
+/// button, email as the small one.
 struct AccountScreen: View {
     let onEmail: () -> Void
     let onLogin: () -> Void
@@ -21,62 +22,123 @@ struct AccountScreen: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ZStack(alignment: .bottom) {
+            RollingWords()
+                .frame(maxHeight: .infinity, alignment: .top)
+                .padding(.top, 70)
 
-            Image("app-mark")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 84, height: 84)
-                .clipShape(RoundedRectangle(cornerRadius: 19, style: .continuous))
-                .padding(.bottom, 14)
+            LinearGradient(
+                colors: [.clear, Color("LaunchPurple").opacity(0.55), Color("LaunchPurple"), Color(red: 0.24, green: 0.18, blue: 0.82)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: 430)
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
 
-            Text("Save your progress")
-                .font(.largeTitle.bold())
-                .multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: 10) {
+                Image("app-mark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
-            Text("Create an account to keep your brand, your plans and your videos")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.top, 10)
-                .padding(.horizontal, 32)
+                Text("Your videos,\non autopilot")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundStyle(.white)
 
-            Spacer()
+                Text("Save your setup and make your first video.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.bottom, 8)
 
-            VStack(spacing: 11) {
-                SocialSignInButtons(mode: .signup, pending: $pending, error: $error, done: onDone)
+                SocialSignInButtons(mode: .signup, onGlow: true, pending: $pending, error: $error, done: onDone)
 
-                OutlinedAuthButton(title: "Continue with Email", isDisabled: pending != nil, action: onEmail) {
-                    Image(systemName: "envelope.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(.primary)
-                        .frame(width: 20)
+                if let error {
+                    Text(error)
+                        .font(.footnote)
+                        .foregroundStyle(.white)
                 }
+
+                Button(action: onEmail) {
+                    Text("Use email instead")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, minHeight: 36)
+                }
+                .disabled(pending != nil)
+
+                Button(action: onLogin) {
+                    Text("Already have an account? **Log in**")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .frame(maxWidth: .infinity)
+                }
+                .disabled(pending != nil)
+
+                Text("By continuing you agree to our [Terms](https://netrocast.com/terms) & [Privacy Policy](https://netrocast.com/privacy)")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .tint(.white)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
             }
             .padding(.horizontal, 24)
-
-            if let error {
-                Text(error)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, 12)
-                    .padding(.horizontal, 32)
-            }
-
-            Button(action: onLogin) {
-                Text("Already have an account? **Log in**")
-                    .font(.subheadline)
-            }
-            .tint(.primary)
-            .padding(.top, 18)
-            .disabled(pending != nil)
-
-            AuthTerms()
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+            .padding(.bottom, 12)
         }
+    }
+}
+
+/// Write, Voice, Edit, Post, Grow: the word in the middle full strength, the
+/// rest faint, rolling up. Still when Reduce Motion is on.
+private struct RollingWords: View {
+    private static let words: [(String, String)] = [
+        ("Write", "text.alignleft"), ("Voice", "waveform"), ("Edit", "film"),
+        ("Post", "paperplane.fill"), ("Grow", "chart.line.uptrend.xyaxis"),
+    ]
+    private let rowHeight: CGFloat = 54
+
+    @State private var index = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        let words = Self.words
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<(words.count * 3), id: \.self) { position in
+                row(words[position % words.count], active: position == index + 2)
+            }
+        }
+        .offset(y: -rowHeight * CGFloat(index))
+        .frame(height: rowHeight * 5, alignment: .top)
+        .clipped()
+        .mask(LinearGradient(colors: [.clear, .black, .black, .clear], startPoint: .top, endPoint: .bottom))
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .task {
+            guard !reduceMotion else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(1100))
+                if index + 1 >= words.count * 2 {
+                    index = 0
+                } else {
+                    withAnimation(.spring(duration: 0.55, bounce: 0.15)) { index += 1 }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func row(_ word: (String, String), active: Bool) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: word.1)
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .opacity(active ? 1 : 0)
+            Text(word.0)
+                .font(.system(size: 40, weight: .semibold))
+                .foregroundStyle(active ? Color.primary : Color.secondary.opacity(0.35))
+        }
+        .frame(height: rowHeight, alignment: .leading)
     }
 }
 
@@ -115,23 +177,23 @@ struct EmailScreen: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(mode == .signup ? "Enter your email" : "Welcome back")
-                    .font(.title2.bold())
-                Text(mode == .signup
-                     ? "We’ll send you a six-digit code"
-                     : "Log in with the email you signed up with and we’ll send you a code")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-
+        VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    AuthTextField(placeholder: "you@example.com", text: $email, symbol: "envelope", focus: $focus, field: .email)
+                VStack(spacing: 14) {
+                    Text(mode == .signup ? "What is your email address?" : "Welcome back")
+                        .font(.system(size: 17, weight: .semibold))
+                        .multilineTextAlignment(.center)
+                        .padding(.top, 70)
+
+                    if mode == .login {
+                        Text("Log in with the email you signed up with and we’ll send you a code")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    CenteredAuthField(placeholder: "you@example.com", text: $email, focus: $focus, field: .email)
                         .keyboardType(.emailAddress)
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
@@ -140,8 +202,8 @@ struct EmailScreen: View {
                         .onSubmit { if mode == .signup { focus = .name } else { send() } }
 
                     if mode == .signup {
-                        AuthTextField(placeholder: "Your name", text: $name, symbol: "person", focus: $focus, field: .name)
-                            .textContentType(.name)
+                        CenteredAuthField(placeholder: "Your first name", text: $name, focus: $focus, field: .name)
+                            .textContentType(.givenName)
                             .textInputAutocapitalization(.words)
                             .submitLabel(.send)
                             .onSubmit { send() }
@@ -150,21 +212,21 @@ struct EmailScreen: View {
                     Text(error ?? "We’ll never share your email with anyone")
                         .font(.footnote)
                         .foregroundStyle(error == nil ? Color.secondary : Color.red)
-                        .padding(.horizontal, 4)
+                        .multilineTextAlignment(.center)
 
                     if mode == .login {
                         SocialSignInButtons(mode: .login, pending: $pending, error: $error, done: onDone)
                             .padding(.top, 12)
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 24)
             }
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
 
             AuthTerms().padding(.bottom, 12)
 
-            OnboardingButton(title: "Send Code", isBusy: sending, action: send)
+            OnboardingButton(title: "Continue", isBusy: sending, action: send)
                 .disabled(!canSend)
         }
         .onAppear { focus = .email }

@@ -292,6 +292,7 @@ private struct AddMCPServerSheet: View {
                 }
             }
             .navigationTitle("Add an MCP server")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -82,6 +82,7 @@ struct GeneratorSheet: View {
                 }
             }
             .navigationTitle("Add a generator")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

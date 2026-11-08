@@ -189,6 +189,7 @@ struct ChatListView: View {
                 }
             }
         }
+        .dismissesKeyboardOnTapInside()
         // Claude's way: "New chat" floating at the bottom. The button starts on
         // whichever side is showing. Search is up in the bar.
         .safeAreaInset(edge: .bottom, spacing: 0) {

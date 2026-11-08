@@ -186,6 +186,7 @@ struct LibraryView: View {
                 }
             }
             .navigationTitle("New post")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

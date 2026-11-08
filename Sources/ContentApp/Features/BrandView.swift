@@ -117,6 +117,7 @@ struct BrandView: View {
             BrandFlowView()
         }
         .navigationTitle("Brand")
+        .dismissesKeyboardOnTapInside()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
@@ -347,6 +348,7 @@ struct FactsView: View {
             }
         }
         .navigationTitle("What it should know")
+        .dismissesKeyboardOnTapInside()
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if !session.facts.isEmpty {

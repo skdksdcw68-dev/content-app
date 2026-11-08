@@ -64,6 +64,7 @@ struct UploadFlowView: View {
                 }
                 .background(Color.canvas.ignoresSafeArea())
                 .navigationTitle("Upload a video")
+                .dismissesKeyboardOnTapInside()
                 .navigationBarTitleDisplayMode(.inline)
                 .pushedPage()
             }

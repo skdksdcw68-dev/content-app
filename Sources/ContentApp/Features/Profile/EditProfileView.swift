@@ -108,6 +108,7 @@ struct EditProfileView: View {
                 }
             }
             .navigationTitle("Edit profile")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

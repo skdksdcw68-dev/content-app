@@ -152,6 +152,7 @@ private struct PillarEditor: View {
                 Text("Plans already written keep their posts. New plans won’t use it.")
             }
             .navigationTitle(pillar.name.isEmpty ? "New pillar" : pillar.name)
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

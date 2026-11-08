@@ -591,6 +591,7 @@ private struct TextSheet: View {
                 }
             }
             .navigationTitle("Text")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if editing != nil {

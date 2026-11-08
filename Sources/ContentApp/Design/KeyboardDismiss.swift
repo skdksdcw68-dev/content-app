@@ -35,6 +35,14 @@ enum KeyboardDismiss {
 }
 
 extension View {
+    /// For a Form, List or ScrollView that has text fields: a tap that lands
+    /// anywhere on it also closes the keyboard. It is a SIMULTANEOUS gesture on
+    /// that one screen only, so rows, links and buttons still get their tap
+    /// (never put this above the TabView, see the note above).
+    func dismissesKeyboardOnTapInside() -> some View {
+        simultaneousGesture(TapGesture().onEnded { KeyboardDismiss.now() })
+    }
+
     /// A tap on this view closes the keyboard. Meant for a background: put it
     /// on the colour behind a screen's content, never on or above the content
     /// itself.

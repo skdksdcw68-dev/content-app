@@ -157,6 +157,7 @@ struct GenerateSettingsSheet: View {
                 }
             }
             .navigationTitle("Settings")
+            .dismissesKeyboardOnTapInside()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

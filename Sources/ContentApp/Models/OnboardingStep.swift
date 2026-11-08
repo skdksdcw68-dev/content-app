@@ -65,8 +65,12 @@ extension OnboardingQuestion {
     /// mockup he loved): what kind of video, whose voice reads it, and where it
     /// goes. Every one has "Decide for me", so nobody has to know the answer.
     /// What they promote moved to the Brand page with the rest.
+    ///
+    /// 🔴 One now (Abel, 8 Nov 2026: "remove the style and voice picker"): only
+    /// where they post. The format and the voice are chosen in the app, where
+    /// the person can see what they are choosing.
     static var all: [OnboardingQuestion] {
-        [format, narrator, BrandQuestions.platforms]
+        [BrandQuestions.platforms]
     }
 
     /// The first three of the old four, asked on the Brand page instead.
@@ -216,7 +220,13 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     case welcome
     /// The three "how it works" pages, between the video and the questions.
     case tour(Int)
+    /// Their first name, asked once, before anything else (skippable).
+    case name
     case question(Int)
+    /// A calm page on what is never done with their information.
+    case privacy
+    /// Asks for pings with a reason; the system prompt only follows a yes.
+    case pings
     /// The ring, while the answers are written to the brand.
     case building
     /// What Autocast does, before anybody is asked for anything.
@@ -231,6 +241,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     var storedValue: String {
         switch self {
         case .welcome:            return "welcome"
+        case .name:               return "name"
+        case .privacy:            return "privacy"
+        case .pings:              return "pings"
         case .tour(let i):        return "tour:\(i)"
         case .question(let i):    return "question:\(i)"
         case .building:           return "building"
@@ -253,7 +266,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         // Steps that no longer exist. "name" asked for a name before anybody
         // had used anything, which App Review rejects; "generator" was the old
         // connect-a-generator screen.
-        case "name":      self = .welcome
+        case "name":      self = .name
+        case "privacy":   self = .privacy
+        case "pings":     self = .pings
         case "generator": self = .done
         default:
             if stored.hasPrefix("tour:"), let page = Int(stored.dropFirst("tour:".count)) {
@@ -276,7 +291,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// and nowhere they were sent (Remi's `canGoBack`).
     var canGoBack: Bool {
         switch self {
-        case .tour, .question, .included, .account, .email, .code: return true
+        case .tour, .name, .question, .privacy, .pings, .included, .account, .email, .code: return true
         case .welcome, .building, .verified, .done: return false
         }
     }
@@ -301,7 +316,12 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         switch self {
         // The denominator is one more than the questions, so the last one
         // somebody still has to answer does not sit under a full bar.
-        case .question(let i):  return Double(i + 1) / Double(OnboardingQuestion.all.count + 1)
+        // Name, the questions, privacy and pings are the queue; one more is
+        // the end, so the bar never reads full before the last of them.
+        case .name:             return 1 / Double(OnboardingQuestion.all.count + 4)
+        case .question(let i):  return Double(i + 2) / Double(OnboardingQuestion.all.count + 4)
+        case .privacy:          return Double(OnboardingQuestion.all.count + 2) / Double(OnboardingQuestion.all.count + 4)
+        case .pings:            return Double(OnboardingQuestion.all.count + 3) / Double(OnboardingQuestion.all.count + 4)
         case .done:             return 1
         // The ring and everything after it are not a queue being got through,
         // so they carry no bar at all.

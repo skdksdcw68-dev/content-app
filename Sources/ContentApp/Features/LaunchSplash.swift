@@ -37,7 +37,10 @@ struct LaunchSplash: View {
             logo
         }
         .ignoresSafeArea()
-        .task { await intro() }
+        .task {
+            await intro()
+            await waitingLoop()
+        }
         .onChange(of: ready) { _, _ in openIfReady() }
         .onChange(of: introDone) { _, _ in openIfReady() }
         .accessibilityHidden(true)
@@ -121,6 +124,21 @@ struct LaunchSplash: View {
         introDone = true
     }
 
+    /// If the app is still loading after the move, the light keeps crossing
+    /// the P and the plane drifts, so it never looks stuck or restarted. Also
+    /// what the sign-out screen shows, which never opens.
+    private func waitingLoop() async {
+        guard !reduceMotion else { return }
+        while !Task.isCancelled, open == 0 {
+            sweep = -1
+            withAnimation(.easeInOut(duration: 0.9)) { sweep = 1.2 }
+            withAnimation(.easeInOut(duration: 0.7)) { planeOut = 0.35 }
+            try? await Task.sleep(for: .milliseconds(700))
+            withAnimation(.spring(duration: 0.6, bounce: 0.3)) { planeOut = 0 }
+            try? await Task.sleep(for: .milliseconds(900))
+        }
+    }
+
     private func openIfReady() {
         guard ready, introDone, open == 0 else { return }
         if reduceMotion {
@@ -156,28 +174,5 @@ private struct PlaneShape: Shape {
         path.addLine(to: point(474, 452))
         path.closeSubpath()
         return path
-    }
-}
-
-/// The app's mark, gently breathing: what waits on screen while an account is
-/// let go or loaded, in place of a spinner.
-struct BreathingMark: View {
-    var size: CGFloat = 64
-
-    @State private var big = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Image("app-mark")
-            .resizable()
-            .scaledToFit()
-            .frame(width: size, height: size)
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
-            .scaleEffect(big ? 1.08 : 0.94)
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { big = true }
-            }
-            .accessibilityHidden(true)
     }
 }

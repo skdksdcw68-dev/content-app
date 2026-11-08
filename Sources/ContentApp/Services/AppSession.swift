@@ -1613,16 +1613,25 @@ extension AppSession {
         case .welcome:
             setOnboarding(.tour(0))
         case .tour(let page):
-            setOnboarding(page + 1 < OnboardingTour.pages.count ? .tour(page + 1) : .question(0))
+            setOnboarding(page + 1 < OnboardingTour.pages.count ? .tour(page + 1) : .name)
+        case .name:
+            setOnboarding(.question(0))
         case .question(let index):
             let next = index + 1
             if next < OnboardingQuestion.all.count {
                 setOnboarding(.question(next))
             } else {
-                // Everything answered: the ring screen covers the writing.
-                setOnboarding(.building)
-                Task { await saveAnswers() }
+                // Passed the questions, answered or skipped: remembered, so an
+                // account made on the way in is not asked them again.
+                onboardingAnswers["onboarded"] = ["done"]
+                setOnboarding(.privacy)
             }
+        case .privacy:
+            setOnboarding(.pings)
+        case .pings:
+            // Everything asked: the ring screen covers the writing.
+            setOnboarding(.building)
+            Task { await saveAnswers() }
         case .building:
             // The "what it does" checklist is gone: the tour says it first.
             setOnboarding(.account)
@@ -1634,6 +1643,9 @@ extension AppSession {
             // did gets them now, with the account already theirs -- but
             // answers given on the way in are carried over first, so nobody
             // is asked the same twelve questions twice.
+            // The name typed at the start, for the ways in that do not hand
+            // one over (Apple and Google already do).
+            if !pendingName.isEmpty { Task { await adoptName(pendingName) } }
             if let brand, !brand.answeredOnboarding {
                 // The screen they are on stays up for the moment this takes,
                 // rather than flashing a question that is about to be
@@ -1668,13 +1680,19 @@ extension AppSession {
     func onboardingBack() {
         switch onboarding {
         case .question(let index):
-            setOnboarding(index == 0 ? .tour(OnboardingTour.pages.count - 1) : .question(index - 1))
+            setOnboarding(index == 0 ? .name : .question(index - 1))
+        case .name:
+            setOnboarding(.tour(OnboardingTour.pages.count - 1))
+        case .privacy:
+            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
+        case .pings:
+            setOnboarding(.privacy)
         case .tour(let page):
             setOnboarding(page == 0 ? .welcome : .tour(page - 1))
         case .included:
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .account:
-            setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
+            setOnboarding(.pings)
         case .email:
             // Back from the email door returns to wherever it was opened from:
             // the account screen for a sign-up, the welcome screen for a log in.
@@ -1737,7 +1755,7 @@ extension AppSession {
         guard let brand, !brand.answeredOnboarding else { return }
         // The same bar `Brand.answeredOnboarding` uses, so carrying them over
         // always clears the gate that sent us here.
-        guard answersHeldInMemory >= max(1, OnboardingQuestion.all.count / 2) else { return }
+        guard onboardingAnswers["onboarded"] != nil || answersHeldInMemory >= max(1, OnboardingQuestion.all.count / 2) else { return }
         await saveAnswers()
     }
 
@@ -1755,6 +1773,8 @@ extension AppSession {
         // Into the same profile the Brand page edits, keeping anything it
         // already holds.
         var profile = brand.profile ?? [:]
+        // Remembers that setup was gone through, even with every question skipped.
+        profile["onboarded"] = BrandAnswer(title: "Onboarding", answers: ["done"])
         for question in OnboardingQuestion.all {
             let picked = labels(question)
             if !picked.isEmpty { profile[question.id] = BrandAnswer(title: question.title, answers: picked) }

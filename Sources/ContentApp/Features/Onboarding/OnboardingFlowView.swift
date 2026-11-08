@@ -66,6 +66,15 @@ struct OnboardingFlowView: View {
         case .tour(let page):
             OnboardingTourView(page: page)
 
+        case .name:
+            OnboardingNameView()
+
+        case .privacy:
+            OnboardingPrivacyView()
+
+        case .pings:
+            OnboardingPingsView()
+
         case .question(let index):
             // Guarded: a stored step can outlive a question being removed from
             // the set, and an out-of-range index would crash on launch.
@@ -134,145 +143,107 @@ struct OnboardingArt: View {
 
 // MARK: - One question
 
-/// The only question screen. Adding or reordering questions never touches this.
-///
-/// A single-choice question has no button: tapping an answer *is* the answer,
-/// so the pick lands, is seen, and the page moves on by itself (Abel, 21 Sep
-/// 2026: "after choosing why do they have to choose a button?"). Only a
-/// question that takes several answers keeps one, because there a tap cannot
-/// mean "done".
+/// The only question screen: where they post. Several can be picked, "All of the
+/// above" picks every real one, and the button says Skip until something is
+/// chosen, so nobody is ever stuck on it.
 private struct OnboardingQuestionView: View {
     let step: OnboardingStep
     let question: OnboardingQuestion
 
     @Environment(AppSession.self) private var session
-    /// Plays the voice samples on the voice question.
-    @State private var sampler = VoiceSampler()
 
     private var chosen: Set<String> { session.onboardingAnswers[question.id] ?? [] }
-
-    /// How long the pick stays on screen before the page moves. Remi's 400ms:
-    /// the selection animation is 0.18s and the page crossfade 0.25s, so
-    /// anything shorter shows the pick for a sliver and reads as a jump.
-    private let settle: Duration = .milliseconds(400)
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
         GridItem(.flexible(), spacing: 10),
     ]
 
+    /// Every option that is a real place; "Nowhere yet" is not one of them.
+    private var real: [OnboardingQuestion.Option] {
+        question.options.filter { $0.id != "starting" }
+    }
+
+    private var allChosen: Bool { real.allSatisfy { chosen.contains($0.id) } }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(spacing: 0) {
+            VStack(spacing: 6) {
                 Text(OnboardingPrompt.title(for: question))
-                    .font(.title2.bold())
+                    .font(.system(size: 26, weight: .bold))
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(question.subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 14)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 20)
 
             ScrollView {
-                if question.id == "format" {
-                    formatGrid
-                } else if question.id == "narrator" {
-                    voiceList
-                } else if question.isDetailed {
-                    VStack(spacing: 10) {
-                        ForEach(question.options) { option in
-                            DetailedOption(option: option, isChosen: chosen.contains(option.id)) {
-                                tap(option)
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(question.options) { option in
+                        OptionTile(option: option, isChosen: chosen.contains(option.id)) {
+                            withAnimation(.snappy(duration: 0.18)) {
+                                session.onboardingToggle(option, in: question)
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
-                } else {
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(question.options) { option in
-                            OptionTile(option: option, isChosen: chosen.contains(option.id)) {
-                                tap(option)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 20)
                 }
+                .padding(.horizontal, 20)
+
+                allOfTheAbove
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
             }
             .scrollIndicators(.hidden)
 
-            if question.selection == .multiple {
-                // Never disabled. Nothing picked costs a little quality and
-                // nothing else, so it says "Skip" and lets them through.
-                OnboardingButton(
-                    title: chosen.isEmpty ? "Skip" : "Continue",
-                    tint: chosen.isEmpty ? Color.secondary : Theme.accent
-                ) {
-                    session.onboardingNext(from: step)
-                }
-                .padding(.top, 10)
-                .animation(.snappy(duration: 0.2), value: chosen.isEmpty)
+            // Never disabled. Nothing picked costs a little quality and
+            // nothing else, so it says "Skip" and lets them through.
+            OnboardingButton(
+                title: chosen.isEmpty ? "Skip" : "Continue",
+                tint: chosen.isEmpty ? Color.secondary : Theme.accent
+            ) {
+                session.onboardingNext(from: step)
             }
+            .padding(.top, 10)
+            .animation(.snappy(duration: 0.2), value: chosen.isEmpty)
         }
+        .softGlassBackground()
     }
 
-    /// The voices, each with its sample's play button inside the row. The
-    /// sample streams from ElevenLabs' public link: nothing is asked of the
-    /// server and nothing is generated while somebody listens.
-    private var voiceList: some View {
-        VStack(spacing: 10) {
-            ForEach(question.options) { option in
-                if let voice = SeriesVoice.all.first(where: { $0.id == option.id }) {
-                    VoiceRow(
-                        voice: voice,
-                        isChosen: chosen.contains(option.id),
-                        isPlaying: sampler.playing == voice.id,
-                        choose: {
-                            sampler.stop()
-                            tap(option)
-                        },
-                        play: { sampler.toggle(voice) }
-                    )
-                }
+    /// One wide tile under the grid, so the grid stays even.
+    private var allOfTheAbove: some View {
+        Button {
+            withAnimation(.snappy(duration: 0.18)) {
+                var next = chosen.subtracting(real.map(\.id))
+                if !allChosen { next.formUnion(real.map(\.id)) }
+                session.onboardingAnswers[question.id] = next
+            }
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: allChosen ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(allChosen ? Theme.accent : Color.secondary)
+                    .contentTransition(.symbolEffect(.replace))
+                Text("All of the above")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                shape.fill(allChosen ? AnyShapeStyle(Theme.accent.opacity(0.10)) : AnyShapeStyle(Theme.surface))
+                    .overlay(shape.strokeBorder(allChosen ? Theme.accent : .clear, lineWidth: 1.5))
             }
         }
-        .padding(.horizontal, 20)
-        .onDisappear { sampler.stop() }
-    }
-
-    /// The formats are cards with colour; "Decide for me" and "I'm just starting"
-    /// are plain tiles under them.
-    private var formatGrid: some View {
-        LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(question.options) { option in
-                if option.detail != nil {
-                    FormatTile(option: option, isChosen: chosen.contains(option.id)) { tap(option) }
-                } else {
-                    OptionTile(option: option, isChosen: chosen.contains(option.id)) { tap(option) }
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-    }
-
-    private func tap(_ option: OnboardingQuestion.Option) {
-        withAnimation(.snappy(duration: 0.18)) {
-            session.onboardingToggle(option, in: question)
-        }
-        guard question.selection == .single else { return }
-
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        let answered = step
-        Task {
-            try? await Task.sleep(for: settle)
-            // Only moves on if this is still the question on screen: a second
-            // tap inside the settle, or Back, must not skip one.
-            session.onboardingNext(from: answered)
-        }
+        .buttonStyle(.plain)
     }
 }
 

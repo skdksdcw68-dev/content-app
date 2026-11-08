@@ -167,10 +167,9 @@ struct EmailScreen: View {
 
     @Environment(AppSession.self) private var session
 
-    private enum Field: Hashable { case email, name }
+    private enum Field: Hashable { case email }
 
     @State private var email = ""
-    @State private var name = ""
     @State private var sending = false
     @State private var pending: SignInProvider?
     @State private var error: String?
@@ -185,7 +184,6 @@ struct EmailScreen: View {
 
     private var canSend: Bool {
         looksLikeEmail && !sending && pending == nil
-            && (mode == .login || !name.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     var body: some View {
@@ -195,7 +193,7 @@ struct EmailScreen: View {
                     Text(mode == .signup ? "What is your email address?" : "Welcome back")
                         .font(.system(size: 17, weight: .semibold))
                         .multilineTextAlignment(.center)
-                        .padding(.top, 70)
+                        .padding(.top, 150)
 
                     if mode == .login {
                         Text("Log in with the email you signed up with and we’ll send you a code")
@@ -210,16 +208,8 @@ struct EmailScreen: View {
                         .textContentType(.emailAddress)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                        .submitLabel(mode == .signup ? .next : .send)
-                        .onSubmit { if mode == .signup { focus = .name } else { send() } }
-
-                    if mode == .signup {
-                        CenteredAuthField(placeholder: "Your first name", text: $name, focus: $focus, field: .name)
-                            .textContentType(.givenName)
-                            .textInputAutocapitalization(.words)
-                            .submitLabel(.send)
-                            .onSubmit { send() }
-                    }
+                        .submitLabel(.send)
+                        .onSubmit { send() }
 
                     Text(error ?? "We’ll never share your email with anyone")
                         .font(.footnote)
@@ -252,7 +242,7 @@ struct EmailScreen: View {
             let outcome = await session.sendEmailCode(to: cleanEmail)
             sending = false
             switch outcome {
-            case .codeSent: onSent(cleanEmail, name.trimmingCharacters(in: .whitespacesAndNewlines))
+            case .codeSent: onSent(cleanEmail, session.pendingName)
             case .linked: onDone(.created)
             case .switched: onDone(mode == .login ? .returning : .alreadyRegistered)
             case .failed(let reason): if !reason.isEmpty { error = reason }

@@ -41,6 +41,7 @@ struct Brand: Identifiable, Codable, Hashable, Sendable {
     /// with Apple, and land in the app having answered nothing (Abel,
     /// 23 Sep 2026: "there should be no way to bypass the onboarding").
     var answeredOnboarding: Bool {
+        if profile?["onboarded"] != nil { return true }
         let ids = OnboardingQuestion.all.map(\.id)
         guard !ids.isEmpty else { return true }
         let answered = ids.filter { profile?[$0] != nil }.count

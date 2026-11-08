@@ -181,27 +181,22 @@ struct AuthTextField<Field: Hashable>: View {
     }
 }
 
-/// One big centred answer on a line, Bevel's way: no card, just the words
-/// and an underline that takes the accent while it is typed in.
+/// One big centred answer, Bevel's way: no card and no line, just the words.
 struct CenteredAuthField<Field: Hashable>: View {
     let placeholder: String
     @Binding var text: String
     let focus: FocusState<Field?>.Binding
     let field: Field
 
-    private var isFocused: Bool { focus.wrappedValue == field }
-
     var body: some View {
         VStack(spacing: 8) {
-            TextField(placeholder, text: $text)
-                .font(.system(size: 22, weight: .medium))
+            // The example is small and quiet, and there is no line under the
+            // field, as in Bevel (Abel, 8 Nov 2026).
+            TextField("", text: $text, prompt: Text(placeholder).font(.system(size: 16)).foregroundStyle(Color.secondary.opacity(0.55)))
+                .font(.system(size: 24, weight: .medium))
                 .multilineTextAlignment(.center)
                 .focused(focus, equals: field)
-            Rectangle()
-                .fill(isFocused ? Theme.accent : Color.secondary.opacity(0.3))
-                .frame(height: isFocused ? 2 : 1)
         }
-        .animation(.snappy(duration: 0.18), value: isFocused)
         .contentShape(Rectangle())
         .onTapGesture { focus.wrappedValue = field }
     }

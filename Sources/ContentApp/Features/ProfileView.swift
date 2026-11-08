@@ -427,15 +427,10 @@ struct ProfileView: View {
 
     /// Covers the whole sheet while the account is let go.
     private var signingOutCover: some View {
-        VStack(spacing: 18) {
-            // The app's mark, breathing, in place of a spinner.
-            BreathingMark()
-            Text("Logging you out…")
-                .font(.headline)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
-        .transition(.opacity)
+        // The splash animation, looping, in place of a spinner (Abel, 8 Nov
+        // 2026). Never opens: the sheet closes and the sign-out takes over.
+        LaunchSplash(ready: false) {}
+            .transition(.opacity)
     }
 
     /// Says so, closes the sheet, then signs out of the phone and the server

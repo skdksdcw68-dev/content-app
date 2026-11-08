@@ -21,7 +21,8 @@ export type LimitKey =
   | "pictures_per_request"
   | "jobs_at_once"
   | "series_running"
-  | "scheduled_waiting";
+  | "scheduled_waiting"
+  | "free_messages_total";
 
 /** Free, Pro, Max, Ultra -- plans_catalog.tier 0 to 3. */
 const DEFAULTS: Record<LimitKey, [number, number, number, number]> = {
@@ -35,6 +36,9 @@ const DEFAULTS: Record<LimitKey, [number, number, number, number]> = {
   jobs_at_once: [0, 2, 4, 8],
   series_running: [0, 1, 3, 10],
   scheduled_waiting: [0, 10, 30, 100],
+  // Messages a free account gets in its whole life; the paid plans use the
+  // monthly meter instead, so their number here is not read.
+  free_messages_total: [10, 0, 0, 0],
 };
 
 let cached: { at: number; rows: Map<string, [number, number, number, number]> } | null = null;

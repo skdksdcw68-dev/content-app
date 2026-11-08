@@ -327,6 +327,17 @@ Deno.serve(async (request) => {
       throw new PublicError("You've sent a lot in a short time. Give it a minute, then carry on.", 429);
     }
 
+    // Free accounts get a few plain messages, once (Abel, 8 Nov 2026: "10 normal
+    // messages, not agentic, not research, on Haiku"). Counted over the
+    // account's whole life, so a new month is not a new ten.
+    const freeTier = (await standingAhead.catch(() => ({ tier: 0 }))).tier === 0;
+    if (freeTier) {
+      const { data: ever } = await service.rpc("recent_user_messages", { p_user: auth.user.id, p_seconds: 315_360_000 });
+      if (typeof ever === "number" && ever >= limit("free_messages_total", 0)) {
+        throw new PublicError("You've used your free messages. Pick a plan to keep going.", 402, false, "needs_pro");
+      }
+    }
+
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
     const asked = mine;
 
@@ -1790,7 +1801,7 @@ Deno.serve(async (request) => {
         // kept in their sign-in's metadata by the app.
         const metadata = ((await userAhead).data.user?.user_metadata ?? {}) as Record<string, unknown>;
         const memoryOff = metadata.memory_off === true;
-        const webOff = metadata.web_off === true;
+        const webOff = metadata.web_off === true || freeTier;
         const memoryAhead: Promise<Array<{ id: string; note: string }>> = memoryOff ? Promise.resolve([]) : Promise.resolve(
           admin.from("person_memory").select("id, note").eq("user_id", auth.user!.id)
             .order("created_at", { ascending: false }).limit(MEMORY_KEPT),
@@ -2545,7 +2556,9 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // OpenRouter set up is Auto. Looking things up stays on OpenAI.
           const tierNow = (await standingAhead.catch(() => ({ tier: 0 }))).tier;
           const claudeReady = OPENROUTER_KEY !== "";
-          const chosen: string | null = body.chatModel === "sonnet" && claudeReady ? MODELS.think
+          // A free account always gets the small, cheap model.
+          const chosen: string | null = tierNow === 0 && claudeReady ? MODELS.talk
+            : body.chatModel === "sonnet" && claudeReady ? MODELS.think
             : body.chatModel === "haiku" && claudeReady ? MODELS.talk
             : body.chatModel === "opus" && claudeReady && tierNow >= 2 ? MODELS.opus
             : body.chatModel === "terra" ? MODELS.smart
@@ -2789,6 +2802,14 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           if (routed.timing && routed.intent === "make" && !routed.schedule) speak(`${routed.timing} `);
           // "Edit the second one" changes a picture that exists, which is making.
           if (routed.intent === "revise" && routed.jobs.length > 0) routed = { ...routed, intent: "make" };
+          // Free accounts talk and nothing else: no making, planning, research,
+          // scheduling or web look-ups. Said once, kindly, and the message ends.
+          if (tierNow === 0 && routed.intent !== "chat") {
+            speak("That needs a plan. Free accounts can chat. Pick a plan to make videos and pictures, plan content or look things up.");
+            await remember();
+            return finish();
+          }
+          if (tierNow === 0 && routed.web) routed = { ...routed, web: false };
           answerOnly = routed.intent === "chat";
 
           // What it took the message to mean, for the sheet behind "Thinking"

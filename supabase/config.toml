@@ -258,3 +258,6 @@ verify_jwt = true
 # carry the service role key in x-admin-key, which is checked inside.
 [functions.install-house-generator]
 verify_jwt = false
+
+[functions.welcome-email]
+verify_jwt = false

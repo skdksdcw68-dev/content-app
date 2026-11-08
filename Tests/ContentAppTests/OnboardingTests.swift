@@ -7,7 +7,7 @@ import XCTest
 /// screen to answer.
 final class OnboardingTests: XCTestCase {
     private var everyStep: [OnboardingStep] {
-        [.welcome, .tour(0), .tour(OnboardingTour.pages.count - 1), .name, .privacy, .pings, .question(0), .question(OnboardingQuestion.all.count - 1),
+        [.welcome, .tour(0), .tour(OnboardingTour.pages.count - 1), .privacy, .pings, .question(0), .question(OnboardingQuestion.all.count - 1),
          .building, .included, .account,
          .email(.signup), .email(.login), .code(.signup), .code(.login),
          .verified(.created), .verified(.alreadyRegistered), .verified(.returning), .done]
@@ -21,8 +21,8 @@ final class OnboardingTests: XCTestCase {
 
     /// Someone mid-flow when the app updates must land somewhere sensible.
     func testRetiredStepsMapSomewhereSensible() {
-        // The name page was removed once and is back: a stored one lands on it.
-        XCTAssertEqual(OnboardingStep(stored: "name"), .name)
+        // Asking for a name before sign-up is against App Review's rules.
+        XCTAssertEqual(OnboardingStep(stored: "name"), .welcome)
         // The old connect-a-generator screen.
         XCTAssertEqual(OnboardingStep(stored: "generator"), .done)
         XCTAssertNil(OnboardingStep(stored: "nonsense"))
@@ -45,9 +45,7 @@ final class OnboardingTests: XCTestCase {
 
         let first = OnboardingStep.question(0).progress
         let last = OnboardingStep.question(OnboardingQuestion.all.count - 1).progress
-        XCTAssertNotNil(OnboardingStep.name.progress)
         XCTAssertNotNil(OnboardingStep.privacy.progress)
-        XCTAssertLessThan(OnboardingStep.name.progress ?? 1, first ?? 0)
         XCTAssertLessThan(last ?? 1, OnboardingStep.privacy.progress ?? 0)
         XCTAssertLessThan(OnboardingStep.pings.progress ?? 1, 1)
         XCTAssertNotNil(first)

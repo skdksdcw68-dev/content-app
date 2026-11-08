@@ -66,9 +66,6 @@ struct OnboardingFlowView: View {
         case .tour(let page):
             OnboardingTourView(page: page)
 
-        case .name:
-            OnboardingNameView()
-
         case .privacy:
             OnboardingPrivacyView()
 

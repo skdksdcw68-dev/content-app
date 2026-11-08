@@ -220,8 +220,6 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     case welcome
     /// The three "how it works" pages, between the video and the questions.
     case tour(Int)
-    /// Their first name, asked once, before anything else (skippable).
-    case name
     case question(Int)
     /// A calm page on what is never done with their information.
     case privacy
@@ -241,7 +239,6 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     var storedValue: String {
         switch self {
         case .welcome:            return "welcome"
-        case .name:               return "name"
         case .privacy:            return "privacy"
         case .pings:              return "pings"
         case .tour(let i):        return "tour:\(i)"
@@ -266,7 +263,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         // Steps that no longer exist. "name" asked for a name before anybody
         // had used anything, which App Review rejects; "generator" was the old
         // connect-a-generator screen.
-        case "name":      self = .name
+        // Asking for a name before sign-up is against App Review's rules
+        // (5.1.1(v)); a stored one lands on the welcome.
+        case "name":      self = .welcome
         case "privacy":   self = .privacy
         case "pings":     self = .pings
         case "generator": self = .done
@@ -291,7 +290,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// and nowhere they were sent (Remi's `canGoBack`).
     var canGoBack: Bool {
         switch self {
-        case .tour, .name, .question, .privacy, .pings, .included, .account, .email, .code: return true
+        case .tour, .question, .privacy, .pings, .included, .account, .email, .code: return true
         case .welcome, .building, .verified, .done: return false
         }
     }
@@ -316,12 +315,11 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         switch self {
         // The denominator is one more than the questions, so the last one
         // somebody still has to answer does not sit under a full bar.
-        // Name, the questions, privacy and pings are the queue; one more is
-        // the end, so the bar never reads full before the last of them.
-        case .name:             return 1 / Double(OnboardingQuestion.all.count + 4)
-        case .question(let i):  return Double(i + 2) / Double(OnboardingQuestion.all.count + 4)
-        case .privacy:          return Double(OnboardingQuestion.all.count + 2) / Double(OnboardingQuestion.all.count + 4)
-        case .pings:            return Double(OnboardingQuestion.all.count + 3) / Double(OnboardingQuestion.all.count + 4)
+        // The questions, privacy and pings are the queue; one more is the
+        // end, so the bar never reads full before the last of them.
+        case .question(let i):  return Double(i + 1) / Double(OnboardingQuestion.all.count + 3)
+        case .privacy:          return Double(OnboardingQuestion.all.count + 1) / Double(OnboardingQuestion.all.count + 3)
+        case .pings:            return Double(OnboardingQuestion.all.count + 2) / Double(OnboardingQuestion.all.count + 3)
         case .done:             return 1
         // The ring and everything after it are not a queue being got through,
         // so they carry no bar at all.

@@ -1613,9 +1613,7 @@ extension AppSession {
         case .welcome:
             setOnboarding(.tour(0))
         case .tour(let page):
-            setOnboarding(page + 1 < OnboardingTour.pages.count ? .tour(page + 1) : .name)
-        case .name:
-            setOnboarding(.question(0))
+            setOnboarding(page + 1 < OnboardingTour.pages.count ? .tour(page + 1) : .question(0))
         case .question(let index):
             let next = index + 1
             if next < OnboardingQuestion.all.count {
@@ -1643,9 +1641,6 @@ extension AppSession {
             // did gets them now, with the account already theirs -- but
             // answers given on the way in are carried over first, so nobody
             // is asked the same twelve questions twice.
-            // The name typed at the start, for the ways in that do not hand
-            // one over (Apple and Google already do).
-            if !pendingName.isEmpty { Task { await adoptName(pendingName) } }
             if let brand, !brand.answeredOnboarding {
                 // The screen they are on stays up for the moment this takes,
                 // rather than flashing a question that is about to be
@@ -1680,9 +1675,7 @@ extension AppSession {
     func onboardingBack() {
         switch onboarding {
         case .question(let index):
-            setOnboarding(index == 0 ? .name : .question(index - 1))
-        case .name:
-            setOnboarding(.tour(OnboardingTour.pages.count - 1))
+            setOnboarding(index == 0 ? .tour(OnboardingTour.pages.count - 1) : .question(index - 1))
         case .privacy:
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .pings:

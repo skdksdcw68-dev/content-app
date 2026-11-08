@@ -11,7 +11,7 @@ enum OnboardingTour {
     }
 
     static let pages: [Page] = [
-        Page(title: "Videos in any style", line: "3D stories, facts, scary stories, motivation and more. Swipe to watch a few."),
+        Page(title: "Videos in any style", line: "3D stories, scary stories, motivation and more. Swipe to watch a few."),
         Page(title: "It makes every video", line: "Script, voice, pictures and captions. Done in minutes."),
         Page(title: "Fresh videos, every day", line: "It picks what’s trending, makes the video and posts it for you."),
     ]
@@ -172,7 +172,6 @@ private struct FormatCarousel: View {
 
     private static let cards: [Card] = [
         Card(name: "3D story", symbol: "cube", media: "viral", colors: [OB.hex(0x4D297A), OB.hex(0x120D24)]),
-        Card(name: "Did you know?", symbol: "lightbulb.fill", media: "fmt-facts", colors: [OB.hex(0x2978F5), OB.hex(0x5C47DB)]),
         Card(name: "Scary story", symbol: "moon.fill", media: "fmt-scary", colors: [OB.hex(0x4D297A), OB.hex(0x120D24)]),
         Card(name: "Motivation", symbol: "bolt.fill", media: "fmt-motivation", colors: [OB.hex(0xFA8C33), OB.hex(0xDB385C)]),
     ]

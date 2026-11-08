@@ -28,11 +28,6 @@ struct HomeTemplateStrip: View {
             colors: [Color(red: 0.09, green: 0.15, blue: 0.29), Color(red: 0.16, green: 0.35, blue: 0.60)],
             prompt: "a motivational video"
         ),
-        Format(
-            id: "facts", slug: "facts", title: "Did you know?", caption: "PENS HAVE A HOLE IN THE CAP",
-            colors: [Color(red: 0.10, green: 0.28, blue: 0.55), Color(red: 0.05, green: 0.12, blue: 0.28)],
-            prompt: "a did you know facts video"
-        ),
     ]
 
     var body: some View {

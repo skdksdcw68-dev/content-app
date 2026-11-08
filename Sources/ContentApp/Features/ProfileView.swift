@@ -427,8 +427,9 @@ struct ProfileView: View {
 
     /// Covers the whole sheet while the account is let go.
     private var signingOutCover: some View {
-        VStack(spacing: 14) {
-            ProgressView()
+        VStack(spacing: 18) {
+            // The app's mark, breathing, in place of a spinner.
+            BreathingMark()
             Text("Logging you out…")
                 .font(.headline)
         }

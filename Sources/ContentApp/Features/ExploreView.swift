@@ -359,6 +359,21 @@ struct SettingsAvatarButton: View {
 /// close button, the sheet's own dark or light ground, rows in rounded cards,
 /// the search pill at the bottom.
 struct SettingsSheet: View {
+    /// A sheet does not follow the page behind it the moment the theme is
+    /// changed inside it, so it reads the choice itself and applies it to its
+    /// own content (Abel, 8 Nov 2026: it stayed white until reopened).
+    @State private var appearance = AppAppearance.current
+
+    var body: some View {
+        SettingsSheetContent()
+            .preferredColorScheme(appearance.colorScheme)
+            .onReceive(NotificationCenter.default.publisher(for: .appearanceChanged)) { _ in
+                appearance = AppAppearance.current
+            }
+    }
+}
+
+private struct SettingsSheetContent: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
 

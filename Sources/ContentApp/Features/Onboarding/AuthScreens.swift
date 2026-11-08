@@ -27,14 +27,6 @@ struct AccountScreen: View {
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 70)
 
-            LinearGradient(
-                colors: [.clear, Color("LaunchPurple").opacity(0.55), Color("LaunchPurple"), Color(red: 0.24, green: 0.18, blue: 0.82)],
-                startPoint: .top, endPoint: .bottom
-            )
-            .frame(height: 430)
-            .ignoresSafeArea(edges: .bottom)
-            .allowsHitTesting(false)
-
             VStack(alignment: .leading, spacing: 10) {
                 Image("app-mark")
                     .resizable()
@@ -86,6 +78,26 @@ struct AccountScreen: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 12)
         }
+        .background { AccountGlow() }
+    }
+}
+
+/// The purple rising from the bottom edge of the SCREEN, under the home
+/// indicator too, so no white strip is left under the last line. Deeper in dark
+/// mode.
+private struct AccountGlow: View {
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let deep = scheme == .dark ? Color(red: 0.13, green: 0.09, blue: 0.45) : Color(red: 0.24, green: 0.18, blue: 0.82)
+        let mid = scheme == .dark ? Color(red: 0.27, green: 0.21, blue: 0.72) : Color("LaunchPurple")
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            LinearGradient(colors: [.clear, mid.opacity(0.55), mid, deep], startPoint: .top, endPoint: .bottom)
+                .frame(height: 460)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
     }
 }
 

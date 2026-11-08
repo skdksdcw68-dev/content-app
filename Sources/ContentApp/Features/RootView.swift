@@ -127,6 +127,11 @@ struct RootView: View {
                     .transition(.identity)
             }
         }
+        // Signing out or in starts the session over: the splash plays again
+        // instead of a blank page while the account loads.
+        .onChange(of: session.state) { _, state in
+            if state == .starting { splashDone = false }
+        }
         .task { await session.listenForTransactions() }
         // Back from the background: read the accounts again, so a change made
         // while the app was away is on screen without a pull to refresh.

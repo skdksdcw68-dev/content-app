@@ -42,6 +42,9 @@ struct OnboardingVideoWelcome: View {
     private var phoneFrame: some View {
         let shape = RoundedRectangle(cornerRadius: 28, style: .continuous)
         return ZStack {
+            // Colour behind the video, so there is never an empty white frame
+            // while it loads (Abel, 8 Nov 2026).
+            LinearGradient(colors: FormatLook.of("didyouknow").colors, startPoint: .topLeading, endPoint: .bottomTrailing)
             if reduceMotion {
                 FormatCardFace(id: "didyouknow", label: "Did you know?", height: 360)
             } else if let url = ContentTemplate.builtInPreview(for: "facts") {

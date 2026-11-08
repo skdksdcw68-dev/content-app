@@ -158,3 +158,26 @@ private struct PlaneShape: Shape {
         return path
     }
 }
+
+/// The app's mark, gently breathing: what waits on screen while an account is
+/// let go or loaded, in place of a spinner.
+struct BreathingMark: View {
+    var size: CGFloat = 64
+
+    @State private var big = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Image("app-mark")
+            .resizable()
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
+            .scaleEffect(big ? 1.08 : 0.94)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { big = true }
+            }
+            .accessibilityHidden(true)
+    }
+}

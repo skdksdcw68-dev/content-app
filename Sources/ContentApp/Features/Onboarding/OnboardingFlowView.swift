@@ -231,22 +231,42 @@ private struct FlowChrome: View {
     let goBack: () -> Void
 
     var body: some View {
+        ZStack {
+            bar.allowsHitTesting(false)
+            backButton
+        }
+    }
+
+    /// The back button is drawn at the phone's own size, outside the scaled
+    /// canvas, with a plain material circle: inside the canvas the glass
+    /// button's touch area did not follow the scaling and taps did nothing
+    /// (Abel, 8 Nov 2026: "no button is working, the top ones").
+    private var backButton: some View {
+        GeometryReader { geo in
+            let k = min(geo.size.width / 390, geo.size.height / 844)
+            Button(action: goBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(OB.accent)
+                    .frame(width: 44, height: 44)
+                    .background(.ultraThinMaterial, in: Circle())
+                    .overlay(Circle().strokeBorder(OB.fill, lineWidth: 1))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .opacity(step.showsBack ? 1 : 0)
+            .allowsHitTesting(step.showsBack)
+            .animation(.easeOut(duration: 0.25), value: step.showsBack)
+            .position(x: 16 * k + 22, y: 58 * k + 22)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var bar: some View {
         MockupCanvas {
             ZStack(alignment: .topLeading) {
                 Color.clear.frame(width: 390, height: 844).allowsHitTesting(false)
-
-                Button(action: goBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(OB.accent)
-                        .frame(width: 44, height: 44)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Back")
-                .opacity(step.showsBack ? 1 : 0)
-                .allowsHitTesting(step.showsBack)
-                .at(16, 58)
 
                 ZStack(alignment: .leading) {
                     Capsule().fill(OB.fill)

@@ -322,13 +322,6 @@ struct ProfileView: View {
             NavigationLink { AutopilotView() } label: {
                 SettingsValueLabel("Autopilot", symbol: "airplane", value: session.autopilotState?.title)
             }
-            NavigationLink { GeneratorsView() } label: {
-                SettingsValueLabel("Video generators", symbol: "wand.and.stars",
-                                   // Autocast brings its own models; "Connected" was a claim about
-                                   // something the person never connected.
-                                   value: session.hasWorkingGenerator && !session.houseMakesVideo ? "Connected"
-                                       : session.houseMakesVideo ? "Built in" : nil)
-            }
             // The generator's settings, the same sheet as the sliders in the
             // chat bar: model, how many, shape, quality, length.
             Button { generatorSettings = true } label: {

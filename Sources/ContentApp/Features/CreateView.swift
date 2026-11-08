@@ -38,31 +38,9 @@ struct CreateView: View {
         GridItem(.flexible(), spacing: 12),
     ]
 
-    /// 🔴 Nothing to create for without somewhere to post.
-    ///
-    /// Abel, 29 Sep 2026: "there is a chart page, analytics, you, and a plus
-    /// icon. Those three must have a connection, at least with one connector."
-    /// (On 25 Sep he asked for Upload to work with no account; he has since
-    /// said this, and this is the later word. Everything made here is made to
-    /// be posted.) Shown only once the accounts have been read and none works.
-    var body: some View {
-        if session.needsAccount {
-            ScrollView {
-                ConnectGate(
-                    art: "empty-posts",
-                    title: "Connect an account to create",
-                    detail: "Everything you make here is made to be posted. Connect where it goes and it is all yours."
-                )
-                .screenGutter()
-                .padding(.top, 24)
-                .padding(.bottom, 32)
-            }
-            .background(Color.canvas.ignoresSafeArea())
-            .tabChrome(title: "Create")
-        } else {
-            content
-        }
-    }
+    /// Open to everyone: pictures, videos and voices need no connected account
+    /// (Abel, 8 Nov 2026). An account is only needed to post.
+    var body: some View { content }
 
     private var content: some View {
         ScrollView {
@@ -70,7 +48,7 @@ struct CreateView: View {
                 HStack(spacing: 10) {
                     CreateTile(symbol: "calendar.badge.plus", title: "Plan a month") { planning = true }
                         .popoverTip(tips.currentTip as? PlanMonthTip, arrowEdge: .top)
-                    CreateTile(symbol: "sparkles", title: "Make with AI") { session.push(.chat(nil)) }
+                    CreateTile(symbol: "sparkles", title: "Make with AI") { session.push(.chatCreating) }
                     CreateTile(symbol: "square.grid.2x2.fill", title: "All posts") { session.push(.library) }
                 }
                 .entrance(0)
@@ -97,11 +75,6 @@ struct CreateView: View {
                     .padding(.top, 18)
                     .entrance(2)
 
-                if !session.hasWorkingGenerator {
-                    ConnectGeneratorRow()
-                        .padding(.top, 12)
-                        .entrance(3)
-                }
 
                 HStack {
                     Text("Drafts")
@@ -317,41 +290,6 @@ private struct AskBox: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .raisedCard(radius: Style.rowCard)
-    }
-}
-
-/// Remi's coach card shape: an invitation, not a warning.
-private struct ConnectGeneratorRow: View {
-    var body: some View {
-        // Straight to the generators, not to Profile and a hunt from there.
-        NavigationLink { GeneratorsView() } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "wand.and.stars")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Theme.onAccent)
-                    .frame(width: 38, height: 38)
-                    .background(Color.accentColor, in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Connect a generator")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text("So Postpilot can make the videos too")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity)
-            .raisedCard(radius: Style.rowCard)
-        }
-        .buttonStyle(SoftPressStyle())
     }
 }
 

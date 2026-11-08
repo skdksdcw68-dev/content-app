@@ -152,47 +152,6 @@ struct HomeView: View {
                 .padding(.top, 26)
                 .entrance(2)
 
-                SectionHeader(title: "More tools", chevron: false) {}
-                    .padding(.top, 26)
-
-                LazyVGrid(columns: pair, spacing: 12) {
-                    if session.plan != nil {
-                        NavigationLink { PlanView() } label: {
-                            ToolTile(title: "Your\nmonth", art: "tool-plan", symbol: "calendar")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
-                        Button { planning = true } label: {
-                            ToolTile(title: "Plan a\nmonth", art: "tool-plan", symbol: "calendar")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    }
-
-                    NavigationLink { ChatView() } label: {
-                        ToolTile(title: "Make\nwith AI", art: "tool-make", symbol: "sparkles")
-                    }
-                    .buttonStyle(SoftPressStyle())
-
-                    if session.connections.isEmpty {
-                        Button { connecting = true } label: {
-                            ToolTile(title: "Connect\nan account", art: "tool-post", symbol: "link")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else {
-                        NavigationLink { StudioFlowView() } label: {
-                            ToolTile(title: "Post a\nvideo", art: "tool-post", symbol: "arrow.up.circle.fill")
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    }
-
-                    NavigationLink { AutopilotView() } label: {
-                        ToolTile(title: "Autopilot", art: "tool-autopilot", symbol: "paperplane.fill")
-                    }
-                    .buttonStyle(SoftPressStyle())
-                }
-                .padding(.top, 12)
-                .entrance(3)
-
                 // Ideas for the next video, from this account's own numbers
                 // (Abel, 25 Sep 2026: "understand what videos he's making and
                 // give the user inspirational videos to post, like VidIQ").
@@ -215,21 +174,11 @@ struct HomeView: View {
                     .entrance(4)
                 }
 
-                // The one big card: the generator until there is one, then
-                // the next post.
-                Group {
-                    if !hasGenerator {
-                        NavigationLink { GeneratorsView() } label: {
-                            GeneratorPromo(offer: session.connectable.first(where: \.isFeatured) ?? session.connectable.first)
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    } else if heroNext == nil {
-                        // With something scheduled, its card is already at the top.
-                        PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
-                    }
+                if heroNext == nil {
+                    PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
+                        .padding(.top, 26)
+                        .entrance(4)
                 }
-                .padding(.top, 26)
-                .entrance(4)
             }
             .screenGutter()
             .padding(.bottom, 32)
@@ -601,48 +550,6 @@ private struct UploadCard: View {
     }
 }
 
-/// One tool: the words on the left, the picture on the right, Photoroom's
-/// tile. The picture is Abel's, by the asset name; until it exists, the
-/// symbol sits on a soft circle where the picture will go.
-private struct ToolTile: View {
-    let title: String
-    let art: String
-    let symbol: String
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            Group {
-                if let image = UIImage(named: art) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 84, height: 84)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                } else {
-                    Image(systemName: symbol)
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 60, height: 60)
-                        .background(Color.track, in: Circle())
-                }
-            }
-        }
-        .padding(.leading, 16)
-        .padding(.trailing, 12)
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
-        .raisedCard(radius: Style.rowCard)
-        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
-    }
-}
 
 /// A series, as the black card at the top: the words on the left, the
 /// picture (asset `home-series`) bleeding off the right, the one line of
@@ -769,55 +676,6 @@ private struct SeriesCard: View {
         .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title). \(line)")
-    }
-}
-
-/// The big card: the generator, until there is one. A picture across the
-/// top (asset `home-generator`), the words, and the one button.
-private struct GeneratorPromo: View {
-    let offer: ConnectableProvider?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if let image = UIImage(named: "home-generator") {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    ZStack {
-                        Color.track
-                        Image(systemName: "wand.and.stars")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: 150)
-            .clipped()
-
-            VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Let Postpilot make the videos")
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(offer.map { "Sign in to \($0.name) once. Every post in your plan gets its video made ahead of time." }
-                         ?? "Connect a generator once. Every post in your plan gets its video made ahead of time.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                PrimaryButtonLabel(title: offer.map { "Sign in to \($0.name)" } ?? "Connect a generator")
-                    .padding(.vertical, 10)
-                    .background(Theme.accent, in: Capsule())
-            }
-            .padding(16)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
-        .raisedCard(radius: Style.bigCard)
-        .contentShape(RoundedRectangle(cornerRadius: Style.bigCard, style: .continuous))
     }
 }
 

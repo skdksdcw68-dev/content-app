@@ -142,7 +142,7 @@ private struct TourPage: View {
         default:
             if active {
                 ObClock(still: 7000) { time in
-                    WeekOfVideos(t: time.truncatingRemainder(dividingBy: 7600))
+                    WeekOfVideos(t: min(time, 7000))
                 }
             } else {
                 WeekOfVideos(t: 0)

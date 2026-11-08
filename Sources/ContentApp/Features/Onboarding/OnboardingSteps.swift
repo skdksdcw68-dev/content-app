@@ -155,6 +155,17 @@ private struct Vault: View {
                 .rotationEffect(.degrees(-150 * (1 - p)))
                 .at(0, 0, w: 220, h: 220)
 
+            ZStack {
+                Circle().fill(.white).frame(width: 60, height: 60)
+                    .shadow(color: OB.hex(0x2B2470, 0.18), radius: 8, y: 4)
+                Image(systemName: locked ? "lock.fill" : "lock.open.fill")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(OB.accent)
+                    .contentTransition(.symbolEffect(.replace))
+            }
+            .animation(.easeOut(duration: 0.25), value: locked)
+            .position(x: 110, y: 110)
+
             Circle()
                 .stroke(OB.accent, lineWidth: 2)
                 .frame(width: 2 * (6 + 16 * Tw.outC(glow)), height: 2 * (6 + 16 * Tw.outC(glow)))

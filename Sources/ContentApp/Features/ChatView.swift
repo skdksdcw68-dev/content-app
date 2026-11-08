@@ -1078,25 +1078,15 @@ struct ChatView: View {
     /// the server -- the whole point is that it exists in one sealed place and
     /// nowhere else.
     private func saveKey(_ key: PastedKey) {
-        turns.append(.user("\(key.preamble.isEmpty ? "" : key.preamble + "\n")\(key.maskedSecret)"))
-        let replyIndex = turns.count
-        turns.append(.thinking)
-        isWorking = true
-
-        Task {
-            defer { isWorking = false }
-            let ok = await session.connectGenerator(provider: key.provider, keyID: key.id, keySecret: key.secret)
-            guard replyIndex < turns.count else { return }
-            let speaks = key.provider == "elevenlabs"
-            turns[replyIndex] = ChatMessage(
-                role: .assistant,
-                text: ok
-                ? "Saved. That key is encrypted and I can't read it back, so you'll only ever see \(key.maskedSecret). I'll use it \(speaks ? "to make your voices" : "to make your videos"). Ask me for one whenever you like."
-                : speaks
-                ? (session.lastError ?? "ElevenLabs didn't accept that key. Nothing was saved. Check it was copied whole.")
-                : "That key didn't work when I tried it against the provider. Nothing was saved. Check it was copied whole, and that it's the pair: the id and the secret, not just one of them."
-            )
-        }
+        // Keys are switched off (Abel, 8 Nov 2026): Postpilot makes everything
+        // with its own models. The key is dropped here, never sent anywhere,
+        // and only its masked form is shown.
+        let shown = (key.preamble.isEmpty ? "" : key.preamble + "\n") + key.maskedSecret
+        turns.append(.user(shown))
+        turns.append(ChatMessage(
+            role: .assistant,
+            text: "Nothing was saved. Postpilot makes everything with its own models, so keys aren't used."
+        ))
     }
 
     /// The video's own choices, under the field: the six knobs that change

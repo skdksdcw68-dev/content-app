@@ -348,15 +348,6 @@ struct BevelPill: View {
             .animation(.easeOut(duration: 0.3), value: on)
         }
         .buttonStyle(ObPressStyle())
-        .keyframeAnimator(initialValue: CGFloat(1), trigger: on) { content, scale in
-            content.scaleEffect(scale)
-        } keyframes: { _ in
-            KeyframeTrack {
-                LinearKeyframe(on ? 0.97 : 1, duration: 0.01)
-                CubicKeyframe(on ? 1.02 : 1, duration: 0.23)
-                CubicKeyframe(1, duration: 0.16)
-            }
-        }
     }
 }
 

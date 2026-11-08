@@ -13,6 +13,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, preflight, fail, PublicError } from "../_shared/http.ts";
+import { OWN_MODELS_OFF, OWN_MODELS_OFF_MESSAGE } from "../_shared/connectors/off.ts";
 import { seal } from "../_shared/crypto.ts";
 import { parseCredential, probe } from "../_shared/higgsfield.ts";
 import { elevenlabsAdapter, probeElevenLabs } from "../_shared/connectors/elevenlabs.ts";
@@ -84,6 +85,9 @@ async function connectElevenLabs(userId: string, key: string, label?: string) {
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return preflight();
+  // Switched off (Abel, 8 Nov 2026): nobody connects their own models, keys or
+  // MCP servers. Everything runs on Postpilot's own models.
+  if (OWN_MODELS_OFF) return json({ error: OWN_MODELS_OFF_MESSAGE }, 403);
   if (request.method !== "POST") return json({ error: "POST only" }, 405);
 
   try {

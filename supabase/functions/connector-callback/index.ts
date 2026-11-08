@@ -20,6 +20,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { open } from "../_shared/crypto.ts";
+import { OWN_MODELS_OFF, OWN_MODELS_OFF_MESSAGE } from "../_shared/connectors/off.ts";
 import { discoverAuthorization, exchange, sealTokens } from "../_shared/connectors/oauth.ts";
 import { mcpAdapter } from "../_shared/connectors/mcp.ts";
 import { storeDiscovery } from "../_shared/connectors/discovery.ts";
@@ -51,6 +52,8 @@ function landing(status: "connected" | "failed", reason?: string): Response {
 }
 
 Deno.serve(async (request) => {
+  // Switched off (Abel, 8 Nov 2026): see _shared/connectors/off.ts.
+  if (OWN_MODELS_OFF) return new Response(OWN_MODELS_OFF_MESSAGE, { status: 403 });
   const url = new URL(request.url);
   const state = url.searchParams.get("state") ?? "";
   const code = url.searchParams.get("code") ?? "";

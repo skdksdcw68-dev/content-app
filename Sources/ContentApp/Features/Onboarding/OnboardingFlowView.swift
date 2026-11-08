@@ -42,7 +42,15 @@ struct OnboardingFlowView: View {
             }
         }
         .background(OB.canvas.dismissesKeyboardOnTap().ignoresSafeArea())
-        .overlay { FlowChrome(step: current) { session.onboardingBack() } }
+        // The chrome ignores the keyboard: when it moved with the keyboard, a
+        // tap on Back while typing (email, code) slid away under the finger.
+        .overlay {
+            FlowChrome(step: current) {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                session.onboardingBack()
+            }
+            .ignoresSafeArea(.keyboard)
+        }
         .onChange(of: session.onboarding) { old, new in go(from: old, to: new) }
     }
 

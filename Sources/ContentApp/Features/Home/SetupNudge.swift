@@ -10,6 +10,8 @@ struct SetupNudge: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
     @State private var signingUp = false
+    /// The place tapped, waiting for a yes before anything opens.
+    @State private var asking: Platform?
 
     /// Shown once, ever (Abel, 22 Sep 2026: "why does it always appear dude?
     /// we want it only 1 time actually").
@@ -39,7 +41,7 @@ struct SetupNudge: View {
                             SettingsRow(platform.networkName, logo: platform.logo, value: connection.label)
                         } else {
                             Button {
-                                Task { await session.connect(platform) }
+                                asking = platform
                             } label: {
                                 SettingsRow(platform.networkName, logo: platform.logo,
                                             value: session.isConnecting ? "Opening…" : "Connect", accessory: .chevron)
@@ -55,10 +57,29 @@ struct SetupNudge: View {
             }
             .navigationTitle("Finish setting up")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Not now") { dismiss() }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button { dismiss() } label: {
+                    Text("Not now")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 50)
                 }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+            }
+            .confirmationDialog(
+                asking.map { "Connect \($0.networkName)?" } ?? "",
+                isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Connect") {
+                    if let place = asking { Task { await session.connect(place) } }
+                    asking = nil
+                }
+                Button("Not now", role: .cancel) { asking = nil }
+            } message: {
+                Text("You will go to \(asking?.networkName ?? "it") to sign in, then come back here.")
             }
             .sheet(isPresented: $signingUp) {
                 AuthSheet { signingUp = false }

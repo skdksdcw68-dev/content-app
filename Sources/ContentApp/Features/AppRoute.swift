@@ -44,6 +44,8 @@ enum AppRoute: Hashable {
     case generated
     /// Ideas for the next video, drawn from this account's own numbers.
     case inspiration
+    /// Chats deleted in the last 30 days, to restore or delete for good.
+    case recentlyDeleted
 }
 
 // MARK: - Chrome from inside a tab

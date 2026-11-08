@@ -10,9 +10,9 @@ import UIKit
 
 // MARK: - Account
 
-/// The account page, Fuse's way in Postpilot purple (Abel, 7 Nov 2026): words
-/// rolling at the top, a purple glow rising from the bottom, Apple as the big
-/// button, email as the small one.
+/// The account page, Fuse's way in Postpilot purple, as the mockup draws it:
+/// words rolling at the top, a purple glow rising from the very bottom, the
+/// white mark, Apple as the big white pill, Google as the frosted one.
 struct AccountScreen: View {
     let onEmail: () -> Void
     let onLogin: () -> Void
@@ -25,23 +25,21 @@ struct AccountScreen: View {
         ZStack(alignment: .bottom) {
             RollingWords()
                 .frame(maxHeight: .infinity, alignment: .top)
-                .padding(.top, 70)
+                .padding(.top, 66)
 
             VStack(alignment: .leading, spacing: 10) {
-                Image("app-mark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                MarkTile(size: 44, inverted: true)
 
                 Text("Your videos,\non autopilot")
                     .font(.system(size: 32, weight: .bold))
+                    .tracking(-0.48)
+                    .lineSpacing(-1)
                     .foregroundStyle(.white)
 
                 Text("Save your setup and make your first video.")
-                    .font(.subheadline)
+                    .font(.system(size: 15))
                     .foregroundStyle(.white.opacity(0.85))
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 6)
 
                 SocialSignInButtons(mode: .signup, onGlow: true, pending: $pending, error: $error, done: onDone)
 
@@ -53,60 +51,63 @@ struct AccountScreen: View {
 
                 Button(action: onEmail) {
                     Text("Use email instead")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .frame(maxWidth: .infinity, minHeight: 30)
                 }
+                .buttonStyle(ObPressStyle())
                 .disabled(pending != nil)
 
                 Button(action: onLogin) {
                     Text("Already have an account? **Log in**")
-                        .font(.footnote)
+                        .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.9))
                         .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.plain)
                 .disabled(pending != nil)
 
                 Text("By continuing you agree to our [Terms](https://netrocast.com/terms) & [Privacy Policy](https://netrocast.com/privacy)")
-                    .font(.caption2)
+                    .font(.system(size: 11))
                     .foregroundStyle(.white.opacity(0.7))
                     .tint(.white)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.top, 2)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 12)
+            .padding(.bottom, 8)
         }
         .background { AccountGlow() }
     }
 }
 
-/// The purple rising from the bottom edge of the SCREEN, under the home
-/// indicator too, so no white strip is left under the last line. Deeper in dark
-/// mode.
+/// `.glow`: the purple rising 520 pt from the bottom edge of the SCREEN, under
+/// the home indicator too, so no strip is left under the last line. Deeper in
+/// dark mode.
 private struct AccountGlow: View {
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
-        let deep = scheme == .dark ? Color(red: 0.13, green: 0.09, blue: 0.45) : Color(red: 0.24, green: 0.18, blue: 0.82)
-        let mid = scheme == .dark ? Color(red: 0.27, green: 0.21, blue: 0.72) : Color("LaunchPurple")
         VStack(spacing: 0) {
             Spacer(minLength: 0)
-            LinearGradient(colors: [.clear, mid.opacity(0.55), mid, deep], startPoint: .top, endPoint: .bottom)
-                .frame(height: 460)
+            LinearGradient(stops: [
+                .init(color: OB.glow1.opacity(0), location: 0),
+                .init(color: OB.glow1, location: 0.26),
+                .init(color: OB.glow2, location: 0.58),
+                .init(color: OB.glow3, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+            .frame(height: 520)
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
     }
 }
 
-/// Write, Voice, Edit, Post, Grow: the word in the middle full strength, the
-/// rest faint, rolling up. Still when Reduce Motion is on.
+/// Write, Voice, Edit, Post, Grow: the word in the middle full strength with
+/// its mark, the rest faint, rolling up every 1.1 s on the mockup's curve (no
+/// spring). Still when Reduce Motion is on.
 private struct RollingWords: View {
     private static let words: [(String, String)] = [
-        ("Write", "text.alignleft"), ("Voice", "waveform"), ("Edit", "film"),
-        ("Post", "paperplane.fill"), ("Grow", "chart.line.uptrend.xyaxis"),
+        ("Write", "list.clipboard"), ("Voice", "waveform"), ("Edit", "photo.stack"),
+        ("Post", "arrow.up"), ("Grow", "sparkles"),
     ]
     private let rowHeight: CGFloat = 54
 
@@ -121,9 +122,14 @@ private struct RollingWords: View {
             }
         }
         .offset(y: -rowHeight * CGFloat(index))
-        .frame(height: rowHeight * 5, alignment: .top)
+        .frame(height: 270, alignment: .top)
         .clipped()
-        .mask(LinearGradient(colors: [.clear, .black, .black, .clear], startPoint: .top, endPoint: .bottom))
+        .mask(LinearGradient(stops: [
+            .init(color: .clear, location: 0),
+            .init(color: .black, location: 0.3),
+            .init(color: .black, location: 0.7),
+            .init(color: .clear, location: 1),
+        ], startPoint: .top, endPoint: .bottom))
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, alignment: .leading)
         .task {
@@ -133,7 +139,7 @@ private struct RollingWords: View {
                 if index + 1 >= words.count * 2 {
                     index = 0
                 } else {
-                    withAnimation(.spring(duration: 0.55, bounce: 0.15)) { index += 1 }
+                    withAnimation(.timingCurve(0.3, 0.9, 0.3, 1, duration: 0.55)) { index += 1 }
                 }
             }
         }
@@ -143,22 +149,26 @@ private struct RollingWords: View {
     private func row(_ word: (String, String), active: Bool) -> some View {
         HStack(spacing: 12) {
             Image(systemName: word.1)
-                .font(.system(size: 22, weight: .semibold))
-                .foregroundStyle(Theme.accent)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(OB.accent)
+                .frame(width: 28, height: 28)
                 .opacity(active ? 1 : 0)
             Text(word.0)
                 .font(.system(size: 40, weight: .semibold))
-                .foregroundStyle(active ? Color.primary : Color.secondary.opacity(0.35))
+                .tracking(-0.8)
+                .foregroundStyle(active ? Color.primary : OB.text3)
         }
         .frame(height: rowHeight, alignment: .leading)
+        .animation(.easeOut(duration: 0.4), value: active)
     }
 }
 
 // MARK: - Email
 
-/// Sign up: "Enter your email", plus the only name field in Autocast -- an
-/// email address says nothing about who somebody is, where Apple and Google
-/// already do. Log in: "Welcome back", with the two social buttons under it.
+/// Bevel's page, as the mockup draws it: one question in the middle, a big
+/// field with no line or box, a small quiet example, and the dark pill that
+/// wakes once the address looks right, sitting just above the keyboard. Log
+/// in says "Welcome back" and offers Apple and Google too.
 struct EmailScreen: View {
     let mode: OnboardingStep.Mode
     /// Called once the code is on its way, with the address and the name.
@@ -179,7 +189,7 @@ struct EmailScreen: View {
 
     /// The server's own test, so the button never promises a send it will refuse.
     private var looksLikeEmail: Bool {
-        cleanEmail.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]+$"#, options: .regularExpression) != nil
+        cleanEmail.range(of: #"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$"#, options: .regularExpression) != nil
     }
 
     private var canSend: Bool {
@@ -188,48 +198,62 @@ struct EmailScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(spacing: 14) {
-                    Text(mode == .signup ? "What is your email address?" : "Welcome back")
-                        .font(.system(size: 17, weight: .semibold))
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 150)
-
-                    if mode == .login {
-                        Text("Log in with the email you signed up with and we’ll send you a code")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    CenteredAuthField(placeholder: "you@example.com", text: $email, focus: $focus, field: .email)
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.send)
-                        .onSubmit { send() }
-
-                    Text(error ?? "We’ll never share your email with anyone")
-                        .font(.footnote)
-                        .foregroundStyle(error == nil ? Color.secondary : Color.red)
-                        .multilineTextAlignment(.center)
-
-                    if mode == .login {
-                        SocialSignInButtons(mode: .login, pending: $pending, error: $error, done: onDone)
-                            .padding(.top, 12)
-                    }
-                }
+            Text(mode == .signup ? "What is your email address?" : "Welcome back")
+                .font(.system(size: 22, weight: .semibold))
+                .tracking(-0.22)
+                .multilineTextAlignment(.center)
+                .padding(.top, 160)
                 .padding(.horizontal, 24)
+
+            if mode == .login {
+                Text("Log in with the email you signed up with and we’ll send you a code")
+                    .font(.system(size: 15))
+                    .foregroundStyle(OB.text2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 36)
+                    .padding(.top, 8)
             }
-            .scrollDismissesKeyboard(.interactively)
-            .scrollIndicators(.hidden)
 
-            AuthTerms().padding(.bottom, 12)
+            TextField("", text: $email, prompt: Text("name@example.com").font(.system(size: 17)).foregroundStyle(OB.text3))
+                .font(.system(size: 28, weight: .medium))
+                .tracking(-0.28)
+                .multilineTextAlignment(.center)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.send)
+                .focused($focus, equals: .email)
+                .onSubmit { send() }
+                .frame(height: 48)
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
 
-            OnboardingButton(title: "Continue", isBusy: sending, action: send)
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 6)
+            }
+
+            if mode == .login {
+                SocialSignInButtons(mode: .login, pending: $pending, error: $error, done: onDone)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 24)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(QuestionHazeBackground())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BevelPill(title: "Continue", on: looksLikeEmail, busy: sending, width: nil) { send() }
                 .disabled(!canSend)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
         }
         .onAppear { focus = .email }
     }
@@ -251,10 +275,21 @@ struct EmailScreen: View {
     }
 }
 
+/// The calm pages' haze behind a screen laid out natively (email, code).
+private struct QuestionHazeBackground: View {
+    var body: some View {
+        MockupCanvas { QuestionHaze() }
+            .allowsHitTesting(false)
+    }
+}
+
 // MARK: - Code
 
-/// Six boxes drawn over one invisible field: one field, not six, is what makes
-/// the system's autofill land in a single tap. The sixth digit checks itself.
+/// Bevel's "Check your inbox", as the mockup draws it: the envelope, the
+/// address, six boxes over one invisible field (one field is what makes the
+/// system's autofill land in a single tap), and the dark pill. The sixth digit
+/// checks itself; the pill spins, then turns green with a tick when the code
+/// is right, or red with a cross when it is not (Abel, 8 Nov 2026).
 struct CodeScreen: View {
     let mode: OnboardingStep.Mode
     let email: String
@@ -266,59 +301,60 @@ struct CodeScreen: View {
     @Environment(AppSession.self) private var session
 
     @State private var code = ""
-    @State private var checking = false
+    @State private var state: CodeButtonState = .wait(42)
     @State private var error: String?
     @State private var resendIn = 0
     @State private var countdown: Task<Void, Never>?
+    @State private var shake = 0
     @FocusState private var focused: Bool
 
     /// Remi's cooldown.
     private let resendDelay = 42
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Check your email").font(.title2.bold())
-                Text("We sent a six-digit code to \(email.isEmpty ? "your email" : email)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
+        VStack(spacing: 0) {
+            Image(systemName: "envelope")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(OB.text2)
+                .padding(.top, 64)
+
+            Text("Check your inbox")
+                .font(.system(size: 24, weight: .bold))
+                .tracking(-0.24)
+                .padding(.top, 14)
+
+            Text("We sent a 6-digit code to\n**\(email.isEmpty ? "your email" : email)**")
+                .font(.system(size: 15))
+                .foregroundStyle(OB.text2)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .padding(.top, 8)
+                .padding(.horizontal, 36)
 
             boxes
-                .padding(.horizontal, 20)
-
-            Group {
-                if resendIn > 0 {
-                    Text("Resend available in 0:\(String(format: "%02d", resendIn))")
-                        .contentTransition(.numericText(countsDown: true))
-                } else {
-                    Button("Didn’t receive it? **Resend code**") { resend() }
-                        .disabled(checking)
-                }
-            }
-            .font(.footnote)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .padding(.top, 18)
+                .padding(.top, 26)
+                .modifier(Shake(amount: CGFloat(shake)))
 
             if let error {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 10)
-                    .padding(.horizontal, 24)
                     .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 12)
             }
 
-            Spacer()
-
-            OnboardingButton(title: "Verify Code", isBusy: checking) { verify() }
-                .disabled(code.count < 6 || checking)
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(QuestionHazeBackground())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            CodeButton(state: state) { resend() }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 10)
+        }
+        .sensoryFeedback(.success, trigger: state == .verified)
+        .sensoryFeedback(.error, trigger: state == .wrong)
         .onAppear {
             focused = true
             startCountdown()
@@ -331,6 +367,8 @@ struct CodeScreen: View {
         }
     }
 
+    private var checking: Bool { state == .checking || state == .verified }
+
     private var boxes: some View {
         ZStack {
             // The real field, invisible and underneath: autofill needs one.
@@ -340,56 +378,87 @@ struct CodeScreen: View {
                 .foregroundStyle(.clear)
                 .tint(.clear)
                 .focused($focused)
+                .disabled(checking)
                 .accessibilityLabel("Six-digit code")
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 ForEach(0..<6, id: \.self) { index in
                     let digit = index < code.count ? String(Array(code)[index]) : ""
                     let isNext = index == code.count && focused
-                    Text(digit)
-                        .font(.title2.weight(.semibold).monospacedDigit())
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 58)
-                        .background(Color(uiColor: .secondarySystemBackground),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(isNext ? Theme.accent : .clear, lineWidth: 1.5)
+                    ZStack {
+                        if !digit.isEmpty {
+                            Text(digit)
+                                .font(.system(size: 28, weight: .semibold))
+                                .monospacedDigit()
+                                .transition(.asymmetric(
+                                    insertion: .offset(y: 8).combined(with: .scale(scale: 0.7)).combined(with: .opacity),
+                                    removal: .opacity))
                         }
-                        .animation(.snappy(duration: 0.15), value: isNext)
+                    }
+                    .frame(width: 46, height: 58)
+                    .background(OB.fill, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(boxTint, lineWidth: 1.5)
+                            .opacity(isNext || state == .verified || state == .wrong ? 1 : 0)
+                    }
+                    .animation(.timingCurve(0.2, 0.9, 0.3, 1.4, duration: 0.25), value: digit)
+                    .animation(.easeOut(duration: 0.15), value: isNext)
                 }
             }
             .allowsHitTesting(false)
         }
+        .frame(width: 316, height: 58)
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
     }
 
+    private var boxTint: Color {
+        switch state {
+        case .verified: return Color(.systemGreen)
+        case .wrong: return Color(.systemRed)
+        default: return OB.accent
+        }
+    }
+
     private func verify() {
         guard !checking, code.count == 6 else { return }
-        checking = true
         error = nil
+        withAnimation(.easeOut(duration: 0.25)) { state = .checking }
         Task {
             let outcome = await session.confirmEmailCode(code, for: email, wasAnonymous: wasAnonymous)
-            checking = false
             switch outcome {
             case .linked:
+                await succeed()
                 if !name.isEmpty { await session.saveName(name, promoting: "") }
                 onDone(.created)
             case .switched:
+                await succeed()
                 onDone(mode == .login ? .returning : .alreadyRegistered)
             case .failed(let reason):
+                withAnimation(.easeOut(duration: 0.3)) { state = .wrong }
+                withAnimation(.linear(duration: 0.4)) { shake += 1 }
                 error = reason.isEmpty ? "That code didn’t work. Check it and try again." : reason
+                try? await Task.sleep(for: .milliseconds(1300))
                 code = ""
                 focused = true
+                withAnimation(.easeOut(duration: 0.3)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
             case .codeSent:
-                break
+                withAnimation(.easeOut(duration: 0.3)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
             }
         }
     }
 
+    /// Green, with a tick, held long enough to be seen.
+    private func succeed() async {
+        withAnimation(.easeOut(duration: 0.3)) { state = .verified }
+        try? await Task.sleep(for: .milliseconds(750))
+    }
+
     private func resend() {
+        guard state == .resend else { return }
         error = nil
+        withAnimation(.easeOut(duration: 0.25)) { state = .checking }
         Task {
             let outcome = await session.sendEmailCode(to: email)
             if case .failed(let reason) = outcome, !reason.isEmpty { error = reason }
@@ -402,13 +471,110 @@ struct CodeScreen: View {
     private func startCountdown() {
         countdown?.cancel()
         resendIn = resendDelay
+        state = .wait(resendDelay)
         countdown = Task {
             while resendIn > 0 {
                 try? await Task.sleep(for: .seconds(1))
                 if Task.isCancelled { return }
-                withAnimation(.snappy(duration: 0.2)) { resendIn -= 1 }
+                resendIn -= 1
+                if case .wait = state {
+                    withAnimation(.easeOut(duration: 0.2)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
+                }
             }
         }
+    }
+}
+
+/// What the code page's pill is saying.
+private enum CodeButtonState: Equatable {
+    case wait(Int)
+    case resend
+    case checking
+    case verified
+    case wrong
+}
+
+/// The code page's pill: asleep while the resend countdown runs, dark with a
+/// spinner while it checks, then green with a tick or red with a cross.
+private struct CodeButton: View {
+    let state: CodeButtonState
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                switch state {
+                case .wait(let seconds):
+                    Text("Resend code in 0:\(String(format: "%02d", seconds))")
+                        .monospacedDigit()
+                        .contentTransition(.numericText(countsDown: true))
+                case .resend:
+                    Text("Resend code")
+                case .checking:
+                    ProgressView().tint(OB.pillText)
+                case .verified:
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 20, weight: .bold))
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
+                case .wrong:
+                    HStack(spacing: 6) {
+                        Image(systemName: "xmark").font(.system(size: 16, weight: .bold))
+                        Text("Wrong code")
+                    }
+                    .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+            }
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(foreground)
+            .frame(maxWidth: .infinity)
+            .frame(height: 54)
+            .background(background, in: Capsule())
+        }
+        .buttonStyle(ObPressStyle())
+        .allowsHitTesting(state == .resend)
+        .animation(.easeOut(duration: 0.3), value: state)
+        .accessibilityLabel(label)
+    }
+
+    private var background: Color {
+        switch state {
+        case .wait: return OB.pillOff
+        case .resend, .checking: return OB.pill
+        case .verified: return Color(.systemGreen)
+        case .wrong: return Color(.systemRed)
+        }
+    }
+
+    private var foreground: Color {
+        switch state {
+        case .wait: return OB.pillOffText
+        case .resend, .checking: return OB.pillText
+        case .verified, .wrong: return .white
+        }
+    }
+
+    private var label: String {
+        switch state {
+        case .wait(let seconds): return "Resend code in \(seconds) seconds"
+        case .resend: return "Resend code"
+        case .checking: return "Checking the code"
+        case .verified: return "Code accepted"
+        case .wrong: return "Wrong code"
+        }
+    }
+}
+
+/// A short side-to-side shake when the code is wrong.
+private struct Shake: GeometryEffect {
+    var amount: CGFloat
+
+    var animatableData: CGFloat {
+        get { amount }
+        set { amount = newValue }
+    }
+
+    func effectValue(size: CGSize) -> ProjectionTransform {
+        ProjectionTransform(CGAffineTransform(translationX: 8 * sin(amount * .pi * 6), y: 0))
     }
 }
 
@@ -446,7 +612,6 @@ struct VerifiedScreen: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 76))
                 .foregroundStyle(Theme.accent)
-                .symbolEffect(.bounce, value: celebrated)
 
             Text(title)
                 .font(.largeTitle.bold())

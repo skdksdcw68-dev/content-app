@@ -59,7 +59,7 @@ struct ChatSettingsView: View {
                 Task { cleared = await session.clearThreads() }
             }
         } message: {
-            Text("Every conversation is deleted. This can’t be undone.")
+            Text("Every conversation moves to Recently Deleted in Chat, where you can restore it for 30 days.")
         }
     }
 

@@ -75,6 +75,7 @@ struct RootView: View {
                                 case .library:              LibraryView()
                                 case .generated:            GeneratedLibraryView()
                                 case .inspiration:          InspirationView()
+                                case .recentlyDeleted:      RecentlyDeletedView()
                                 }
                             }
                             .backgroundPreferenceValue(TabChromeKey.self) { chrome in
@@ -129,8 +130,10 @@ struct RootView: View {
         }
         // Signing out or in starts the session over: the splash plays again
         // instead of a blank page while the account loads.
+        // Not while signing out: that splash is already over everything, in its
+        // own window, and opens into the welcome by itself.
         .onChange(of: session.state) { _, state in
-            if state == .starting { splashDone = false }
+            if state == .starting && !SignOutCover.isShowing { splashDone = false }
         }
         .task { await session.listenForTransactions() }
         // Back from the background: read the accounts again, so a change made

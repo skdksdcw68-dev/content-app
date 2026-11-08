@@ -36,11 +36,18 @@ enum KeyboardDismiss {
 
 extension View {
     /// For a Form, List or ScrollView that has text fields: a tap that lands
-    /// anywhere on it also closes the keyboard. It is a SIMULTANEOUS gesture on
-    /// that one screen only, so rows, links and buttons still get their tap
-    /// (never put this above the TabView, see the note above).
+    /// anywhere on it also closes the keyboard.
+    ///
+    /// 🔴 This was `simultaneousGesture(TapGesture())` on the List, and it
+    /// broke the very screens it was put on (Abel, 8 Nov 2026: "clicking on a
+    /// chat history doesn't even work"). A SwiftUI tap gesture on a List takes
+    /// the touch from its NavigationLink rows, "simultaneous" or not. Now it
+    /// is a UIKit tap recogniser on the window, only while this screen is on
+    /// it, that never cancels or delays a touch: the row, link or button gets
+    /// its tap exactly as before, and the keyboard closes as well. A tap on a
+    /// text field itself is ignored, so tapping into a field still types.
     func dismissesKeyboardOnTapInside() -> some View {
-        simultaneousGesture(TapGesture().onEnded { KeyboardDismiss.now() })
+        background(KeyboardTapCatcher().allowsHitTesting(false))
     }
 
     /// A tap on this view closes the keyboard. Meant for a background: put it
@@ -50,5 +57,47 @@ extension View {
         contentShape(Rectangle())
             .onTapGesture { KeyboardDismiss.now() }
             .accessibilityHidden(true)
+    }
+}
+
+/// Puts a passive tap recogniser on the window while its screen is showing.
+/// It recognises alongside everything else and never cancels or delays a
+/// touch, so it cannot take a tap away from a control.
+private struct KeyboardTapCatcher: UIViewRepresentable {
+    func makeUIView(context: Context) -> CatcherView { CatcherView() }
+    func updateUIView(_ uiView: CatcherView, context: Context) {}
+
+    final class CatcherView: UIView, UIGestureRecognizerDelegate {
+        private lazy var tap: UITapGestureRecognizer = {
+            let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
+            tap.cancelsTouchesInView = false
+            tap.delaysTouchesBegan = false
+            tap.delaysTouchesEnded = false
+            tap.delegate = self
+            return tap
+        }()
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            tap.view?.removeGestureRecognizer(tap)
+            window?.addGestureRecognizer(tap)
+        }
+
+        @objc private func tapped() { KeyboardDismiss.now() }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
+
+        /// A tap inside a text field or text view is for typing, not for
+        /// closing the keyboard.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var view = touch.view
+            while let current = view {
+                if current is UITextField || current is UITextView { return false }
+                view = current.superview
+            }
+            return true
+        }
     }
 }

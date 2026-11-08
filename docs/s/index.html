@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A chat on Postpilot</title>
+<meta name="description" content="A conversation shared from Postpilot.">
+<meta property="og:title" content="A chat on Postpilot">
+<meta property="og:description" content="A conversation shared from Postpilot, the app that makes and posts videos for you.">
+<meta property="og:image" content="https://netrocast.com/appicon.png">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* A shared conversation: the person's words on the right in soft purple,
+     Postpilot's answers on the left as plain reading text. */
+  .chat { display: flex; flex-direction: column; gap: 18px; margin: 28px 0 40px; }
+  .you { align-self: flex-end; max-width: 82%; background: var(--accent-soft); color: var(--ink);
+         padding: 10px 14px; border-radius: 18px; white-space: pre-wrap; word-wrap: break-word; }
+  .bot { max-width: 100%; line-height: 1.55; word-wrap: break-word; }
+  .bot p { margin: 0 0 .7em; }
+  .bot pre { background: var(--bg-soft); border: 1px solid var(--rule); border-radius: 12px;
+             padding: 12px 14px; overflow-x: auto; white-space: pre; font-size: 14px; }
+  .bot code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .92em; }
+  .meta { color: var(--ink-soft); font-size: 14px; margin-top: 6px; }
+  .made { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid var(--rule);
+          border-radius: 16px; background: var(--bg-soft); margin-bottom: 48px; }
+  .made img { width: 44px; height: 44px; border-radius: 11px; }
+  .made b { display: block; }
+  .made span { color: var(--ink-soft); font-size: 14px; }
+  .gone { color: var(--ink-soft); padding: 40px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <a class="mark" href="/">Netro <span>Autocast</span></a>
+  </div>
+</header>
+
+<main class="wrap">
+  <h1 id="title">A chat on Postpilot</h1>
+  <p class="meta" id="meta">Loading the conversation…</p>
+  <div class="chat" id="chat"></div>
+  <div class="made">
+    <img src="../appicon.png" alt="">
+    <div><b>Made with Postpilot</b><span>Viral videos, made and posted for you.</span></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  var URL_BASE = "https://dosszkllkassvyprkhrg.supabase.co";
+  var KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvc3N6a2xsa2Fzc3Z5cHJraHJnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NzIzMDEsImV4cCI6MjEwMzU0ODMwMX0.JJuOMBv14WCUxeZgw6IjP-n1bvz3DwalpaMdjPezPMU";
+  var token = new URLSearchParams(location.search).get("c") || "";
+  var titleEl = document.getElementById("title");
+  var metaEl = document.getElementById("meta");
+  var chatEl = document.getElementById("chat");
+
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // Enough Markdown for the app's answers: code blocks, inline code, bold,
+  // italics and paragraphs. Everything is escaped first.
+  function md(text) {
+    var parts = String(text).split("```");
+    var html = "";
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        var code = parts[i].replace(/^[a-zA-Z0-9_-]*\n/, "");
+        html += "<pre><code>" + esc(code) + "</code></pre>";
+        continue;
+      }
+      var block = esc(parts[i])
+        .replace(/`([^`]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+        .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>");
+      block.split(/\n{2,}/).forEach(function (para) {
+        if (para.trim()) html += "<p>" + para.replace(/\n/g, "<br>") + "</p>";
+      });
+    }
+    return html;
+  }
+
+  function gone() {
+    titleEl.textContent = "This chat isn’t shared";
+    metaEl.textContent = "";
+    chatEl.innerHTML = '<p class="gone">The link was turned off, or the chat was deleted.</p>';
+  }
+
+  if (!token) { gone(); return; }
+
+  fetch(URL_BASE + "/rest/v1/rpc/shared_thread", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": KEY, "Authorization": "Bearer " + KEY },
+    body: JSON.stringify({ p_token: token })
+  })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (data) {
+      if (!data || !data.messages) { gone(); return; }
+      document.title = data.title + " · Postpilot";
+      titleEl.textContent = data.title;
+      var when = data.shared_at ? new Date(data.shared_at) : null;
+      metaEl.textContent = "Shared from Postpilot" + (when ? " · " + when.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "");
+      var html = "";
+      data.messages.forEach(function (m) {
+        html += m.role === "user"
+          ? '<div class="you">' + esc(m.text) + "</div>"
+          : '<div class="bot">' + md(m.text) + "</div>";
+      });
+      chatEl.innerHTML = html || '<p class="gone">This chat has no messages yet.</p>';
+    })
+    .catch(gone);
+})();
+</script>
+</body>
+</html>

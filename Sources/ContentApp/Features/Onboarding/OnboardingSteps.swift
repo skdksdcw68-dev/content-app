@@ -20,68 +20,128 @@ extension View {
 
 // MARK: - Privacy
 
-/// Said calmly, before anyone is asked to sign up.
+/// What is true about their data, said calmly, with a ring that fills over
+/// three seconds while three lines tick in. Only claims that are true: the
+/// videos and photos ARE stored on our server, so that is never said.
 struct OnboardingPrivacyView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var progress: CGFloat = 0
+    @State private var ticked = 0
+    @State private var locked = false
+
+    private let lines: [(String, String)] = [
+        ("Encrypted.", "Your data is encrypted, in transit and at rest."),
+        ("Yours alone.", "Your videos and photos belong to you."),
+        ("Delete any time.", "Delete your account and everything in it, any time."),
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
 
-            Image(systemName: "lock.shield.fill")
-                .font(.system(size: 54, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 124, height: 124)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-                .shadow(color: Theme.accent.opacity(0.18), radius: 24, y: 12)
+            ZStack {
+                Circle().stroke(Color.secondary.opacity(0.2), lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: progress)
+                    .stroke(Theme.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: locked ? "lock.fill" : "lock.open.fill")
+                    .font(.system(size: 38, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .contentTransition(.symbolEffect(.replace))
+                    .scaleEffect(locked ? 1 : 0.95)
+            }
+            .frame(width: 110, height: 110)
 
-            Text("Privacy by design")
+            Text("Private by design")
                 .font(.system(size: 26, weight: .bold))
-                .padding(.top, 28)
+                .padding(.top, 26)
 
-            Text("We never sell or share your information with anyone.")
-                .font(.subheadline)
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(Theme.accent)
+                            .symbolEffect(.bounce, value: ticked > index)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(line.0).font(.subheadline.weight(.semibold))
+                            Text(line.1).font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                    .opacity(ticked > index ? 1 : 0)
+                    .offset(y: ticked > index ? 0 : 8)
+                }
+            }
+            .padding(.horizontal, 36)
+            .padding(.top, 22)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("We never sell or share your information.")
+                .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.top, 8)
-                .padding(.horizontal, 36)
+                .padding(.top, 20)
+                .opacity(locked ? 1 : 0)
 
             Spacer(minLength: 0)
 
-            AuthTerms().padding(.bottom, 12)
-
             OnboardingButton(title: "Continue") { session.onboardingNext(from: .privacy) }
+                .disabled(!locked)
+                .opacity(locked ? 1 : 0.4)
         }
         .softGlassBackground()
+        .animation(.snappy(duration: 0.3), value: ticked)
+        .animation(.snappy(duration: 0.3), value: locked)
+        .task { await run() }
+    }
+
+    private func run() async {
+        if reduceMotion {
+            progress = 1
+            ticked = lines.count
+            locked = true
+            return
+        }
+        withAnimation(.linear(duration: 3)) { progress = 1 }
+        for step in 1...lines.count {
+            try? await Task.sleep(for: .milliseconds(900))
+            ticked = step
+        }
+        try? await Task.sleep(for: .milliseconds(500))
+        locked = true
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 }
 
 // MARK: - Pings
 
-/// Asks for notifications with the reason, and only brings up the system's
-/// question if the person says yes here first.
+/// Asks for notifications with the reason, on a lock screen that shows what
+/// they look like, and only brings up the system's question if the person
+/// says yes here first.
 struct OnboardingPingsView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = 0
+
+    private let messages = [
+        "Your video is ready.",
+        "Posted to TikTok, Instagram and YouTube.",
+        "Your video hit 48K views.",
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            Image(systemName: "bell.badge.fill")
-                .font(.system(size: 54, weight: .medium))
-                .symbolRenderingMode(.palette)
-                .foregroundStyle(Color.red, Theme.accent)
-                .frame(width: 124, height: 124)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
-                .shadow(color: Theme.accent.opacity(0.18), radius: 24, y: 12)
+            lockScreen
+                .padding(.horizontal, 36)
+                .padding(.top, 8)
 
             Text("Get a ping when your video is ready")
-                .font(.system(size: 26, weight: .bold))
+                .font(.system(size: 24, weight: .bold))
                 .multilineTextAlignment(.center)
-                .padding(.top, 28)
+                .padding(.top, 22)
                 .padding(.horizontal, 28)
 
-            Text("Videos take a few minutes to make. We tell you the moment yours is done. Nothing else.")
+            Text("And when it’s posted, and when it takes off. Nothing else.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -103,5 +163,61 @@ struct OnboardingPingsView: View {
                 .padding(.bottom, 12)
         }
         .softGlassBackground()
+        .task { await arrive() }
+    }
+
+    /// A phone's lock screen: the date, the time, and pings arriving one by one.
+    private var lockScreen: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(
+                colors: [Color(red: 0.12, green: 0.08, blue: 0.36), Color(red: 0.36, green: 0.30, blue: 0.9), Color(red: 0.78, green: 0.55, blue: 0.85)],
+                startPoint: .top, endPoint: .bottom
+            )
+            VStack(spacing: 0) {
+                Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.top, 26)
+                Text("9:41")
+                    .font(.system(size: 64, weight: .bold))
+                    .foregroundStyle(.white)
+
+                ZStack(alignment: .top) {
+                    ForEach(0..<messages.count, id: \.self) { index in
+                        let depth = shown - 1 - index
+                        if depth >= 0 {
+                            PingBanner(title: "Postpilot", line: messages[index])
+                                .scaleEffect(1 - 0.05 * Double(min(depth, 2)))
+                                .offset(y: CGFloat(min(depth, 2)) * 10)
+                                .opacity(depth == 0 ? 1 : (depth == 1 ? 0.6 : 0.3))
+                                .zIndex(Double(index))
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
+                }
+                .frame(height: 110, alignment: .top)
+                .padding(.horizontal, 12)
+                .padding(.top, 14)
+
+                Spacer(minLength: 0)
+            }
+        }
+        .frame(height: 340)
+        .clipShape(RoundedRectangle(cornerRadius: 40, style: .continuous))
+        .shadow(color: Theme.accent.opacity(0.25), radius: 22, y: 12)
+    }
+
+    private func arrive() async {
+        if reduceMotion { shown = messages.count; return }
+        try? await Task.sleep(for: .milliseconds(500))
+        while !Task.isCancelled {
+            for step in 1...messages.count {
+                withAnimation(.spring(duration: 0.6, bounce: 0.25)) { shown = step }
+                try? await Task.sleep(for: .milliseconds(1700))
+            }
+            try? await Task.sleep(for: .milliseconds(1200))
+            withAnimation(.easeIn(duration: 0.3)) { shown = 0 }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
     }
 }

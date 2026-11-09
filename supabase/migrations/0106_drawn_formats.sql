@@ -18,7 +18,7 @@
 
 insert into content_templates (slug, name, tagline, category, brief, pillars, visual_style, symbol, sort, enabled, workflow) values
 ('stickman', 'Stickman showdown', 'Stick figures fight to the last rep. One never quits.', 'Motivation',
- 'A 16 to 20 second vertical motivational video drawn in code: white stick figures with one bold word each hang from bars and do pull-ups, tire and drop one by one; when the music drops, a last figure nobody saw is revealed, still going. Always this one contest, no voice, no captions; only the words change. It cannot be longer, or another activity yet.',
+ 'A 16 to 20 second vertical motivational video drawn in code: white stick figures with one bold word each do pull-ups or hold a plank, tire and drop one by one; when the music drops, a last figure nobody saw is revealed, still going. One contest, no voice, no captions; only the words change. It cannot be longer, and has no other activities yet.',
  '[{"name":"What runs out","detail":"Motivation, ego, hype, talent: the things most people rely on."},{"name":"What lasts","detail":"Discipline, consistency, obsession: the one left standing."},{"name":"Your niche","detail":"The same contest with the words of your audience."}]',
  'white stick figures on pure black, bold upper-case labels, red on the straining joints, no voice, music with a drop',
  'figure.strengthtraining.traditional', 12, false,

@@ -442,6 +442,9 @@ export async function route(
     "  hand the choice to you ('you pick', 'you decide', 'give me the details yourself', 'handle it'),",
     "  choose: null. Never ask again something Postpilot already asked in the conversation: take the most",
     "  likely answer instead.",
+    "  HOW to ask, the way Claude does: one friendly, specific question in plain words, then 2 to 4 concrete",
+    "  options in the same message (a short numbered list), and say which one you would pick if they do not",
+    "  care. No lecture, no stack of questions, no 'could you clarify'.",
   ].join("\n");
 
   try {

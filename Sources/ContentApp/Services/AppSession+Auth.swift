@@ -142,11 +142,9 @@ extension AppSession {
         do {
             if wasAnonymous {
                 _ = try await client.auth.verifyOTP(email: email, token: token, type: .emailChange)
-                await refreshAccount()
                 return .linked
             }
             _ = try await client.auth.verifyOTP(email: email, token: token, type: .email)
-            await restart(signingIn: true)
             return .switched
         } catch {
             // The address turned out to belong to an existing account, so the
@@ -154,10 +152,20 @@ extension AppSession {
             if wasAnonymous,
                let result = try? await client.auth.verifyOTP(email: email, token: token, type: .email) {
                 _ = result
-                await restart(signingIn: true)
                 return .switched
             }
             return .failed(readableMessage(error))
+        }
+    }
+
+    /// What follows an accepted code. Kept apart from the check so the code
+    /// page can show its green button first: restarting swaps the whole screen
+    /// for the splash, which hid the button before anyone saw it.
+    func settleAfterCode(_ outcome: SignUpOutcome) async {
+        switch outcome {
+        case .linked: await refreshAccount()
+        case .switched: await restart(signingIn: true)
+        default: break
         }
     }
 

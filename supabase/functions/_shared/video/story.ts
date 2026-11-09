@@ -90,6 +90,9 @@ export interface RenderSpec {
   musicBrief: string | null;
   /** Where the worker must put the finished file. */
   outputPath: string;
+  /** A code-drawn video (renderer/draw): `scenes` is empty and the plan is
+   *  drawn frame by frame. See drawn.ts. */
+  drawn?: { kind: "showdown" | "glow"; plan: unknown; music?: { path: string; startS: number; gainDb?: number } };
 }
 
 export type ImagePoll =

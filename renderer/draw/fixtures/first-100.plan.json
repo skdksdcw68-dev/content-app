@@ -1,0 +1,177 @@
+{
+ "title": "Your first 100 videos",
+ "caption": "",
+ "scenes": [
+  {
+   "text": "Your first hundred videos aren't content. They're tuition.",
+   "kind": "grid",
+   "count": 12,
+   "hot": 5,
+   "title": "100 VIDEOS",
+   "labels": [
+    {
+     "on": "tuition.",
+     "text": "TUITION"
+    },
+    {
+     "on": "content.",
+     "text": "NOT CONTENT"
+    }
+   ]
+  },
+  {
+   "text": "Most people think every video has to work.",
+   "kind": "crowd",
+   "count": 7,
+   "hot": 3,
+   "goal": "EVERY VIDEO HAS TO WORK",
+   "labels": [
+    {
+     "on": "people",
+     "text": "MOST PEOPLE"
+    }
+   ]
+  },
+  {
+   "text": "So they post one, it gets two hundred views, and they decide they're just not built for this.",
+   "kind": "feed",
+   "title": "VIDEO 1",
+   "number": {
+    "on": "gets",
+    "until": "views,",
+    "from": 0,
+    "to": 200,
+    "label": "VIEWS"
+   },
+   "labels": [
+    {
+     "on": "built",
+     "text": "NOT BUILT FOR THIS?"
+    }
+   ]
+  },
+  {
+   "text": "But imagine someone who posts every single day for three months.",
+   "kind": "journey",
+   "who": "SOMEONE",
+   "goal": "90 DAYS",
+   "number": {
+    "on": "every",
+    "until": "months.",
+    "from": 1,
+    "to": 90,
+    "prefix": "DAY ",
+    "label": "POSTING"
+   },
+   "labels": [
+    {
+     "on": "imagine",
+     "text": "IMAGINE"
+    }
+   ]
+  },
+  {
+   "text": "Video one gets forty views. Video thirty gets five hundred. Video sixty-two suddenly gets two hundred thousand... and everyone calls it luck.",
+   "kind": "chart",
+   "lines": [
+    {
+     "label": "VIEWS",
+     "shape": "late_jump"
+    }
+   ],
+   "number": {
+    "on": "two",
+    "until": "thousand...",
+    "from": 40,
+    "to": 200000,
+    "label": "VIEWS"
+   },
+   "labels": [
+    {
+     "on": "luck.",
+     "text": "LUCK?"
+    }
+   ]
+  },
+  {
+   "text": "Here's what nobody sees. By video sixty-two, she knows which first second makes people stop.",
+   "kind": "night",
+   "who": "WHAT NOBODY SEES",
+   "labels": [
+    {
+     "on": "stop.",
+     "text": "THE FIRST SECOND"
+    }
+   ]
+  },
+  {
+   "text": "She knows which topics her audience saves, and which ones they skip. She can film, edit and post in twenty minutes, while everyone else is still choosing a font.",
+   "kind": "machine",
+   "title": "BY VIDEO 62",
+   "items": [
+    "WHAT THEY SAVE",
+    "20 MINUTES"
+   ],
+   "icons": [
+    "heart",
+    "clock"
+   ],
+   "labels": [
+    {
+     "on": "font.",
+     "text": "CHOOSING A FONT"
+    }
+   ]
+  },
+  {
+   "text": "That's not luck. That's what the first sixty-one videos were paying for.",
+   "kind": "stairs",
+   "direction": "up",
+   "number": {
+    "on": "sixty-one",
+    "until": "for.",
+    "from": 0,
+    "to": 61,
+    "label": "VIDEOS PAID FOR IT"
+   },
+   "labels": [
+    {
+     "on": "luck.",
+     "text": "NOT LUCK"
+    }
+   ]
+  },
+  {
+   "text": "This happens because skill doesn't show up in the result you're getting today. It shows up later, all at once, and only for the people who kept paying.",
+   "kind": "chart",
+   "lines": [
+    {
+     "label": "SKILL",
+     "shape": "rise"
+    },
+    {
+     "label": "RESULTS",
+     "shape": "late_jump"
+    }
+   ],
+   "labels": [
+    {
+     "on": "later,",
+     "text": "LATER. ALL AT ONCE."
+    }
+   ]
+  },
+  {
+   "text": "So stop asking whether this video will go viral. Ask whether you'll still be here for the one that does.",
+   "kind": "globe",
+   "goal": "THE ONE THAT DOES",
+   "title": "STILL BE HERE?",
+   "labels": [
+    {
+     "on": "viral.",
+     "text": "WILL IT GO VIRAL?"
+    }
+   ]
+  }
+ ]
+}

@@ -38,6 +38,13 @@ interface RenderSpec {
   captionTheme: string;
   musicBrief: string | null;
   outputPath: string;
+  /** A code-drawn video (renderer/draw): no pictures; `scenes` is empty. The
+   *  voice and music are storage paths like the story's voice. */
+  drawn?: {
+    kind: "showdown" | "glow";
+    plan: unknown;
+    music?: { path: string; startS: number; gainDb?: number };
+  };
 }
 
 interface Job {
@@ -126,7 +133,55 @@ function droneFilter(total: number): string[] {
   ];
 }
 
+/** A storage path, or a file on this machine (local test runs). */
+async function fetchInput(path: string, to: string): Promise<void> {
+  if (existsSync(path)) await copyFile(path, to);
+  else await download(path, to);
+}
+
+/** A code-drawn video: the plan is drawn frame by frame, the voice and music
+ *  are laid under it. Loaded on demand so picture stories never need canvas. */
+async function renderDrawn(spec: RenderSpec, work: string, out: string): Promise<Issue[]> {
+  const qc: Issue[] = [];
+  const { encodeDrawn } = await import("./draw/encode.ts");
+  const drawn = spec.drawn!;
+  const fps = spec.fps || 30;
+  const audio: { voice?: { path: string }; music?: { path: string; startS: number; gainDb?: number } } = {};
+  if (spec.voice?.path) {
+    await fetchInput(spec.voice.path, join(work, "voice.audio"));
+    audio.voice = { path: join(work, "voice.audio") };
+  }
+  if (drawn.music?.path) {
+    await fetchInput(drawn.music.path, join(work, "music.audio"));
+    audio.music = { path: join(work, "music.audio"), startS: drawn.music.startS, gainDb: drawn.music.gainDb };
+  }
+  if (drawn.kind === "showdown") {
+    const { showdown } = await import("./draw/showdown.ts");
+    const plan = drawn.plan as Parameters<typeof showdown>[0];
+    const s = showdown({ ...plan, fps });
+    await encodeDrawn(FFMPEG, { width: s.width, height: s.height, fps, durationS: plan.durationS, thuds: s.landings, draw: s.draw }, audio, out);
+  } else if (drawn.kind === "glow") {
+    const { glowVideo } = await import("./draw/glow.ts");
+    if (spec.words.length === 0) throw new Error("a glow explainer needs the voice's word timings");
+    const v = glowVideo(drawn.plan as Parameters<typeof glowVideo>[0], spec.words);
+    await encodeDrawn(FFMPEG, { width: v.width, height: v.height, fps, durationS: v.durationS, draw: v.draw }, audio, out);
+  } else {
+    throw new Error(`unknown drawn kind ${String((drawn as { kind: unknown }).kind)}`);
+  }
+  // What came out, measured: it must have a picture, sound and the planned length.
+  const probe = JSON.parse(await run(FFPROBE, ["-v", "error", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", out], work)) as {
+    format?: { duration?: string };
+    streams?: Array<{ codec_type: string; width?: number; height?: number }>;
+  };
+  const length = Number(probe.format?.duration ?? 0);
+  if (Math.abs(length - spec.durationS) > 1.5) qc.push({ path: "duration", message: `the video is ${length.toFixed(1)}s; the plan was ${spec.durationS}s`, level: "error" });
+  if (!probe.streams?.some((s) => s.codec_type === "video")) qc.push({ path: "frame", message: "the video has no picture", level: "error" });
+  if (!probe.streams?.some((s) => s.codec_type === "audio")) qc.push({ path: "audio", message: "the video has no sound track", level: "error" });
+  return qc;
+}
+
 export async function render(spec: RenderSpec, work: string, out: string, fontsDir?: string): Promise<Issue[]> {
+  if (spec.drawn) return renderDrawn(spec, work, out);
   const qc: Issue[] = [];
   const { width: W, height: H } = FRAME[spec.aspect] ?? FRAME["9:16"];
   const fps = spec.fps || 30;

@@ -32,6 +32,7 @@ import { settleCredits } from "../_shared/credits.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write as writeWithClaude } from "../_shared/writer.ts";
 import { storyStep } from "./story.ts";
+import { drawnKindFor, drawnStep } from "./drawn.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -217,7 +218,12 @@ async function advance(admin: Admin, run: Run): Promise<string> {
   if (run.kind === "export") return await exportStep(admin, run);
   if (run.kind === "generate") return await generateStep(admin, run);
   if (run.kind === "rediscover") return await rediscoverStep(admin, run);
-  if (run.kind === "story") return await storyStep(admin, run, (text, hint) => tell(admin, run, text, hint ?? null));
+  if (run.kind === "story") {
+    const say = (text: string, hint?: Record<string, unknown> | null) => tell(admin, run, text, hint ?? null);
+    // A style whose row says engine "drawn" (Stickman, Glow) is drawn in code, not made from pictures.
+    const drawn = await drawnKindFor(admin, (run.input.request as { styleSlug?: string } | undefined)?.styleSlug);
+    return drawn ? await drawnStep(admin, run, say, drawn) : await storyStep(admin, run, say);
+  }
 
   await admin.rpc("finish_agent_run", {
     p_run: run.id,

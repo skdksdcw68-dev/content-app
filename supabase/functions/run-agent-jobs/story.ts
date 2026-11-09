@@ -21,7 +21,7 @@ import { parseReview } from "../_shared/video/review.ts";
 import { extractJson } from "../_shared/video/planner.ts";
 import { speak, VoiceError } from "../_shared/video/voice.ts";
 
-interface Run {
+export interface Run {
   id: string;
   user_id: string;
   thread_id: string | null;
@@ -30,7 +30,7 @@ interface Run {
   attempts: number;
 }
 
-type Tell = (text: string, hint?: Record<string, unknown> | null) => Promise<void>;
+export type Tell = (text: string, hint?: Record<string, unknown> | null) => Promise<void>;
 
 const BUCKET = "artifacts";
 /** What a house image costs us, used only to keep the per-story budget honest
@@ -97,7 +97,7 @@ async function persist(admin: SupabaseClient, run: Run, state: StoryState): Prom
   run.input = { ...run.input, story: state };
 }
 
-function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
+export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
   const userId = run.user_id;
   const ask = async (system: string, user: string): Promise<string> => {
     const c = await write({

@@ -430,10 +430,12 @@ struct CodeScreen: View {
             switch outcome {
             case .linked:
                 await succeed()
+                await session.settleAfterCode(outcome)
                 if !name.isEmpty { await session.saveName(name, promoting: "") }
                 onDone(.created)
             case .switched:
                 await succeed()
+                await session.settleAfterCode(outcome)
                 onDone(mode == .login ? .returning : .alreadyRegistered)
             case .failed(let reason):
                 withAnimation(.easeOut(duration: 0.3)) { state = .wrong }

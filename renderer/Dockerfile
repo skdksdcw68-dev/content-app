@@ -9,8 +9,14 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+# Code-drawn videos (renderer/draw) need @napi-rs/canvas, which ships a
+# prebuilt binary for this image; installed before the code so it is cached.
+COPY renderer/package.json renderer/package.json
+RUN cd renderer && npm install --omit=dev --no-audit --no-fund
 COPY supabase/functions/_shared/video/ supabase/functions/_shared/video/
 COPY renderer/render.ts renderer/render.ts
+COPY renderer/draw/*.ts renderer/draw/
+COPY renderer/draw/fonts/ renderer/draw/fonts/
 # Node runs the TypeScript itself (type stripping); the files are ES modules.
 RUN echo '{"type":"module","private":true}' > package.json
 

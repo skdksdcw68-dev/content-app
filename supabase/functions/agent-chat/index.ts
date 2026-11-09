@@ -36,7 +36,7 @@ import { push } from "../_shared/push.ts";
 import { answerFromTheWeb, asResponsesTurn, webRules, whereTheyAre } from "../_shared/web.ts";
 import { write as writeWithClaude, writeStreaming } from "../_shared/writer.ts";
 import { parseStoryCommand } from "../_shared/video/command.ts";
-import { makeBrief, type VideoBrief } from "../_shared/video/brief.ts";
+import { BRIEF_VOICES, makeBrief, type VideoBrief } from "../_shared/video/brief.ts";
 import { productionFor } from "../_shared/video/style.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -1492,6 +1492,62 @@ Deno.serve(async (request) => {
          * is about to be put in front of somebody, and "can I afford it" is the
          * question that price raises.
          */
+        /** Starts the story engine for a style: from the create card's tap, or
+         *  straight from a request the planner already decided (no second
+         *  question). */
+        const beginStory = async (a: {
+          topic: string; slug: string; seconds?: number; voiceId?: string; captionStyle?: string;
+          look?: string; direction?: string; narration?: boolean;
+        }) => {
+          const topic = a.topic.replace(/\s+/g, " ").trim().slice(0, 400);
+          const slug = a.slug.toLowerCase().replace(/[^a-z0-9-]/g, "");
+          const { data: styleRow } = await admin.from("content_templates")
+            .select("slug, name, visual_style, workflow").eq("slug", slug).maybeSingle();
+          const style = styleRow as { slug: string; name: string; visual_style: string | null; workflow: never } | null;
+          if (!style) {
+            speak(`I don't have a style called “${slug}”. Pick another one on the card.`);
+            await remember();
+            return finish();
+          }
+          const support = productionFor(style).support;
+          if (support.level === "unsupported") {
+            speak(`I can't make “${style.name}” videos from pictures yet: ${support.reason}. Try AI video instead.`);
+            await remember();
+            return finish();
+          }
+          const seconds = typeof a.seconds === "number" ? Math.min(120, Math.max(10, Math.round(a.seconds))) : undefined;
+          const voiceId = typeof a.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(a.voiceId) ? a.voiceId : undefined;
+          const captionStyle = typeof a.captionStyle === "string" &&
+              ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"].includes(a.captionStyle)
+            ? a.captionStyle
+            : undefined;
+          const look = typeof a.look === "string" ? a.look.replace(/\s+/g, " ").trim().slice(0, 300) : "";
+          const direction = typeof a.direction === "string" ? a.direction.replace(/\s+/g, " ").trim().slice(0, 800) : "";
+
+          const { data: brandRow } = await (brandWanted
+            ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
+            : asUser.from("brands").select("id, name, niche, audience").order("created_at", { ascending: true }).limit(1).maybeSingle());
+          const brand = brandRow as { id: string; name: string; niche: string; audience: string } | null;
+          const length = seconds ? `${seconds}-second ` : "";
+          const drawnStyle = (style.workflow as { engine?: string } | null)?.engine === "drawn";
+          speak(drawnStyle
+            ? `Making your ${style.name} video about “${topic}”. I'll show each step, and it keeps going if you close the app.`
+            : `Making a ${length}photo video about “${topic}”. I'll show each step, and it keeps going if you close the app.`);
+          return await startRun("story", {
+            request: {
+              topic,
+              styleSlug: style.slug,
+              ...(seconds ? { durationS: seconds } : {}),
+              ...(a.narration === false ? { narration: false } : {}),
+              ...(look ? { look } : {}),
+              ...(voiceId ? { voiceId } : {}),
+              ...(captionStyle ? { captionStyle } : {}),
+              ...(direction ? { direction } : {}),
+              ...(brand ? { brandContext: `${brand.name}${brand.niche ? ` — ${brand.niche}` : ""}${brand.audience ? `, for ${brand.audience}` : ""}` } : {}),
+            },
+          }, brand?.id ?? null);
+        };
+
         const produce = async (job: {
           capability: Capability;
           prompt: string;
@@ -2118,55 +2174,15 @@ Deno.serve(async (request) => {
                 await remember();
                 return finish();
               }
-              const { data: styleRow } = await admin.from("content_templates")
-                .select("slug, name, visual_style, workflow").eq("slug", slug).maybeSingle();
-              const style = styleRow as { slug: string; name: string; visual_style: string | null; workflow: never } | null;
-              if (!style) {
-                speak(`I don't have a style called “${slug}”. Pick another one on the card.`);
-                await remember();
-                return finish();
-              }
-              const support = productionFor(style).support;
-              if (support.level === "unsupported") {
-                speak(`I can't make “${style.name}” videos from pictures yet: ${support.reason}. Try AI video instead.`);
-                await remember();
-                return finish();
-              }
-              const seconds = typeof action.seconds === "number"
-                ? Math.min(90, Math.max(15, Math.round(action.seconds)))
-                : undefined;
-              const voiceId = typeof action.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(action.voiceId)
-                ? action.voiceId
-                : undefined;
-              const captionStyle = typeof action.captionStyle === "string" &&
-                  ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"].includes(action.captionStyle)
-                ? action.captionStyle
-                : undefined;
-              const look = typeof action.look === "string" ? action.look.replace(/\s+/g, " ").trim().slice(0, 300) : "";
-              const direction = typeof action.direction === "string" ? action.direction.replace(/\s+/g, " ").trim().slice(0, 800) : "";
-
-              const { data: brandRow } = await (brandWanted
-                ? asUser.from("brands").select("id, name, niche, audience").eq("id", brandWanted).maybeSingle()
-                : asUser.from("brands").select("id, name, niche, audience").order("created_at", { ascending: true }).limit(1).maybeSingle());
-              const brand = brandRow as { id: string; name: string; niche: string; audience: string } | null;
-              const length = seconds ? `${seconds}-second ` : "";
-              const drawnStyle = (style.workflow as { engine?: string } | null)?.engine === "drawn";
-              speak(drawnStyle
-                ? `Making your ${style.name} video about “${topic}”. I'll show each step, and it keeps going if you close the app.`
-                : `Making a ${length}photo video about “${topic}”. I'll show each step, and it keeps going if you close the app.`);
-              return await startRun("story", {
-                request: {
-                  topic,
-                  styleSlug: style.slug,
-                  ...(seconds ? { durationS: seconds } : {}),
-                  ...(action.narration === false ? { narration: false } : {}),
-                  ...(look ? { look } : {}),
-                  ...(voiceId ? { voiceId } : {}),
-                  ...(captionStyle ? { captionStyle } : {}),
-                  ...(direction ? { direction } : {}),
-                  ...(brand ? { brandContext: `${brand.name}${brand.niche ? ` — ${brand.niche}` : ""}${brand.audience ? `, for ${brand.audience}` : ""}` } : {}),
-                },
-              }, brand?.id ?? null);
+              return await beginStory({
+                topic, slug,
+                seconds: typeof action.seconds === "number" ? action.seconds : undefined,
+                voiceId: typeof action.voiceId === "string" ? action.voiceId : undefined,
+                captionStyle: typeof action.captionStyle === "string" ? action.captionStyle : undefined,
+                look: typeof action.look === "string" ? action.look : undefined,
+                direction: typeof action.direction === "string" ? action.direction : undefined,
+                narration: action.narration === false ? false : undefined,
+              });
             }
           }
 
@@ -3665,6 +3681,23 @@ How to answer:
                 !!OPENAI_KEY
               ? await briefFor(prompt, references)
               : null;
+            // The planner already decided everything the card would ask, and they
+            // asked for a video: start it. (Abel, 9 Nov 2026: "why do I have to say
+            // make it? ... just handle it.") The card stays for what is a real
+            // choice: AI video models, and pictures sent as examples to follow.
+            if (planned && planned.kind === "photo" && planned.style && !planned.uses && !sourceArtifactId) {
+              const voice = BRIEF_VOICES.find((v) => v.id === planned.voice);
+              return await beginStory({
+                topic: prompt,
+                slug: planned.style,
+                seconds: planned.seconds ?? undefined,
+                voiceId: voice?.elevenLabsId ?? undefined,
+                captionStyle: planned.captions ?? undefined,
+                look: planned.look ?? undefined,
+                direction: planned.direction ?? undefined,
+                narration: planned.voice === "none" ? false : undefined,
+              });
+            }
             // Pictures sent as examples to follow are read into the brief, not
             // handed to a video model as a first frame -- that would make the
             // photo video impossible, and they did not ask for it.

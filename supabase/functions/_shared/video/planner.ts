@@ -28,42 +28,58 @@ export function wordCount(text: string): number {
   return text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
 }
 
+/** The planner's master prompt. The fixed text lives on the server (table
+ *  master_prompts, key "story_planner") so it can be improved without an app
+ *  update; this copy is the fallback and the seed. The {{...}} parts are filled
+ *  from the production's numbers, which only code can compute. */
+export const DEFAULT_PLANNER_TEMPLATE = [
+  "You are the planner for a short-form video studio. You return ONE JSON object and nothing else.",
+  "",
+  "Shape:",
+  '{"title":string,"hook":string,"script":string,',
+  ' "characters":[{"name":string,"description":string}],',
+  ' "locations":[{"name":string,"description":string}],',
+  ' "musicBrief":string,',
+  ' "scenes":[{"id":string,"narration":string,"visual":string,"imagePrompt":string,"motionPrompt":string,',
+  '   "motion":"none|push_in|pull_out|pan_left|pan_right","transition":"cut|fade",',
+  '   "characters":[string],"location":string,"emphasis":[string],"sfx":[string]}]}',
+  "",
+  "Rules:",
+  "{{narration_rule}}",
+  "{{narration_script_rule}}",
+  "{{scene_rule}}",
+  "- `imagePrompt` describes ONE still: subject, setting, light, composition, vertical 9:16 framing. No on-image text, logos or watermarks.",
+  "- Describe a recurring person or place once in `characters` / `locations` and refer to them by name in `characters` / `location` on each scene. Repeat the key visual details in each imagePrompt so the same person looks the same.",
+  "- `motionPrompt` says what moves over the scene (camera and subject), in one sentence, and ends by keeping the subject's appearance unchanged.",
+  "- Never invent statistics, quotes, dates or events and present them as real. If the topic needs a fact you were not given, tell it as a story or an open question.",
+  "- Visual style: {{visual_style}}.",
+  "{{music}}",
+  "{{style_rules}}",
+].join("\n");
+
 export function plannerPrompt(
   p: Production,
   request: { topic: string; brandContext?: string; direction?: string; avoid?: string },
+  template?: string | null,
 ): {
   system: string;
   user: string;
 } {
   const words = wordBudget(p.durationS);
-  const system = [
-    "You are the planner for a short-form video studio. You return ONE JSON object and nothing else.",
-    "",
-    "Shape:",
-    '{"title":string,"hook":string,"script":string,',
-    ' "characters":[{"name":string,"description":string}],',
-    ' "locations":[{"name":string,"description":string}],',
-    ' "musicBrief":string,',
-    ' "scenes":[{"id":string,"narration":string,"visual":string,"imagePrompt":string,"motionPrompt":string,',
-    '   "motion":"none|push_in|pull_out|pan_left|pan_right","transition":"cut|fade",',
-    '   "characters":[string],"location":string,"emphasis":[string],"sfx":[string]}]}',
-    "",
-    "Rules:",
-    p.narration
+  const fill: Record<string, string> = {
+    narration_rule: p.narration
       ? `- The video is ${p.durationS} seconds, and that is a hard limit. The whole narration is AT MOST ${words} words -- count them before you answer. A narrator reads about 2.2 words a second, so every extra word makes the video longer than the person asked for. Short, punchy sentences.`
       : `- The video is ${p.durationS} seconds, and that is a hard limit.`,
-    p.narration
+    narration_script_rule: p.narration
       ? "- Every scene's `narration` is exactly what the narrator says over it, in order; read together they are `script`."
       : "- There is no narrator. Leave `narration` empty; put any words that must appear on screen in `visual`.",
-    `- Aim for scenes of about ${p.sceneS} seconds each, so roughly ${Math.max(2, Math.round(p.durationS / p.sceneS))} scenes. The first scene is the hook and must land in the first 3 seconds.`,
-    "- `imagePrompt` describes ONE still: subject, setting, light, composition, vertical 9:16 framing. No on-image text, logos or watermarks.",
-    "- Describe a recurring person or place once in `characters` / `locations` and refer to them by name in `characters` / `location` on each scene. Repeat the key visual details in each imagePrompt so the same person looks the same.",
-    "- `motionPrompt` says what moves over the scene (camera and subject), in one sentence, and ends by keeping the subject's appearance unchanged.",
-    "- Never invent statistics, quotes, dates or events and present them as real. If the topic needs a fact you were not given, tell it as a story or an open question.",
-    `- Visual style: ${p.visualStyle || "cinematic, consistent across all scenes"}.`,
-    p.musicBrief ? `- Music mood to put in musicBrief: ${p.musicBrief}.` : "- No music: leave musicBrief empty.",
-    p.writerRules ? `\nThis style's own rules (follow them as closely as the rules above):\n${p.writerRules}` : "",
-  ].join("\n");
+    scene_rule: `- Aim for scenes of about ${p.sceneS} seconds each, so roughly ${Math.max(2, Math.round(p.durationS / p.sceneS))} scenes. The first scene is the hook and must land in the first 3 seconds.`,
+    visual_style: p.visualStyle || "cinematic, consistent across all scenes",
+    music: p.musicBrief ? `- Music mood to put in musicBrief: ${p.musicBrief}.` : "- No music: leave musicBrief empty.",
+    style_rules: p.writerRules ? `\nThis style's own rules (follow them as closely as the rules above):\n${p.writerRules}` : "",
+  };
+  const system = (template && template.includes("{{") ? template : DEFAULT_PLANNER_TEMPLATE)
+    .replace(/\{\{(\w+)\}\}/g, (_m, k: string) => fill[k] ?? "");
 
   const user = [
     `Topic: ${request.topic}`,
@@ -85,8 +101,10 @@ export async function planStory(args: {
   request: { topic: string; brandContext?: string; direction?: string; avoid?: string };
   ask(system: string, user: string): Promise<string>;
   retries?: number;
+  /** The master prompt from the server (master_prompts); the built-in one when absent. */
+  template?: string | null;
 }): Promise<PlanResult> {
-  const { system, user } = plannerPrompt(args.production, args.request);
+  const { system, user } = plannerPrompt(args.production, args.request, args.template);
   const limit = (args.retries ?? 2) + 1;
   let prompt = user;
   let issues: Issue[] = [];

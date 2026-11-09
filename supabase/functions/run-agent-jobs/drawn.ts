@@ -23,6 +23,7 @@ import { extractJson } from "../_shared/video/planner.ts";
 import type { RenderSpec, StoryRequest } from "../_shared/video/story.ts";
 import type { WordTiming } from "../_shared/video/types.ts";
 import { MODELS } from "../_shared/route.ts";
+import { masterPrompt } from "../_shared/prompts.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write } from "../_shared/writer.ts";
 import { depsFor } from "./story.ts";
@@ -111,7 +112,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
           let brief = null;
           let notes = "";
           for (let attempt = 0; attempt < 2 && !brief; attempt++) {
-            const reply = await writer(SHOWDOWN_WRITER_PROMPT, `Topic or theme: ${topic}\n${about}${notes}`);
+            const reply = await writer(await masterPrompt(admin, "showdown_writer", SHOWDOWN_WRITER_PROMPT), `Topic or theme: ${topic}\n${about}${notes}`);
             const parsed = parseShowdownBrief(extractJson(reply));
             if (parsed.ok) brief = parsed.value;
             else notes = `\n\nYour last answer was refused: ${parsed.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}. Answer again with valid JSON.`;
@@ -130,7 +131,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
           let plan: GlowPlan | null = null;
           let notes = "";
           for (let attempt = 0; attempt < 2 && !plan; attempt++) {
-            const reply = await writer(GLOW_WRITER_PROMPT, `Topic the person gave: ${topic}\n(If that is empty, or only names the format, choose the topic yourself from the playbook's idea bank: never the account's own niche.)\n${about}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
+            const reply = await writer(await masterPrompt(admin, "glow_writer", GLOW_WRITER_PROMPT), `Topic the person gave: ${topic}\n(If that is empty, or only names the format, choose the topic yourself from the playbook's idea bank: never the account's own niche.)\n${about}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
             const parsed = parseGlowPlan(extractJson(reply));
             if (parsed.ok) {
               plan = parsed.value;

@@ -14,6 +14,9 @@ import { chargeForGeneration, refundCredits, settleCredits } from "../_shared/cr
 import { PublicError } from "../_shared/http.ts";
 import { wakeRenderer } from "../_shared/render-wake.ts";
 import { imageSize } from "../_shared/media.ts";
+import { masterPrompt } from "../_shared/prompts.ts";
+import { DEFAULT_PLANNER_TEMPLATE } from "../_shared/video/planner.ts";
+import { DEFAULT_PICTURE_TEMPLATE } from "../_shared/video/story.ts";
 import { recordUsage } from "../_shared/usage.ts";
 import { write } from "../_shared/writer.ts";
 import { newStory, stepStory, type ImagePoll, type StoryDeps, type StoryRequest, type StoryState } from "../_shared/video/story.ts";
@@ -37,10 +40,33 @@ const BUCKET = "artifacts";
  *  before the provider says what it really charged. */
 const IMAGE_ESTIMATE_USD = 0.07;
 
+/** The picture checker's master prompt. Saved on the server (master_prompts
+ *  "picture_checker"); this is the fallback and the seed. */
+export const PICTURE_CHECKER_PROMPT = [
+  // 31 Oct 2026: the first real story redid 3 of its 6 pictures, a third of what
+  // it cost, for "the hangers appear static" (a still never moves; the camera
+  // move comes later), "not fully 9:16" (the request sets the size, not the
+  // picture) and "the shadows could be deeper". A redo is for a picture that
+  // would look WRONG in the video, nothing less.
+  "You check pictures that will become the stills of a short vertical video. You did not make this picture.",
+  "Judge ONLY what you can see. Return one JSON object:",
+  '{"verdict":"PASS|RETRY|ESCALATE","score":0..1,"problems":[string],"correction":string|null}',
+  "RETRY only for a fault a viewer would notice: the wrong or missing subject, deformed hands/faces/limbs, readable text, logos or watermarks, the main subject badly cut off, a character who plainly contradicts the description, or a picture clearly not in the asked style (a photo when a drawing was asked, colour when monochrome was asked).",
+  "Do NOT retry for: no visible movement (it is a still; motion is added later), the picture's size or aspect ratio (that is fixed elsewhere), mood or lighting that is close enough, or small details of the scene. Those are a PASS.",
+  "When in doubt, PASS. Every redo costs money.",
+  "RETRY with a `correction` written as an instruction for the picture prompt. ESCALATE only if the scene itself cannot be drawn as described.",
+  "A PASS must have an empty problems list.",
+].join("\n");
+
 export async function storyStep(admin: SupabaseClient, run: Run, tell: Tell): Promise<string> {
   const saved = run.input.story as StoryState | undefined;
   const state: StoryState = saved ?? newStory(run.input.request as StoryRequest);
   const deps = depsFor(admin, run, tell);
+  // The master prompts saved on the server (the built-in text when none is saved).
+  deps.prompts = {
+    planner: await masterPrompt(admin, "story_planner", DEFAULT_PLANNER_TEMPLATE),
+    picture: await masterPrompt(admin, "picture_prompt", DEFAULT_PICTURE_TEMPLATE),
+  };
 
   // Keep stepping inside this one invocation instead of going back to sleep
   // until the next cron minute: a story is mostly waiting on pictures, and a
@@ -244,22 +270,7 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
         messages: [
           {
             role: "system",
-            content: [
-              // 31 Oct 2026: the first real story redid 3 of its 6 pictures,
-              // a third of what it cost, for "the hangers appear static" (a
-              // still never moves; the camera move comes later), "not fully
-              // 9:16" (the request sets the size, not the picture) and "the
-              // shadows could be deeper". A redo is for a picture that would
-              // look WRONG in the video, nothing less.
-              "You check pictures that will become the stills of a short vertical video. You did not make this picture.",
-              "Judge ONLY what you can see. Return one JSON object:",
-              '{"verdict":"PASS|RETRY|ESCALATE","score":0..1,"problems":[string],"correction":string|null}',
-              "RETRY only for a fault a viewer would notice: the wrong or missing subject, deformed hands/faces/limbs, readable text, logos or watermarks, the main subject badly cut off, a character who plainly contradicts the description, or a picture clearly not in the asked style (a photo when a drawing was asked, colour when monochrome was asked).",
-              "Do NOT retry for: no visible movement (it is a still; motion is added later), the picture's size or aspect ratio (that is fixed elsewhere), mood or lighting that is close enough, or small details of the scene. Those are a PASS.",
-              "When in doubt, PASS. Every redo costs money.",
-              "RETRY with a `correction` written as an instruction for the picture prompt. ESCALATE only if the scene itself cannot be drawn as described.",
-              "A PASS must have an empty problems list.",
-            ].join("\n"),
+            content: await masterPrompt(admin, "picture_checker", PICTURE_CHECKER_PROMPT),
           },
           {
             role: "user",

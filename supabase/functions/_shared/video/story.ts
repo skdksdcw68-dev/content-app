@@ -105,6 +105,8 @@ export interface StoryDeps {
   runId: string;
   style(slug: string): Promise<StyleRow | null>;
   ask(system: string, user: string): Promise<string>;
+  /** Master prompts saved on the server (master_prompts); the built-in text when absent. */
+  prompts?: { planner?: string | null; picture?: string | null };
   speak(text: string): Promise<Spoken>;
   image: {
     submit(prompt: string, o: { aspect: Aspect }): Promise<{ handle: unknown; costUsd: number }>;
@@ -209,6 +211,7 @@ async function planPhase(deps: StoryDeps, state: StoryState, limits: Limits): Pr
     },
     ask: deps.ask,
     retries: limits.planRetries,
+    template: deps.prompts?.planner,
   });
   if (!planned.plan) {
     return fail(deps, state, "I couldn't get a usable plan for that story after a few tries, so I stopped before spending anything on pictures.");
@@ -316,20 +319,29 @@ async function voicePhase(deps: StoryDeps, state: StoryState): Promise<StepResul
 /** Everything the picture model needs in one prompt: the scene, the recurring
  *  people and places (so they look the same), the style, and what the reviewer
  *  said was wrong last time. */
-export function composeImagePrompt(plan: StoryPlan, scene: Scene, production: Production, feedback: string | null): string {
+/** The picture master prompt: how a scene becomes the prompt the picture model
+ *  gets. Saved on the server (master_prompts "picture_prompt"); this is the
+ *  fallback and the seed. */
+export const DEFAULT_PICTURE_TEMPLATE = "{{scene}} {{characters}} {{setting}} {{visual_style}} {{framing}} {{fix}}";
+
+export function composeImagePrompt(plan: StoryPlan, scene: Scene, production: Production, feedback: string | null, template?: string | null): string {
   const who = scene.characters
     .map((n) => plan.characters.find((c) => c.name.toLowerCase() === n.toLowerCase()))
     .filter((c): c is { name: string; description: string } => !!c)
     .map((c) => `${c.name}: ${c.description}`);
   const where = scene.location ? plan.locations.find((l) => l.name.toLowerCase() === scene.location!.toLowerCase()) : undefined;
-  return [
-    scene.imagePrompt,
-    who.length ? `Characters (keep identical across scenes): ${who.join("; ")}.` : "",
-    where ? `Setting: ${where.name}: ${where.description}.` : "",
-    production.visualStyle ? `Visual style: ${production.visualStyle}.` : "",
-    `${production.aspect === "9:16" ? "Vertical 9:16" : production.aspect === "16:9" ? "Horizontal 16:9" : "Square"} composition, subject clear, no text, no logos, no watermarks.`,
-    feedback ? `Fix from the last attempt: ${feedback}` : "",
-  ].filter(Boolean).join(" ");
+  const fill: Record<string, string> = {
+    scene: scene.imagePrompt,
+    characters: who.length ? `Characters (keep identical across scenes): ${who.join("; ")}.` : "",
+    setting: where ? `Setting: ${where.name}: ${where.description}.` : "",
+    visual_style: production.visualStyle ? `Visual style: ${production.visualStyle}.` : "",
+    framing: `${production.aspect === "9:16" ? "Vertical 9:16" : production.aspect === "16:9" ? "Horizontal 16:9" : "Square"} composition, subject clear, no text, no logos, no watermarks.`,
+    fix: feedback ? `Fix from the last attempt: ${feedback}` : "",
+  };
+  return (template && template.includes("{{") ? template : DEFAULT_PICTURE_TEMPLATE)
+    .replace(/\{\{(\w+)\}\}/g, (_m, k: string) => fill[k] ?? "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 async function imagesPhase(deps: StoryDeps, state: StoryState, limits: Limits): Promise<StepResult> {
@@ -427,7 +439,7 @@ async function imagesPhase(deps: StoryDeps, state: StoryState, limits: Limits): 
         await deps.say(`🖼️ Making picture ${n} of ${total}: ${shorten(scene.visual)}`);
         st.announced = true;
       }
-      const prompt = composeImagePrompt(plan, scene, production, st.feedback);
+      const prompt = composeImagePrompt(plan, scene, production, st.feedback, deps.prompts?.picture);
       const made = await deps.image.submit(prompt, { aspect: production.aspect });
       st.attempts += 1;
       st.handle = made.handle;

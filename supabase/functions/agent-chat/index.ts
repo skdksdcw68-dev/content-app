@@ -2150,7 +2150,10 @@ Deno.serve(async (request) => {
                 : asUser.from("brands").select("id, name, niche, audience").order("created_at", { ascending: true }).limit(1).maybeSingle());
               const brand = brandRow as { id: string; name: string; niche: string; audience: string } | null;
               const length = seconds ? `${seconds}-second ` : "";
-              speak(`Making a ${length}photo video about “${topic}”. I'll show each step, and it keeps going if you close the app.`);
+              const drawnStyle = (style.workflow as { engine?: string } | null)?.engine === "drawn";
+              speak(drawnStyle
+                ? `Making your ${style.name} video about “${topic}”. I'll show each step, and it keeps going if you close the app.`
+                : `Making a ${length}photo video about “${topic}”. I'll show each step, and it keeps going if you close the app.`);
               return await startRun("story", {
                 request: {
                   topic,
@@ -2482,6 +2485,17 @@ that fits and hand it over: one short line, not a list of questions. If they
 already said what it is about, never ask again; pick, say it in a line, go.
 Once started, the workflow runs in the background and tells them when it is
 done. You do not "think and then do" in front of them.
+What each drawn format can and cannot do (say it plainly, never promise more):
+Stickman showdown is always one contest of stick figures doing pull-ups, about
+16 to 20 seconds, no voice, no captions; only the words on the figures change.
+It cannot be 30 seconds, and it cannot be another activity or another drawing
+style yet. Glow explainer is a narrated explainer of about 45 to 90 seconds.
+If they ask for something a format cannot do, say so in one line and offer what
+it can do (or a different format); do not start it and hope.
+Copying a video: when they attach a video you only have its transcript, not
+what it looks like or sounds like. You cannot copy visuals or music from it.
+Say so BEFORE anything is made, and ask for a few screenshots of its key moments
+(or what the music feels like); never start a video that pretends to be a copy.
 When they ask how it is going, or how long: look at the "Recent work" lines in
 STATE and say what is true there -- the stage it is at, how long it has been
 going, and the usual time if STATE gives one. If STATE gives no usual time, say

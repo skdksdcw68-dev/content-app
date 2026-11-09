@@ -133,14 +133,14 @@ function line(g: SKRSContext2D, a: Pt, b: Pt, color: string) {
   g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
 }
 
-function figure(g: SKRSContext2D, p: Pose, s: number, alpha: number) {
+function figure(g: SKRSContext2D, p: Pose, s: number, alpha: number, armOut: [number, number] = [-1, 1]) {
   g.lineCap = "round"; g.lineJoin = "round"; g.lineWidth = LW;
   const white = rgb(WHITE, alpha);
   line(g, p.hip, p.kneeL, white); line(g, p.kneeL, p.footL, white);
   line(g, p.hip, p.kneeR, white); line(g, p.kneeR, p.footR, white);
   line(g, p.neck, p.hip, white);
   // Arms: the forearm reddens first, then the upper arm.
-  for (const [S, Hd, out] of [[p.shL, p.handL, -1], [p.shR, p.handR, 1]] as [Pt, Pt, number][]) {
+  for (const [S, Hd, out] of [[p.shL, p.handL, armOut[0]], [p.shR, p.handR, armOut[1]]] as [Pt, Pt, number][]) {
     const E = elbow(S, Hd, out);
     line(g, S, E, rgb(mix(WHITE, RED, clamp(s * 1.2 - 0.35)), alpha));
     line(g, E, Hd, rgb(mix(WHITE, RED, clamp(s * 1.4)), alpha));
@@ -157,6 +157,44 @@ function figure(g: SKRSContext2D, p: Pose, s: number, alpha: number) {
   g.beginPath(); g.arc(p.head.x, p.head.y, 34, 0, Math.PI * 2); g.stroke();
   g.fillStyle = white;
   for (const ex of [-11, 11]) { g.beginPath(); g.arc(p.head.x + ex, p.head.y - 3, 4.2, 0, Math.PI * 2); g.fill(); }
+}
+
+// ---- the plank contest: forearm plank on a floor line, side view, facing left.
+const PG = 1180; // the floor of the plank stage
+const PLANK_LAND = 0.32;
+
+function plankPose(f: Fig, t: number, s: number, i: number): Pose {
+  const x = f.x;
+  const sag = 64 * Math.pow(s, 1.5);
+  const trem = s > 0.3 ? (s - 0.3) * 10 : 0;
+  const jx = Math.sin(t * 47 + i * 5) * trem;
+  const jy = Math.cos(t * 61 + i * 2) * trem * 0.8;
+  const base: Pose = {
+    handL: P(x - 12, PG), handR: P(x - 12, PG),
+    shL: P(x - 104, PG - 90), shR: P(x - 96, PG - 90),
+    neck: P(x - 122, PG - 98), head: P(x - 168, PG - 116),
+    hip: P(x + 70, PG - 92 + sag),
+    kneeL: P(x + 168, PG - 52 + sag * 0.4), kneeR: P(x + 176, PG - 50 + sag * 0.4),
+    footL: P(x + 266, PG - 6), footR: P(x + 274, PG - 5),
+  };
+  for (const k of Object.keys(base) as (keyof Pose)[]) {
+    if (k === "handL" || k === "handR") continue;
+    base[k] = P(base[k].x + jx, base[k].y + jy);
+  }
+  return base;
+}
+
+function plankLie(f: Fig, t: number, i: number): Pose {
+  const x = f.x;
+  const b = Math.sin(t * 2.2 + i) * 2;
+  return {
+    handL: P(x - 110, PG - 4), handR: P(x - 100, PG - 4),
+    shL: P(x - 130, PG - 26 + b), shR: P(x - 120, PG - 26 + b),
+    neck: P(x - 150, PG - 28 + b), head: P(x - 196, PG - 36 + b),
+    hip: P(x + 60, PG - 20),
+    kneeL: P(x + 160, PG - 14), kneeR: P(x + 168, PG - 12),
+    footL: P(x + 262, PG - 8), footR: P(x + 270, PG - 6),
+  };
 }
 
 function label(g: SKRSContext2D, text: string, x: number, y: number, alpha: number, glow: number) {
@@ -207,9 +245,10 @@ function camera(keys: CamKey[], t: number): [number, number, number] {
 
 export function showdown(plan: ShowdownPlan): Showdown {
   const fps = plan.fps;
+  const plank = plan.activity === "plank";
   const losers = plan.losers.slice(0, 3);
-  const xs = losers.map((_, i) => i * SPACING);
-  const winnerX = (xs[xs.length - 1] ?? 0) + 640;
+  const xs = losers.map((_, i) => i * (plank ? 560 : SPACING));
+  const winnerX = (xs[xs.length - 1] ?? 0) + (plank ? 760 : 640);
   const figs: Fig[] = losers.map((l, i) => ({
     label: l.label, x: xs[i]!, dropS: l.dropS,
     tired: l.tiredS ?? [0.3 + i * 1.1, l.dropS], kick: Boolean(l.kick), phase: (i * 0.31) % 1,
@@ -218,7 +257,10 @@ export function showdown(plan: ShowdownPlan): Showdown {
   // there is one more, so the reveal lands on them.
   figs.push({ label: plan.winner, x: winnerX, dropS: null, tired: [2, 60], kick: false, phase: 0.18 });
   const BEAT = plan.beatS;
-  const keys = cameraKeys({ ...plan, losers }, xs, winnerX);
+  let keys = cameraKeys({ ...plan, losers }, xs, winnerX);
+  // The plank is wide and low: come in close and sit the camera on the floor so
+  // the frame is filled by the figure, not by black.
+  if (plank) keys = keys.map(([t, x, y, z]): CamKey => [t, x + 95, 1080 + (y - 1000) * 0.3, z * 1.45]);
   // Each figure's pull-up clock: a rep takes 0.5 s fresh, about 1.1 s at the end.
   const phases = figs.map((f) => f.phase);
   let lastT = -1;
@@ -226,7 +268,7 @@ export function showdown(plan: ShowdownPlan): Showdown {
   return {
     width: W,
     height: H,
-    landings: losers.map((l) => l.dropS + T_LAND),
+    landings: losers.map((l) => l.dropS + (plank ? PLANK_LAND : T_LAND)),
     draw(g, t) {
       const dt = lastT < 0 ? 0 : Math.max(0, t - lastT);
       lastT = t;
@@ -238,6 +280,31 @@ export function showdown(plan: ShowdownPlan): Showdown {
       figs.forEach((f, i) => {
         const drop = f.dropS;
         const gone = drop != null && t >= drop;
+        if (plank) {
+          g.lineCap = "round"; g.lineWidth = 6; g.strokeStyle = rgb(WHITE, 0.55);
+          g.beginPath(); g.moveTo(f.x - 250, PG + 8); g.lineTo(f.x + 330, PG + 8); g.stroke();
+          const fadeP = gone ? 1 - 0.6 * seg(t, drop!, drop! + 0.8) : 1;
+          const winnerP = drop == null;
+          const glowP = winnerP ? seg(t, BEAT - 0.05, BEAT + 0.25) : 0;
+          label(g, f.label, f.x + 40, PG - 215, fadeP, glowP);
+          let sP = Math.pow(seg(t, f.tired[0], f.tired[1]), 1.4);
+          if (winnerP) sP = 0.5 * seg(t, 2, 12) * (1 - 0.85 * seg(t, BEAT - 0.1, BEAT + 0.3));
+          if (!gone) {
+            const aura = winnerP ? seg(t, BEAT - 0.05, BEAT + 0.4) : 0;
+            if (aura > 0) { g.shadowColor = rgb(WHITE, 0.85); g.shadowBlur = 34 * aura; }
+            figure(g, plankPose(f, t, sP, i), sP, 1, [-1, -1]);
+            g.shadowBlur = 0;
+          } else {
+            const tf = t - drop!;
+            const k = ease(seg(tf, 0, PLANK_LAND));
+            const a = plankPose(f, t, 1, i);
+            const b = plankLie(f, t, i);
+            const q = {} as Pose;
+            for (const key of Object.keys(b) as (keyof Pose)[]) q[key] = lerpP(a[key], b[key], k);
+            figure(g, q, 0.9 - 0.4 * seg(tf, 1, 4), 1, [-1, -1]);
+          }
+          return;
+        }
         g.lineCap = "round"; g.lineWidth = 10; g.strokeStyle = rgb(WHITE, 1);
         g.beginPath(); g.moveTo(f.x - 112, BAR); g.lineTo(f.x + 112, BAR); g.stroke();
         const fade = gone ? 1 - 0.6 * seg(t, drop!, drop! + 0.8) : 1;

@@ -28,7 +28,11 @@ export interface ShowdownBrief {
   kicker?: number;
   /** The post's caption text. */
   caption: string;
+  /** What the figures do. Pull-ups when absent. */
+  activity?: ShowdownActivity;
 }
+
+export type ShowdownActivity = "pullup" | "plank";
 
 export interface ShowdownFigure {
   label: string;
@@ -45,6 +49,7 @@ export interface ShowdownPlan {
   winner: string;
   /** When the music drops and the winner is revealed. */
   beatS: number;
+  activity?: ShowdownActivity;
 }
 
 const word = (v: unknown, max = 14) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9 &'-]/g, "").trim().slice(0, max);
@@ -62,7 +67,7 @@ export function parseShowdownBrief(raw: unknown): Parsed<ShowdownBrief> {
   return {
     ok: true,
     issues,
-    value: { title: String(o.title ?? "Showdown").slice(0, 80), losers, winner, kicker, caption: String(o.caption ?? "").slice(0, 400) },
+    value: { title: String(o.title ?? "Showdown").slice(0, 80), losers, winner, kicker, caption: String(o.caption ?? "").slice(0, 400), activity: o.activity === "plank" ? "plank" : "pullup" },
   };
 }
 
@@ -76,12 +81,12 @@ export function planShowdown(brief: ShowdownBrief, beatS = 13.6, fps = 60): Show
     const dropS = Math.round(beatS * share * 10) / 10;
     return { label, dropS, tiredS: [Math.round((0.3 + i * 1.1) * 10) / 10, dropS], kick: brief.kicker === i };
   });
-  return { durationS: Math.round((beatS + 6.4) * 10) / 10, fps, losers, winner: brief.winner, beatS };
+  return { durationS: Math.round((beatS + 6.4) * 10) / 10, fps, losers, winner: brief.winner, beatS, activity: brief.activity ?? "pullup" };
 }
 
 export const SHOWDOWN_WRITER_PROMPT = `You write the words for a "Stickman Showdown" short video.
 
-WHAT IT IS: black screen, white stick figures hang from bars and do pull-ups. Each has one bold label. They get tired (arms turn red) and drop one by one. The music drops and the camera whips to one last figure nobody saw coming, glowing, still going. No voice, no sentences: the labels are the whole script, so the idea has to land from a few words alone.
+WHAT IT IS: black screen, white stick figures each do one exercise side by side: hang from bars doing pull-ups ("pullup"), or hold a forearm plank on the floor ("plank"). Each has one bold label. They get tired (arms turn red) and drop one by one. The music drops and the camera whips to one last figure nobody saw coming, glowing, still going. No voice, no sentences: the labels are the whole script, so the idea has to land from a few words alone.
 
 HOW TO CHOOSE THE LABELS
 - Each label is ONE upper-case word (two at most) that people recognise in themselves: MOTIVATION, EGO, TALENT, LUCK, HYPE, COMFORT, DISCIPLINE, CONSISTENCY, OBSESSION.
@@ -92,7 +97,8 @@ HOW TO CHOOSE THE LABELS
 
 Reply with JSON only:
 {"title": "...", "losers": ["MOTIVATION","EGO","DISCIPLINE"], "winner": "OBSESSION", "kicker": 1, "caption": "post text, one or two short lines, no hashtags unless asked"}
-"kicker" is the index of the loser that kicks its legs at the end (optional).`;
+"activity" is "pullup" or "plank": pull-ups for grit, effort and output; a plank hold for patience, staying put, enduring a slow stretch. VARY IT: if they ask for something different from the last video, or for another style or theme, pick the other activity and a new set of labels. Add "activity" to the JSON.
+"kicker" is the index of the loser that kicks its legs at the end (optional, pull-ups only).`;
 
 // -------------------------------------------------------------- Glow explainer
 //

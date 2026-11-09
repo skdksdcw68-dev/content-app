@@ -71,8 +71,8 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
     /// Whether anybody speaks in it. A normal format always does; a drawn one
     /// only when its workflow says narration.
     var hasVoice: Bool { !isDrawn || workflow?.voice == "narration" }
-    /// The Stickman showdown is always 20 s; the length is not the person's to set.
-    var hasFixedLength: Bool { isDrawn && workflow?.drawn == "showdown" }
+    /// Every drawn format follows the length asked for (10-30 s for the showdown).
+    var hasFixedLength: Bool { false }
 
     /// The picture for the tile, by the style's asset name or the
     /// convention `style-<slug>`, whichever exists.

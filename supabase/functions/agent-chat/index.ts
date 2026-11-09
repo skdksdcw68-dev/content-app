@@ -1853,12 +1853,12 @@ Deno.serve(async (request) => {
          * Runs after the stream has closed, so nobody waits for it.
          */
         const updateMemory = async () => {
-          if (memoryOff || !OPENAI_KEY || !asked.trim() || !said.trim()) return;
+          if (memoryOff || (!OPENAI_KEY && !OPENROUTER_KEY) || !asked.trim() || !said.trim()) return;
           const notes = await memoryAhead;
           try {
-            const ask = (model: string) => fetch("https://api.openai.com/v1/chat/completions", {
+            const ask = (model: string) => fetch(completionsFor(model, OPENAI_KEY ?? "").url, {
               method: "POST",
-              headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+              headers: { Authorization: `Bearer ${completionsFor(model, OPENAI_KEY ?? "").key}`, "Content-Type": "application/json" },
               body: JSON.stringify({
                 model,
                 response_format: { type: "json_object" },
@@ -1889,10 +1889,10 @@ Deno.serve(async (request) => {
                 ],
               }),
             });
-            let response = await ask(MODELS.quick);
+            let response = await ask(OPENROUTER_KEY ? MODELS.talk : MODELS.quick);
             if (!response.ok) {
               await response.body?.cancel().catch(() => {});
-              response = await ask(MODELS.chat);
+              response = await ask(OPENROUTER_KEY ? MODELS.think : MODELS.chat);
             }
             if (!response.ok) {
               console.warn("memory not updated", response.status);
@@ -2488,9 +2488,12 @@ done. You do not "think and then do" in front of them.
 What each drawn format can and cannot do (say it plainly, never promise more):
 Stickman showdown is one contest of stick figures doing any physical challenge
 (the writer designs a new one each time: squats, carrying a box, a wall sit,
-running, push-ups, anything that fits the idea), about 16 to 20 seconds, no
-voice, no captions; the words on the figures change. It cannot be 30 seconds,
-and it has no other drawing style (always white figures on black). Glow explainer is a narrated explainer of about 45 to 90 seconds.
+running, push-ups, anything that fits the idea), no voice, no captions; the
+words on the figures change. It follows the length they ask for, from 10 up to
+30 seconds (about 20 when they do not say), and it has no other drawing style
+(always white figures on black). Glow explainer is a narrated explainer that
+follows the length they ask for, from about 30 seconds to 2 minutes (about 70
+when they do not say).
 If they ask for something a format cannot do, say so in one line and offer what
 it can do (or a different format); do not start it and hope.
 Copying a video: when they attach a video you only have its transcript, not

@@ -43,7 +43,7 @@ interface RenderSpec {
   drawn?: {
     kind: "showdown" | "glow";
     plan: unknown;
-    music?: { path: string; startS: number; gainDb?: number };
+    music?: { path: string; startS: number; gainDb?: number; delayS?: number };
   };
 }
 
@@ -146,14 +146,14 @@ async function renderDrawn(spec: RenderSpec, work: string, out: string): Promise
   const { encodeDrawn } = await import("./draw/encode.ts");
   const drawn = spec.drawn!;
   const fps = spec.fps || 30;
-  const audio: { voice?: { path: string }; music?: { path: string; startS: number; gainDb?: number } } = {};
+  const audio: { voice?: { path: string }; music?: { path: string; startS: number; gainDb?: number; delayS?: number } } = {};
   if (spec.voice?.path) {
     await fetchInput(spec.voice.path, join(work, "voice.audio"));
     audio.voice = { path: join(work, "voice.audio") };
   }
   if (drawn.music?.path) {
     await fetchInput(drawn.music.path, join(work, "music.audio"));
-    audio.music = { path: join(work, "music.audio"), startS: drawn.music.startS, gainDb: drawn.music.gainDb };
+    audio.music = { path: join(work, "music.audio"), startS: drawn.music.startS, gainDb: drawn.music.gainDb, delayS: drawn.music.delayS };
   }
   if (drawn.kind === "showdown") {
     const { showdown } = await import("./draw/showdown.ts");

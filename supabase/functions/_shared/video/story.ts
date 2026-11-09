@@ -92,7 +92,7 @@ export interface RenderSpec {
   outputPath: string;
   /** A code-drawn video (renderer/draw): `scenes` is empty and the plan is
    *  drawn frame by frame. See drawn.ts. */
-  drawn?: { kind: "showdown" | "glow"; plan: unknown; music?: { path: string; startS: number; gainDb?: number } };
+  drawn?: { kind: "showdown" | "glow"; plan: unknown; music?: { path: string; startS: number; gainDb?: number; delayS?: number } };
 }
 
 export type ImagePoll =

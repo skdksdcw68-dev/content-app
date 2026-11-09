@@ -32,7 +32,7 @@ export interface DrawnVideo {
 
 export interface DrawnAudio {
   /** A music file, started `startS` into it. */
-  music?: { path: string; startS: number; gainDb?: number };
+  music?: { path: string; startS: number; gainDb?: number; delayS?: number };
   /** A voice-over, played from the start. */
   voice?: { path: string };
 }
@@ -56,8 +56,8 @@ export async function encodeDrawn(ffmpeg: string, video: DrawnVideo, audio: Draw
   add(["-f", "lavfi", "-i", `aevalsrc='${thud}':s=44100:d=${DUR}`], "aformat=channel_layouts=stereo,volume=0.8");
   if (audio.music) {
     add(
-      ["-ss", String(audio.music.startS), "-t", String(DUR), "-i", audio.music.path],
-      `aformat=sample_rates=44100:channel_layouts=stereo,volume=${audio.music.gainDb ?? -1}dB,afade=t=in:d=0.2,afade=t=out:st=${Math.max(0, DUR - 1.2)}:d=1.2`,
+      ["-ss", String(audio.music.startS), "-t", String(Math.max(1, DUR - (audio.music.delayS ?? 0))), "-i", audio.music.path],
+      `aformat=sample_rates=44100:channel_layouts=stereo,volume=${audio.music.gainDb ?? -1}dB,afade=t=in:d=0.2,afade=t=out:st=${Math.max(0, DUR - (audio.music.delayS ?? 0) - 1.2)}:d=1.2${audio.music.delayS ? `,adelay=${Math.round(audio.music.delayS * 1000)}:all=1` : ""}`,
     );
   }
   if (audio.voice) add(["-i", audio.voice.path], "aformat=sample_rates=44100:channel_layouts=stereo");

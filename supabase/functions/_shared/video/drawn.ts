@@ -20,7 +20,7 @@ import type { Issue, Parsed, WordTiming } from "./types.ts";
 export interface ShowdownBrief {
   /** Private title for the library. */
   title: string;
-  /** Up to 3 labels, in the order they give up. UPPER CASE, one word each. */
+  /** Up to 5 labels, in the order they give up. UPPER CASE, one word each. */
   losers: string[];
   /** The label of the one left standing. */
   winner: string;
@@ -203,7 +203,7 @@ const word = (v: unknown, max = 14) => String(v ?? "").toUpperCase().replace(/[^
 export function parseShowdownBrief(raw: unknown): Parsed<ShowdownBrief> {
   const issues: Issue[] = [];
   const o = (raw ?? {}) as Record<string, unknown>;
-  const losers = (Array.isArray(o.losers) ? o.losers : []).map((l) => word(l)).filter(Boolean).slice(0, 3);
+  const losers = (Array.isArray(o.losers) ? o.losers : []).map((l) => word(l)).filter(Boolean).slice(0, 5);
   const winner = word(o.winner);
   if (losers.length === 0) issues.push({ path: "losers", message: "needs at least one loser", level: "error" });
   if (!winner) issues.push({ path: "winner", message: "needs a winner", level: "error" });
@@ -236,7 +236,7 @@ WHAT IT IS: black screen, white stick figures each do the SAME physical challeng
 
 HOW TO CHOOSE THE LABELS
 - Each label is ONE upper-case word (two at most) that people recognise in themselves: MOTIVATION, EGO, TALENT, LUCK, HYPE, COMFORT, DISCIPLINE, CONSISTENCY, OBSESSION.
-- The LOSERS are things most people rely on that run out under pressure, in the order they quit. 1 to 3 of them.
+- The LOSERS are things most people rely on that run out under pressure, in the order they quit. 2 or 3 for a 20 second video; up to 5 when the video is longer (a 30 second one).
 - The WINNER is the quality that lasts when the others are gone. It is the message of the video. It should feel earned, not generic.
 - Fit the person: use what you know about them (niche, audience, what they post about) so the video is about THEIR topic when it makes sense. If they asked for a theme, the labels must carry it.
 - Never copy another creator's exact sequence of labels; make a fresh idea.

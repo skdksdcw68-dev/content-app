@@ -30,7 +30,7 @@ import type { Run, Tell } from "./story.ts";
 
 export type DrawnKind = "showdown" | "glow";
 
-interface Music { path: string; startS: number; gainDb?: number; beatS?: number }
+interface Music { path: string; startS: number; gainDb?: number; beatS?: number; delayS?: number }
 
 interface DrawnState {
   phase: "plan" | "voice" | "render" | "finish" | "done" | "failed";
@@ -105,7 +105,10 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
             else notes = `\n\nYour last answer was refused: ${parsed.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}. Answer again with valid JSON.`;
           }
           if (!brief) return await fail("The writer did not come back with a usable showdown. Nothing was charged.");
-          const music = await pickMusic(admin, "showdown");
+          // The length they asked for (10 to 30 s): the drop is placed so the
+          // video ends about 6.4 s after it. Nothing asked: the music decides.
+          const asked = typeof request.durationS === "number" ? Math.min(30, Math.max(10, request.durationS)) : null;
+          const music = await pickMusic(admin, "showdown", asked !== null ? Math.min(23.6, Math.max(4, asked - 6.4)) : null);
           const plan = planShowdown(brief, music?.beatS ?? 13.6);
           state = { ...state, phase: "render", title: brief.title, caption: brief.caption, plan, durationS: plan.durationS, music };
           if (!music) state.warnings.push("no music was added");
@@ -158,7 +161,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
             captionTheme: "clean",
             musicBrief: null,
             outputPath: `${run.user_id}/${run.id}/final.mp4`,
-            drawn: { kind, plan: state.plan, ...(state.music ? { music: { path: state.music.path, startS: state.music.startS, gainDb: state.music.gainDb } } : {}) },
+            drawn: { kind, plan: state.plan, ...(state.music ? { music: { path: state.music.path, startS: state.music.startS, gainDb: state.music.gainDb, delayS: state.music.delayS } } : {}) },
           };
           state = { ...state, renderJobId: await deps.queueRender(spec) };
           await persist(state);
@@ -224,7 +227,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
 /** A track from the music library for this format, or null when there is none
  *  (the video then has no music and says so). The library is `drawn_music`
  *  (migration 0106): royalty-free tracks with their drop measured in advance. */
-async function pickMusic(admin: SupabaseClient, kind: DrawnKind): Promise<Music | null> {
+async function pickMusic(admin: SupabaseClient, kind: DrawnKind, wantBeat: number | null = null): Promise<Music | null> {
   const { data } = await admin.from("drawn_music").select("path, drop_s, gain_db, start_s").eq("enabled", true).contains("formats", [kind]).limit(20);
   const rows = (data ?? []) as Array<{ path: string; drop_s: number | null; gain_db: number | null; start_s: number | null }>;
   if (rows.length === 0) return null;
@@ -233,6 +236,14 @@ async function pickMusic(admin: SupabaseClient, kind: DrawnKind): Promise<Music 
     // Start the track so its drop lands on the beat the plan uses (13.6 s);
     // a track whose drop comes earlier sets the beat instead.
     const drop = row.drop_s ?? 13.6;
+    if (wantBeat !== null) {
+      // A longer video than the track's own lead-in: start the track late, so
+      // the build-up is silence and the thuds of the figures falling, and the
+      // drop still lands on the beat.
+      return drop >= wantBeat
+        ? { path: row.path, startS: drop - wantBeat, gainDb: row.gain_db ?? -1, beatS: wantBeat }
+        : { path: row.path, startS: 0, gainDb: row.gain_db ?? -1, beatS: wantBeat, delayS: wantBeat - drop };
+    }
     const beat = Math.min(13.6, Math.max(6, drop));
     return { path: row.path, startS: Math.max(0, drop - beat), gainDb: row.gain_db ?? -1, beatS: beat };
   }

@@ -115,7 +115,7 @@ export function normalizeBrief(raw: unknown, context: BriefContext, hasPictures:
   return {
     // A drawn format is never an AI video, whatever the model wrote.
     kind: drawn ? "photo" : r.kind === "ai" ? "ai" : "photo",
-    seconds: drawn === "showdown" ? 20 : seconds,
+    seconds: drawn === "showdown" ? Math.min(30, Math.max(10, seconds ?? 20)) : seconds,
     style,
     look,
     lookName: look ? text(r.lookName, 28) ?? "Matched to your request" : null,

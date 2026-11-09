@@ -249,7 +249,7 @@ export function showdown(plan: ShowdownPlan): Showdown {
   const plank = plan.activity === "plank";
   // A contest the writer designed (any exercise or prop): drawn by contest.ts.
   const custom = plan.activity === "custom" && plan.custom ? makeContest(plan.custom) : null;
-  const losers = plan.losers.slice(0, 3);
+  const losers = plan.losers.slice(0, 5);
   const xs = losers.map((_, i) => i * (custom ? custom.width + 300 : plank ? 560 : SPACING));
   const winnerX = (xs[xs.length - 1] ?? 0) + (custom ? custom.width + 520 : plank ? 760 : 640);
   const figs: Fig[] = losers.map((l, i) => ({

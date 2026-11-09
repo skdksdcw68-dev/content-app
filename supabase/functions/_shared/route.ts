@@ -467,8 +467,19 @@ export async function route(
 
     // The second read of a make or revise writes the prompts: Sonnet thinking
     // when OpenRouter is set up, the old model otherwise.
-    let model: string = tier === "deep" ? (OPENROUTER_KEY ? MODELS.think : MODELS.smart) : MODELS.quick;
+    // 9 Nov 2026: the OpenAI account ran out of credit, and every read failed
+    // quietly into "chat": nothing Abel asked for was ever made. With OpenRouter
+    // set up the first read is Claude Haiku too, and it falls back to Sonnet
+    // before it ever falls back to OpenAI.
+    let model: string = tier === "deep"
+      ? (OPENROUTER_KEY ? MODELS.think : MODELS.smart)
+      : (OPENROUTER_KEY ? MODELS.talk : MODELS.quick);
     let response = await read(model);
+    if (!response.ok && OPENROUTER_KEY && model === MODELS.talk) {
+      console.warn("route: haiku failed", response.status);
+      model = MODELS.think;
+      response = await read(model);
+    }
     // Refused -- no credit for the newer models, as on 3 Nov 2026, when only
     // gpt-4.1-mini still answered: the old model rather than no reading at all.
     if (!response.ok && model !== MODELS.chat) {

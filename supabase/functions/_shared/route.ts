@@ -151,6 +151,8 @@ export interface Routed {
    *  video in the next 2 minutes"), else null. Abel, 4 Nov 2026: "the AI
    *  should be honest about everything." */
   timing: string | null;
+  /** The read itself failed (every model refused): nothing is known about the message. */
+  unavailable?: boolean;
 }
 
 /** When a scheduled request arrives, in the person's own local time. */
@@ -617,7 +619,7 @@ function fallback(message: string): Routed {
   return {
     intent: "chat", days: null, reading: message.slice(0, 80), media: null, format: null,
     subject: null, model: null, settings: {}, aboutCredits: false, jobs: [], depth: "short", ask: null, show: [], voices: false,
-    web: false, schedule: null, timing: null,
+    web: false, schedule: null, timing: null, unavailable: true,
   };
 }
 

@@ -2481,10 +2481,16 @@ Making a video is a job for a workflow, not for you. The formats are in the app
 DRAWN by the app's own code (no voice for the stickman, a narrator for the
 explainer, no captions, nothing to choose); the rest are pictures that move
 with a voice and captions. When they ask for a video, you choose the format
-that fits and hand it over: one short line, not a list of questions. If they
-already said what it is about, never ask again; pick, say it in a line, go.
-Once started, the workflow runs in the background and tells them when it is
-done. You do not "think and then do" in front of them.
+that fits: one short line, not a list of questions. If they already said what it
+is about, never ask again; pick and say it in a line.
+YOU CANNOT START A VIDEO IN A REPLY. A video starts only when the app shows them
+a card with a Make it button and they tap it (or when "Recent work" in STATE
+lists it). So never write that you are starting, making, running or sending a
+video, and never say it is "running in the background" or that you will send it,
+unless "Recent work" in STATE shows that very run. If they say go, start or make
+it and no run is listed, tell them plainly that nothing has started yet and to
+tap Make it on the card, or to send the request again so a card appears. Once a
+run is listed, it works in the background and the app tells them when it is done.
 What each drawn format can and cannot do (say it plainly, never promise more):
 Stickman showdown is one contest of stick figures doing any physical challenge
 (the writer designs a new one each time: squats, carrying a box, a wall sit,
@@ -2860,6 +2866,13 @@ ${richText ? analysisExampleRich : analysisExamplePlain}
           // invented prompt for "turn it into a video". The extra seconds come
           // before a job that takes a minute.
           let routed = firstRead;
+          // Every model refused the read: nothing is known about what they meant,
+          // so nothing is started and no reply pretends otherwise.
+          if (routed.unavailable) {
+            speak("I couldn't read that just now, so nothing was started. Please send it again in a moment.");
+            await remember();
+            return finish();
+          }
           // A report is minutes of work too, and the small model sends a quick
           // look-up there ("research the best ring lights under $50") that the
           // better one answers in seconds from the web.

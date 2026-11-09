@@ -75,7 +75,7 @@ function run(cmd: string, args: string[], cwd: string): Promise<string> {
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("error", fail);
-    child.on("close", (code) => (code === 0 ? done(out) : fail(new Error(`${cmd} exited ${code}: ${err.slice(-800)}`))));
+    child.on("close", (code) => (code === 0 ? done(out) : fail(new Error(`${cmd} exited ${code}: ${err.slice(-2500)}`))));
   });
 }
 
@@ -213,12 +213,14 @@ export async function render(spec: RenderSpec, work: string, out: string, fontsD
 
   // 3. Join them: a cut is a concat, a fade an xfade at the scene boundary.
   const total = Math.round(scenes.reduce((a, s) => a + Math.max(0.3, s.durationS), 0) * 100) / 100;
-  const parts: string[] = [];
-  let current = "[0:v]";
+  // Every clip on the same timebase first: newer ffmpeg (9.x) refuses an xfade
+  // between a clip (1/15360) and the joined result (1/1000000).
+  const parts: string[] = scenes.map((_, i) => `[${i}:v]settb=AVTB[t${i}]`);
+  let current = "[t0]";
   let at = 0;
   for (let i = 1; i < scenes.length; i++) {
     at += Math.max(0.3, scenes[i - 1]!.durationS);
-    const next = `[${i}:v]`;
+    const next = `[t${i}]`;
     const label = `[v${i}]`;
     parts.push(overlap[i - 1]! > 0
       ? `${current}${next}xfade=transition=fade:duration=${overlap[i - 1]}:offset=${(at).toFixed(3)}${label}`

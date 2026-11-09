@@ -97,6 +97,19 @@ async function persist(admin: SupabaseClient, run: Run, state: StoryState): Prom
   run.input = { ...run.input, story: state };
 }
 
+/** Signed links to the reference frames a style keeps in storage, if any. */
+async function styleReferences(admin: SupabaseClient, slug: string | undefined): Promise<Array<{ url: string; kind: "image" }>> {
+  if (!slug || !/^[a-z0-9_-]+$/.test(slug)) return [];
+  const { data: files } = await admin.storage.from(BUCKET).list(`refs/${slug}`, { limit: 4 });
+  const out: Array<{ url: string; kind: "image" }> = [];
+  for (const f of files ?? []) {
+    if (!/.(jpe?g|png|webp)$/i.test(f.name)) continue;
+    const { data } = await admin.storage.from(BUCKET).createSignedUrl(`refs/${slug}/${f.name}`, 3600);
+    if (data?.signedUrl) out.push({ url: data.signedUrl, kind: "image" });
+  }
+  return out;
+}
+
 export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
   const userId = run.user_id;
   const ask = async (system: string, user: string): Promise<string> => {
@@ -142,6 +155,10 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
 
     image: {
       async submit(prompt, o) {
+        // A style can carry reference frames (storage artifacts/refs/<slug>/):
+        // they go to the image model with every picture so the look holds, as
+        // the 3D stories need (5 Nov 2026: the look only matched with them).
+        const references = await styleReferences(admin, (run.input.request as { styleSlug?: string } | undefined)?.styleSlug);
         // On our money the credits are taken now, per picture, and given back
         // if the picture never arrives.
         let charge = null;
@@ -159,6 +176,7 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
             capability: "image_generation",
             prompt,
             options: { aspect_ratio: o.aspect },
+            ...(references.length > 0 ? { references } : {}),
           });
           return {
             handle: { submitted: routed.submitted, connectionId: routed.connectionId, creditRef: charge?.ref ?? null, credits: charge?.credits ?? null },

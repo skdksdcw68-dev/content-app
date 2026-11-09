@@ -3682,7 +3682,10 @@ How to answer:
           const claudeOn = OPENROUTER_KEY !== "";
           const replyModel = chosen ?? (routed.depth === "full"
             ? (claudeOn ? MODELS.think : MODELS.smart)
-            : (claudeOn ? MODELS.talk : MODEL));
+            // Abel, 9 Nov 2026: Sonnet 5.5 for every paid account's replies --
+            // it reads feelings better than the small models. A free account
+            // keeps Haiku (cost).
+            : (claudeOn ? (tierNow >= 1 ? MODELS.think : MODELS.talk) : MODEL));
           const depthNote = routed.depth === "full"
             ? "THIS MESSAGE DESERVES A FULL ANSWER: follow the analysis shape in how_you_talk, with the reasoning and the evidence from ACCOUNT and STATE."
             : "";

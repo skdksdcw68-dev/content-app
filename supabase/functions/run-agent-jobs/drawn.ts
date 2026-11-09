@@ -70,7 +70,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
   // 2026: gpt-5.6-terra kept the asked length, varied the scenes and wrote
   // about 4 cents a script; gpt-4.1 repeated scene kinds and ran short).
   const writer = async (system: string, user: string): Promise<string> => {
-    const c = await write({ effort: "medium", prefer: "openai", openaiModel: MODELS.smart, maxTokens: 12000, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
+    const c = await write({ effort: "medium", openaiModel: MODELS.smart, maxTokens: 12000, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
     await recordUsage(admin, { userId: run.user_id, brandId: run.brand_id, kind: "research", model: c.model, usage: c.usage });
     return c.choices?.[0]?.message?.content ?? "";
   };

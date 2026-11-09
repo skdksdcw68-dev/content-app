@@ -14,6 +14,9 @@ struct StoryChoice: Equatable, Sendable {
     /// What the server read from the request and any pictures sent with it
     /// (`VideoBrief.direction`): tone, pace, structure. Told to the writer.
     var direction: String? = nil
+    /// A code-drawn format: no look and no captions, and the voice only when
+    /// the format has one.
+    var drawn = false
 
     var payload: [String: Any] {
         var out: [String: Any] = ["type": "story", "topic": topic, "style": style, "seconds": seconds]
@@ -29,6 +32,11 @@ struct StoryChoice: Equatable, Sendable {
 
     /// The card's settled line: what was chosen, in the words on the card.
     var summary: String {
+        if drawn {
+            var parts = [styleName, "\(seconds) sec"]
+            if let voice, !voice.isNone { parts.append(voice.name) }
+            return parts.joined(separator: " · ")
+        }
         var parts = ["Photo video", "\(seconds) sec", styleName]
         if let look { parts.append(look.name) }
         if let voice { parts.append(voice.isNone ? "No voiceover" : voice.name) }
@@ -174,7 +182,8 @@ struct CreateVideoCard: View {
             look: look,
             voice: voice,
             caption: caption,
-            direction: brief?.direction
+            direction: brief?.direction,
+            drawn: style?.isDrawn ?? false
         )
     }
 
@@ -373,24 +382,32 @@ struct CreateVideoCard: View {
                 planBlock
             } else {
                 VStack(spacing: 0) {
-                    lengthRow
-                    rowDivider
+                    if style?.hasFixedLength != true {
+                        lengthRow
+                        rowDivider
+                    }
                     styleRow
-                    rowDivider
-                    Button { open(.look) } label: {
-                        row(title: "Look", value: look?.name ?? "Pick one", chevron: "chevron.right") { lookThumb }
+                    if style?.isDrawn != true {
+                        rowDivider
+                        Button { open(.look) } label: {
+                            row(title: "Look", value: look?.name ?? "Pick one", chevron: "chevron.right") { lookThumb }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    rowDivider
-                    Button { open(.voice) } label: {
-                        row(title: "Voice", value: voice?.name ?? "Pick one", chevron: "chevron.right") { icon("waveform") }
+                    if style?.hasVoice != false {
+                        rowDivider
+                        Button { open(.voice) } label: {
+                            row(title: "Voice", value: voice?.name ?? "Pick one", chevron: "chevron.right") { icon("waveform") }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    rowDivider
-                    Button { open(.caption) } label: {
-                        row(title: "Captions", value: caption.name, chevron: "chevron.right") { icon("captions.bubble") }
+                    if style?.isDrawn != true {
+                        rowDivider
+                        Button { open(.caption) } label: {
+                            row(title: "Captions", value: caption.name, chevron: "chevron.right") { icon("captions.bubble") }
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
                 .background {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -423,7 +440,7 @@ struct CreateVideoCard: View {
     /// behind Change.
     private var planBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Photo video", systemImage: "photo.stack")
+            Label(style?.isDrawn == true ? (style?.name ?? "Video") : "Photo video", systemImage: style?.isDrawn == true ? "pencil.and.scribble" : "photo.stack")
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(Color.primary)
             if let choice {
@@ -773,6 +790,12 @@ struct CreateVideoCard: View {
         styleSlug = slug
         if changed || look == nil || !looks.contains(where: { $0.id == look?.id }) { look = looks.first }
         let template = templates.first { $0.slug == slug }
+        // A drawn format has no captions, and no voice unless its workflow says so.
+        if template?.isDrawn == true {
+            caption = SeriesCaption.all.first(where: { $0.isNone }) ?? caption
+            if template?.hasVoice == false { voice = SeriesVoice.all.first(where: { $0.isNone }) }
+            return
+        }
         // Stories are told by the storyteller; everything else starts calm.
         let preferred = template?.category == "Stories" ? "storyteller" : "calm_male"
         if voice == nil || voice?.id == "storyteller" || voice?.id == "calm_male" {

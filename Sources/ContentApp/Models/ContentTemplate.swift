@@ -55,12 +55,24 @@ struct ContentTemplate: Identifiable, Decodable, Hashable, Sendable {
         let durationSeconds: Int?
         /// How every video gets made, the way the app explains it.
         let steps: [String]?
+        /// "drawn": the renderer draws the video itself (no pictures, no
+        /// captions). `drawn` says which kind: "showdown" or "glow".
+        let engine: String?
+        let drawn: String?
 
         private enum CodingKeys: String, CodingKey {
-            case format, structure, shots, voice, text, music, hooks, steps
+            case format, structure, shots, voice, text, music, hooks, steps, engine, drawn
             case durationSeconds = "duration_s"
         }
     }
+
+    /// A code-drawn format: no look, no captions, and no cost guess shown.
+    var isDrawn: Bool { workflow?.engine == "drawn" }
+    /// Whether anybody speaks in it. A normal format always does; a drawn one
+    /// only when its workflow says narration.
+    var hasVoice: Bool { !isDrawn || workflow?.voice == "narration" }
+    /// The Stickman showdown is always 20 s; the length is not the person's to set.
+    var hasFixedLength: Bool { isDrawn && workflow?.drawn == "showdown" }
 
     /// The picture for the tile, by the style's asset name or the
     /// convention `style-<slug>`, whichever exists.

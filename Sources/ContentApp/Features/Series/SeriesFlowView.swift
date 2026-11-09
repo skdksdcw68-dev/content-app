@@ -300,6 +300,8 @@ struct SeriesFlowView: View {
 
     /// What a video of this format costs, as a share of the month.
     private func costLine(for template: ContentTemplate) -> String? {
+        // A drawn video costs almost nothing and its price is not guessed.
+        guard !template.isDrawn else { return nil }
         let seconds = template.workflow?.durationSeconds
         guard let share = session.usageShare(usd: SeriesCost.perVideoUSD(seconds: seconds)) else { return nil }
         return "About \(UsageFormat.percent(share)) of your month"
@@ -313,8 +315,12 @@ struct SeriesFlowView: View {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         if fresh {
             look = CategoryLooks.looks(for: template.slug).first ?? SeriesLook.all.first
-            if voice == nil { voice = SeriesVoice.all.first { $0.id == "decide" } }
-            if caption == nil { caption = SeriesCaption.all.first }
+            if voice == nil || template.isDrawn {
+                voice = SeriesVoice.all.first(where: { template.hasVoice ? $0.id == "decide" : $0.isNone })
+            }
+            if caption == nil || template.isDrawn {
+                caption = template.isDrawn ? SeriesCaption.all.first(where: { $0.isNone }) : SeriesCaption.all.first
+            }
             if let seconds = template.workflow?.durationSeconds, !decideLength {
                 length = min(seconds, longestVideo)
             }
@@ -369,6 +375,7 @@ struct SeriesFlowView: View {
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
 
+                if chosen?.hasVoice != false {
                 section("Voice") {
                     VStack(spacing: 10) {
                         ForEach(SeriesVoice.all) { item in
@@ -386,6 +393,9 @@ struct SeriesFlowView: View {
                     }
                 }
 
+                }
+
+                if chosen?.hasFixedLength != true {
                 section("How long") {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                         ForEach([15, 20, 30, 45, 60, 0], id: \.self) { seconds in
@@ -394,6 +404,9 @@ struct SeriesFlowView: View {
                     }
                 }
 
+                }
+
+                if chosen?.isDrawn != true {
                 section("Captions") {
                     LazyVGrid(columns: columns, spacing: 10) {
                         ForEach(SeriesCaption.all) { item in
@@ -405,6 +418,9 @@ struct SeriesFlowView: View {
                     }
                 }
 
+                }
+
+                if chosen?.hasVoice != false {
                 section("Language") {
                     Picker("Language", selection: $language) {
                         ForEach(SeriesLanguage.all) { item in
@@ -416,6 +432,7 @@ struct SeriesFlowView: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 6)
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
                 }
             }
             .padding(.horizontal, 20)
@@ -657,9 +674,11 @@ struct SeriesFlowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("About \(UsageFormat.percent(each)) of your month a video.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                if chosen?.isDrawn != true {
+                    Text("About \(UsageFormat.percent(each)) of your month a video.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
                 if let left {
                     Text("\(UsageFormat.percent(left)) of this month left.")
                         .font(.footnote.weight(.semibold))
@@ -783,7 +802,7 @@ struct SeriesFlowView: View {
                 // read the old "video_gen" counter, which stopped moving on 29
                 // Sep when generation began to be paid for by what it costs --
                 // so it said the same number all month.
-                if chosen?.needsFilming != true, let meter = standing.first(where: { $0.kind == "credit" }) {
+                if chosen?.needsFilming != true, chosen?.isDrawn != true, let meter = standing.first(where: { $0.kind == "credit" }) {
                     let month = session.usageShare(usd: 30 * SeriesCost.perVideoUSD(seconds: nil)) ?? 0
                     Label(
                         meter.percentLeft <= 0
@@ -848,10 +867,14 @@ struct SeriesFlowView: View {
         chips.append("Daily")
         if let label = Self.goals.first(where: { $0.id == goal })?.label { chips.append(label) }
         // How it comes out, said in the words the person picked.
-        if let look { chips.append(look.name) }
-        if let voice { chips.append(voice.isNone ? "No voiceover" : voice.name) }
-        if let caption { chips.append(caption.isNone ? "No captions" : "\(caption.name) captions") }
-        if language != "english", let spoken = SeriesLanguage.all.first(where: { $0.id == language }) {
+        if chosen?.isDrawn != true {
+            if let look { chips.append(look.name) }
+            if let voice { chips.append(voice.isNone ? "No voiceover" : voice.name) }
+            if let caption { chips.append(caption.isNone ? "No captions" : "\(caption.name) captions") }
+        } else if chosen?.hasVoice == true, let voice {
+            chips.append(voice.name)
+        }
+        if chosen?.hasVoice != false, language != "english", let spoken = SeriesLanguage.all.first(where: { $0.id == language }) {
             chips.append(spoken.native)
         }
         chips.append(contentsOf: includes.compactMap { id in

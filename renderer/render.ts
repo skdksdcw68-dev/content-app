@@ -177,6 +177,18 @@ async function renderDrawn(spec: RenderSpec, work: string, out: string): Promise
   if (Math.abs(length - spec.durationS) > 1.5) qc.push({ path: "duration", message: `the video is ${length.toFixed(1)}s; the plan was ${spec.durationS}s`, level: "error" });
   if (!probe.streams?.some((s) => s.codec_type === "video")) qc.push({ path: "frame", message: "the video has no picture", level: "error" });
   if (!probe.streams?.some((s) => s.codec_type === "audio")) qc.push({ path: "audio", message: "the video has no sound track", level: "error" });
+  // Nothing may sit still: by default every second of a drawn video moves (Abel,
+  // 9 Nov 2026). Any picture frozen for more than 0.7 s is reported.
+  const frozen = await new Promise<string>((done) => {
+    const p = spawn(FFMPEG, ["-nostats", "-i", out, "-vf", "freezedetect=n=0.003:d=0.7", "-an", "-f", "null", "-"], { cwd: work });
+    let log = "";
+    p.stderr.on("data", (d: Buffer) => (log += d.toString()));
+    p.on("close", () => done(log));
+    p.on("error", () => done(""));
+  });
+  for (const m of frozen.matchAll(/freeze_start: ([\d.]+)[\s\S]*?freeze_duration: ([\d.]+)/g)) {
+    qc.push({ path: "frozen", message: `the picture is frozen from ${Number(m[1]).toFixed(1)}s for ${Number(m[2]).toFixed(1)}s`, level: "warning" });
+  }
   return qc;
 }
 

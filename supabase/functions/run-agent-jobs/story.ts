@@ -112,9 +112,18 @@ async function styleReferences(admin: SupabaseClient, slug: string | undefined):
 
 export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps {
   const userId = run.user_id;
+  // Formats whose script is the product are written by Opus 5.5: the style row
+  // says so (content_templates.workflow.writer_model).
+  let opus: boolean | null = null;
   const ask = async (system: string, user: string): Promise<string> => {
+    if (opus === null) {
+      const slug = (run.input.request as { styleSlug?: string } | undefined)?.styleSlug;
+      const { data } = slug ? await admin.from("content_templates").select("workflow").eq("slug", slug).maybeSingle() : { data: null };
+      opus = (data as { workflow?: { writer_model?: string } } | null)?.workflow?.writer_model === "opus";
+    }
     const c = await write({
       effort: "medium",
+      opus,
       openaiModel: "gpt-4.1",
       maxTokens: 12000,
       messages: [{ role: "system", content: system }, { role: "user", content: user }],

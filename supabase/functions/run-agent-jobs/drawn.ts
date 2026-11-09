@@ -66,11 +66,23 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
   const request = run.input.request as StoryRequest;
   let state = (run.input.drawn as DrawnState | undefined) ?? { phase: "plan", kind, request, renderTries: 0, warnings: [] } satisfies DrawnState;
   const deps = depsFor(admin, run, tell);
+  // What this format keeps on the server (content_templates.workflow): which
+  // model writes it, its default narrator, and the playbook the writer studies.
+  const { data: styleRow } = await admin.from("content_templates").select("workflow").eq("slug", request.styleSlug).maybeSingle();
+  const wf = ((styleRow as { workflow?: { writer_model?: string; voice_id?: string; playbook?: string } } | null)?.workflow ?? {});
+  // The narrator the owner chose for this format, unless the person picked one.
+  if (!request.voiceId && wf.voice_id) (run.input.request as StoryRequest).voiceId = wf.voice_id;
+  const withPlaybook = (prompt: string): string =>
+    !wf.playbook
+      ? prompt.replace("{{PLAYBOOK}}", "")
+      : prompt.includes("{{PLAYBOOK}}")
+      ? prompt.replace("{{PLAYBOOK}}", wf.playbook)
+      : `${prompt}\n\nPLAYBOOK (everything the best writers of this format know; follow it):\n${wf.playbook}`;
   // The script is the product, so it is written by the strong model (tested 8 Nov
   // 2026: gpt-5.6-terra kept the asked length, varied the scenes and wrote
   // about 4 cents a script; gpt-4.1 repeated scene kinds and ran short).
   const writer = async (system: string, user: string): Promise<string> => {
-    const c = await write({ effort: "medium", openaiModel: MODELS.smart, maxTokens: 12000, messages: [{ role: "system", content: system }, { role: "user", content: user }] });
+    const c = await write({ effort: "medium", opus: wf.writer_model === "opus", openaiModel: MODELS.smart, maxTokens: 12000, messages: [{ role: "system", content: withPlaybook(system) }, { role: "user", content: user }] });
     await recordUsage(admin, { userId: run.user_id, brandId: run.brand_id, kind: "research", model: c.model, usage: c.usage });
     return c.choices?.[0]?.message?.content ?? "";
   };
@@ -94,7 +106,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
       case "plan": {
         await deps.say(kind === "glow" ? "Writing the script and planning the scenes" : "Choosing the words for the showdown");
         const topic = request.topic;
-        const about = [request.brandContext ? `About the person: ${request.brandContext}` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
+        const about = [request.brandContext ? `Background about the account (context only: the video is NOT about this, nor about content creation or social media, unless the topic says so): ${request.brandContext}` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
         if (kind === "showdown") {
           let brief = null;
           let notes = "";
@@ -118,7 +130,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
           let plan: GlowPlan | null = null;
           let notes = "";
           for (let attempt = 0; attempt < 2 && !plan; attempt++) {
-            const reply = await writer(GLOW_WRITER_PROMPT, `Idea or topic: ${topic}\n${about}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
+            const reply = await writer(GLOW_WRITER_PROMPT, `Topic the person gave: ${topic}\n(If that is empty, or only names the format, choose the topic yourself from the playbook's idea bank: never the account's own niche.)\n${about}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
             const parsed = parseGlowPlan(extractJson(reply));
             if (parsed.ok) {
               plan = parsed.value;

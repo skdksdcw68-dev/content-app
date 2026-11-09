@@ -562,11 +562,22 @@ export function glowVideo(plan: GlowPlan, words: WordTiming[]): Glow {
     durationS: endS,
     draw(g, t) {
       g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.drawImage(bg, 0, 0);
-      // Drifting dust: depth that never stops moving.
-      for (let i = 0; i < 46; i++) {
-        const sp = 6 + (i % 7) * 3, x = ((i * 137.5 + t * sp) % (W + 40)) - 20, y = (i * 61.3 + Math.sin(t * 0.3 + i) * 30) % H;
-        g.fillStyle = white(0.05 + 0.1 * (0.5 + 0.5 * Math.sin(t + i)));
-        g.fillRect(x, y, 2.6, 2.6);
+      // Drifting dust: depth that never stops moving. Two layers, near and far,
+      // so the whole frame is alive even where a scene has finished drawing.
+      for (let i = 0; i < 110; i++) {
+        const near = i % 3 === 0;
+        const sp = (near ? 26 : 9) + (i % 7) * (near ? 8 : 3);
+        const x = ((i * 137.5 + t * sp) % (W + 40)) - 20, y = (i * 61.3 + Math.sin(t * (near ? 0.6 : 0.3) + i) * (near ? 46 : 30)) % H;
+        g.fillStyle = white((near ? 0.14 : 0.07) + 0.12 * (0.5 + 0.5 * Math.sin(t * 1.3 + i)));
+        const r = near ? 3.8 : 2.4;
+        g.fillRect(x, y, r, r);
+      }
+      // A soft band of light that keeps crossing the frame (about every 5 s).
+      {
+        const sx = ((t * 230) % (W + 1100)) - 550;
+        const band = g.createLinearGradient(sx - 280, 0, sx + 280, 0);
+        band.addColorStop(0, "rgba(255,255,255,0)"); band.addColorStop(0.5, "rgba(255,255,255,0.045)"); band.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = band; g.fillRect(0, 0, W, H);
       }
       beats.forEach((b, i) => {
         const last = i === beats.length - 1;
@@ -576,8 +587,10 @@ export function glowVideo(plan: GlowPlan, words: WordTiming[]): Glow {
         const len = Math.max(0.5, b.end - b.start), lt = t - b.start, p = clamp(lt / len);
         // A scene settles in from slightly closer, drifts on, and eases out:
         // there is never a still frame.
-        const z = lerp(1.07, 1, outC(seg(t, b.start, b.start + 0.7))) * (1 + 0.035 * p) * (1 - 0.05 * fout);
-        g.save(); g.globalAlpha = a; g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        const z = lerp(1.07, 1, outC(seg(t, b.start, b.start + 0.7))) * (1 + 0.07 * p) * (1 - 0.05 * fout);
+        // The camera also wanders a little, so even a held scene is never a still picture.
+        const panX = Math.sin(t * 0.42 + i * 1.7) * 22, panY = Math.cos(t * 0.31 + i) * 12;
+        g.save(); g.globalAlpha = a; g.translate(W / 2 + panX, H / 2 + panY); g.scale(z, z); g.translate(-W / 2, -H / 2);
         const ctx: Ctx = {
           g, t, p, lt, len, sc: b.sc,
           label(k, x, y) {

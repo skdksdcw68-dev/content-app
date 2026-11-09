@@ -1497,7 +1497,7 @@ Deno.serve(async (request) => {
          *  question). */
         const beginStory = async (a: {
           topic: string; slug: string; seconds?: number; voiceId?: string; captionStyle?: string;
-          look?: string; direction?: string; narration?: boolean;
+          look?: string; direction?: string; narration?: boolean; voiceNamed?: boolean;
         }) => {
           const topic = a.topic.replace(/\s+/g, " ").trim().slice(0, 400);
           const slug = a.slug.toLowerCase().replace(/[^a-z0-9-]/g, "");
@@ -1516,7 +1516,11 @@ Deno.serve(async (request) => {
             return finish();
           }
           const seconds = typeof a.seconds === "number" ? Math.min(120, Math.max(10, Math.round(a.seconds))) : undefined;
-          const voiceId = typeof a.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(a.voiceId) ? a.voiceId : undefined;
+          // A drawn format has its own narrator, chosen by the owner and kept on the
+          // server; the planner's generic voice never replaces it. Only a voice the
+          // person asked for by name (voiceNamed) does.
+          const isDrawn = (style.workflow as { engine?: string } | null)?.engine === "drawn";
+          const voiceId = typeof a.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(a.voiceId) && (!isDrawn || a.voiceNamed) ? a.voiceId : undefined;
           const captionStyle = typeof a.captionStyle === "string" &&
               ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"].includes(a.captionStyle)
             ? a.captionStyle
@@ -2182,6 +2186,7 @@ Deno.serve(async (request) => {
                 look: typeof action.look === "string" ? action.look : undefined,
                 direction: typeof action.direction === "string" ? action.direction : undefined,
                 narration: action.narration === false ? false : undefined,
+                voiceNamed: true, // a voice picked on the card is the person's own choice
               });
             }
           }

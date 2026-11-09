@@ -22,6 +22,9 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.131.0";
 
 /** The model for writing about posts. One place to change it. */
 export const CLAUDE_WRITER = Deno.env.get("CLAUDE_MODEL") ?? "claude-sonnet-5-5";
+/** The strongest writer, for the formats whose script is the whole product. */
+export const CLAUDE_OPUS = Deno.env.get("OPUS_WRITER_MODEL") ?? "claude-opus-5-5";
+const OPENROUTER_OPUS = Deno.env.get("OPUS_MODEL") ?? "anthropic/claude-opus-5.5";
 
 /** Claude through OpenRouter, tried first when its key is set. */
 const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY") ?? "";
@@ -60,6 +63,9 @@ export interface WriterRequest {
    *  captions and Home's ideas are ChatGPT's -- "its smarter for this" -- so
    *  those two say `openai` and never touch Claude. */
   prefer?: "claude" | "openai";
+  /** Claude Opus 5.5 instead of Sonnet (Abel, 9 Nov 2026: motivational and
+   *  stickman scripts are written by the best model). */
+  opus?: boolean;
   maxTokens?: number;
 }
 
@@ -158,7 +164,7 @@ export async function write(request: WriterRequest): Promise<Completion> {
     try {
       const { system, messages } = toClaude(request);
       const message = await anthropic.messages.create({
-        model: CLAUDE_WRITER,
+        model: request.opus ? CLAUDE_OPUS : CLAUDE_WRITER,
         max_tokens: request.maxTokens ?? 16000,
         system,
         messages,
@@ -248,7 +254,7 @@ function openRouter(request: WriterRequest): Target | null {
   return {
     url: "https://openrouter.ai/api/v1/chat/completions",
     key: OPENROUTER_KEY,
-    model: OPENROUTER_WRITER,
+    model: request.opus ? OPENROUTER_OPUS : OPENROUTER_WRITER,
     extra: { reasoning: { effort: request.effort ?? "low" }, max_tokens: request.maxTokens ?? 16000 },
   };
 }

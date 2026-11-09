@@ -10,6 +10,7 @@
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
+import { drawFigure, makeContest } from "./contest.ts";
 import type { ShowdownPlan } from "../../supabase/functions/_shared/video/drawn.ts";
 export type { ShowdownPlan };
 
@@ -246,9 +247,11 @@ function camera(keys: CamKey[], t: number): [number, number, number] {
 export function showdown(plan: ShowdownPlan): Showdown {
   const fps = plan.fps;
   const plank = plan.activity === "plank";
+  // A contest the writer designed (any exercise or prop): drawn by contest.ts.
+  const custom = plan.activity === "custom" && plan.custom ? makeContest(plan.custom) : null;
   const losers = plan.losers.slice(0, 3);
-  const xs = losers.map((_, i) => i * (plank ? 560 : SPACING));
-  const winnerX = (xs[xs.length - 1] ?? 0) + (plank ? 760 : 640);
+  const xs = losers.map((_, i) => i * (custom ? custom.width + 300 : plank ? 560 : SPACING));
+  const winnerX = (xs[xs.length - 1] ?? 0) + (custom ? custom.width + 520 : plank ? 760 : 640);
   const figs: Fig[] = losers.map((l, i) => ({
     label: l.label, x: xs[i]!, dropS: l.dropS,
     tired: l.tiredS ?? [0.3 + i * 1.1, l.dropS], kick: Boolean(l.kick), phase: (i * 0.31) % 1,
@@ -260,7 +263,13 @@ export function showdown(plan: ShowdownPlan): Showdown {
   let keys = cameraKeys({ ...plan, losers }, xs, winnerX);
   // The plank is wide and low: come in close and sit the camera on the floor so
   // the frame is filled by the figure, not by black.
-  if (plank) keys = keys.map(([t, x, y, z]): CamKey => [t, x + 95, 1080 + (y - 1000) * 0.3, z * 1.45]);
+  if (custom) {
+    // Frame the routine: as wide as it is, as tall as it is, centred on the figure.
+    const zc = clamp(Math.min(940 / (custom.width + 200), 1500 / (custom.height + 280)), 0.8, 2.1);
+    const cy = PG - (custom.height + 110) / 2;
+    const cxo = (custom.minX + custom.maxX) / 2;
+    keys = keys.map(([t, x, y, z]): CamKey => [t, x + cxo, cy + (y - 1000) * 0.15, zc * (z / 1.26)]);
+  } else if (plank) keys = keys.map(([t, x, y, z]): CamKey => [t, x + 95, 1080 + (y - 1000) * 0.3, z * 1.45]);
   // Each figure's pull-up clock: a rep takes 0.5 s fresh, about 1.1 s at the end.
   const phases = figs.map((f) => f.phase);
   let lastT = -1;
@@ -268,7 +277,7 @@ export function showdown(plan: ShowdownPlan): Showdown {
   return {
     width: W,
     height: H,
-    landings: losers.map((l) => l.dropS + (plank ? PLANK_LAND : T_LAND)),
+    landings: losers.map((l) => l.dropS + (custom ? custom.landS : plank ? PLANK_LAND : T_LAND)),
     draw(g, t) {
       const dt = lastT < 0 ? 0 : Math.max(0, t - lastT);
       lastT = t;
@@ -280,6 +289,32 @@ export function showdown(plan: ShowdownPlan): Showdown {
       figs.forEach((f, i) => {
         const drop = f.dropS;
         const gone = drop != null && t >= drop;
+        if (custom) {
+          const cxo = (custom.minX + custom.maxX) / 2;
+          g.lineCap = "round"; g.lineWidth = 6; g.strokeStyle = rgb(WHITE, 0.55);
+          g.beginPath(); g.moveTo(f.x + custom.minX - 70, PG + 8); g.lineTo(f.x + custom.maxX + 70, PG + 8); g.stroke();
+          const fadeC = gone ? 1 - 0.6 * seg(t, drop!, drop! + 0.8) : 1;
+          const winnerC = drop == null;
+          const glowC = winnerC ? seg(t, BEAT - 0.05, BEAT + 0.25) : 0;
+          label(g, f.label, f.x + cxo, PG - custom.height - 70, fadeC, glowC);
+          let sC = Math.pow(seg(t, f.tired[0], f.tired[1]), 1.4);
+          if (winnerC) sC = 0.5 * seg(t, 2, 12) * (1 - 0.85 * seg(t, BEAT - 0.1, BEAT + 0.3));
+          if (!gone) {
+            const aura = winnerC ? seg(t, BEAT - 0.05, BEAT + 0.4) : 0;
+            const j = custom.going(f.x, PG, t, sC, i, winnerC && t >= BEAT);
+            custom.props(g, j, f.x, PG, 1, null, null);
+            if (aura > 0) { g.shadowColor = rgb(WHITE, 0.85); g.shadowBlur = 34 * aura; }
+            drawFigure(g, j, sC, 1);
+            g.shadowBlur = 0;
+          } else {
+            const tf = t - drop!;
+            const j = custom.out(f.x, PG, t, tf, i);
+            const dj = custom.going(f.x, PG, drop!, 1, i, false);
+            custom.props(g, j, f.x, PG, fadeC, tf, dj);
+            drawFigure(g, j, 0.9 - 0.4 * seg(tf, 1, 4), 1);
+          }
+          return;
+        }
         if (plank) {
           g.lineCap = "round"; g.lineWidth = 6; g.strokeStyle = rgb(WHITE, 0.55);
           g.beginPath(); g.moveTo(f.x - 250, PG + 8); g.lineTo(f.x + 330, PG + 8); g.stroke();

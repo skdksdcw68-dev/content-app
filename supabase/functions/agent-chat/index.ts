@@ -2486,10 +2486,11 @@ already said what it is about, never ask again; pick, say it in a line, go.
 Once started, the workflow runs in the background and tells them when it is
 done. You do not "think and then do" in front of them.
 What each drawn format can and cannot do (say it plainly, never promise more):
-Stickman showdown is one contest of stick figures, either pull-ups or a plank
-hold (it picks the one that fits the idea), about 16 to 20 seconds, no voice,
-no captions; the words on the figures change. It cannot be 30 seconds, and it
-has no other activities or drawing styles yet. Glow explainer is a narrated explainer of about 45 to 90 seconds.
+Stickman showdown is one contest of stick figures doing any physical challenge
+(the writer designs a new one each time: squats, carrying a box, a wall sit,
+running, push-ups, anything that fits the idea), about 16 to 20 seconds, no
+voice, no captions; the words on the figures change. It cannot be 30 seconds,
+and it has no other drawing style (always white figures on black). Glow explainer is a narrated explainer of about 45 to 90 seconds.
 If they ask for something a format cannot do, say so in one line and offer what
 it can do (or a different format); do not start it and hope.
 Copying a video: when they attach a video you only have its transcript, not

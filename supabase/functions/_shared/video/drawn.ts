@@ -30,9 +30,147 @@ export interface ShowdownBrief {
   caption: string;
   /** What the figures do. Pull-ups when absent. */
   activity?: ShowdownActivity;
+  /** The contest the model designed, when activity is "custom". */
+  custom?: ContestSpec;
 }
 
-export type ShowdownActivity = "pullup" | "plank";
+export type ShowdownActivity = "pullup" | "plank" | "custom";
+
+// ---- A contest the model designs itself (renderer/draw/contest.ts draws it).
+// Side view, the figure faces right. x forward, y UP from the floor, pixels.
+// Limb angles in degrees from straight down (+ = toward the front); torso from
+// straight up (+ = leaning forward); elbow/knee angles are relative.
+export type Angles = [number, number];
+export interface ContestPose {
+  hip?: [number, number];
+  torso?: number;
+  head?: number;
+  armL?: Angles;
+  armR?: Angles;
+  legL?: Angles;
+  legR?: Angles;
+  /** Points on the floor (or a prop) the hands and feet are fixed to, in the
+   *  same x/y as hip. A pinned limb ignores its angles: the elbow or knee bends
+   *  by itself to reach the point. Use it for anything planted: push-ups,
+   *  planks, sit-ups, hanging from a bar. */
+  pin?: Partial<Record<"handL" | "handR" | "footL" | "footR", [number, number]>>;
+  /** Which way the elbows and knees point when pinned: [arms, legs], each 1
+   *  (forward) or -1 (backward). Default [-1, 1]. */
+  bend?: [number, number];
+}
+export type PropAnchor = "floor" | "hip" | "neck" | "head" | "shoulder" | "handL" | "handR" | "footL" | "footR" | "kneeL" | "kneeR";
+export interface ContestProp {
+  shape: "line" | "rect" | "circle";
+  a?: [number, number];
+  b?: [number, number];
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  r?: number;
+  fill?: boolean;
+  /** Line thickness. */
+  w2?: number;
+  attach?: PropAnchor;
+  /** When the figure gives up, this prop falls to the floor. */
+  failDrop?: boolean;
+}
+export interface ContestSpec {
+  name: string;
+  poses: Record<string, ContestPose>;
+  /** Pose names in the order the figure loops through them; one name = a hold. */
+  cycle?: string[];
+  /** The pose a tired figure sags toward. */
+  tired?: string;
+  /** Seconds per repetition when fresh. */
+  repS?: number;
+  /** The pose after giving up, usually lying or sitting. */
+  fail: { pose: ContestPose };
+  props?: ContestProp[];
+  /** Keep the lowest point on the floor (default true). False for jumps. */
+  snap?: boolean;
+}
+
+const ANCHORS: PropAnchor[] = ["floor", "hip", "neck", "head", "shoulder", "handL", "handR", "footL", "footR", "kneeL", "kneeR"];
+const n = (v: unknown, lo: number, hi: number): number | undefined => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : undefined);
+const pair = (v: unknown, lo: number, hi: number): [number, number] | undefined => {
+  if (!Array.isArray(v) || v.length < 2) return undefined;
+  const a = n(v[0], lo, hi), b = n(v[1], lo, hi);
+  return a === undefined || b === undefined ? undefined : [a, b];
+};
+
+function cleanPose(raw: unknown): ContestPose | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const pose: ContestPose = {};
+  const hip = pair(o.hip, -600, 700);
+  if (hip) pose.hip = [Math.min(600, hip[0]), Math.max(0, hip[1])];
+  const torso = n(o.torso, -220, 220); if (torso !== undefined) pose.torso = torso;
+  const head = n(o.head, -90, 90); if (head !== undefined) pose.head = head;
+  const arm = pair(o.arm, -220, 220), armL = pair(o.armL, -220, 220), armR = pair(o.armR, -220, 220);
+  if (armL ?? arm) pose.armL = (armL ?? arm)!;
+  if (armR ?? arm) pose.armR = (armR ?? arm)!;
+  const leg = pair(o.leg, -220, 220), legL = pair(o.legL, -220, 220), legR = pair(o.legR, -220, 220);
+  if (legL ?? leg) pose.legL = (legL ?? leg)!;
+  if (legR ?? leg) pose.legR = (legR ?? leg)!;
+  if (o.pin && typeof o.pin === "object") {
+    const pin: NonNullable<ContestPose["pin"]> = {};
+    for (const k of ["handL", "handR", "footL", "footR"] as const) {
+      const v = pair((o.pin as Record<string, unknown>)[k], -700, 700);
+      if (v) pin[k] = [v[0], Math.max(-60, Math.min(700, v[1]))];
+    }
+    if (Object.keys(pin).length > 0) pose.pin = pin;
+  }
+  const bend = pair(o.bend, -1, 1);
+  if (bend) pose.bend = [bend[0] < 0 ? -1 : 1, bend[1] < 0 ? -1 : 1];
+  return pose;
+}
+
+/** A contest from whatever the model wrote, or null when it cannot be drawn
+ *  (the caller then falls back to pull-ups). Everything is clamped, counted and
+ *  checked so a bad answer can never crash a render. */
+export function parseContest(raw: unknown): ContestSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (!o.poses || typeof o.poses !== "object") return null;
+  const poses: Record<string, ContestPose> = {};
+  for (const [name, value] of Object.entries(o.poses as Record<string, unknown>).slice(0, 6)) {
+    if (!/^[a-z0-9_]{1,16}$/i.test(name)) continue;
+    const pose = cleanPose(value);
+    if (pose) poses[name] = pose;
+  }
+  const names = Object.keys(poses);
+  if (names.length === 0) return null;
+  const cycle = Array.isArray(o.cycle) ? o.cycle.map(String).filter((c) => names.includes(c)).slice(0, 6) : [];
+  const fail = cleanPose((o.fail as { pose?: unknown } | undefined)?.pose ?? o.fail) ?? { hip: [0, 24], torso: 88, legL: [88, 0], legR: [88, 0], armL: [150, 0], armR: [150, 0] };
+  const props: ContestProp[] = [];
+  for (const raw of (Array.isArray(o.props) ? o.props : []).slice(0, 8)) {
+    if (!raw || typeof raw !== "object") continue;
+    const q = raw as Record<string, unknown>;
+    const attach = ANCHORS.includes(q.attach as PropAnchor) ? (q.attach as PropAnchor) : "floor";
+    const base = { attach, failDrop: q.failDrop === true, fill: q.fill === true, w2: n(q.w2, 2, 20) };
+    if (q.shape === "line") {
+      const a = pair(q.a, -700, 700), b = pair(q.b, -700, 700);
+      if (a && b) props.push({ shape: "line", a, b, ...base });
+    } else if (q.shape === "circle") {
+      const x = n(q.x, -700, 700), y = n(q.y, -300, 900), r = n(q.r, 4, 300);
+      if (x !== undefined && y !== undefined && r !== undefined) props.push({ shape: "circle", x, y, r, ...base });
+    } else if (q.shape === "rect") {
+      const x = n(q.x, -700, 700), y = n(q.y, -300, 900), w = n(q.w, 4, 900), h = n(q.h, 4, 900);
+      if (x !== undefined && y !== undefined && w !== undefined && h !== undefined) props.push({ shape: "rect", x, y, w, h, ...base });
+    }
+  }
+  return {
+    name: String(o.name ?? "contest").slice(0, 40),
+    poses,
+    cycle,
+    tired: typeof o.tired === "string" && names.includes(o.tired) ? o.tired : undefined,
+    repS: n(o.repS, 0.6, 4),
+    fail: { pose: fail },
+    props,
+    snap: o.snap === false ? false : true,
+  };
+}
 
 export interface ShowdownFigure {
   label: string;
@@ -50,6 +188,14 @@ export interface ShowdownPlan {
   /** When the music drops and the winner is revealed. */
   beatS: number;
   activity?: ShowdownActivity;
+  custom?: ContestSpec;
+}
+
+/** A designed contest from the brief, if there is a usable one. */
+function customOf(o: Record<string, unknown>): { activity?: ShowdownActivity; custom?: ContestSpec } {
+  if (o.activity !== "custom") return {};
+  const custom = parseContest(o.custom);
+  return custom ? { activity: "custom", custom } : { activity: "pullup" };
 }
 
 const word = (v: unknown, max = 14) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9 &'-]/g, "").trim().slice(0, max);
@@ -67,7 +213,7 @@ export function parseShowdownBrief(raw: unknown): Parsed<ShowdownBrief> {
   return {
     ok: true,
     issues,
-    value: { title: String(o.title ?? "Showdown").slice(0, 80), losers, winner, kicker, caption: String(o.caption ?? "").slice(0, 400), activity: o.activity === "plank" ? "plank" : "pullup" },
+    value: { title: String(o.title ?? "Showdown").slice(0, 80), losers, winner, kicker, caption: String(o.caption ?? "").slice(0, 400), activity: o.activity === "plank" ? "plank" : "pullup" as ShowdownActivity, ...customOf(o) },
   };
 }
 
@@ -81,12 +227,12 @@ export function planShowdown(brief: ShowdownBrief, beatS = 13.6, fps = 60): Show
     const dropS = Math.round(beatS * share * 10) / 10;
     return { label, dropS, tiredS: [Math.round((0.3 + i * 1.1) * 10) / 10, dropS], kick: brief.kicker === i };
   });
-  return { durationS: Math.round((beatS + 6.4) * 10) / 10, fps, losers, winner: brief.winner, beatS, activity: brief.activity ?? "pullup" };
+  return { durationS: Math.round((beatS + 6.4) * 10) / 10, fps, losers, winner: brief.winner, beatS, activity: brief.activity ?? "pullup", ...(brief.custom ? { custom: brief.custom } : {}) };
 }
 
 export const SHOWDOWN_WRITER_PROMPT = `You write the words for a "Stickman Showdown" short video.
 
-WHAT IT IS: black screen, white stick figures each do one exercise side by side: hang from bars doing pull-ups ("pullup"), or hold a forearm plank on the floor ("plank"). Each has one bold label. They get tired (arms turn red) and drop one by one. The music drops and the camera whips to one last figure nobody saw coming, glowing, still going. No voice, no sentences: the labels are the whole script, so the idea has to land from a few words alone.
+WHAT IT IS: black screen, white stick figures each do the SAME physical challenge side by side. Each has one bold label. They get tired (arms turn red) and drop one by one. The music drops and the camera whips to one last figure nobody saw coming, glowing, still going. No voice, no sentences: the labels are the whole script, so the idea has to land from a few words alone.
 
 HOW TO CHOOSE THE LABELS
 - Each label is ONE upper-case word (two at most) that people recognise in themselves: MOTIVATION, EGO, TALENT, LUCK, HYPE, COMFORT, DISCIPLINE, CONSISTENCY, OBSESSION.
@@ -97,7 +243,19 @@ HOW TO CHOOSE THE LABELS
 
 Reply with JSON only:
 {"title": "...", "losers": ["MOTIVATION","EGO","DISCIPLINE"], "winner": "OBSESSION", "kicker": 1, "caption": "post text, one or two short lines, no hashtags unless asked"}
-"activity" is "pullup" or "plank": pull-ups for grit, effort and output; a plank hold for patience, staying put, enduring a slow stretch. VARY IT: if they ask for something different from the last video, or for another style or theme, pick the other activity and a new set of labels. Add "activity" to the JSON.
+THE CHALLENGE ("activity"). It is unlimited: pick, or INVENT, whatever physical challenge best carries the idea, and DESIGN it yourself. Use "custom" and describe it as poses (below). Any exercise, sport, chore or struggle works: squats with a barbell, push-ups, sit-ups, running on a treadmill, carrying a heavy box, pushing a car, a wall sit, jumping rope, a handstand, holding a heavy bucket out to the side, climbing a ladder. Match it to the meaning (a long hold for patience, a heavy lift for pressure, running for chasing, carrying for burdens). EVERY video should use a different challenge from the last one you made: if they ask for something different, new, another style, or "not that again", invent a new one. Only fall back to "pullup" or "plank" (which need no design) when nothing else fits.
+
+HOW TO DESIGN A "custom" CHALLENGE. Add "activity":"custom" and a "custom" object. The figure is seen from the SIDE, facing RIGHT. All numbers are pixels or degrees. x is forward (right), y is UP from the floor.
+- "poses": 2 to 4 named poses (names: lower-case letters, digits or _). Each pose: "hip":[x,y] (the hip's position; y = its height above the floor: standing straight is about 200), "torso":degrees from straight up (+ = leaning forward), "head":degrees relative to the torso, "arm":[a,b] and "leg":[a,b] (or "armL"/"armR"/"legL"/"legR" to make them differ). For a limb [a,b]: a = angle of the upper segment measured from straight DOWN (0 = hanging, 90 = pointing straight forward, 180 = straight up, -90 = straight back); b = how much the lower segment bends relative to the upper one (arm: + folds the forearm forward and up; leg: a NEGATIVE knee bends the shin back, e.g. [80,-85] is a seated squat thigh). Segments are about 88 px (arms) and 100 px (legs); the torso is 118 px.
+- PLANTING: to fix hands or feet on the floor (push-ups, planks, sit-ups, anything where they must not slide) add "pin":{"handL":[x,0],"handR":[x,0],"footL":[x,0],"footR":[x,0]}. A pinned limb ignores its angles and bends by itself to reach the point ("bend":[arms,legs], each 1 forward or -1 backward, default [-1,1]). Unpinned figures are put on the floor automatically; set "snap":false only for jumps.
+- "cycle": the poses in the order the figure loops through them (a single name = a held position, such as a wall sit or a plank). "repS": seconds per repetition when fresh (running 0.9, a squat 2). "tired": the pose it sags toward as it gets tired (the lowest, hardest or most collapsed one).
+- "fail": {"pose": ...} what it looks like after giving up (usually lying down or sitting). Lying on the back: hip [0,24], torso -88, leg [88,0], arm [-100,0].
+- "props": up to 8 things it uses, in the same x/y, each {"shape":"line"|"rect"|"circle", ...}. line: "a":[x,y],"b":[x,y]. rect: "x","y" (centre),"w","h". circle: "x","y","r". Optional "fill":true, "w2":line thickness, "attach": "floor" (default) or "neck","hip","head","handL","handR","footL","footR" (the prop then moves with that part, coordinates relative to it), and "failDrop":true so it falls to the floor when the figure gives up. Draw the floor details a challenge needs (a treadmill belt, a ramp, a box, a wall, a ladder).
+Make the motion read at a glance: big, clear differences between the poses of the cycle. Three worked examples, to copy the conventions from (design your own, do not reuse them unless they truly fit):
+barbell squat: {"name":"barbell squat","poses":{"up":{"hip":[0,200],"torso":0,"head":0,"arm":[40,120],"leg":[0,0]},"down":{"hip":[-70,118],"torso":35,"head":-10,"arm":[40,120],"leg":[80,-85]}},"cycle":["up","down"],"tired":"down","repS":2,"fail":{"pose":{"hip":[0,24],"torso":-88,"head":0,"arm":[-100,0],"leg":[88,0]}},"props":[{"shape":"circle","x":0,"y":8,"r":42,"attach":"neck","failDrop":true,"w2":10}]}
+push-up: {"name":"push-up","poses":{"up":{"hip":[0,115],"torso":55,"head":-10,"pin":{"handL":[90,0],"handR":[90,0],"footL":[-164,0],"footR":[-164,0]}},"down":{"hip":[32,42],"torso":78,"head":-10,"pin":{"handL":[90,0],"handR":[90,0],"footL":[-164,0],"footR":[-164,0]}}},"cycle":["up","down"],"tired":"down","repS":1.6,"fail":{"pose":{"hip":[0,22],"torso":88,"head":0,"arm":[120,0],"leg":[-88,0]}}}
+treadmill run: {"name":"treadmill run","poses":{"a":{"hip":[0,185],"torso":14,"armL":[-50,70],"armR":[60,80],"legL":[55,-20],"legR":[-35,-90]},"mid":{"hip":[0,196],"torso":14,"arm":[10,80],"leg":[0,-60]},"c":{"hip":[0,185],"torso":14,"armL":[60,80],"armR":[-50,70],"legL":[-35,-90],"legR":[55,-20]},"slog":{"hip":[0,168],"torso":26,"arm":[20,50],"leg":[25,-35]}},"cycle":["a","mid","c","mid"],"tired":"slog","repS":0.9,"snap":true,"fail":{"pose":{"hip":[0,22],"torso":-88,"arm":[-100,0],"leg":[88,0]}},"props":[{"shape":"line","a":[-260,-4],"b":[260,-4],"w2":14}]}
+Return the JSON as {..., "activity":"custom","custom":{...}}.
 "kicker" is the index of the loser that kicks its legs at the end (optional, pull-ups only).`;
 
 // -------------------------------------------------------------- Glow explainer

@@ -529,7 +529,7 @@ interface Timed { s: number; e: number }
 interface Beat { start: number; end: number; sc: GlowScene; labels: Timed[]; num?: { on: Timed; until: Timed } }
 
 export function glowVideo(plan: GlowPlan, words: WordTiming[]): Glow {
-  const endS = words[words.length - 1]!.endS + 1.6;
+  const endS = words[words.length - 1]!.endS + 3.0;
   const starts = sceneStarts(plan);
   const beats: Beat[] = plan.scenes.map((sc, si) => {
     let cursor = starts[si]!;

@@ -70,15 +70,25 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
   // What this format keeps on the server (content_templates.workflow): which
   // model writes it, its default narrator, and the playbook the writer studies.
   const { data: styleRow } = await admin.from("content_templates").select("workflow").eq("slug", request.styleSlug).maybeSingle();
-  const wf = ((styleRow as { workflow?: { writer_model?: string; voice_id?: string; playbook?: string } } | null)?.workflow ?? {});
+  const wf = ((styleRow as { workflow?: { writer_model?: string; voice_id?: string; playbook?: string; ideas?: Array<Record<string, unknown>> } } | null)?.workflow ?? {});
+  // A fresh handful of ideas from the format's idea bank each time, so two
+  // videos never start from the same claim.
+  const ideaBank = (Array.isArray(wf.ideas) ? [...wf.ideas] : []).sort(() => Math.random() - 0.5).slice(0, 12).map((i) =>
+    typeof i.claim === "string"
+      ? `- ${i.claim} (${String(i.world ?? "")}): ${String(i.mechanism ?? "")}`
+      : `- ${String(i.theme ?? "")}: challenge ${String(i.challenge ?? "")}; losers ${(Array.isArray(i.losers) ? i.losers : []).join(", ")}; winner ${String(i.winner ?? "")}`
+  ).join("\n");
+  const playbookText = wf.playbook
+    ? (ideaBank ? `${wf.playbook}\n\nIDEA BANK (a fresh handful; use one when no topic is given)\n${ideaBank}` : wf.playbook)
+    : "";
   // The narrator the owner chose for this format, unless the person picked one.
   if (!request.voiceId && wf.voice_id) (run.input.request as StoryRequest).voiceId = wf.voice_id;
   const withPlaybook = (prompt: string): string =>
     !wf.playbook
       ? prompt.replace("{{PLAYBOOK}}", "")
       : prompt.includes("{{PLAYBOOK}}")
-      ? prompt.replace("{{PLAYBOOK}}", wf.playbook)
-      : `${prompt}\n\nPLAYBOOK (everything the best writers of this format know; follow it):\n${wf.playbook}`;
+      ? prompt.replace("{{PLAYBOOK}}", playbookText)
+      : `${prompt}\n\nPLAYBOOK (everything the best writers of this format know; follow it):\n${playbookText}`;
   // The script is the product, so it is written by the strong model (tested 8 Nov
   // 2026: gpt-5.6-terra kept the asked length, varied the scenes and wrote
   // about 4 cents a script; gpt-4.1 repeated scene kinds and ran short).
@@ -107,12 +117,20 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
       case "plan": {
         await deps.say(kind === "glow" ? "Writing the script and planning the scenes" : "Choosing the words for the showdown");
         const topic = request.topic;
-        const about = [request.brandContext ? `Background about the account (context only: the video is NOT about this, nor about content creation or social media, unless the topic says so): ${request.brandContext}` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
+        // The last few videos of this format by this person, so the next is new.
+        const { data: recentRuns } = await admin.from("agent_runs").select("input").eq("user_id", run.user_id).eq("kind", "story").eq("status", "succeeded")
+          .eq("input->request->>styleSlug", request.styleSlug).order("created_at", { ascending: false }).limit(5);
+        const recentLines = ((recentRuns ?? []) as Array<{ input: { drawn?: { title?: string; plan?: { winner?: string; custom?: { name?: string }; losers?: Array<{ label?: string }> } } } }>)
+          .map((r) => r.input?.drawn)
+          .filter((d) => d?.title)
+          .map((d) => `- ${d!.title}${d!.plan?.custom?.name ? ` (challenge: ${d!.plan.custom.name}; labels: ${(d!.plan.losers ?? []).map((l) => l.label).join(", ")} -> ${d!.plan.winner})` : ""}`);
+        const recent = recentLines.length > 0 ? `\nRecent videos by this person (choose a different world, hook pattern, challenge and winner from these):\n${recentLines.join("\n")}` : "";
+        const about = [request.brandContext ? `About the person (background only; the video is not about this): ${request.brandContext}` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
         if (kind === "showdown") {
           let brief = null;
           let notes = "";
           for (let attempt = 0; attempt < 2 && !brief; attempt++) {
-            const reply = await writer(await masterPrompt(admin, "showdown_writer", SHOWDOWN_WRITER_PROMPT), `Topic or theme: ${topic}\n${about}${notes}`);
+            const reply = await writer(await masterPrompt(admin, "showdown_writer", SHOWDOWN_WRITER_PROMPT), `Topic or theme: ${topic}\nLength: about ${typeof request.durationS === "number" ? Math.min(30, Math.max(10, request.durationS)) : 20} seconds\n${about}${recent}${notes}`);
             const parsed = parseShowdownBrief(extractJson(reply));
             if (parsed.ok) brief = parsed.value;
             else notes = `\n\nYour last answer was refused: ${parsed.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}. Answer again with valid JSON.`;
@@ -131,7 +149,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
           let plan: GlowPlan | null = null;
           let notes = "";
           for (let attempt = 0; attempt < 2 && !plan; attempt++) {
-            const reply = await writer(await masterPrompt(admin, "glow_writer", GLOW_WRITER_PROMPT), `Topic the person gave: ${topic}\n(If that is empty, or only names the format, choose the topic yourself from the playbook's idea bank: never the account's own niche.)\n${about}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
+            const reply = await writer(await masterPrompt(admin, "glow_writer", GLOW_WRITER_PROMPT), `Idea or topic: ${topic}\n${about}${recent}\nLength: about ${seconds} seconds, so about ${target} words of narration in total.${notes}`);
             const parsed = parseGlowPlan(extractJson(reply));
             if (parsed.ok) {
               plan = parsed.value;
@@ -153,7 +171,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
         if (spoken.problem || spoken.words.length === 0) return await fail(`The voiceover could not be made: ${spoken.problem ?? "no word timing came back"}.`);
         const voicePath = `${run.user_id}/${run.id}/voice.mp3`;
         await deps.store.put(voicePath, spoken.audio, spoken.mime);
-        state = { ...state, phase: "render", voicePath, words: spoken.words, durationS: spoken.words[spoken.words.length - 1]!.endS + 1.6 };
+        state = { ...state, phase: "render", voicePath, words: spoken.words, durationS: spoken.words[spoken.words.length - 1]!.endS + 3.0 };
         await persist(state);
         break;
       }

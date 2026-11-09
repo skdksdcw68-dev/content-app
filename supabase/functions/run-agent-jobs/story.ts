@@ -123,6 +123,45 @@ async function persist(admin: SupabaseClient, run: Run, state: StoryState): Prom
   run.input = { ...run.input, story: state };
 }
 
+/** One picture from OpenRouter's Nano Banana 2.1 (about $0.04), used when the
+ *  house picture providers have no credit. Reference frames go along as extra
+ *  images. The picture is kept in storage and its path returned, so the run's
+ *  state never carries image bytes. Throws when no picture came back. */
+async function openRouterPicture(
+  admin: SupabaseClient,
+  userId: string,
+  runId: string,
+  prompt: string,
+  aspect: string,
+  references: Array<{ url: string; kind: "image" }>,
+): Promise<string> {
+  const key = Deno.env.get("OPENROUTER_API_KEY");
+  if (!key) throw new Error("no OpenRouter key");
+  const content: unknown[] = [{ type: "text", text: prompt }];
+  for (const r of references.slice(0, 4)) content.push({ type: "image_url", image_url: { url: r.url } });
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: Deno.env.get("OPENROUTER_IMAGE_MODEL") ?? "google/gemini-nano-banana-2.1",
+      modalities: ["image", "text"],
+      image_config: { aspect_ratio: aspect },
+      messages: [{ role: "user", content }],
+    }),
+    signal: AbortSignal.timeout(100_000),
+  });
+  const body = await response.json().catch(() => null);
+  const url: string | undefined = body?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  if (!response.ok || !url || !url.includes(",")) {
+    throw new Error(`openrouter picture ${response.status}: ${JSON.stringify(body).slice(0, 160)}`);
+  }
+  const bytes = Uint8Array.from(atob(url.split(",")[1]!), (ch) => ch.charCodeAt(0));
+  const path = `${userId}/${runId}/picture-${crypto.randomUUID()}.png`;
+  const { error } = await admin.storage.from(BUCKET).upload(path, bytes, { contentType: "image/png" });
+  if (error) throw new Error(`could not keep the picture: ${error.message}`);
+  return path;
+}
+
 /** Signed links to the reference frames a style keeps in storage, if any. */
 async function styleReferences(admin: SupabaseClient, slug: string | undefined): Promise<Array<{ url: string; kind: "image" }>> {
   if (!slug || !/^[a-z0-9_-]+$/.test(slug)) return [];
@@ -218,6 +257,17 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
             costUsd: IMAGE_ESTIMATE_USD,
           };
         } catch (thrown) {
+          // The house picture providers are out of money (fal on 9 Nov 2026, and
+          // OpenAI's picture model): the same picture from OpenRouter instead,
+          // made now and kept in storage for the next poll.
+          if (thrown instanceof NothingCanDoThis && Deno.env.get("OPENROUTER_API_KEY")) {
+            try {
+              const path = await openRouterPicture(admin, userId, run.id, prompt, o.aspect, references);
+              return { handle: { openrouter: path, creditRef: charge?.ref ?? null, credits: charge?.credits ?? null }, costUsd: 0.04 };
+            } catch (fallback) {
+              console.warn("picture fallback failed", fallback instanceof Error ? fallback.message : fallback);
+            }
+          }
           if (charge) await refundCredits(admin, userId, charge.ref);
           if (thrown instanceof NothingCanDoThis) throw new PublicError(`No picture model could make that (${thrown.code}).`, 502, false);
           throw thrown;
@@ -225,6 +275,15 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
       },
 
       async poll(raw): Promise<ImagePoll> {
+        // A picture OpenRouter already made: it is waiting in storage.
+        const kept = raw as { openrouter?: string; creditRef: string | null; credits: number | null };
+        if (typeof kept.openrouter === "string") {
+          const { data, error } = await admin.storage.from(BUCKET).download(kept.openrouter);
+          if (error || !data) throw new Error("the picture was made but could not be read back");
+          const bytes = new Uint8Array(await data.arrayBuffer());
+          // The credits reserved for the picture stand as charged.
+          return { state: "done", bytes, mime: "image/png" };
+        }
         const h = raw as { submitted: Submitted; connectionId: string; creditRef: string | null; credits: number | null };
         let url = h.submitted.state === "done" ? h.submitted.outputUrl ?? null : null;
         let mime: string | undefined;

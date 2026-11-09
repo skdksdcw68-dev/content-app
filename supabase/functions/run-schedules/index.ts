@@ -11,7 +11,7 @@
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 import { json, PublicError } from "../_shared/http.ts";
 import { chargeForGeneration, refundCredits, type Charge } from "../_shared/credits.ts";
-import { MODELS } from "../_shared/route.ts";
+import { completionsFor, MODELS, OPENROUTER_KEY } from "../_shared/route.ts";
 import { push } from "../_shared/push.ts";
 import { recordUsage } from "../_shared/usage.ts";
 
@@ -282,12 +282,14 @@ async function wordsFor(admin: SupabaseClient, schedule: Schedule, inputs: Array
 }
 
 async function ask(admin: SupabaseClient, schedule: Schedule, kind: string, prompt: string, asJson: boolean) {
-  if (!OPENAI_KEY) return null;
-  for (const model of [MODELS.quick, MODELS.chat]) {
+  if (!OPENAI_KEY && !OPENROUTER_KEY) return null;
+  // Claude first while the OpenAI account has no credit.
+  for (const model of OPENROUTER_KEY ? [MODELS.talk, MODELS.think] : [MODELS.quick, MODELS.chat]) {
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const to = completionsFor(model, OPENAI_KEY ?? "");
+      const response = await fetch(to.url, {
         method: "POST",
-        headers: { Authorization: `Bearer ${OPENAI_KEY}`, "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${to.key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model,
           messages: [{ role: "user", content: prompt }],

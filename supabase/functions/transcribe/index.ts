@@ -19,6 +19,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const OPENAI_KEY = Deno.env.get("OPENAI_API_KEY");
+// 9 Nov 2026: the OpenAI account has no credit; the same model through OpenRouter.
+const OPENROUTER_KEY = Deno.env.get("OPENROUTER_API_KEY");
 
 /** OpenAI's own limit for one file. */
 const MAX_BYTES = 24 * 1024 * 1024;
@@ -30,7 +32,7 @@ Deno.serve(async (request) => {
   try {
     const authorization = request.headers.get("Authorization");
     if (!authorization) throw new PublicError("Sign in first.", 401);
-    if (!OPENAI_KEY) throw new PublicError("Transcribing isn't set up here yet.", 503);
+    if (!OPENAI_KEY && !OPENROUTER_KEY) throw new PublicError("Transcribing isn't set up here yet.", 503);
 
     // The gateway has already checked this sign-in (verify_jwt in config.toml),
     // so the person is read from the token instead of asked of the auth server
@@ -77,13 +79,13 @@ Deno.serve(async (request) => {
     }
 
     const form = new FormData();
-    form.append("model", "gpt-4o-mini-transcribe");
+    form.append("model", OPENROUTER_KEY ? "openai/gpt-4o-mini-transcribe" : "gpt-4o-mini-transcribe");
     form.append("response_format", "json");
     form.append("file", file, name);
 
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    const response = await fetch(OPENROUTER_KEY ? "https://openrouter.ai/api/v1/audio/transcriptions" : "https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${OPENAI_KEY}` },
+      headers: { Authorization: `Bearer ${OPENROUTER_KEY ?? OPENAI_KEY}` },
       body: form,
     });
     if (!response.ok) {

@@ -19,9 +19,21 @@ import type { Production } from "./style.ts";
  * reads, minus the tail the last word needs, and it is a ceiling, not a
  * target. A little over is caught by speeding the voice up (story.ts); a lot
  * over is sent back to the planner. */
-export function wordBudget(durationS: number): number {
-  return Math.max(6, Math.floor(Math.max(1, durationS - 0.6) * 2.2));
+export function wordBudget(durationS: number, wordsPerS = 2.2): number {
+  const rate = Number.isFinite(wordsPerS) && wordsPerS >= 1.5 && wordsPerS <= 4 ? wordsPerS : 2.2;
+  return Math.max(6, Math.floor(Math.max(1, durationS - 0.6) * rate));
 }
+
+/** What keeps two videos from being the same video (Abel, 10 Nov 2026: "make
+ *  sure not to give everyone the same idea"): what this person already got, a
+ *  fresh handful from the format's idea bank, and a hero drawn from its cast. */
+export interface Variety {
+  recent?: string[];
+  ideas?: string[];
+  hero?: string | null;
+}
+
+export type PlanRequest = { topic: string; brandContext?: string; direction?: string; avoid?: string } & Variety;
 
 /** Words in a narration, counted the way a voice reads them. */
 export function wordCount(text: string): number {
@@ -59,16 +71,17 @@ export const DEFAULT_PLANNER_TEMPLATE = [
 
 export function plannerPrompt(
   p: Production,
-  request: { topic: string; brandContext?: string; direction?: string; avoid?: string },
+  request: PlanRequest,
   template?: string | null,
 ): {
   system: string;
   user: string;
 } {
-  const words = wordBudget(p.durationS);
+  const words = wordBudget(p.durationS, p.wordsPerS);
+  const rate = String(p.wordsPerS ?? 2.2);
   const fill: Record<string, string> = {
     narration_rule: p.narration
-      ? `- The video is ${p.durationS} seconds, and that is a hard limit. The whole narration is AT MOST ${words} words -- count them before you answer. A narrator reads about 2.2 words a second, so every extra word makes the video longer than the person asked for. Short, punchy sentences.`
+      ? `- The video is ${p.durationS} seconds, and that is a hard limit. The whole narration is AT MOST ${words} words -- count them before you answer. A narrator reads about ${rate} words a second, so every extra word makes the video longer than the person asked for. Short, punchy sentences.`
       : `- The video is ${p.durationS} seconds, and that is a hard limit.`,
     narration_script_rule: p.narration
       ? "- Every scene's `narration` is exactly what the narrator says over it, in order; read together they are `script`."
@@ -83,7 +96,20 @@ export function plannerPrompt(
 
   const user = [
     `Topic: ${request.topic}`,
-    request.brandContext ? `About the account: ${request.brandContext}` : "",
+    // Their profile is background, not the subject (Abel, 10 Nov 2026: every
+    // video of a designer's account came out about designers, whatever was asked).
+    request.brandContext
+      ? `Who asked (background only): ${request.brandContext}. Use this ONLY when the topic itself is about their own brand, product or work. Otherwise ignore it completely: do not mention their job, niche, product or audience, and do not bend the topic toward them.`
+      : "",
+    request.ideas?.length
+      ? `IDEA BANK (a fresh handful). If the topic above is only the name of a format or says "any" / "surprise me" and gives no real subject, choose ONE of these or invent a new one of the same quality. If the topic has a real subject, ignore this list:\n${request.ideas.map((i) => `- ${i}`).join("\n")}`
+      : "",
+    request.hero
+      ? `Hero for this video (use this person as the main character unless the topic names or clearly needs someone else): ${request.hero}`
+      : "",
+    request.recent?.length
+      ? `This person's recent videos. Do NOT repeat any of them: pick a different subject, a different kind of opening line, a different setting and a different hero:\n${request.recent.map((r) => `- ${r}`).join("\n")}`
+      : "",
     request.direction ? `Direction from the person (follow it, but add no facts of your own): ${request.direction}` : "",
     request.avoid ? `Avoid: ${request.avoid}` : "",
   ].filter(Boolean).join("\n");
@@ -98,7 +124,7 @@ export interface PlanResult {
 
 export async function planStory(args: {
   production: Production;
-  request: { topic: string; brandContext?: string; direction?: string; avoid?: string };
+  request: PlanRequest;
   ask(system: string, user: string): Promise<string>;
   retries?: number;
   /** The master prompt from the server (master_prompts); the built-in one when absent. */
@@ -108,7 +134,7 @@ export async function planStory(args: {
   const limit = (args.retries ?? 2) + 1;
   let prompt = user;
   let issues: Issue[] = [];
-  const budget = wordBudget(args.production.durationS);
+  const budget = wordBudget(args.production.durationS, args.production.wordsPerS);
   // The plan nearest the budget among those that failed ONLY on length: if
   // every try misses, it is used anyway (a long one has its voice sped up to
   // fit) rather than giving up on a good story over a few words.

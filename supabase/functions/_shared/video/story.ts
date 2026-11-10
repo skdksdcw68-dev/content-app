@@ -1,6 +1,7 @@
 import type { Aspect, Issue, Motion, Scene, StoryPlan, TransitionType, WordTiming } from "./types.ts";
 import { checkCoverage, timeScenesToVoice } from "./storyboard.ts";
 import { planStory } from "./planner.ts";
+import type { Variety } from "./planner.ts";
 import { productionFor, withCaptionChoice, type Production, type StyleRow } from "./style.ts";
 import type { Review } from "./review.ts";
 import type { Spoken } from "./voice.ts";
@@ -105,6 +106,8 @@ export interface StoryDeps {
   runId: string;
   style(slug: string): Promise<StyleRow | null>;
   ask(system: string, user: string): Promise<string>;
+  /** What makes this video different from the last ones; nothing when absent. */
+  variety?(style: StyleRow): Promise<Variety>;
   /** Master prompts saved on the server (master_prompts); the built-in text when absent. */
   prompts?: { planner?: string | null; picture?: string | null };
   speak(text: string): Promise<Spoken>;
@@ -202,10 +205,12 @@ async function planPhase(deps: StoryDeps, state: StoryState, limits: Limits): Pr
   state.warnings.push(...production.notes);
 
   await deps.say(`📝 Planning a ${production.durationS}-second ${style.name ?? style.slug} story about “${state.request.topic}”…`);
+  const variety: Variety = deps.variety ? await deps.variety(style).catch(() => ({})) : {};
   const planned = await planStory({
     production,
     request: {
       topic: state.request.topic,
+      ...variety,
       ...(state.request.brandContext ? { brandContext: state.request.brandContext } : {}),
       ...(state.request.direction ? { direction: state.request.direction } : {}),
     },

@@ -1519,7 +1519,9 @@ Deno.serve(async (request) => {
           // A drawn format has its own narrator, chosen by the owner and kept on the
           // server; the planner's generic voice never replaces it. Only a voice the
           // person asked for by name (voiceNamed) does.
-          const isDrawn = (style.workflow as { engine?: string } | null)?.engine === "drawn";
+          // The same goes for any format that keeps its own narrator (workflow.voice_id).
+          const ownVoice = style.workflow as { engine?: string; voice_id?: string } | null;
+          const isDrawn = ownVoice?.engine === "drawn" || !!ownVoice?.voice_id;
           const voiceId = typeof a.voiceId === "string" && /^[A-Za-z0-9]{10,40}$/.test(a.voiceId) && (!isDrawn || a.voiceNamed) ? a.voiceId : undefined;
           const captionStyle = typeof a.captionStyle === "string" &&
               ["bold_pop", "highlight", "minimal", "subtitle", "boxed", "none"].includes(a.captionStyle)
@@ -2508,9 +2510,12 @@ YOU CANNOT START A VIDEO IN A REPLY. A video starts only when the app shows them
 a card with a Make it button and they tap it (or when "Recent work" in STATE
 lists it). So never write that you are starting, making, running or sending a
 video, and never say it is "running in the background" or that you will send it,
-unless "Recent work" in STATE shows that very run. If they say go, start or make
-it and no run is listed, tell them plainly that nothing has started yet and to
-tap Make it on the card, or to send the request again so a card appears. Once a
+unless "Recent work" in STATE shows that very run. But never answer a wish for a
+video with "I can't start it from here": that reads as a refusal. Give your idea
+(format, hook, what happens) in a few lines and end with ONE line telling them
+exactly what to send to start it, for example: Say "make it" and it starts. If
+they say go, start or make it and no run is listed, tell them plainly that
+nothing has started yet and to send the request again in one line. Once a
 run is listed, it works in the background and the app tells them when it is done.
 What each drawn format can and cannot do (say it plainly, never promise more):
 Stickman showdown is one contest of stick figures doing any physical challenge

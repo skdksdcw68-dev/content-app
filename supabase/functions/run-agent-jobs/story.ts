@@ -208,12 +208,38 @@ export function depsFor(admin: SupabaseClient, run: Run, tell: Tell): StoryDeps 
 
     ask,
 
+    // The person's last videos in this format (made or still being made), a
+    // fresh handful from the format's idea bank, and one hero from its cast.
+    async variety(style) {
+      const w = (style.workflow ?? {}) as { ideas?: Array<string | Record<string, unknown>>; cast?: string[] };
+      const { data: rows } = await admin.from("agent_runs").select("input")
+        .eq("user_id", userId).eq("kind", "story").neq("id", run.id).in("status", ["succeeded", "running", "queued"])
+        .eq("input->request->>styleSlug", style.slug).order("created_at", { ascending: false }).limit(8);
+      const recent = ((rows ?? []) as Array<{ input?: { story?: { plan?: { title?: string; hook?: string; characters?: Array<{ description?: string }> } } } }>)
+        .map((r) => r.input?.story?.plan)
+        .filter((p) => p?.title)
+        .map((p) => `"${p!.title}", opening: "${String(p!.hook ?? "").slice(0, 120)}"${p!.characters?.[0]?.description ? `, hero: ${String(p!.characters[0].description).slice(0, 90)}` : ""}`);
+      const shuffled = <T,>(list: T[]): T[] => [...list].sort(() => Math.random() - 0.5);
+      const ideas = shuffled(Array.isArray(w.ideas) ? w.ideas : []).slice(0, 8).map((i) =>
+        typeof i === "string" ? i : `[${String(i.kind ?? "idea")}] ${String(i.seed ?? i.claim ?? "")}`).filter((i) => i.length > 8);
+      const cast = Array.isArray(w.cast) ? w.cast.filter((c) => typeof c === "string" && c.length > 10) : [];
+      return { recent, ideas, hero: cast.length > 0 ? shuffled(cast)[0]! : null };
+    },
+
     async speak(text) {
       const key = Deno.env.get("ELEVENLABS_API_KEY");
       // The voice picked on the card, else the server's default narrator.
       const chosen = (run.input.request as StoryRequest | undefined)?.voiceId
         ?? (run.input.story as StoryState | undefined)?.request?.voiceId;
-      const voiceId = chosen && /^[A-Za-z0-9]{10,40}$/.test(chosen) ? chosen : Deno.env.get("ELEVENLABS_VOICE_ID");
+      // Then the narrator the owner chose for this format (workflow.voice_id).
+      let own: string | undefined;
+      if (!chosen) {
+        const slug = (run.input.request as { styleSlug?: string } | undefined)?.styleSlug;
+        const { data } = slug ? await admin.from("content_templates").select("workflow").eq("slug", slug).maybeSingle() : { data: null };
+        own = (data as { workflow?: { voice_id?: string } } | null)?.workflow?.voice_id;
+      }
+      const picked = chosen ?? own;
+      const voiceId = picked && /^[A-Za-z0-9]{10,40}$/.test(picked) ? picked : Deno.env.get("ELEVENLABS_VOICE_ID");
       if (!key || !voiceId) throw new PublicError("The voiceover isn't set up on the server yet.", 503, false);
       try {
         return await speak({ apiKey: key, voiceId, text, model: Deno.env.get("ELEVENLABS_MODEL") ?? "eleven_multilingual_v2" });

@@ -125,7 +125,7 @@ export async function drawnStep(admin: SupabaseClient, run: Run, tell: Tell, kin
           .filter((d) => d?.title)
           .map((d) => `- ${d!.title}${d!.plan?.custom?.name ? ` (challenge: ${d!.plan.custom.name}; labels: ${(d!.plan.losers ?? []).map((l) => l.label).join(", ")} -> ${d!.plan.winner})` : ""}`);
         const recent = recentLines.length > 0 ? `\nRecent videos by this person (choose a different world, hook pattern, challenge and winner from these):\n${recentLines.join("\n")}` : "";
-        const about = [request.brandContext ? `About the person (background only; the video is not about this): ${request.brandContext}` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
+        const about = [request.brandContext ? `Who asked (background only): ${request.brandContext}. Use this ONLY when the topic itself is about their own brand, product or work. Otherwise ignore it completely: never mention their job, niche, product or audience, and never bend the topic toward them. If the topic is only the name of this format with no real subject, take the subject from the idea bank, not from this line.` : "", request.direction ? `Direction: ${request.direction}` : ""].filter(Boolean).join("\n");
         if (kind === "showdown") {
           let brief = null;
           let notes = "";

@@ -26,6 +26,14 @@ export interface StyleRow {
      *  on top of its general ones (how the story is told, how each scene is
      *  shot). Lives in the row, so it changes without an app update. */
     writer?: string;
+    /** The narrator this format speaks with unless the person picks one. */
+    voice_id?: string;
+    /** How fast that narrator really reads, for the word budget. */
+    words_per_s?: number;
+    /** Starting points for when no subject is given; a fresh handful each time. */
+    ideas?: Array<string | Record<string, unknown>>;
+    /** Heroes to draw from, so every video does not star the same person. */
+    cast?: string[];
   } | null;
 }
 
@@ -54,6 +62,8 @@ export interface Production {
   visualStyle: string;
   /** The style's story master prompt, or "" for the planner's general rules only. */
   writerRules: string;
+  /** The narrator's real pace; 2.2 when the style does not say. */
+  wordsPerS?: number;
   notes: string[];
 }
 
@@ -136,6 +146,7 @@ export function productionFor(
     defaultTransition: sceneS >= 5 ? "fade" : "cut",
     visualStyle: (style.visual_style ?? "").trim(),
     writerRules: (w.writer ?? "").trim(),
+    ...(typeof w.words_per_s === "number" && w.words_per_s >= 1.5 && w.words_per_s <= 4 ? { wordsPerS: w.words_per_s } : {}),
     notes,
   };
 }

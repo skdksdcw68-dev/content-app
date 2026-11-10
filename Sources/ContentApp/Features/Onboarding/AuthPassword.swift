@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// The password page, in the email page's calm look: one question, big quiet
-/// fields, the dark pill above the keyboard.
+/// The password page, as the sign-up mockup draws it: one question, the
+/// password as big dots in the middle, a Show pill top right, a plain line
+/// saying how far it is from long enough, and (once it is long enough) a
+/// second field to type it again. No segments, no boxes.
 ///
 /// Three jobs, told apart by `purpose`:
 ///   - `.create`: a new password (twice) while signing up; Continue emails the
@@ -24,21 +26,24 @@ struct PasswordScreen: View {
 
     @Environment(AppSession.self) private var session
 
-    private enum Field: Hashable { case password, confirm }
-
     @State private var password = ""
     @State private var confirm = ""
     @State private var show = false
+    /// Which field has the keyboard: 1 or 2.
+    @State private var active = 1
     @State private var busy = false
     @State private var error: String?
-    @FocusState private var focus: Field?
 
     private var asksTwice: Bool { purpose != .signIn }
+    private var minimum: Int { AppSession.minPasswordLength }
+    private var longEnough: Bool { password.count >= minimum }
+    private var matches: Bool { longEnough && !confirm.isEmpty && confirm == password }
+    /// Typed so far, and already different from the start of the password.
+    private var notTheSame: Bool { !confirm.isEmpty && !password.hasPrefix(confirm) }
 
     private var canSubmit: Bool {
         guard !busy else { return false }
-        if purpose == .signIn { return !password.isEmpty }
-        return password.count >= AppSession.minPasswordLength && password == confirm
+        return purpose == .signIn ? !password.isEmpty : matches
     }
 
     private var title: String {
@@ -51,9 +56,9 @@ struct PasswordScreen: View {
 
     private var subtitle: String {
         switch purpose {
-        case .create: return "You’ll use it to log back in. At least \(AppSession.minPasswordLength) characters."
+        case .create: return "You’ll use it to log back in."
         case .signIn: return "\(email) has an account. Enter your password to log in."
-        case .reset: return "Make it something you’ll remember. At least \(AppSession.minPasswordLength) characters."
+        case .reset: return "Make it something you’ll remember."
         }
     }
 
@@ -68,112 +73,117 @@ struct PasswordScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.system(size: 22, weight: .semibold))
-                .tracking(-0.22)
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.26)
                 .multilineTextAlignment(.center)
-                .padding(.top, 160)
+                .padding(.top, 130)
                 .padding(.horizontal, 24)
 
             Text(subtitle)
-                .font(.system(size: 15))
+                .font(.system(size: 17))
                 .foregroundStyle(OB.text2)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 36)
                 .padding(.top, 8)
 
-            VStack(spacing: 4) {
-                field("Password", text: $password, field: .password)
-                    .submitLabel(asksTwice ? .next : .go)
-                    .onSubmit {
-                        if asksTwice { focus = .confirm } else { submit() }
-                    }
-                    .textContentType(purpose == .signIn ? .password : .newPassword)
+            BigPasswordField(
+                prompt: "Password",
+                text: $password,
+                show: show,
+                compareTo: nil,
+                isNewPassword: asksTwice,
+                wantsFocus: active == 1,
+                onFocus: { active = 1 },
+                onSubmit: { if asksTwice { if longEnough { active = 2 } } else { submit() } },
+                submitLabel: asksTwice ? .next : .go
+            )
+            .padding(.horizontal, 12)
+            .padding(.top, 22)
 
-                if asksTwice {
-                    field("Confirm password", text: $confirm, field: .confirm)
-                        .submitLabel(.go)
-                        .onSubmit { submit() }
-                        .textContentType(.newPassword)
+            if asksTwice {
+                Label {
+                    Text(rule)
+                } icon: {
+                    if longEnough { Image(systemName: "checkmark").font(.system(size: 14, weight: .heavy)) }
                 }
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(longEnough ? Color(.systemGreen) : OB.text2)
+                .padding(.top, 2)
+                .animation(.easeOut(duration: 0.2), value: longEnough)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 14)
 
-            if asksTwice, !confirm.isEmpty, password != confirm {
-                Text("The two passwords don’t match.")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(.top, 6)
+            if asksTwice, longEnough {
+                VStack(spacing: 2) {
+                    BigPasswordField(
+                        prompt: "Type it again",
+                        text: $confirm,
+                        show: show,
+                        compareTo: password,
+                        isNewPassword: true,
+                        wantsFocus: active == 2,
+                        onFocus: { active = 2 },
+                        onSubmit: { submit() },
+                        submitLabel: .go
+                    )
+
+                    Label {
+                        Text(matches ? "They match" : "Not the same yet")
+                    } icon: {
+                        if matches { Image(systemName: "checkmark").font(.system(size: 14, weight: .heavy)) }
+                    }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(matches ? Color(.systemGreen) : Color(.systemRed))
+                    .opacity(notTheSame || matches ? 1 : 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 18)
+                .transition(.opacity.combined(with: .offset(y: 10)))
             }
 
             if let error {
                 Text(error)
-                    .font(.footnote)
+                    .font(.system(size: 15))
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                    .padding(.top, 6)
+                    .padding(.top, 10)
             }
 
             if purpose == .signIn {
                 Button { onNext(.email(.recovery)) } label: {
                     Text("Forgot password?")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(OB.accent)
-                        .frame(height: 44)
+                        .frame(height: 48)
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 8)
+                .padding(.top, 10)
             }
 
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .animation(.easeOut(duration: 0.28), value: longEnough)
         .background(QuestionHazeBackground())
+        .overlay(alignment: .topTrailing) {
+            ShowPasswordPill(show: $show)
+                .padding(.trailing, 16)
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             BevelPill(title: pillTitle, on: canSubmit, busy: busy, width: nil) { submit() }
                 .disabled(!canSubmit)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
         }
-        .onAppear { focus = .password }
         .onChange(of: password) { _, _ in error = nil }
         .onChange(of: confirm) { _, _ in error = nil }
     }
 
-    /// One big, quiet field with an eye to show what was typed.
-    private func field(_ prompt: String, text: Binding<String>, field: Field) -> some View {
-        HStack(spacing: 8) {
-            Group {
-                if show {
-                    TextField("", text: text, prompt: promptText(prompt))
-                } else {
-                    SecureField("", text: text, prompt: promptText(prompt))
-                }
-            }
-            .font(.system(size: 22, weight: .medium))
-            .multilineTextAlignment(.center)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .focused($focus, equals: field)
-
-            Button { show.toggle() } label: {
-                Image(systemName: show ? "eye.slash" : "eye")
-                    .font(.system(size: 17))
-                    .foregroundStyle(OB.text3)
-                    .frame(width: 32, height: 44)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(show ? "Hide password" : "Show password")
-        }
-        .padding(.leading, 32)
-        .padding(.trailing, 4)
-        .frame(height: 52)
-    }
-
-    private func promptText(_ text: String) -> Text {
-        Text(text).font(.system(size: 17)).foregroundStyle(OB.text3)
+    private var rule: String {
+        if longEnough { return "Long enough" }
+        if password.isEmpty { return "At least \(minimum) characters" }
+        return "\(password.count) of \(minimum) characters"
     }
 
     private func submit() {

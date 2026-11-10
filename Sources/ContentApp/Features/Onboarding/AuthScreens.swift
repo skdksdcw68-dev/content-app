@@ -180,8 +180,6 @@ struct EmailScreen: View {
 
     @Environment(AppSession.self) private var session
 
-    private enum Field: Hashable { case email }
-
     @State private var email = ""
     @State private var sending = false
     @State private var pending: SignInProvider?
@@ -190,7 +188,6 @@ struct EmailScreen: View {
     /// or an account made before passwords existed): the providers it uses.
     @State private var noPassword: [String]?
     @State private var notRegistered = false
-    @FocusState private var focus: Field?
 
     private var cleanEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
 
@@ -206,15 +203,15 @@ struct EmailScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             Text(title)
-                .font(.system(size: 22, weight: .semibold))
-                .tracking(-0.22)
+                .font(.system(size: 26, weight: .semibold))
+                .tracking(-0.26)
                 .multilineTextAlignment(.center)
-                .padding(.top, 160)
+                .padding(.top, 130)
                 .padding(.horizontal, 24)
 
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 15))
+                    .font(.system(size: 17))
                     .foregroundStyle(OB.text2)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -222,29 +219,29 @@ struct EmailScreen: View {
                     .padding(.top, 8)
             }
 
-            TextField("", text: $email, prompt: Text("name@example.com").font(.system(size: 17)).foregroundStyle(OB.text3))
-                .font(.system(size: 28, weight: .medium))
-                .tracking(-0.28)
-                .multilineTextAlignment(.center)
-                .keyboardType(.emailAddress)
-                .textContentType(.emailAddress)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.continue)
-                .focused($focus, equals: .email)
-                .onSubmit { send() }
+            BigEmailField(text: $email, onSubmit: { send() })
+                .padding(.horizontal, 12)
+                .padding(.top, 22)
                 .onChange(of: email) { _, _ in
                     error = nil
                     noPassword = nil
                     notRegistered = false
                 }
-                .frame(height: 48)
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
+
+            if looksLikeEmail {
+                Label("Looks right", systemImage: "checkmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(.systemGreen))
+                    .padding(.top, 6)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+            } else if mode != .recovery {
+                DomainChips(email: email) { email = $0 }
+                    .padding(.top, 14)
+            }
 
             if let error {
                 Text(error)
-                    .font(.footnote)
+                    .font(.system(size: 15))
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
@@ -254,7 +251,7 @@ struct EmailScreen: View {
             if notRegistered {
                 Button { onSwitch(.signup) } label: {
                     Text("This email isn’t registered. **Sign up instead?**")
-                        .font(.footnote)
+                        .font(.system(size: 15))
                         .foregroundStyle(OB.text2)
                         .multilineTextAlignment(.center)
                 }
@@ -266,12 +263,12 @@ struct EmailScreen: View {
             if let noPassword {
                 VStack(spacing: 6) {
                     Text(noPasswordText(noPassword))
-                        .font(.footnote)
+                        .font(.system(size: 15))
                         .foregroundStyle(OB.text2)
                         .multilineTextAlignment(.center)
                     Button { startRecovery() } label: {
                         Text("Set a password")
-                            .font(.footnote.weight(.semibold))
+                            .font(.system(size: 16, weight: .semibold))
                             .foregroundStyle(OB.accent)
                     }
                     .buttonStyle(.plain)
@@ -296,7 +293,7 @@ struct EmailScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 10)
         }
-        .onAppear { focus = .email }
+        .animation(.easeOut(duration: 0.2), value: looksLikeEmail)
     }
 
     private var title: String {

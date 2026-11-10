@@ -171,8 +171,11 @@ private struct RollingWords: View {
 /// in says "Welcome back" and offers Apple and Google too.
 struct EmailScreen: View {
     let mode: OnboardingStep.Mode
-    /// Called once the code is on its way, with the address and the name.
-    let onSent: (String, String) -> Void
+    /// Called with the address and the step to go to: the password page, or
+    /// (for a forgotten password) the code page.
+    let onNext: (String, OnboardingStep) -> Void
+    /// "Sign up instead?" on the log-in page, and the other way round.
+    let onSwitch: (OnboardingStep.Mode) -> Void
     let onDone: (OnboardingStep.Arrival) -> Void
 
     @Environment(AppSession.self) private var session
@@ -183,6 +186,10 @@ struct EmailScreen: View {
     @State private var sending = false
     @State private var pending: SignInProvider?
     @State private var error: String?
+    /// Set when the address is registered but has no password (Apple, Google,
+    /// or an account made before passwords existed): the providers it uses.
+    @State private var noPassword: [String]?
+    @State private var notRegistered = false
     @FocusState private var focus: Field?
 
     private var cleanEmail: String { email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
@@ -198,15 +205,15 @@ struct EmailScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(mode == .signup ? "What is your email address?" : "Welcome back")
+            Text(title)
                 .font(.system(size: 22, weight: .semibold))
                 .tracking(-0.22)
                 .multilineTextAlignment(.center)
                 .padding(.top, 160)
                 .padding(.horizontal, 24)
 
-            if mode == .login {
-                Text("Log in with the email you signed up with and we’ll send you a code")
+            if let subtitle {
+                Text(subtitle)
                     .font(.system(size: 15))
                     .foregroundStyle(OB.text2)
                     .multilineTextAlignment(.center)
@@ -223,9 +230,14 @@ struct EmailScreen: View {
                 .textContentType(.emailAddress)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .submitLabel(.send)
+                .submitLabel(.continue)
                 .focused($focus, equals: .email)
                 .onSubmit { send() }
+                .onChange(of: email) { _, _ in
+                    error = nil
+                    noPassword = nil
+                    notRegistered = false
+                }
                 .frame(height: 48)
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
@@ -237,6 +249,35 @@ struct EmailScreen: View {
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
                     .padding(.top, 6)
+            }
+
+            if notRegistered {
+                Button { onSwitch(.signup) } label: {
+                    Text("This email isn’t registered. **Sign up instead?**")
+                        .font(.footnote)
+                        .foregroundStyle(OB.text2)
+                        .multilineTextAlignment(.center)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 32)
+                .padding(.top, 6)
+            }
+
+            if let noPassword {
+                VStack(spacing: 6) {
+                    Text(noPasswordText(noPassword))
+                        .font(.footnote)
+                        .foregroundStyle(OB.text2)
+                        .multilineTextAlignment(.center)
+                    Button { startRecovery() } label: {
+                        Text("Set a password")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(OB.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 32)
+                .padding(.top, 8)
             }
 
             if mode == .login {
@@ -258,25 +299,82 @@ struct EmailScreen: View {
         .onAppear { focus = .email }
     }
 
+    private var title: String {
+        switch mode {
+        case .signup: return "What is your email address?"
+        case .login: return "Welcome back"
+        case .recovery: return "Reset your password"
+        }
+    }
+
+    private var subtitle: String? {
+        switch mode {
+        case .signup: return "Next, you’ll create a password."
+        case .login: return "Log in with the email you signed up with."
+        case .recovery: return "We’ll send a code to your email to confirm it’s you."
+        }
+    }
+
+    private func noPasswordText(_ providers: [String]) -> String {
+        let names = providers.filter { $0 != "email" }.map { $0.capitalized }.joined(separator: " or ")
+        if names.isEmpty { return "This account has no password yet." }
+        return "This email signs in with \(names). Use that button, or set a password to log in with one too."
+    }
+
+    /// Continue: forgot password sends its code at once; sign-up and log-in
+    /// first ask the server whether the address has an account, then go to the
+    /// page that fits.
     private func send() {
         guard canSend else { return }
         error = nil
+        noPassword = nil
+        notRegistered = false
         sending = true
         Task {
-            let outcome = await session.sendEmailCode(to: cleanEmail)
-            sending = false
-            switch outcome {
-            case .codeSent: onSent(cleanEmail, session.pendingName)
-            case .linked: onDone(.created)
-            case .switched: onDone(mode == .login ? .returning : .alreadyRegistered)
+            defer { sending = false }
+            if mode == .recovery {
+                switch await session.sendRecoveryCode(to: cleanEmail) {
+                case .failed(let reason): if !reason.isEmpty { error = reason }
+                default: onNext(cleanEmail, .code(.recovery))
+                }
+                return
+            }
+
+            // The check could not run: carry on, the real call decides.
+            guard let account = await session.checkEmail(cleanEmail) else {
+                onNext(cleanEmail, .password(mode == .login ? .signIn : .create))
+                return
+            }
+            if account.exists && !account.hasPassword {
+                noPassword = account.providers
+                return
+            }
+            if !account.exists && mode == .login {
+                notRegistered = true
+                return
+            }
+            // Signing up with an address that already has an account is a log
+            // in: the password page says "Welcome back".
+            onNext(cleanEmail, .password(account.exists ? .signIn : .create))
+        }
+    }
+
+    /// Forgot password, or first password for an account that has none.
+    private func startRecovery() {
+        guard !sending else { return }
+        sending = true
+        Task {
+            defer { sending = false }
+            switch await session.sendRecoveryCode(to: cleanEmail) {
             case .failed(let reason): if !reason.isEmpty { error = reason }
+            default: onNext(cleanEmail, .code(.recovery))
             }
         }
     }
 }
 
 /// The calm pages' haze behind a screen laid out natively (email, code).
-private struct QuestionHazeBackground: View {
+struct QuestionHazeBackground: View {
     var body: some View {
         MockupCanvas { QuestionHaze() }
             .allowsHitTesting(false)
@@ -296,6 +394,8 @@ struct CodeScreen: View {
     /// The name typed on the sign-up screen, saved once the code is accepted.
     let name: String
     let wasAnonymous: Bool
+    /// A right forgot-password code: on to choosing the new password.
+    var onRecovered: () -> Void = {}
     let onDone: (OnboardingStep.Arrival) -> Void
 
     @Environment(AppSession.self) private var session
@@ -426,6 +526,16 @@ struct CodeScreen: View {
         error = nil
         withAnimation(.easeOut(duration: 0.25)) { state = .checking }
         Task {
+            if mode == .recovery {
+                let outcome = await session.confirmRecoveryCode(code, for: email)
+                if case .failed(let reason) = outcome {
+                    await rejected(reason)
+                } else {
+                    await succeed()
+                    onRecovered()
+                }
+                return
+            }
             let outcome = await session.confirmEmailCode(code, for: email, wasAnonymous: wasAnonymous)
             switch outcome {
             case .linked:
@@ -436,19 +546,26 @@ struct CodeScreen: View {
             case .switched:
                 await succeed()
                 await session.settleAfterCode(outcome)
-                onDone(mode == .login ? .returning : .alreadyRegistered)
+                // A sign-up code that was right made a new account; only a
+                // log in is somebody coming back.
+                onDone(mode == .login ? .returning : (wasAnonymous ? .alreadyRegistered : .created))
             case .failed(let reason):
-                withAnimation(.easeOut(duration: 0.3)) { state = .wrong }
-                withAnimation(.linear(duration: 0.4)) { shake += 1 }
-                error = reason.isEmpty ? "That code didn’t work. Check it and try again." : reason
-                try? await Task.sleep(for: .milliseconds(1300))
-                code = ""
-                focused = true
-                withAnimation(.easeOut(duration: 0.3)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
+                await rejected(reason)
             case .codeSent:
                 withAnimation(.easeOut(duration: 0.3)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
             }
         }
+    }
+
+    /// Red, a shake, and the boxes cleared for another try.
+    private func rejected(_ reason: String) async {
+        withAnimation(.easeOut(duration: 0.3)) { state = .wrong }
+        withAnimation(.linear(duration: 0.4)) { shake += 1 }
+        error = reason.isEmpty ? "That code didn’t work. Check it and try again." : reason
+        try? await Task.sleep(for: .milliseconds(1300))
+        code = ""
+        focused = true
+        withAnimation(.easeOut(duration: 0.3)) { state = resendIn > 0 ? .wait(resendIn) : .resend }
     }
 
     /// Green, with a tick, held long enough to be seen.
@@ -462,7 +579,7 @@ struct CodeScreen: View {
         error = nil
         withAnimation(.easeOut(duration: 0.25)) { state = .checking }
         Task {
-            let outcome = await session.sendEmailCode(to: email)
+            let outcome = await session.resendCode(to: email, mode: mode)
             if case .failed(let reason) = outcome, !reason.isEmpty { error = reason }
             startCountdown()
         }

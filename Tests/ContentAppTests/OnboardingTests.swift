@@ -9,8 +9,20 @@ final class OnboardingTests: XCTestCase {
     private var everyStep: [OnboardingStep] {
         [.welcome, .tour(0), .tour(OnboardingTour.pages.count - 1), .privacy, .pings, .question(0), .question(OnboardingQuestion.all.count - 1),
          .building, .included, .account,
-         .email(.signup), .email(.login), .code(.signup), .code(.login),
+         .email(.signup), .email(.login), .email(.recovery), .code(.signup), .code(.login), .code(.recovery),
          .verified(.created), .verified(.alreadyRegistered), .verified(.returning), .done]
+    }
+
+    /// The address is only in memory, so a password page that is stored comes
+    /// back as the email page that asks for it.
+    func testPasswordPagesComeBackAsTheEmailPage() {
+        XCTAssertEqual(OnboardingStep(stored: OnboardingStep.password(.create).storedValue), .email(.signup))
+        XCTAssertEqual(OnboardingStep(stored: OnboardingStep.password(.signIn).storedValue), .email(.login))
+        XCTAssertEqual(OnboardingStep(stored: OnboardingStep.password(.reset).storedValue), .email(.login))
+    }
+
+    func testPasswordsNeedEightCharacters() {
+        XCTAssertEqual(AppSession.minPasswordLength, 8)
     }
 
     func testEveryStepSurvivesBeingStored() {

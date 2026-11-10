@@ -16,8 +16,20 @@ struct AuthSheet: View {
     private enum Phase: Equatable {
         case account
         case email(OnboardingStep.Mode)
+        case password(OnboardingStep.Purpose)
         case code(OnboardingStep.Mode)
         case verified(OnboardingStep.Arrival)
+    }
+
+    /// The first-run flow's steps and this sheet's phases are the same pages.
+    private func phaseFor(_ step: OnboardingStep) -> Phase {
+        switch step {
+        case .email(let mode): return .email(mode)
+        case .password(let purpose): return .password(purpose)
+        case .code(let mode): return .code(mode)
+        case .verified(let arrival): return .verified(arrival)
+        default: return .account
+        }
     }
 
     @State private var phase: Phase = .account
@@ -64,17 +76,39 @@ struct AuthSheet: View {
             )
 
         case .email(let mode):
-            EmailScreen(mode: mode) { address, typed in
-                email = address
-                name = typed
-                wasAnonymous = session.isAnonymous
-                phase = .code(mode)
-            } onDone: { phase = .verified($0) }
+            EmailScreen(
+                mode: mode,
+                onNext: { address, next in
+                    email = address
+                    session.pendingEmail = address
+                    wasAnonymous = session.isAnonymous
+                    phase = phaseFor(next)
+                },
+                onSwitch: { phase = .email($0) },
+                onDone: { phase = .verified($0) }
+            )
+
+        case .password(let purpose):
+            PasswordScreen(
+                purpose: purpose,
+                email: email,
+                onNext: { next in
+                    // "Forgot password?" from the log-in page, or the code
+                    // page after choosing a password.
+                    phase = phaseFor(next)
+                },
+                onDone: { phase = .verified($0) }
+            )
 
         case .code(let mode):
-            CodeScreen(mode: mode, email: email, name: name, wasAnonymous: wasAnonymous) {
-                phase = .verified($0)
-            }
+            CodeScreen(
+                mode: mode,
+                email: email,
+                name: name,
+                wasAnonymous: wasAnonymous,
+                onRecovered: { phase = .password(.reset) },
+                onDone: { phase = .verified($0) }
+            )
 
         case .verified(let arrival):
             VerifiedScreen(arrival: arrival) { finish() }
@@ -83,15 +117,21 @@ struct AuthSheet: View {
 
     private var canGoBack: Bool {
         switch phase {
-        case .email, .code: return true
+        case .email, .password, .code: return true
         case .account, .verified: return false
         }
     }
 
     private func back() {
         switch phase {
-        case .email: phase = .account
-        case .code(let mode): phase = .email(mode)
+        case .email(let mode): phase = mode == .recovery ? .password(.signIn) : .account
+        case .password(let purpose): phase = purpose == .create ? .email(.signup) : .email(.login)
+        case .code(let mode):
+            switch mode {
+            case .signup: phase = .password(.create)
+            case .login: phase = .email(.login)
+            case .recovery: phase = .email(.recovery)
+            }
         case .account, .verified: break
         }
     }

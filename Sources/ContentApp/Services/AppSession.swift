@@ -69,6 +69,9 @@ final class AppSession {
     internal(set) var emailReturn: OnboardingStep = .account
     /// Held between the email screen and the code screen.
     internal(set) var pendingEmail = ""
+    /// The password chosen on the sign-up page, held in memory only until the
+    /// emailed code is right and it can be saved. Never written to disk.
+    internal(set) var pendingPassword = ""
     internal(set) var pendingName = ""
 
     /// What is actually wrong with autopilot right now, worst first.
@@ -1654,7 +1657,7 @@ extension AppSession {
             }
         // The account screen is left by choosing something on it: a provider,
         // the email door, or Continue as Guest.
-        case .account, .email, .code, .done:
+        case .account, .email, .password, .code, .done:
             break
         }
     }
@@ -1686,12 +1689,19 @@ extension AppSession {
             setOnboarding(.question(max(0, OnboardingQuestion.all.count - 1)))
         case .account:
             setOnboarding(.pings)
-        case .email:
+        case .email(let mode):
             // Back from the email door returns to wherever it was opened from:
             // the account screen for a sign-up, the welcome screen for a log in.
-            setOnboarding(emailReturn)
+            // Forgot password came from the password page.
+            setOnboarding(mode == .recovery ? .password(.signIn) : emailReturn)
+        case .password(let purpose):
+            setOnboarding(purpose == .create ? .email(.signup) : .email(.login))
         case .code(let mode):
-            setOnboarding(.email(mode))
+            switch mode {
+            case .signup: setOnboarding(.password(.create))
+            case .login: setOnboarding(.email(.login))
+            case .recovery: setOnboarding(.email(.recovery))
+            }
         case .welcome, .building, .verified, .done:
             break
         }

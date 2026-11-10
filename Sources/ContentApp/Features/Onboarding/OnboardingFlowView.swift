@@ -145,11 +145,23 @@ struct OnboardingFlowView: View {
             )
 
         case .email(let mode):
-            EmailScreen(mode: mode) { address, name in
-                session.pendingEmail = address
-                session.pendingName = name
-                session.onboarding(goTo: .code(mode))
-            } onDone: { session.onboarding(goTo: .verified($0)) }
+            EmailScreen(
+                mode: mode,
+                onNext: { address, next in
+                    session.pendingEmail = address
+                    session.onboarding(goTo: next)
+                },
+                onSwitch: { session.goToEmail($0) },
+                onDone: { session.onboarding(goTo: .verified($0)) }
+            )
+
+        case .password(let purpose):
+            PasswordScreen(
+                purpose: purpose,
+                email: session.pendingEmail,
+                onNext: { session.onboarding(goTo: $0) },
+                onDone: { session.onboarding(goTo: .verified($0)) }
+            )
 
         case .code(let mode):
             CodeScreen(
@@ -157,6 +169,7 @@ struct OnboardingFlowView: View {
                 email: session.pendingEmail,
                 name: session.pendingName,
                 wasAnonymous: session.isAnonymous,
+                onRecovered: { session.onboarding(goTo: .password(.reset)) },
                 onDone: { session.onboarding(goTo: .verified($0)) }
             )
 
@@ -189,16 +202,17 @@ extension OnboardingStep {
         case .included: return 33
         case .account: return 34
         case .email: return 35
-        case .code: return 36
-        case .verified: return 37
-        case .done: return 38
+        case .password: return 36
+        case .code: return 37
+        case .verified: return 38
+        case .done: return 39
         }
     }
 
     /// The calm pages, which drift into each other rather than slide.
     var isSoft: Bool {
         switch self {
-        case .question, .privacy, .pings, .email, .code: return true
+        case .question, .privacy, .pings, .email, .password, .code: return true
         default: return false
         }
     }
@@ -206,7 +220,7 @@ extension OnboardingStep {
     /// The round glass back button, where the mockup has it.
     var showsBack: Bool {
         switch self {
-        case .question, .privacy, .pings, .account, .email, .code: return true
+        case .question, .privacy, .pings, .account, .email, .password, .code: return true
         default: return false
         }
     }

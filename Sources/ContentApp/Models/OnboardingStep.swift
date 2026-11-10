@@ -205,7 +205,21 @@ extension OnboardingQuestion {
 /// which is what "finished unless proven otherwise" would do.
 enum OnboardingStep: Equatable, Hashable, Sendable {
     /// Signing up, or coming back to an account that already exists.
-    enum Mode: String, Equatable, Hashable, Sendable { case signup, login }
+    enum Mode: String, Equatable, Hashable, Sendable {
+        case signup, login
+        /// Forgot password: a code to the email, then a new password.
+        case recovery
+    }
+
+    /// What the password page is for.
+    enum Purpose: String, Equatable, Hashable, Sendable {
+        /// Making one while signing up.
+        case create
+        /// Logging in with it.
+        case signIn
+        /// Choosing a new one after the emailed code was right.
+        case reset
+    }
 
     /// How somebody arrived, which is all that Verified says differently.
     enum Arrival: String, Equatable, Hashable, Sendable {
@@ -232,6 +246,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// Apple, Google, email -- or Continue as Guest.
     case account
     case email(Mode)
+    case password(Purpose)
     case code(Mode)
     case verified(Arrival)
     case done
@@ -247,6 +262,9 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         case .included:           return "included"
         case .account:            return "account"
         case .email(let mode):    return "email:\(mode.rawValue)"
+        // The address lives only in memory, so a password page that is left
+        // and reopened comes back to the email page that asks for it.
+        case .password(let purpose): return purpose == .create ? "email:signup" : "email:login"
         case .code(let mode):     return "code:\(mode.rawValue)"
         case .verified(let how):  return "verified:\(how.rawValue)"
         case .done:               return "done"
@@ -290,7 +308,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
     /// and nowhere they were sent (Remi's `canGoBack`).
     var canGoBack: Bool {
         switch self {
-        case .tour, .question, .privacy, .pings, .included, .account, .email, .code: return true
+        case .tour, .question, .privacy, .pings, .included, .account, .email, .password, .code: return true
         case .welcome, .building, .verified, .done: return false
         }
     }
@@ -323,7 +341,7 @@ enum OnboardingStep: Equatable, Hashable, Sendable {
         case .done:             return 1
         // The ring and everything after it are not a queue being got through,
         // so they carry no bar at all.
-        case .welcome, .tour, .building, .included, .account, .email, .code, .verified: return nil
+        case .welcome, .tour, .building, .included, .account, .email, .password, .code, .verified: return nil
         }
     }
 }

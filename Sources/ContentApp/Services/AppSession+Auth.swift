@@ -106,35 +106,113 @@ extension AppSession {
 
     // MARK: - Email
 
-    /// Sends the six-digit code. An anonymous account is asked to add the
-    /// address (which keeps its rows); anyone signed out is sent a sign-in
-    /// code that also creates the account if it is new.
-    func sendEmailCode(to address: String) async -> SignUpOutcome {
+    /// Passwords are at least this long. The server enforces the same number
+    /// (password_min_length), so this only keeps the button honest.
+    static let minPasswordLength = 8
+
+    /// What the server knows about an address, from the `check-email`
+    /// function: is there an account, can a password log into it, and which
+    /// providers it uses. Rate limited per caller on the server.
+    struct EmailCheck: Decodable {
+        let exists: Bool
+        let hasPassword: Bool
+        let providers: [String]
+    }
+
+    /// nil when the check could not run (offline, throttled). Callers then
+    /// carry on as if nothing were known: the real sign-up and log-in calls
+    /// below are the source of truth either way, this only gives better words
+    /// earlier.
+    func checkEmail(_ address: String) async -> EmailCheck? {
+        let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return try? await client.functions.invoke(
+            "check-email",
+            options: FunctionInvokeOptions(body: ["email": email])
+        )
+    }
+
+    /// Step one of signing up with a password. An anonymous account is asked
+    /// to add the address (which keeps its rows) and gets the password once the
+    /// code is right; anyone signed out is signed up with it at once, and the
+    /// account stays unconfirmed until the code is typed.
+    func signUpWithPassword(email address: String, password: String) async -> SignUpOutcome {
         let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard email.contains("@"), email.count > 4 else { return .failed("That email doesn’t look right.") }
+        guard password.count >= Self.minPasswordLength else {
+            return .failed("Use at least \(Self.minPasswordLength) characters.")
+        }
         do {
             if isAnonymous {
                 _ = try await client.auth.update(user: UserAttributes(email: email))
             } else {
-                try await client.auth.signInWithOTP(email: email, shouldCreateUser: true)
+                let response = try await client.auth.signUp(email: email, password: password)
+                // Supabase does not fail when the address already has an
+                // account (that would let anyone list who is registered): it
+                // answers as if it worked, with a user that has no identities.
+                if response.user.identities?.isEmpty ?? false {
+                    return .failed("That email already has an account. Go back and log in.")
+                }
             }
+            pendingPassword = password
             return .codeSent
         } catch {
-            // An address already in use cannot be added to this account; sign
-            // in to it instead, which the next code does.
             if Self.identityTaken(error) {
-                do {
-                    try await client.auth.signInWithOTP(email: email, shouldCreateUser: true)
-                    return .codeSent
-                } catch {
-                    return .failed(readableMessage(error))
-                }
+                return .failed("That email already has an account. Go back and log in.")
             }
             return .failed(readableMessage(error))
         }
     }
 
-    /// Checks the code. Which kind it is depends on how it was sent.
+    /// Logs in with the password. No code: the address was confirmed when the
+    /// account was made.
+    func signInWithPassword(email address: String, password: String) async -> SignUpOutcome {
+        let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        do {
+            _ = try await client.auth.signIn(email: email, password: password)
+            return .switched
+        } catch {
+            let raw = "\(error)".lowercased()
+            if raw.contains("not confirmed") || raw.contains("confirm your email") {
+                return .failed("Check your inbox and confirm your email first.")
+            }
+            if raw.contains("network") || raw.contains("offline") || raw.contains("timed out") {
+                return .failed("Couldn’t reach Postpilot. Check your connection and try again.")
+            }
+            return .failed("That password doesn’t match.")
+        }
+    }
+
+    /// Forgot password: emails a six-digit code. The answer is the same
+    /// whether or not the address has an account.
+    func sendRecoveryCode(to address: String) async -> SignUpOutcome {
+        let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard email.contains("@"), email.count > 4 else { return .failed("That email doesn’t look right.") }
+        do {
+            try await client.auth.resetPasswordForEmail(email)
+            return .codeSent
+        } catch {
+            return .failed(readableMessage(error))
+        }
+    }
+
+    /// Re-sends whichever code the page is waiting for.
+    func resendCode(to address: String, mode: OnboardingStep.Mode) async -> SignUpOutcome {
+        let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if mode == .recovery { return await sendRecoveryCode(to: email) }
+        do {
+            if isAnonymous {
+                _ = try await client.auth.update(user: UserAttributes(email: email))
+            } else {
+                try await client.auth.resend(email: email, type: .signup)
+            }
+            return .codeSent
+        } catch {
+            return .failed(readableMessage(error))
+        }
+    }
+
+    /// Checks the sign-up code, and for a guest saves the password chosen
+    /// before it.
     func confirmEmailCode(_ code: String, for address: String, wasAnonymous: Bool) async -> SignUpOutcome {
         let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let token = code.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -142,18 +220,45 @@ extension AppSession {
         do {
             if wasAnonymous {
                 _ = try await client.auth.verifyOTP(email: email, token: token, type: .emailChange)
+                if !pendingPassword.isEmpty {
+                    _ = try await client.auth.update(user: UserAttributes(password: pendingPassword))
+                }
+                pendingPassword = ""
                 return .linked
             }
-            _ = try await client.auth.verifyOTP(email: email, token: token, type: .email)
+            _ = try await client.auth.verifyOTP(email: email, token: token, type: .signup)
+            pendingPassword = ""
             return .switched
         } catch {
-            // The address turned out to belong to an existing account, so the
-            // code that arrived was a sign-in code.
-            if wasAnonymous,
-               let result = try? await client.auth.verifyOTP(email: email, token: token, type: .email) {
-                _ = result
-                return .switched
-            }
+            return .failed(readableMessage(error))
+        }
+    }
+
+    /// Checks the forgot-password code. A right one signs this person in, so
+    /// the next page can set the new password; the app reloads for them once
+    /// that is saved.
+    func confirmRecoveryCode(_ code: String, for address: String) async -> SignUpOutcome {
+        let email = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let token = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.count >= 6 else { return .failed("Enter the six-digit code.") }
+        do {
+            _ = try await client.auth.verifyOTP(email: email, token: token, type: .recovery)
+            return .switched
+        } catch {
+            return .failed(readableMessage(error))
+        }
+    }
+
+    /// Saves the new password after a right recovery code, then loads the
+    /// account.
+    func saveNewPassword(_ password: String) async -> SignUpOutcome {
+        guard password.count >= Self.minPasswordLength else {
+            return .failed("Use at least \(Self.minPasswordLength) characters.")
+        }
+        do {
+            _ = try await client.auth.update(user: UserAttributes(password: password))
+            return .switched
+        } catch {
             return .failed(readableMessage(error))
         }
     }

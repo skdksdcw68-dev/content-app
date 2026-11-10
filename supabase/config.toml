@@ -261,3 +261,10 @@ verify_jwt = false
 
 [functions.welcome-email]
 verify_jwt = false
+
+# Asked before anybody is signed in (is there an account for this email, and
+# does it log in with a password?), so it is reached with the anon key. It
+# answers only through the service role, and throttles each caller in Postgres
+# (public.email_check_allowed).
+[functions.check-email]
+verify_jwt = true

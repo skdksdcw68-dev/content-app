@@ -101,14 +101,38 @@ struct HomeView: View {
                     .padding(.top, heroNext == nil ? 20 : 16)
                     .entrance(1)
 
-                SectionHeader(title: "Make something", chevron: false) {}
-                    .padding(.top, 26)
+                // The approved Home (Abel, 10 Nov 2026): what is trending, the
+                // templates, your videos, then the daily-posting row.
+                HomeTrendingSection()
+                    .padding(.top, 28)
+                    .entrance(2)
+
+                HomeHeader(title: "Start from a template")
+                    .padding(.top, 30)
 
                 HomeTemplateStrip()
                     .padding(.top, 12)
                     .entrance(2)
 
-                // The thing worth pushing, Fresha's gift-card card: a series.
+                HomeHeader(title: "Your videos", trailing: "Library") {
+                    session.push(.library)
+                }
+                .padding(.top, 30)
+
+                Group {
+                    if loadedVideos == nil {
+                        RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
+                            .fill(Color.track)
+                            .frame(height: 96)
+                            .breathing()
+                    } else {
+                        keepCreating
+                    }
+                }
+                .padding(.top, 12)
+                .entrance(2)
+
+                // A running series stays a card; before one there is the row.
                 Group {
                     if let plan = session.plan, plan.isSeries, !plan.isProposal {
                         NavigationLink { PlanView() } label: {
@@ -116,69 +140,12 @@ struct HomeView: View {
                         }
                         .buttonStyle(SoftPressStyle())
                     } else {
-                        // Abel, 5 Nov 2026: not "autopilot" or "turn on" --
-                        // "Posting: let Postpilot post for you every day".
-                        Button { startingSeries = true } label: {
-                            PostingCard()
-                        }
-                        .buttonStyle(SoftPressStyle())
+                        // Abel, 5 Nov 2026: not "autopilot" or "turn on".
+                        PostForMeRow { startingSeries = true }
                     }
                 }
-                .padding(.top, 16)
+                .padding(.top, 30)
                 .entrance(1)
-
-                // What you made: one card into the library once there is
-                // anything, the row while something is on its way up, and
-                // the invitation before that (Abel, 23 Sep 2026: "right
-                // after you have generated videos, make a card that says
-                // manage library").
-                Group {
-                    if loadedVideos == nil {
-                        RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous)
-                            .fill(Color.track)
-                            .frame(height: 96)
-                            .breathing()
-                    } else if !session.uploads.isEmpty {
-                        keepCreating
-                    } else if videos.isEmpty {
-                        keepCreating
-                    } else {
-                        Button { session.push(.library) } label: {
-                            ManageLibraryCard(posts: videos)
-                        }
-                        .buttonStyle(SoftPressStyle())
-                    }
-                }
-                .padding(.top, 26)
-                .entrance(2)
-
-                // Ideas for the next video, from this account's own numbers
-                // (Abel, 25 Sep 2026: "understand what videos he's making and
-                // give the user inspirational videos to post, like VidIQ").
-                // Nothing is drawn until there is something to draw -- an
-                // empty shelf under a heading is worse than no heading.
-                if !session.inspiration.isEmpty || session.isFindingIdeas {
-                    SectionHeader(title: "Ideas for you", chevron: true) {
-                        session.push(.inspiration)
-                    }
-                    .padding(.top, 26)
-
-                    Group {
-                        if session.inspiration.isEmpty {
-                            InspirationSkeleton()
-                        } else {
-                            InspirationShelf()
-                        }
-                    }
-                    .padding(.top, 12)
-                    .entrance(4)
-                }
-
-                if heroNext == nil {
-                    PlanMonthCard(hasPlan: session.plan != nil) { planning = true }
-                        .padding(.top, 26)
-                        .entrance(4)
-                }
             }
             .screenGutter()
             .padding(.bottom, 32)
@@ -294,47 +261,29 @@ struct HomeView: View {
         // Netro, 19 Oct 2026: it works well, so it keeps working the same way
         // -- one tap lands on the page with the cursor in the field -- but it
         // is now a card that says what it does, with the button that does it.
+        // Abel, 10 Nov 2026 (approved mockup): one quiet pill -- a spark, the
+        // words, and the purple arrow.
         Button { session.push(.makeVideo("")) } label: {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-                Text(videos.isEmpty ? "Make your first video" : "Make a video")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-            }
-
-            // Looks like the field and opens the page that has it.
-            Text("Describe it — a scene, a story, an idea…")
-                .font(.body)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
-
             HStack(spacing: 10) {
-                Label("9:16", systemImage: "rectangle.portrait")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.track, in: Capsule())
-                Spacer(minLength: 0)
-                HStack(spacing: 6) {
-                    Image(systemName: "video.fill")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text("Create video")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .foregroundStyle(Theme.onAccent)
-                .padding(.horizontal, 16)
-                .frame(height: 38)
-                .background(Theme.accent, in: Capsule())
+                Image(systemName: "sparkle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Theme.accent)
+                Text("Describe a video…")
+                    .font(.system(size: 17))
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(Theme.onAccent)
+                    .frame(width: 38, height: 38)
+                    .background(Theme.accent, in: Circle())
             }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.raised, in: RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: Style.rowCard, style: .continuous))
+            .padding(.leading, 18)
+            .padding(.trailing, 8)
+            .frame(height: 54)
+            .frame(maxWidth: .infinity)
+            .background(Color.raised, in: Capsule())
+            .contentShape(Capsule())
         }
         .buttonStyle(SoftPressStyle())
         .accessibilityLabel("Create video")
@@ -351,7 +300,7 @@ struct HomeView: View {
                     ForEach(0..<4, id: \.self) { _ in
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(Color.track)
-                            .frame(width: 118, height: 210)
+                            .frame(width: 104, height: 184)
                     }
                 }
             }
@@ -496,7 +445,7 @@ private struct RecentVideoCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            PostThumb(media: post.media, stage: post.stage, width: 118)
+            PostThumb(media: post.media, stage: post.stage, width: 104)
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 .overlay(alignment: .bottomLeading) {
                     if post.stage != .published {
@@ -509,7 +458,7 @@ private struct RecentVideoCard: View {
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .frame(width: 118, alignment: .leading)
+                .frame(width: 104, alignment: .leading)
         }
         .accessibilityLabel("\(post.stage.title): \(post.hook)")
     }
@@ -528,7 +477,7 @@ private struct UploadCard: View {
                     Color.track
                 }
             }
-            .frame(width: 118, height: 210)
+            .frame(width: 104, height: 184)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .bottomLeading) {
                 Text("Uploading")
@@ -544,7 +493,7 @@ private struct UploadCard: View {
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .frame(width: 118, alignment: .leading)
+                .frame(width: 104, alignment: .leading)
         }
         .accessibilityLabel("Uploading: \(upload.caption)")
     }

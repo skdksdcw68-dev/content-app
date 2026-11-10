@@ -22,207 +22,104 @@ extension View {
 
 // MARK: - Private by design
 
-/// The vault locks while a ring fills for three seconds, three true promises
-/// tick in one a second, and then Continue wakes. Only claims that are true:
-/// the videos and photos ARE stored on our server, so that is never said.
+/// Apple Health's "Private and Secure" page, in our colours (Abel, 10 Nov
+/// 2026, picked from Mobbin): one glossy icon, a bold title, a few plain
+/// lines and the pill. Nothing counts down, so Continue works at once. Only
+/// claims that are true: the videos and photos ARE stored on our server, so
+/// that is never said.
 struct OnboardingPrivacyView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.openURL) private var openURL
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var shown = false
 
-    private static let promises: [(String, String)] = [
-        ("Encrypted.", "Your data is encrypted, in transit and at rest."),
-        ("Yours alone.", "Your videos and photos belong to you."),
-        ("Delete any time.", "Delete your account and everything in it, any time."),
+    private static let lines = [
+        "To protect your privacy, your data is encrypted in transit and at rest.",
+        "Your videos and photos belong to you, and we never sell or share your information.",
+        "You can delete your account and everything in it, any time.",
     ]
 
     var body: some View {
         MockupCanvas {
-            ObClock(still: 5000) { t in
-                ZStack(alignment: .topLeading) {
-                    QuestionHaze()
+            ZStack(alignment: .topLeading) {
+                QuestionHaze()
 
-                    PrivacyRing(progress: Tw.inOut(Tw.seg(t, 300, 3300)))
-                        .at(45, 82, w: 300, h: 300)
+                PrivacyIcon()
+                    .at(140, 112, w: 110, h: 124)
+                    .scaleEffect(shown || reduceMotion ? 1 : 0.88)
+                    .opacity(shown || reduceMotion ? 1 : 0)
 
-                    Vault(t: t).at(85, 122, w: 220, h: 220)
-
-                    Text("Private by design")
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your Data is Private\nand Secure")
                         .font(.system(size: 26, weight: .bold))
                         .tracking(-0.39)
-                        .at(28, 396, w: 334, align: .top)
+                        .foregroundStyle(Color(.label))
+                        .padding(.bottom, 2)
 
-                    VStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(Self.promises.enumerated()), id: \.offset) { index, promise in
-                            promiseRow(promise, start: 900 + Double(index) * 900, t: t)
-                        }
+                    ForEach(Self.lines, id: \.self) { line in
+                        Text(line)
+                            .font(.system(size: 17))
+                            .lineSpacing(3)
+                            .foregroundStyle(OB.text2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    .at(52, 446, w: 302)
 
-                    Text("We never sell or share your information.")
-                        .font(.system(size: 15, weight: .medium))
-                        .multilineTextAlignment(.center)
-                        .opacity(Tw.seg(t, 3450, 3850))
-                        .at(36, 640, w: 318, align: .top)
-
-                    BevelPill(title: "Continue", on: t >= 3350) {
-                        guard t >= 3350 else { return }
-                        session.onboardingNext(from: .privacy)
+                    Button { openURL(AutocastLinks.privacy) } label: {
+                        Label("Learn more…", systemImage: "info.circle.fill")
+                            .font(.system(size: 15))
+                            .foregroundStyle(OB.accent)
                     }
-                    .at(20, 748)
+                    .buttonStyle(.plain)
+                    .padding(.top, 2)
                 }
-                .frame(width: 390, height: 844, alignment: .topLeading)
-                .sensoryFeedback(.impact(weight: .light), trigger: t >= 3350)
-            }
-        }
-    }
+                .opacity(shown || reduceMotion ? 1 : 0)
+                .offset(y: shown || reduceMotion ? 0 : 8)
+                .at(28, 268, w: 334)
 
-    private func promiseRow(_ promise: (String, String), start: Double, t: Double) -> some View {
-        let q = Tw.seg(t, start, start + 450)
-        let on = t >= start + 250
-        return HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                Circle().fill(on ? OB.accent : Color.clear)
-                Circle().strokeBorder(OB.text3, lineWidth: 1.5).opacity(on ? 0 : 1)
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .opacity(on ? 1 : 0)
-                    .scaleEffect(on ? 1 : 0.4)
-                    .animation(.timingCurve(0.2, 0.9, 0.3, 1.5, duration: 0.3), value: on)
+                BevelPill(title: "Continue", on: true) {
+                    session.onboardingNext(from: .privacy)
+                }
+                .at(20, 748)
             }
-            .frame(width: 24, height: 24)
-            .padding(.top, 1)
-            .animation(.easeOut(duration: 0.25), value: on)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(promise.0).font(.system(size: 17, weight: .semibold))
-                Text(promise.1)
-                    .font(.system(size: 13))
-                    .foregroundStyle(OB.text2)
-                    .lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .frame(width: 390, height: 844, alignment: .topLeading)
         }
-        .opacity(q)
-        .offset(y: 10 * (1 - Tw.outC(q)))
+        .onAppear {
+            withAnimation(.timingCurve(0.2, 0.85, 0.25, 1, duration: 0.6)) { shown = true }
+        }
     }
 }
 
-/// `.pring`: the 3 s ring round the vault.
-private struct PrivacyRing: View {
-    let progress: Double
-
+/// The glossy icon: a purple shield with a white lock, lit from the top.
+private struct PrivacyIcon: View {
     var body: some View {
         ZStack {
-            Circle().inset(by: 10).stroke(OB.fill, lineWidth: 5)
-            Circle().inset(by: 10)
-                .trim(from: 0, to: progress)
-                .stroke(OB.accent, style: StrokeStyle(lineWidth: 5, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+            PrivacyShield()
+                .fill(LinearGradient(colors: [OB.hex(0x9A8BFF), OB.hex(0x5C4DE6)], startPoint: .top, endPoint: .bottom))
+                .shadow(color: OB.hex(0x2B2470, 0.28), radius: 14, y: 10)
+            PrivacyShield()
+                .fill(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0)], startPoint: .top, endPoint: .center))
+            Image(systemName: "lock.fill")
+                .font(.system(size: 46, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(color: OB.hex(0x2B2470, 0.3), radius: 3, y: 2)
+                .offset(y: -4)
         }
-        .frame(width: 300, height: 300)
+        .frame(width: 110, height: 124)
     }
 }
 
-/// The soft metal vault: its door, hinges, the dial that turns as the ring
-/// fills, and the little light that goes purple with a click when it locks.
-private struct Vault: View {
-    let t: Double
-
-    var body: some View {
-        let p = Tw.inOut(Tw.seg(t, 300, 3300))
-        let locked = t >= 3350
-        let click = sin(.pi * Tw.seg(t, 3350, 3600))
-        let float = 4 * sin(t / 950)
-        let glow = Tw.seg(t, 3350, 4100)
-        let metal = LinearGradient(colors: [OB.vault1, OB.vault2], startPoint: .topLeading, endPoint: .bottomTrailing)
-        let metalBack = LinearGradient(colors: [OB.vault2, OB.vault1], startPoint: .topLeading, endPoint: .bottomTrailing)
-
-        ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 50, style: .continuous)
-                .fill(metal)
-                .shadow(color: OB.hex(0x2B2470, 0.2), radius: 15, y: 16)
-                .at(20, 20, w: 180, h: 180)
-            RoundedRectangle(cornerRadius: 49, style: .continuous)
-                .strokeBorder(OB.vault3, lineWidth: 1.5)
-                .at(21, 21, w: 178, h: 178)
-            Capsule().fill(metalBack).at(187, 64, w: 9, h: 26)
-            Capsule().fill(metalBack).at(187, 130, w: 9, h: 26)
-            Circle().fill(metalBack)
-                .overlay(Circle().strokeBorder(OB.separator, lineWidth: 1))
-                .at(46, 46, w: 128, h: 128)
-
-            Dial(metal: metal, metalBack: metalBack)
-                .rotationEffect(.degrees(-150 * (1 - p)))
-                .at(0, 0, w: 220, h: 220)
-
-            ZStack {
-                Circle().fill(.white).frame(width: 60, height: 60)
-                    .shadow(color: OB.hex(0x2B2470, 0.18), radius: 8, y: 4)
-                Image(systemName: locked ? "lock.fill" : "lock.open.fill")
-                    .font(.system(size: 26, weight: .semibold))
-                    .foregroundStyle(OB.accent)
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .animation(.easeOut(duration: 0.25), value: locked)
-            .position(x: 110, y: 110)
-
-            Circle()
-                .stroke(OB.accent, lineWidth: 2)
-                .frame(width: 2 * (6 + 16 * Tw.outC(glow)), height: 2 * (6 + 16 * Tw.outC(glow)))
-                .opacity(locked && glow < 1 ? 0.8 * (1 - glow) : 0)
-                .position(x: 164, y: 50)
-            Circle()
-                .fill(locked ? OB.accent : OB.text3)
-                .frame(width: 10, height: 10)
-                .position(x: 164, y: 50)
-        }
-        .frame(width: 220, height: 220, alignment: .topLeading)
-        .scaleEffect(1 - 0.035 * click)
-        .offset(y: float)
-    }
-}
-
-/// The vault's dial: a plate, sixteen ticks, three spokes, the hub and its dot.
-private struct Dial: View {
-    let metal: LinearGradient
-    let metalBack: LinearGradient
-
-    var body: some View {
-        ZStack {
-            Circle().fill(metal)
-                .frame(width: 98, height: 98)
-                .shadow(color: .black.opacity(0.14), radius: 5, y: 5)
-            Ticks()
-                .stroke(OB.text3, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 220, height: 220)
-            ForEach(0..<3, id: \.self) { index in
-                Capsule().fill(metalBack)
-                    .frame(width: 8, height: 40)
-                    .offset(y: -20)
-                    .rotationEffect(.degrees(Double(index) * 120))
-            }
-            Circle().fill(metal)
-                .frame(width: 28, height: 28)
-                .shadow(color: .black.opacity(0.14), radius: 5, y: 5)
-            Circle().fill(OB.accent)
-                .frame(width: 6.4, height: 6.4)
-                .offset(y: -34)
-        }
-        .frame(width: 220, height: 220)
-    }
-}
-
-/// Sixteen short ticks between radius 37 and 42 round the dial's centre.
-private struct Ticks: Shape {
+/// A rounded shield, flat on top the way Apple's heart is full.
+private struct PrivacyShield: Shape {
     func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        for i in 0..<16 {
-            let a = Double(i) / 16 * 2 * .pi
-            path.move(to: CGPoint(x: c.x + sin(a) * 37, y: c.y - cos(a) * 37))
-            path.addLine(to: CGPoint(x: c.x + sin(a) * 42, y: c.y - cos(a) * 42))
-        }
-        return path
+        let w = rect.width, h = rect.height
+        var p = Path()
+        p.move(to: CGPoint(x: w * 0.5, y: 0))
+        p.addCurve(to: CGPoint(x: w * 0.96, y: h * 0.16), control1: CGPoint(x: w * 0.66, y: h * 0.1), control2: CGPoint(x: w * 0.8, y: h * 0.15))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: h), control1: CGPoint(x: w * 1.0, y: h * 0.62), control2: CGPoint(x: w * 0.78, y: h * 0.88))
+        p.addCurve(to: CGPoint(x: w * 0.04, y: h * 0.16), control1: CGPoint(x: w * 0.22, y: h * 0.88), control2: CGPoint(x: 0, y: h * 0.62))
+        p.addCurve(to: CGPoint(x: w * 0.5, y: 0), control1: CGPoint(x: w * 0.2, y: h * 0.15), control2: CGPoint(x: w * 0.34, y: h * 0.1))
+        p.closeSubpath()
+        return p
     }
 }
 
